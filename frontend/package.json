@@ -1,6 +1,6 @@
 {
-  "homepage": "https://peter-bf.github.io/tunescout/",
-  "name": "tunescout",
+  "homepage": ".",
+  "name": "tunescout-plus",
   "version": "0.1.0",
   "private": true,
   "dependencies": {

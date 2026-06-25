@@ -9,30 +9,54 @@ TuneScout+ 把两个开源项目合并为一个统一工具:
 
 架构上,React 作为统一前端,go-music-dl 退为提供 JSON API 的后端下载服务。
 
+## 功能
+
+- **歌曲搜索**:国内多源(网易云/QQ/酷狗/酷我/咪咕/汽水/B站/Apple 等)并发搜索,支持粘贴歌曲/歌单/专辑链接解析
+- **在线播放 / 下载**:流式试听,一键下载(可写入 ID3 元数据与封面)
+- **推荐歌单**:浏览各平台每日推荐歌单,进入歌单查看并下载
+- **歌词**:查看逐行 LRC 歌词
+- **账号登录**:扫码登录网易云/QQ/酷狗/B站以解锁会员或无损音质
+- **本地音乐库**:管理已下载到本地的音乐
+- **发现页联动**:在 Last.fm/Spotify 发现页点「在国内源下载这首歌」,自动跳到下载页并搜索
+
+> 视频生成(videogen)功能后端接口保留,但未在 React 前端重做;如需使用可直接访问后端的经典网页界面(`/music`)。
+
 ## 项目结构
 
 ```
 TuneScout+/
-├── backend/    Go 后端(基于 go-music-dl,Gin + music-lib),提供 /api/v1/* JSON 接口
+├── backend/    Go 后端(基于 go-music-dl,Gin + music-lib)
+│   └── internal/web/json_api.go   新增的 /api/v1/* JSON 接口
 └── frontend/   React 前端(基于 TuneScout,CRA + react-query + tailwind)
+    └── src/components/Download.js、Settings.js   新增的下载/设置页
 ```
 
 ## 开发运行
 
-后端:
+**后端**(默认 :8080):
 
 ```bash
 cd backend
-go run ./cmd/music-dl web   # 默认 :8080
+go run ./cmd/music-dl web --port 8080
 ```
 
-前端:
+**前端**(默认 :3000):
 
 ```bash
 cd frontend
+cp .env.example .env          # 按需填写 Last.fm/Spotify 密钥(发现页用);REACT_APP_MUSICDL_API 指向后端
 npm install
-npm start                   # 默认 :3000,开发时代理到后端
+npm start
 ```
+
+发现页(Trending/Discover/Artists)依赖 Last.fm 与 Spotify 凭据,需在 `.env` 中配置 `REACT_APP_LASTFM_API_KEY`、`REACT_APP_SPOTIFY_CLIENT_ID`、`REACT_APP_SPOTIFY_CLIENT_SECRET`;不配置不影响下载页(国内源)使用。
+
+## 接口约定
+
+前端通过两类后端接口工作:
+
+- `GET /api/v1/*` —— 新增的 JSON 接口(搜索/歌单/专辑/歌词/推荐/登录/cookie),供 React 调用
+- `GET|POST /music/*` —— go-music-dl 原有接口,其中 `/music/download`(下载/流式播放)与 `/music/local_music`(本地库)被前端直接复用
 
 ## 致谢与来源
 

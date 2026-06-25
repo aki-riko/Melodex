@@ -8,6 +8,7 @@ import Artists from './components/Artists';
 import Discover from './components/Discover';
 import Download from './components/Download';
 import Settings from './components/Settings';
+import { onDownloadSearch } from './services/downloadBus';
 import FAQ from './components/FAQ';
 import Footer from './components/Footer';
 import 'react-toastify/dist/ReactToastify.css';
@@ -70,7 +71,17 @@ function App() {
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
   const [currentSection, setCurrentSection] = useState('Home');
   const [isPopupOpen, setIsPopupOpen] = useState(true);
+  const [downloadKeyword, setDownloadKeyword] = useState('');
   const lastScrollYRef = useRef(0);
+
+  // 发现页「在国内源下载」→ 切到下载页并预填搜索词
+  useEffect(() => {
+    return onDownloadSearch((keyword) => {
+      setDownloadKeyword(keyword);
+      setCurrentSection('Download');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -135,7 +146,7 @@ function App() {
             )}
             {currentSection === 'Download' && (
               <section id="download" className="container mx-auto container-padding section-padding pb-32">
-                <Download />
+                <Download initialKeyword={downloadKeyword} />
               </section>
             )}
             {currentSection === 'Settings' && (

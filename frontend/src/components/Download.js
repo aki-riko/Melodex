@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import {
   searchMusic,
@@ -127,7 +127,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
   );
 };
 
-const Download = () => {
+const Download = ({ initialKeyword = '' }) => {
   const [tab, setTab] = useState('search');
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
@@ -135,6 +135,16 @@ const Download = () => {
   const [openPlaylist, setOpenPlaylist] = useState(null); // {id, source, name}
   const [lyric, setLyric] = useState(null); // {song, text}
   const audioRef = useRef(null);
+
+  // 来自发现页「在国内源下载」的预填搜索词:切到搜索 Tab 并自动搜索
+  useEffect(() => {
+    if (initialKeyword) {
+      setTab('search');
+      setOpenPlaylist(null);
+      setKeyword(initialKeyword);
+      setQuery(initialKeyword);
+    }
+  }, [initialKeyword]);
 
   // 歌曲搜索
   const search = useQuery(

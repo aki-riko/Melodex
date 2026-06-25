@@ -6,6 +6,7 @@ import {
   getLastFmArtistDetails,
 } from '../services/lastfm';
 import { formatNumber, formatDuration, capitalize } from '../utils/format';
+import { requestDownloadSearch } from '../services/downloadBus';
 
 const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
   const [spotifyTrack, setSpotifyTrack] = useState(null);
@@ -133,6 +134,16 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
             <p className="text-xl mb-6">
               <strong>Streams:</strong> {formatNumber(track.playcount)}
             </p>
+            <button
+              onClick={() => {
+                requestDownloadSearch(`${track.name} ${track.artist}`);
+                onClose();
+              }}
+              className="mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition"
+              title="跳转到下载页,从国内源搜索这首歌"
+            >
+              ↓ 在国内源下载这首歌
+            </button>
             {spotifyTrack ? (
               <iframe
                 src={`https://open.spotify.com/embed/track/${spotifyTrack.id}`}
