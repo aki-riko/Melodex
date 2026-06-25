@@ -27,6 +27,37 @@ export const getSources = async () => {
   return data; // { all, default, playlist, album }
 };
 
+// 每日推荐歌单(按源分栏)
+export const getRecommend = async (sources = []) => {
+  const params = new URLSearchParams();
+  sources.forEach((s) => params.append('sources', s));
+  const { data } = await client.get(`/api/v1/recommend?${params.toString()}`);
+  return data; // { tabs: [{source, source_name, playlists:[], error}] }
+};
+
+// 歌单详情(歌曲列表)
+export const getPlaylistDetail = async (id, source) => {
+  const { data } = await client.get(`/api/v1/playlist?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
+  return data; // { songs, type, source, link, error }
+};
+
+// 专辑详情(歌曲列表)
+export const getAlbumDetail = async (id, source) => {
+  const { data } = await client.get(`/api/v1/album?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
+  return data; // { songs, type, source, link, error }
+};
+
+// 歌词(纯文本 LRC,沿用 /music/lyric)
+export const getLyric = async (song) => {
+  const params = new URLSearchParams();
+  params.set('id', song.id);
+  params.set('source', song.source);
+  params.set('name', song.name || '');
+  params.set('artist', song.artist || '');
+  const { data } = await client.get(`/music/lyric?${params.toString()}`, { responseType: 'text' });
+  return data;
+};
+
 // 构造下载/播放链接(沿用 go-music-dl 现有的干净 /music/download 接口)。
 // stream=1 用于在线播放(<audio src>);否则触发下载(可选 embed 写入元数据)。
 const buildDownloadParams = (song, extra = {}) => {

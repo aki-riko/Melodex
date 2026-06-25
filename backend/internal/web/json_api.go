@@ -30,6 +30,108 @@ func RegisterJSONAPIRoutes(r *gin.Engine) {
 	})
 
 	api.GET("/search", jsonSearchHandler)
+
+	// 歌单详情:返回歌曲列表
+	api.GET("/playlist", func(c *gin.Context) {
+		id := c.Query("id")
+		src := c.Query("source")
+		if id == "" || src == "" {
+			c.JSON(400, gin.H{"error": "缺少参数 id/source"})
+			return
+		}
+		fn := core.GetPlaylistDetailFunc(src)
+		if fn == nil {
+			c.JSON(400, gin.H{"error": "该源不支持查看歌单详情"})
+			return
+		}
+		songs, err := fn(id)
+		if songs == nil {
+			songs = []model.Song{}
+		}
+		out := gin.H{"songs": songs, "type": "playlist", "source": src, "link": core.GetOriginalLink(src, id, "playlist")}
+		if err != nil {
+			out["error"] = fmt.Sprintf("获取歌单失败: %v", err)
+		}
+		c.JSON(200, out)
+	})
+
+	// 专辑详情:返回歌曲列表
+	api.GET("/album", func(c *gin.Context) {
+		id := c.Query("id")
+		src := c.Query("source")
+		if id == "" || src == "" {
+			c.JSON(400, gin.H{"error": "缺少参数 id/source"})
+			return
+		}
+		fn := core.GetAlbumDetailFunc(src)
+		if fn == nil {
+			c.JSON(400, gin.H{"error": "该源不支持查看专辑详情"})
+			return
+		}
+		songs, err := fn(id)
+		if songs == nil {
+			songs = []model.Song{}
+		}
+		out := gin.H{"songs": songs, "type": "album", "source": src, "link": core.GetOriginalLink(src, id, "album")}
+		if err != nil {
+			out["error"] = fmt.Sprintf("获取专辑失败: %v", err)
+		}
+		c.JSON(200, out)
+	})
+
+	// 每日推荐歌单:按源返回歌单列表
+	api.GET("/recommend", func(c *gin.Context) {
+		sources := filterAvailableSources(c.QueryArray("sources"), core.GetRecommendSourceNames())
+		c.JSON(200, gin.H{"tabs": loadPlaylistTabsJSON(sources, func(src string) ([]model.Playlist, error) {
+			fn := core.GetRecommendFunc(src)
+			if fn == nil {
+				return nil, fmt.Errorf("该源不支持推荐歌单")
+			}
+			return fn()
+		})})
+	})
+
+	// 歌单分类列表
+	api.GET("/playlist_categories", func(c *gin.Context) {
+		sources := filterAvailableSources(c.QueryArray("sources"), core.GetPlaylistCategorySourceNames())
+		result := []gin.H{}
+		for _, src := range sources {
+			fn := core.GetPlaylistCategoriesFunc(src)
+			if fn == nil {
+				continue
+			}
+			cats, err := fn()
+			entry := gin.H{"source": src, "source_name": core.GetSourceDescription(src), "categories": cats}
+			if err != nil {
+				entry["error"] = err.Error()
+			}
+			result = append(result, entry)
+		}
+		c.JSON(200, gin.H{"sources": result})
+	})
+
+	// 某分类下的歌单
+	api.GET("/category_playlists", func(c *gin.Context) {
+		source := strings.TrimSpace(c.Query("source"))
+		categoryID := strings.TrimSpace(c.Query("category_id"))
+		fn := core.GetCategoryPlaylistsFunc(source)
+		if source == "" || fn == nil {
+			c.JSON(400, gin.H{"error": "该源不支持歌单分类"})
+			return
+		}
+		playlists, err := fn(categoryID, 1, 120)
+		for i := range playlists {
+			playlists[i].Source = source
+		}
+		if playlists == nil {
+			playlists = []model.Playlist{}
+		}
+		out := gin.H{"playlists": playlists, "source": source}
+		if err != nil {
+			out["error"] = fmt.Sprintf("获取分类歌单失败: %v", err)
+		}
+		c.JSON(200, out)
+	})
 }
 
 // jsonSearchSongResult 在 model.Song 基础上附带前端友好的展示字段。
@@ -182,4 +284,28 @@ func parseLinkSearch(link, searchType string) ([]model.Song, []model.Playlist, s
 		}
 	}
 	return songs, playlists, searchType, fmt.Sprintf("解析失败: 暂不支持 %s 平台的此链接类型或解析出错", src)
+}
+
+// loadPlaylistTabsJSON 按源加载歌单,整理为前端友好的分栏结构。
+func loadPlaylistTabsJSON(sources []string, loader func(string) ([]model.Playlist, error)) []gin.H {
+	tabs := []gin.H{}
+	for _, src := range sources {
+		playlists, err := loader(src)
+		if playlists == nil {
+			playlists = []model.Playlist{}
+		}
+		for i := range playlists {
+			playlists[i].Source = src
+		}
+		tab := gin.H{
+			"source":      src,
+			"source_name": core.GetSourceDescription(src),
+			"playlists":   playlists,
+		}
+		if err != nil {
+			tab["error"] = err.Error()
+		}
+		tabs = append(tabs, tab)
+	}
+	return tabs
 }
