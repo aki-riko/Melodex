@@ -1,0 +1,20 @@
+# Node / frontend
+frontend/node_modules/
+frontend/build/
+frontend/snapshot-build/
+frontend/.env
+frontend/.env.local
+
+# Go / backend
+backend/music-dl
+backend/music-dl.exe
+backend/*.exe
+backend/data/
+backend/dist/
+
+# 通用
+.DS_Store
+*.log
+.idea/
+.vscode/
+_merge_src/
