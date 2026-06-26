@@ -291,6 +291,10 @@ func RegisterSubsonicRoutes(r *gin.Engine) {
 	rest.GET("/ping.view", subsonicPing)
 	rest.GET("/getLicense", subsonicGetLicense)
 	rest.GET("/getLicense.view", subsonicGetLicense)
+
+	// 搜索(接联网搜索 + 验活)
+	rest.GET("/search3", subsonicSearch3)
+	rest.GET("/search3.view", subsonicSearch3)
 }
 
 // subsonicAuthMiddleware 校验 facade 是否启用 + Subsonic 认证(u/t/s 或 u/p)。
