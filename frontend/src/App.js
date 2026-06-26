@@ -14,7 +14,16 @@ import Footer from './components/Footer';
 import 'react-toastify/dist/ReactToastify.css';
 
 // Create a client
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // 切窗口/标签页回来不自动重新请求(否则搜索等会无故重查+重新验活)
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 5 * 60 * 1000,
+    },
+  },
+});
 
 function App() {
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
