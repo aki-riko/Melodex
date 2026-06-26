@@ -38,7 +38,10 @@ export function useLiveCheck(rawSongs, { enabled = true, concurrency = 6 } = {})
         let result = { state: 'dead' };
         try {
           const r = await inspectQuality(song);
-          if (r && r.valid) result = { state: 'ok', size: r.size, bitrate: r.bitrate };
+          if (r && r.valid) {
+            const brNum = parseInt(String(r.bitrate).replace(/[^0-9]/g, ''), 10) || 0;
+            result = { state: 'ok', size: r.size, bitrate: r.bitrate, bitrateNum: brNum };
+          }
         } catch {
           /* 网络错误按死链处理 */
         }

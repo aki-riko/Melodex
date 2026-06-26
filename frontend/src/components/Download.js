@@ -20,37 +20,58 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
   const allSongs = state.data?.songs || [];
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
   const { status, progress } = useLiveCheck(allSongs);
-  const [sortBy, setSortBy] = useState('relevance');
-  const [order, setOrder] = useState('asc');
+  // 多级排序:数组顺序即优先级(先点=主键,后点=辅键)。每项 {field, order}
+  // field: relevance(相关) / quality(音质,用验活真实码率) / size(大小)
+  const [sortKeys, setSortKeys] = useState([]);
 
-  const setSort = (field, defaultOrder) => {
-    if (sortBy === field) {
-      setOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortBy(field);
-      setOrder(defaultOrder);
-    }
+  const DEFAULT_ORDER = { relevance: 'asc', quality: 'desc', size: 'desc' };
+
+  const toggleSort = (field) => {
+    setSortKeys((keys) => {
+      const idx = keys.findIndex((k) => k.field === field);
+      if (idx === -1) return [...keys, { field, order: DEFAULT_ORDER[field] }];
+      // 已存在:切升降序
+      const next = keys.slice();
+      next[idx] = { field, order: next[idx].order === 'asc' ? 'desc' : 'asc' };
+      return next;
+    });
   };
+  const clearSort = () => setSortKeys([]);
 
   const songKey = (s) => `${s.source}-${s.id}`;
   // 只保留已验活为 ok 的(验活中/未验先不显示,死链永久隐藏)
   const liveSongs = allSongs.filter((s) => status[songKey(s)]?.state === 'ok');
 
-  // 带原始索引排序,保证"相关"能还原搜索原序;大小用搜索返回的字节数(够排序用)
+  // 各排序维度的取值
+  const fieldValue = (s, origIdx, field) => {
+    if (field === 'size') return s.size || 0;
+    if (field === 'quality') return status[songKey(s)]?.bitrateNum || 0;
+    return origIdx; // relevance = 原序
+  };
+
+  // 多级排序:依次比较 sortKeys,前面的优先;无排序键则保持相关原序
   const songs = liveSongs
     .map((s, i) => ({ s, i }))
     .sort((a, b) => {
-      let cmp;
-      if (sortBy === 'size') cmp = (a.s.size || 0) - (b.s.size || 0);
-      else cmp = a.i - b.i;
-      return order === 'asc' ? cmp : -cmp;
+      for (const { field, order } of sortKeys) {
+        const cmp = fieldValue(a.s, a.i, field) - fieldValue(b.s, b.i, field);
+        if (cmp !== 0) return order === 'asc' ? cmp : -cmp;
+      }
+      return a.i - b.i; // 全相等回退原序
     })
     .map((x) => x.s);
 
-  const arrow = (field) => (sortBy === field ? (order === 'asc' ? ' ↑' : ' ↓') : '');
+  const FIELD_LABEL = { relevance: '相关', quality: '音质', size: '大小' };
+  const keyInfo = (field) => {
+    const idx = sortKeys.findIndex((k) => k.field === field);
+    if (idx === -1) return { active: false, badge: '' };
+    const k = sortKeys[idx];
+    const seq = sortKeys.length > 1 ? `${idx + 1} ` : '';
+    return { active: true, badge: `${seq}${k.order === 'asc' ? '↑' : '↓'}` };
+  };
   const sortBtnCls = (field) =>
     `px-3 py-1.5 border rounded-md text-sm font-medium transition-colors ${
-      sortBy === field ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
+      keyInfo(field).active ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
     }`;
 
   const checking = progress.total > 0 && progress.done < progress.total;
@@ -85,12 +106,19 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
         <p className="text-muted-foreground">没有找到结果。</p>
       )}
       {songs.length > 0 && (
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
           <span className="text-sm text-muted-foreground">排序:</span>
-          <button onClick={() => setSort('relevance', 'asc')} className={sortBtnCls('relevance')}>相关{arrow('relevance')}</button>
-          <button onClick={() => setSort('size', 'desc')} className={sortBtnCls('size')}>大小{arrow('size')}</button>
+          <button onClick={() => toggleSort('relevance')} className={sortBtnCls('relevance')}>相关 {keyInfo('relevance').badge}</button>
+          <button onClick={() => toggleSort('quality')} className={sortBtnCls('quality')}>音质 {keyInfo('quality').badge}</button>
+          <button onClick={() => toggleSort('size')} className={sortBtnCls('size')}>大小 {keyInfo('size').badge}</button>
+          {sortKeys.length > 0 && (
+            <button onClick={clearSort} className="px-3 py-1.5 border border-border rounded-md text-sm font-medium bg-card hover:bg-secondary transition-colors">清除</button>
+          )}
           <span className="text-sm text-muted-foreground ml-2">共 {songs.length} 首可用</span>
         </div>
+      )}
+      {sortKeys.length > 1 && (
+        <p className="text-xs text-muted-foreground mb-3">多级排序:按编号优先级依次排序(① 为主)。</p>
       )}
       <div className="space-y-2 pb-32">
         {songs.map((song, idx) => (
