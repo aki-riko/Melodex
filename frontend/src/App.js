@@ -9,6 +9,7 @@ import Download from './components/Download';
 import Settings from './components/Settings';
 import Videogen from './components/Videogen';
 import { onDownloadSearch } from './services/downloadBus';
+import { PlayerProvider, PlayerBar } from './contexts/PlayerContext';
 import FAQ from './components/FAQ';
 import Footer from './components/Footer';
 import 'react-toastify/dist/ReactToastify.css';
@@ -116,6 +117,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <PlayerProvider>
       <div className="min-h-screen flex flex-col bg-background text-text">
         <Navbar
           isVisible={isNavbarVisible}
@@ -172,8 +174,10 @@ function App() {
           </main>
           <Footer />
           <PopupMenu isOpen={isPopupOpen} onClose={closePopup} />
+          <PlayerBar />
           {/* <ToastContainer /> */}
         </div>
+      </PlayerProvider>
     </QueryClientProvider>
   );
 }

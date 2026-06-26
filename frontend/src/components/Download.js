@@ -1,13 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import {
   searchMusic,
   getRecommend,
   getPlaylistDetail,
   getLyric,
-  getStreamUrl,
 } from '../services/musicdl';
 import SongRow from './SongRow';
+import { usePlayer } from '../contexts/PlayerContext';
 
 const TABS = [
   { key: 'search', label: '歌曲搜索' },
@@ -128,13 +128,12 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
 };
 
 const Download = ({ downloadRequest }) => {
+  const { play, isPlaying } = usePlayer();
   const [tab, setTab] = useState('search');
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
-  const [nowPlaying, setNowPlaying] = useState(null);
   const [openPlaylist, setOpenPlaylist] = useState(null); // {id, source, name}
   const [lyric, setLyric] = useState(null); // {song, text}
-  const audioRef = useRef(null);
 
   // 来自发现页「在国内源下载」的预填搜索词:切到搜索 Tab 并自动搜索。
   // 依赖 nonce,保证重复点同一首歌也能再次触发。
@@ -176,15 +175,7 @@ const Download = ({ downloadRequest }) => {
     if (k) setQuery(k);
   };
 
-  const handlePlay = (song) => {
-    setNowPlaying(song);
-    setTimeout(() => {
-      if (audioRef.current) {
-        audioRef.current.src = getStreamUrl(song);
-        audioRef.current.play().catch(() => {});
-      }
-    }, 0);
-  };
+  const handlePlay = (song) => play(song);
 
   const handleShowLyric = async (song) => {
     setLyric({ song, text: '加载中…' });
@@ -195,9 +186,6 @@ const Download = ({ downloadRequest }) => {
       setLyric({ song, text: '歌词加载失败' });
     }
   };
-
-  const isPlaying = (song) =>
-    nowPlaying && nowPlaying.id === song.id && nowPlaying.source === song.source;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -254,20 +242,6 @@ const Download = ({ downloadRequest }) => {
       )}
 
       {lyric && <LyricModal lyric={lyric} onClose={() => setLyric(null)} />}
-
-      {nowPlaying && (
-        <div className="fixed bottom-0 left-0 right-0 bg-card border-t-2 border-border p-3 z-40 shadow-brutal-lg">
-          <div className="max-w-5xl mx-auto flex items-center gap-4">
-            <div className="min-w-0">
-              <p className="truncate font-bold">{nowPlaying.name}</p>
-              <p className="text-muted-foreground text-sm truncate">
-                {nowPlaying.artist} · {nowPlaying.source}
-              </p>
-            </div>
-            <audio ref={audioRef} controls className="flex-grow" />
-          </div>
-        </div>
-      )}
     </div>
   );
 };

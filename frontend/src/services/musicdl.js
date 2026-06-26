@@ -39,6 +39,23 @@ export const getRecommend = async (sources = []) => {
   return data; // { tabs: [{source, source_name, playlists:[], error}] }
 };
 
+// 歌单分类(各源的分类标签)
+export const getPlaylistCategories = async (sources = []) => {
+  const params = new URLSearchParams();
+  sources.forEach((s) => params.append('sources', s));
+  const { data } = await client.get(`/api/v1/playlist_categories?${params.toString()}`);
+  return data; // { sources: [{source, source_name, categories:[{id,name,group}], error}] }
+};
+
+// 某分类下的歌单
+export const getCategoryPlaylists = async (source, categoryId) => {
+  const params = new URLSearchParams();
+  params.set('source', source);
+  if (categoryId) params.set('category_id', categoryId);
+  const { data } = await client.get(`/api/v1/category_playlists?${params.toString()}`);
+  return data; // { playlists, source, error }
+};
+
 // 歌单详情(歌曲列表)
 export const getPlaylistDetail = async (id, source) => {
   const { data } = await client.get(`/api/v1/playlist?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);

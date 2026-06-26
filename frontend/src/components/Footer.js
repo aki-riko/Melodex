@@ -5,8 +5,8 @@ const Footer = () => {
     <footer className="bg-foreground backdrop-blur-sm text-background py-7 mt-4 border-t-2 border-border">
       <div className="container mx-auto container-padding flex justify-between items-center">
         <div className="text-sm text-primary">
-          © 2024 TuneScout. 保留所有权利。 <br />
-          本应用使用来自 Spotify 和 Last.fm API 的数据。
+          © 2024 TuneScout+. 保留所有权利。 <br />
+          音乐发现与多源下载二合一,仅供学习与技术交流。
         </div>
         <div className="flex space-x-4">
           <a href="/" className="text-primary hover:text-white transition duration-300 ease-in-out">
