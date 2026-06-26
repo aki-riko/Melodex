@@ -15,6 +15,32 @@ const TABS = [
   { key: 'discover', label: '推荐歌单' },
 ];
 
+// 相关性评分:歌名/歌手与搜索词的匹配度,分越高越相关(噪声=0 沉底)。
+// origIdx 作为同分时的次级因子(保持各源原始顺序),并入小数位。
+const relevanceScore = (song, query, origIdx = 0) => {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return -origIdx;
+  const name = (song.name || '').toLowerCase();
+  const artist = (song.artist || '').toLowerCase();
+  let score = 0;
+  if (name === q) score = 1000;
+  else if (name.startsWith(q)) score = 600;
+  else if (name.includes(q)) score = 400;
+  else {
+    // 搜索词按空格拆成多词(如"周杰伦 晴天"),命中歌名/歌手的词数累加
+    const parts = q.split(/\s+/).filter(Boolean);
+    let hit = 0;
+    for (const p of parts) {
+      if (name.includes(p)) hit += 2;
+      else if (artist.includes(p)) hit += 1;
+    }
+    score = hit * 50;
+  }
+  if (artist.includes(q)) score += 80; // 歌手也匹配加分
+  // 同分时按原序(origIdx 越小越前):减去极小量
+  return score - origIdx * 0.001;
+};
+
 // 歌曲搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onShowLyric, isPlaying }) => {
   const allSongs = state.data?.songs || [];
@@ -22,9 +48,9 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
   const { status, progress } = useLiveCheck(allSongs);
   // 多级排序:数组顺序即优先级(先点=主键,后点=辅键)。每项 {field, order}
   // field: relevance(相关) / quality(音质,用验活真实码率) / size(大小)
-  const [sortKeys, setSortKeys] = useState([]);
+  const [sortKeys, setSortKeys] = useState([{ field: 'relevance', order: 'desc' }]);
 
-  const DEFAULT_ORDER = { relevance: 'asc', quality: 'desc', size: 'desc' };
+  const DEFAULT_ORDER = { relevance: 'desc', quality: 'desc', size: 'desc' };
 
   const toggleSort = (field) => {
     setSortKeys((keys) => {
@@ -46,7 +72,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
   const fieldValue = (s, origIdx, field) => {
     if (field === 'size') return s.size || 0;
     if (field === 'quality') return status[songKey(s)]?.bitrateNum || 0;
-    return origIdx; // relevance = 原序
+    if (field === 'relevance') return relevanceScore(s, query, origIdx);
+    return origIdx;
   };
 
   // 多级排序:依次比较 sortKeys,前面的优先;无排序键则保持相关原序
