@@ -16,7 +16,37 @@ const TABS = [
 
 // 歌曲搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onShowLyric, isPlaying }) => {
-  const songs = state.data?.songs || [];
+  const rawSongs = state.data?.songs || [];
+  // 排序:relevance(相关,默认升序=原顺序)/ size(大小,默认降序)
+  const [sortBy, setSortBy] = useState('relevance');
+  const [order, setOrder] = useState('asc');
+
+  const setSort = (field, defaultOrder) => {
+    if (sortBy === field) {
+      setOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setOrder(defaultOrder);
+    }
+  };
+
+  // 带原始索引排序,保证"相关"能还原搜索原序
+  const songs = rawSongs
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => {
+      let cmp;
+      if (sortBy === 'size') cmp = (a.s.size || 0) - (b.s.size || 0);
+      else cmp = a.i - b.i; // relevance = 原顺序
+      return order === 'asc' ? cmp : -cmp;
+    })
+    .map((x) => x.s);
+
+  const arrow = (field) => (sortBy === field ? (order === 'asc' ? ' ↑' : ' ↓') : '');
+  const sortBtnCls = (field) =>
+    `px-3 py-1.5 border rounded-md text-sm font-medium transition-colors ${
+      sortBy === field ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
+    }`;
+
   return (
     <div>
       <form onSubmit={onSubmit} className="flex gap-2 mb-6">
@@ -36,6 +66,13 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
       {state.isError && <p className="text-destructive font-medium">搜索失败:{String(state.error?.message || state.error)}</p>}
       {query && !state.isLoading && songs.length === 0 && !state.data?.error && (
         <p className="text-muted-foreground">没有找到结果。</p>
+      )}
+      {songs.length > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-muted-foreground">排序:</span>
+          <button onClick={() => setSort('relevance', 'asc')} className={sortBtnCls('relevance')}>相关{arrow('relevance')}</button>
+          <button onClick={() => setSort('size', 'desc')} className={sortBtnCls('size')}>大小{arrow('size')}</button>
+        </div>
       )}
       <div className="space-y-2 pb-32">
         {songs.map((song, idx) => (
