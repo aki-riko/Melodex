@@ -133,7 +133,7 @@ const DiscoverPane = ({ state, onOpen }) => {
     <div className="space-y-8 pb-32">
       {tabs.map((tab) => (
         <div key={tab.source}>
-          <h3 className="text-xl font-bold mb-3 inline-block border border-border bg-primary text-primary-foreground px-3 py-1 shadow-brutal-sm">{tab.source_name || tab.source}</h3>
+          <h3 className="text-lg font-semibold mb-3 pl-2 border-l-4 border-primary text-foreground">{tab.source_name || tab.source}</h3>
           {tab.error && <p className="text-destructive font-bold text-sm mb-2">{tab.error}</p>}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mt-3">
             {(tab.playlists || []).map((pl) => (
@@ -244,7 +244,7 @@ const Download = ({ downloadRequest }) => {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <h2 className="text-3xl font-extrabold mb-2 inline-block border border-border bg-primary text-primary-foreground px-4 py-1 shadow-brutal">下载 · Download</h2>
+      <h2 className="text-3xl font-semibold mb-2 text-foreground">下载 <span className="text-primary">· Download</span></h2>
       <p className="text-muted-foreground mb-4 mt-3">
         从国内多源(网易云 / QQ / 酷狗 / 酷我 / 咪咕 / 汽水 等)搜索并下载,支持粘贴歌曲/歌单链接。
       </p>

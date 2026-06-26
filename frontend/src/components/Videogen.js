@@ -84,7 +84,7 @@ const Videogen = () => {
   const songs = search.data?.songs || [];
   return (
     <div className="max-w-5xl mx-auto pb-32">
-      <h2 className="text-3xl font-extrabold mb-2 inline-block border border-border bg-primary text-primary-foreground px-4 py-1 shadow-brutal">视频生成 · Videogen</h2>
+      <h2 className="text-3xl font-semibold mb-2 text-foreground">视频生成 <span className="text-primary">· Videogen</span></h2>
       <p className="text-muted-foreground mb-6 mt-3">把一首歌做成带封面与歌词的 MP4 视频(浏览器逐帧渲染,后端 ffmpeg 合成)。</p>
 
       {/* 选歌 */}
