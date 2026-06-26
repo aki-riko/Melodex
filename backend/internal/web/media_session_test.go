@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,6 +52,8 @@ func TestAppJSMediaSessionArtworkUsesCoverProxy(t *testing.T) {
 func TestCoverProxyReturnsInlineImage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	// SSRF 防护:cover_proxy 拒绝代理环回/内网地址。httptest 上游监听 127.0.0.1,
+	// 因此预期被拦为 403——这正是防护生效的体现,防止该公开接口被当作内网探测代理。
 	imageBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02, 0x03, 0x04}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -67,16 +68,34 @@ func TestCoverProxyReturnsInlineImage(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("环回上游应被 SSRF 防护拦截: status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
-	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "image/png") {
-		t.Fatalf("Content-Type = %q, want image/png", got)
+}
+
+// TestCoverProxySSRFGuard 验证 SSRF 校验对各类目标的判定。
+func TestCoverProxySSRFGuard(t *testing.T) {
+	blocked := []string{
+		"http://127.0.0.1/x",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://192.168.1.1/",
+		"http://10.0.0.1/",
+		"file:///etc/passwd",
+		"ftp://example.com/x",
+		"http://[::1]/x",
 	}
-	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=21600" {
-		t.Fatalf("Cache-Control = %q, want public, max-age=21600", got)
+	for _, u := range blocked {
+		if err := isPublicHTTPURL(u); err == nil {
+			t.Errorf("应拒绝但放行了: %s", u)
+		}
 	}
-	if !bytes.Equal(rec.Body.Bytes(), imageBytes) {
-		t.Fatal("cover_proxy returned unexpected body")
+	allowed := []string{
+		"https://p1.music.126.net/cover.jpg",
+		"http://y.gtimg.cn/music/photo.jpg",
+	}
+	for _, u := range allowed {
+		if err := isPublicHTTPURL(u); err != nil {
+			t.Errorf("应放行但拒绝了: %s (%v)", u, err)
+		}
 	}
 }

@@ -1041,6 +1041,12 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			return
 		}
 
+		// 防 SSRF:拒绝内网/环回/云元数据等目标,避免该公开接口被当作内网探测代理。
+		if err := isPublicHTTPURL(u); err != nil {
+			c.Status(http.StatusForbidden)
+			return
+		}
+
 		data, contentType, err := core.FetchBytesWithMime(u, strings.TrimSpace(c.Query("source")))
 		if err != nil || len(data) == 0 {
 			c.Status(http.StatusBadGateway)
