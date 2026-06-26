@@ -112,6 +112,16 @@ export const getStreamUrl = (song) =>
 export const getDownloadUrl = (song) =>
   `${API_BASE}/music/download?${buildDownloadParams(song, { embed: '1' })}`;
 
+// 下载到服务器(NAS):存到后端 data/downloads,带完整刮削(embed),本地音乐库可见。
+// 后端 download 用 c.Query 读参数(走 URL),且要求 POST + 同源 + X-Requested-With(防 CSRF)。
+export const saveToServer = async (song) => {
+  const qs = buildDownloadParams(song, { embed: '1', save_local: '1' });
+  const { data } = await client.post(`/music/download?${qs}`, null, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
+  return data; // { status:'ok', saved:true, path, filename, warning? }
+};
+
 export const apiBase = API_BASE;
 
 // 后端管理员登录/初始化页(原版 HTMX 页面)。敏感接口需先在此登录。

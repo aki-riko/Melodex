@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getStreamUrl, getDownloadUrl, inspectQuality } from '../services/musicdl';
+import { getStreamUrl, saveToServer, inspectQuality } from '../services/musicdl';
 import { formatDuration } from '../utils/format';
 
 const fmtSec = (sec) => (sec ? formatDuration(sec * 1000) : '');
@@ -24,6 +24,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric }) => {
   const q = qualityOf(song);
   const [real, setReal] = useState(null); // 验音质结果 {size, bitrate}
   const [checking, setChecking] = useState(false);
+  const [dlState, setDlState] = useState(''); // '' | 'saving' | 'done' | 'fail'
 
   const handleInspect = async (e) => {
     e.stopPropagation();
@@ -36,6 +37,17 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric }) => {
       setReal({ size: '—', bitrate: '失败' });
     } finally {
       setChecking(false);
+    }
+  };
+
+  const handleDownload = async (e) => {
+    e.stopPropagation();
+    setDlState('saving');
+    try {
+      const r = await saveToServer(song);
+      setDlState(r && r.saved ? 'done' : 'fail');
+    } catch {
+      setDlState('fail');
     }
   };
 
@@ -94,13 +106,20 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric }) => {
     >
       ▶ 播放
     </button>
-    <a
-      href={getDownloadUrl(song)}
-      className="px-3 py-1.5 border border-primary bg-primary text-primary-foreground font-medium text-sm rounded-md shadow-brutal-sm transition-opacity hover:opacity-90 no-underline"
-      title="下载到本地"
+    <button
+      onClick={handleDownload}
+      disabled={dlState === 'saving' || dlState === 'done'}
+      className={`px-3 py-1.5 border font-medium text-sm rounded-md shadow-brutal-sm transition-opacity no-underline ${
+        dlState === 'done'
+          ? 'border-success bg-success text-success-foreground'
+          : dlState === 'fail'
+          ? 'border-destructive bg-destructive text-destructive-foreground'
+          : 'border-primary bg-primary text-primary-foreground hover:opacity-90'
+      } disabled:opacity-80`}
+      title="下载到服务器(NAS)"
     >
-      ↓ 下载
-    </a>
+      {dlState === 'saving' ? '下载中…' : dlState === 'done' ? '✓ 已下载' : dlState === 'fail' ? '✗ 重试' : '↓ 下载'}
+    </button>
   </div>
   );
 };
