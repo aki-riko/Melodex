@@ -43,7 +43,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
-            onPlay={play}
+            onPlay={(s) => play(s, songs)}
             onShowLyric={showLyric}
           />
         ))}

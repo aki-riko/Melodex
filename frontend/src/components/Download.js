@@ -44,7 +44,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
-            onPlay={onPlay}
+            onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
           />
         ))}
@@ -118,7 +118,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
-            onPlay={onPlay}
+            onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
           />
         ))}
