@@ -7,7 +7,7 @@ const getApiKey = () => {
   const apiKey = import.meta.env.VITE_LASTFM_API_KEY;
 
   if (!apiKey) {
-    throw new Error('Missing Last.fm credentials. Please set REACT_APP_LASTFM_API_KEY.');
+    throw new Error('Missing Last.fm credentials. Please set VITE_LASTFM_API_KEY.');
   }
 
   return apiKey;

@@ -12,7 +12,7 @@ const getSpotifyCredentials = () => {
   const clientSecret = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    throw new Error('Missing Spotify credentials. Please set REACT_APP_SPOTIFY_CLIENT_ID and REACT_APP_SPOTIFY_CLIENT_SECRET.');
+    throw new Error('Missing Spotify credentials. Please set VITE_SPOTIFY_CLIENT_ID and VITE_SPOTIFY_CLIENT_SECRET.');
   }
 
   return { clientId, clientSecret };
