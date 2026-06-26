@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
-import { BrowserRouter as Router } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import Trending from './components/Trending';
@@ -116,13 +115,12 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Router basename={process.env.REACT_APP_BASENAME || ''}>
-        <div className="min-h-screen flex flex-col bg-background text-text">
-          <Navbar
-            isVisible={isNavbarVisible}
-            onLinkClick={handleLinkClick}
-            currentSection={currentSection}
-          />
+      <div className="min-h-screen flex flex-col bg-background text-text">
+        <Navbar
+          isVisible={isNavbarVisible}
+          onLinkClick={handleLinkClick}
+          currentSection={currentSection}
+        />
           <main className="flex-grow">
             {currentSection === 'Home' && (
               <section id="home">
@@ -170,7 +168,6 @@ function App() {
           <PopupMenu isOpen={isPopupOpen} onClose={closePopup} />
           {/* <ToastContainer /> */}
         </div>
-      </Router>
     </QueryClientProvider>
   );
 }
