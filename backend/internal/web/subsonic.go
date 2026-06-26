@@ -295,6 +295,12 @@ func RegisterSubsonicRoutes(r *gin.Engine) {
 	// 搜索(接联网搜索 + 验活)
 	rest.GET("/search3", subsonicSearch3)
 	rest.GET("/search3.view", subsonicSearch3)
+
+	// 流式播放(本地优先 + 在线播放 + 后台落盘入库)
+	rest.GET("/stream", subsonicStream)
+	rest.GET("/stream.view", subsonicStream)
+	rest.GET("/download", subsonicStream)
+	rest.GET("/download.view", subsonicStream)
 }
 
 // subsonicAuthMiddleware 校验 facade 是否启用 + Subsonic 认证(u/t/s 或 u/p)。

@@ -116,12 +116,13 @@ func decodeOnlineSongID(id string) (model.Song, bool) {
 	return song, true
 }
 
-// encodeLocalSongID 把本地曲库 track id 编码成 Subsonic id。
+// encodeLocalSongID 把本地曲库的 track.ID(本身已是 base64url 的相对路径)
+// 再包一层 loc: 前缀编码成 Subsonic id,与在线源 id 区分。
 func encodeLocalSongID(trackID string) string {
 	return localSongIDPrefix + base64.RawURLEncoding.EncodeToString([]byte(trackID))
 }
 
-// decodeLocalSongID 还原本地曲库 track id。
+// decodeLocalSongID 还原本地曲库 track.ID(可直接传给 localMusicTrackByID)。
 func decodeLocalSongID(id string) (string, bool) {
 	if !strings.HasPrefix(id, localSongIDPrefix) {
 		return "", false
