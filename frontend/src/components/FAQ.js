@@ -1,77 +1,43 @@
 import React, { useState } from 'react';
 
-const translations = {
-  en: {
-    faq: "常见问题",
-    questions: [
-      {
-        question: "TuneScout 是什么?",
-        answer: "TuneScout 是一个动态的音乐探索平台,帮助你发现符合自己口味的新音乐。"
-      },
-      {
-        question: "如何搜索音乐?",
-        answer: "你可以在「发现」页面的搜索栏里搜索音乐,只需输入你想找的歌曲或专辑名称即可。"
-      },
-      {
-        question: "TuneScout 用到了哪些 API?",
-        answer: "TuneScout 整合了 Spotify 和 Last.fm 的 API 数据,带来全面的音乐发现体验。"
-      },
-      {
-        question: "TuneScout 是免费的吗?",
-        answer: "是的,TuneScout 完全免费,为你提供最新的热门音乐和热门艺人。"
-      }
-    ]
-  },
-  fr: {
-    faq: "Questions Fréquemment Posées",
-    questions: [
-      {
-        question: "Qu'est-ce que TuneScout?",
-        answer: "TuneScout est une plateforme dynamique d'exploration musicale conçue pour vous aider à découvrir de nouvelles musiques adaptées à vos goûts."
-      },
-      {
-        question: "Comment rechercher de la musique?",
-        answer: "Vous pouvez rechercher de la musique en utilisant la barre de recherche sur la page Découvrir. Entrez simplement le nom de la chanson ou de l'album que vous recherchez."
-      },
-      {
-        question: "Quelles API utilise TuneScout?",
-        answer: "TuneScout intègre les données des API de Spotify et Last.fm pour offrir une expérience de découverte musicale complète."
-      },
-      {
-        question: "TuneScout est-il gratuit?",
-        answer: "Oui, TuneScout est gratuit et vous fournit les dernières tendances musicales et les meilleurs artistes."
-      }
-    ]
-  }
+const FAQ_DATA = {
+  faq: '常见问题',
+  questions: [
+    {
+      question: 'TuneScout+ 是什么?',
+      answer: 'TuneScout+ 是音乐发现与下载二合一的工具:在发现页浏览榜单与艺人,在下载页从国内多源搜索、在线播放并下载音乐。',
+    },
+    {
+      question: '如何搜索并下载音乐?',
+      answer: '进入「下载」页,在搜索栏输入歌曲或歌手名即可从国内多源(网易云 / QQ / 酷狗 / 酷我 / 咪咕 / 汽水 等)搜索,支持在线播放与下载,也可粘贴歌曲/歌单链接解析。',
+    },
+    {
+      question: '发现页用到了哪些数据源?',
+      answer: '发现页整合了 Spotify 和 Last.fm 的 API 数据,展示榜单与艺人信息(需在 .env 配置对应密钥)。',
+    },
+    {
+      question: '可以把歌曲做成视频吗?',
+      answer: '可以。在「视频生成」页选一首歌,即可生成带封面与歌词的 1080P 视频。',
+    },
+    {
+      question: 'TuneScout+ 是免费的吗?',
+      answer: '是的,TuneScout+ 完全免费且开源,仅供学习与技术交流使用。',
+    },
+  ],
 };
 
 const FAQ = () => {
   const [openIndex, setOpenIndex] = useState(null);
-  const [language, setLanguage] = useState('en');
 
   const toggleFAQ = (index) => {
     setOpenIndex(openIndex === index ? null : index);
   };
 
-  const handleLanguageChange = (e) => {
-    setLanguage(e.target.value);
-  };
-
   return (
     <div className="container mx-auto p-6">
-      <div className="flex justify-end mb-4">
-        <select
-          value={language}
-          onChange={handleLanguageChange}
-          className="bg-transparent border-none text-primary"
-        >
-          <option value="en">EN</option>
-          <option value="fr">FR</option>
-        </select>
-      </div>
-      <h1 className="text-4xl font-bold mb-8 text-center">{translations[language].faq}</h1>
+      <h1 className="text-4xl font-bold mb-8 text-center">{FAQ_DATA.faq}</h1>
       <div className="max-w-2xl mx-auto space-y-4">
-        {translations[language].questions.map((faq, index) => (
+        {FAQ_DATA.questions.map((faq, index) => (
           <div key={index} className="border-2 border-border shadow-brutal-sm">
             <div
               onClick={() => toggleFAQ(index)}
