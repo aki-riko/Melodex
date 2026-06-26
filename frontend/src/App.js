@@ -18,9 +18,23 @@ const queryClient = new QueryClient();
 
 function App() {
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
-  const [currentSection, setCurrentSection] = useState('Home');
+  // 哈希路由:从 URL hash 读初始页,刷新不丢失
+  const VALID_SECTIONS = ['Home', 'Trending', 'Artists', 'Discover', 'Download', 'Settings', 'FAQ'];
+  const sectionFromHash = () => {
+    const h = (window.location.hash || '').replace('#', '').toLowerCase();
+    return VALID_SECTIONS.find((s) => s.toLowerCase() === h) || 'Home';
+  };
+  const [currentSection, setCurrentSection] = useState(sectionFromHash);
   const [downloadRequest, setDownloadRequest] = useState({ keyword: '', nonce: 0 });
   const lastScrollYRef = useRef(0);
+
+  // 监听 hash 变化(浏览器前进/后退、手动改 hash)同步当前页
+  useEffect(() => {
+    const onHash = () => setCurrentSection(sectionFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 发现页「在国内源下载」→ 切到下载页并预填搜索词。
   // 用递增 nonce 确保即便重复点同一首歌也能再次触发搜索。
@@ -28,6 +42,7 @@ function App() {
     return onDownloadSearch((keyword) => {
       setDownloadRequest((prev) => ({ keyword, nonce: prev.nonce + 1 }));
       setCurrentSection('Download');
+      window.location.hash = 'download';
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   }, []);
@@ -56,6 +71,7 @@ function App() {
 
   const handleLinkClick = (section) => {
     setCurrentSection(section);
+    window.location.hash = section.toLowerCase();
   };
 
   return (
