@@ -13,3 +13,9 @@ services:
       - ./data:/home/appuser/data
     environment:
       - TZ=Asia/Shanghai
+      # Subsonic API facade(默认关):配齐下面三项才启用,音流/substreamer 等
+      # 标准 Subsonic 客户端即可连本服务搜全网/在线听/听过自动入库。
+      # 凭据为客户端登录用的用户名与密码(强密码),禁止用默认值对外暴露。
+      # - MUSIC_DL_SUBSONIC_ENABLED=1
+      # - MUSIC_DL_SUBSONIC_USER=changeme
+      # - MUSIC_DL_SUBSONIC_PASS=please-set-a-strong-password

@@ -19,6 +19,25 @@ TuneScout+ 把两个开源项目合并为一个统一工具:
 - **本地音乐库**:管理已下载到本地的音乐
 - **发现页联动**:在 Last.fm/Spotify 发现页点「在国内源下载这首歌」,自动跳到下载页并搜索
 - **视频生成**:把一首歌做成带封面与歌词的 1080P MP4(浏览器逐帧 canvas 渲染,后端 ffmpeg 合成)。需要系统安装 **ffmpeg**(或用环境变量 `MUSIC_DL_FFMPEG` 指定其路径)。
+- **Subsonic 客户端直连**:后端自带一套轻量 Subsonic API(`/rest`),用[音流 / substreamer](https://www.subsonic.org/) 等标准 Subsonic 客户端连本服务,即可**搜全网在线听 + 浏览已入库曲库 + 听过自动入库**。默认关闭,见下方「Subsonic API」。
+
+## Subsonic API(让音流等客户端直连)
+
+TuneScout+ 后端实现了一套轻量 Subsonic 服务端,音流/substreamer 等标准 Subsonic 客户端连一个地址即可:
+
+- **搜索**(`search3`)直接接全网多源搜索,结果**验活后**返回(只给能播的)
+- **播放**(`stream`)在线实时解析;同一首**播放过即在后台完整下载+刮削落盘入库**,下次播放走本地
+- **曲库浏览**(专辑/艺人)= 已入库(听过)的歌
+
+**默认关闭**,配齐以下环境变量才启用(在 `docker-compose.yml` 或运行环境设置):
+
+```bash
+MUSIC_DL_SUBSONIC_ENABLED=1
+MUSIC_DL_SUBSONIC_USER=你的用户名
+MUSIC_DL_SUBSONIC_PASS=强密码
+```
+
+客户端服务器地址填 `http(s)://<主机>:8329`(无需 `/rest` 后缀,客户端自动补),用户名/密码填上面两项。对外暴露时,反代层需为 `/rest` 放行 SSO(Subsonic 客户端走自身 user/pass 认证,不经登录页)。
 
 ## 项目结构
 
