@@ -114,6 +114,30 @@ func TestSubsonicSearch3EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestCandidateLimit(t *testing.T) {
+	cases := map[int]int{
+		0:   20 * candidateFactor, // 0 → 默认 20 → 60 → 封顶 40
+		20:  candidateCap,         // 60 → 封顶 40
+		5:   15,                   // 5*3=15 < 40
+		100: candidateCap,         // 远超封顶
+		-1:  20 * candidateFactor, // 负数当默认
+	}
+	for in, want := range cases {
+		// 0/20/100/-1 都会触发封顶或默认,统一按公式校验
+		got := candidateLimit(in)
+		expect := want
+		if expect > candidateCap {
+			expect = candidateCap
+		}
+		if got != expect {
+			t.Fatalf("candidateLimit(%d)=%d, want %d", in, got, expect)
+		}
+		if got > candidateCap {
+			t.Fatalf("candidateLimit(%d)=%d 超过封顶 %d", in, got, candidateCap)
+		}
+	}
+}
+
 func TestSongToSubsonicChild(t *testing.T) {
 	song := model.Song{
 		Source: "netease", ID: "1", Name: "晴天", Artist: "周杰伦",

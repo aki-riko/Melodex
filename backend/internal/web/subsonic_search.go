@@ -267,6 +267,14 @@ func subsonicSearch3(c *gin.Context) {
 	// 多源并发搜索(复用现有逻辑),默认 song 类型。
 	songs, _ := concurrentKeywordSearch(query, "song", defaultSourcesForSearchType("song"))
 
+	// 验活前先裁候选:多源合并常 60~100 首,全量验活约 20~25s,
+	// 而 Subsonic 客户端(音流)通常 30s 超时,验完再截断既浪费又可能超时。
+	// 取 songCount 的若干倍(留验活淘汰余量),封顶 candidateCap 控制总延迟。
+	candidates := candidateLimit(songCount)
+	if len(songs) > candidates {
+		songs = songs[:candidates]
+	}
+
 	// 验活:过滤死链/版权受限,只把能播的返回客户端。
 	songs = liveCheckSongs(songs, 6)
 
@@ -305,4 +313,23 @@ func parseIntDefault(s string, def int) int {
 		return v
 	}
 	return def
+}
+
+// candidateLimit 计算验活前的候选上限:songCount 的 candidateFactor 倍
+// (留出验活淘汰的余量,死链多时仍能凑够 songCount),封顶 candidateCap
+// 控制总延迟(验活并发6,候选越多越接近客户端超时)。
+const (
+	candidateFactor = 3
+	candidateCap    = 40
+)
+
+func candidateLimit(songCount int) int {
+	if songCount <= 0 {
+		songCount = 20
+	}
+	limit := songCount * candidateFactor
+	if limit > candidateCap {
+		limit = candidateCap
+	}
+	return limit
 }
