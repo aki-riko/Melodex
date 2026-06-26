@@ -8,6 +8,7 @@ import {
 } from '../services/musicdl';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useLiveCheck } from '../hooks/useLiveCheck';
 
 const TABS = [
   { key: 'search', label: '歌曲搜索' },
@@ -16,8 +17,9 @@ const TABS = [
 
 // 歌曲搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onShowLyric, isPlaying }) => {
-  const rawSongs = state.data?.songs || [];
-  // 排序:relevance(相关,默认升序=原顺序)/ size(大小,默认降序)
+  const allSongs = state.data?.songs || [];
+  // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
+  const { status, progress } = useLiveCheck(allSongs);
   const [sortBy, setSortBy] = useState('relevance');
   const [order, setOrder] = useState('asc');
 
@@ -30,13 +32,17 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
     }
   };
 
-  // 带原始索引排序,保证"相关"能还原搜索原序
-  const songs = rawSongs
+  const songKey = (s) => `${s.source}-${s.id}`;
+  // 只保留已验活为 ok 的(验活中/未验先不显示,死链永久隐藏)
+  const liveSongs = allSongs.filter((s) => status[songKey(s)]?.state === 'ok');
+
+  // 带原始索引排序,保证"相关"能还原搜索原序;大小用搜索返回的字节数(够排序用)
+  const songs = liveSongs
     .map((s, i) => ({ s, i }))
     .sort((a, b) => {
       let cmp;
       if (sortBy === 'size') cmp = (a.s.size || 0) - (b.s.size || 0);
-      else cmp = a.i - b.i; // relevance = 原顺序
+      else cmp = a.i - b.i;
       return order === 'asc' ? cmp : -cmp;
     })
     .map((x) => x.s);
@@ -46,6 +52,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
     `px-3 py-1.5 border rounded-md text-sm font-medium transition-colors ${
       sortBy === field ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
     }`;
+
+  const checking = progress.total > 0 && progress.done < progress.total;
 
   return (
     <div>
@@ -64,7 +72,16 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
       {state.data?.error && <p className="text-destructive font-medium mb-4">{state.data.error}</p>}
       {state.isLoading && <p className="text-muted-foreground font-medium mb-4">搜索中…</p>}
       {state.isError && <p className="text-destructive font-medium">搜索失败:{String(state.error?.message || state.error)}</p>}
-      {query && !state.isLoading && songs.length === 0 && !state.data?.error && (
+      {/* 验活进度 */}
+      {!state.isLoading && checking && (
+        <p className="text-primary font-medium mb-4">
+          正在验活并过滤无法播放的结果… {progress.done}/{progress.total}
+        </p>
+      )}
+      {query && !state.isLoading && !checking && progress.total > 0 && songs.length === 0 && (
+        <p className="text-muted-foreground">没有可用的结果(均无法播放或版权受限)。</p>
+      )}
+      {query && !state.isLoading && progress.total === 0 && !state.data?.error && (
         <p className="text-muted-foreground">没有找到结果。</p>
       )}
       {songs.length > 0 && (
@@ -72,6 +89,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
           <span className="text-sm text-muted-foreground">排序:</span>
           <button onClick={() => setSort('relevance', 'asc')} className={sortBtnCls('relevance')}>相关{arrow('relevance')}</button>
           <button onClick={() => setSort('size', 'desc')} className={sortBtnCls('size')}>大小{arrow('size')}</button>
+          <span className="text-sm text-muted-foreground ml-2">共 {songs.length} 首可用</span>
         </div>
       )}
       <div className="space-y-2 pb-32">
