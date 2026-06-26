@@ -269,21 +269,28 @@ const Download = ({ downloadRequest }) => {
   const search = useQuery(
     ['musicdl-search', query],
     () => searchMusic(query, { type: 'song' }),
-    { enabled: tab === 'search' && !!query, keepPreviousData: true }
+    {
+      enabled: tab === 'search' && !!query,
+      keepPreviousData: true,
+      // 失焦/重新聚焦不自动重搜(否则切窗口回来会重新搜索+重新验活)
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 5 * 60 * 1000,
+    }
   );
 
   // 推荐歌单(默认网易云 + QQ)
   const recommend = useQuery(
     ['musicdl-recommend'],
     () => getRecommend(['netease', 'qq']),
-    { enabled: tab === 'discover' }
+    { enabled: tab === 'discover', refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 }
   );
 
   // 歌单详情
   const playlistDetail = useQuery(
     ['musicdl-playlist', openPlaylist?.id, openPlaylist?.source],
     () => getPlaylistDetail(openPlaylist.id, openPlaylist.source),
-    { enabled: !!openPlaylist }
+    { enabled: !!openPlaylist, refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 }
   );
 
   const handleSearch = (e) => {
