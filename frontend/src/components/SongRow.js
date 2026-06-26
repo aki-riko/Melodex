@@ -20,11 +20,13 @@ const qualityOf = (song) => {
 };
 
 // 单首歌曲行:歌曲搜索结果与歌单/专辑详情共用。
-const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric }) => {
+const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
   const q = qualityOf(song);
-  const [real, setReal] = useState(null); // 验音质结果 {size, bitrate}
+  const [real, setReal] = useState(null); // 手动验音质结果 {size, bitrate}
   const [checking, setChecking] = useState(false);
   const [dlState, setDlState] = useState(''); // '' | 'saving' | 'done' | 'fail'
+  // 自动验活已拿到真实大小/码率时直接用(liveInfo),手动验音质(real)优先
+  const effectiveReal = real || (liveInfo && liveInfo.state === 'ok' ? { size: liveInfo.size, bitrate: liveInfo.bitrate, bitrateNum: liveInfo.bitrateNum } : null);
 
   const handleInspect = async (e) => {
     e.stopPropagation();
@@ -69,18 +71,24 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric }) => {
       </p>
     </div>
     {/* 验音质后显示真实码率,否则显示预览音质标签 */}
-    {real ? (
-      <span className="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap bg-primary text-primary-foreground" title="真实下载音质">
-        {real.bitrate}
-      </span>
-    ) : (
-      q && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${q.cls}`}>{q.label}</span>
-    )}
+    {(() => {
+      // 有真实码率(自动验活/手动验)时按真实值判等级,否则用搜索预览
+      const br = effectiveReal?.bitrateNum || 0;
+      let label, cls;
+      if (effectiveReal) {
+        if (br >= 800) { label = '无损'; cls = 'bg-primary text-primary-foreground'; }
+        else if (br >= 320) { label = '高品'; cls = 'bg-success text-success-foreground'; }
+        else if (br > 0) { label = `${br}k`; cls = 'bg-muted text-muted-foreground'; }
+        else { label = '标准'; cls = 'bg-muted text-muted-foreground'; }
+        return <span className={`text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${cls}`} title="真实下载音质">{label}</span>;
+      }
+      return q && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${q.cls}`}>{q.label}</span>;
+    })()}
     <span className="text-xs font-medium text-muted-foreground whitespace-nowrap uppercase">{song.source}</span>
     {song.duration ? <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtSec(song.duration)}</span> : null}
-    {/* 大小:验音质后用真实值,否则预览值 */}
-    {(real?.size || song.size) ? (
-      <span className="text-xs text-muted-foreground whitespace-nowrap">{real?.size || fmtSize(song.size)}</span>
+    {/* 大小:验活/验音质拿到真实值则用真实值,否则预览值 */}
+    {(effectiveReal?.size || song.size) ? (
+      <span className="text-xs text-muted-foreground whitespace-nowrap">{effectiveReal?.size || fmtSize(song.size)}</span>
     ) : null}
     <button
       onClick={handleInspect}
