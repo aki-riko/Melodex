@@ -80,10 +80,16 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
           <span className="text-xs font-medium px-2 py-0.5 border border-border rounded-md bg-muted text-muted-foreground">未登录</span>
         )}
       </div>
-      {session && session.url && status !== 'success' && (
+      {session && (session.image_url || session.url) && status !== 'success' && (
         <div className="flex flex-col items-center mb-3">
           <div className="bg-white border border-border rounded-md p-2">
-            <QRCodeCanvas value={session.url} size={180} />
+            {session.image_url ? (
+              /* QQ 等源直接返回画好的二维码图(base64 PNG) */
+              <img src={session.image_url} alt="登录二维码" width={180} height={180} />
+            ) : (
+              /* 网易云等源返回二维码内容文本,前端自己画 */
+              <QRCodeCanvas value={session.url} size={180} />
+            )}
           </div>
           <p className="text-sm font-medium text-muted-foreground mt-2">{STATUS_TEXT[status] || status}</p>
         </div>
