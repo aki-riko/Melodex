@@ -30,6 +30,20 @@ TuneScout+/
     └── src/components/Download.js、Settings.js   新增的下载/设置页
 ```
 
+## 部署(Docker,推荐)
+
+一体化镜像:React 前端 + Go 后端 + ffmpeg 打包进单个容器,前后端同源,开箱即用。
+
+```bash
+docker compose up -d --build      # 构建并启动
+# 访问 http://<主机>:8080
+```
+
+镜像三阶段构建(Node 构建前端 → Go 编译并 `go:embed` 嵌入前端产物 → Alpine + ffmpeg 运行)。
+数据(下载的音乐、cookie、生成的视频、settings.db)持久化在 `./data`。videogen 所需的 ffmpeg 已在镜像内,无需额外安装。
+
+> 对外暴露前请阅读下方「安全说明」:搜索/下载等匿名可用,扫码登录等敏感操作需先在 `/music/setup` 初始化管理员。
+
 ## 开发运行
 
 **后端**(默认 :8080):
