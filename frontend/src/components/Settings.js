@@ -7,6 +7,7 @@ import {
   checkQRLogin,
   getCookieStatus,
   clearCookie,
+  setCookie,
   getLocalMusic,
   deleteLocalMusic,
   adminSetupUrl,
@@ -33,7 +34,24 @@ const STATUS_TEXT = {
 const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState('');
+  const [showManual, setShowManual] = useState(false);
+  const [manualCookie, setManualCookie] = useState('');
+  const [manualMsg, setManualMsg] = useState('');
   const pollRef = useRef(null);
+
+  const submitManual = async () => {
+    if (!manualCookie.trim()) return;
+    setManualMsg('保存中…');
+    try {
+      await setCookie(source, manualCookie.trim());
+      setManualMsg('已保存 ✓');
+      setManualCookie('');
+      onLoggedIn();
+      setTimeout(() => { setShowManual(false); setManualMsg(''); }, 1200);
+    } catch (e) {
+      setManualMsg(e?.name === 'AuthRequiredError' ? '需先登录管理员' : '保存失败');
+    }
+  };
 
   const stopPoll = () => {
     if (pollRef.current) {
@@ -100,6 +118,33 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
       >
         {session ? '刷新二维码' : '扫码登录'}
       </button>
+      <button
+        onClick={() => setShowManual((v) => !v)}
+        className="w-full mt-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+        title="扫码拿不到无损时,可手动粘贴完整 cookie"
+      >
+        {showManual ? '收起' : '手动填 Cookie(拿无损用)'}
+      </button>
+      {showManual && (
+        <div className="mt-2">
+          <textarea
+            value={manualCookie}
+            onChange={(e) => setManualCookie(e.target.value)}
+            placeholder="粘贴该平台网页版登录后的完整 Cookie(QQ 音乐需含 qm_keyst)…"
+            rows={3}
+            className="w-full px-2 py-1.5 border border-border rounded-md bg-card text-xs outline-none focus:border-primary"
+          />
+          <div className="flex items-center gap-2 mt-1">
+            <button
+              onClick={submitManual}
+              className="px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-[#106EBE] transition-colors"
+            >
+              保存
+            </button>
+            {manualMsg && <span className="text-xs text-muted-foreground">{manualMsg}</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

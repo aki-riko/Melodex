@@ -184,6 +184,13 @@ export const clearCookie = async (source) =>
     return data;
   });
 
+// 手动填入某源 cookie(扫码拿不到完整鉴权字段时,如 QQ 音乐的 qm_keyst)
+export const setCookie = async (source, cookie) =>
+  callSecure(async () => {
+    const { data } = await client.post(`/api/v1/cookies/${encodeURIComponent(source)}`, { cookie });
+    return data;
+  });
+
 // 本地音乐列表(沿用 /music/local_music)
 export const getLocalMusic = async ({ offset = 0, limit = 100, refresh = false } = {}) => {
   const params = new URLSearchParams();

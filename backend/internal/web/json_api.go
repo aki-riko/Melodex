@@ -218,6 +218,22 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 		core.CM.Save()
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	// 手动填入某源 cookie(扫码拿不到完整鉴权字段时,如 QQ 音乐的 qm_keyst,
+	// 可从对应平台网页版登录后抠出完整 cookie 粘贴)。
+	api.POST("/cookies/:source", func(c *gin.Context) {
+		source := strings.TrimSpace(c.Param("source"))
+		var req struct {
+			Cookie string `json:"cookie"`
+		}
+		if c.ShouldBindJSON(&req) != nil || strings.TrimSpace(req.Cookie) == "" {
+			c.JSON(400, gin.H{"error": "cookie 不能为空"})
+			return
+		}
+		core.CM.SetAll(map[string]string{source: strings.TrimSpace(req.Cookie)})
+		core.CM.Save()
+		c.JSON(200, gin.H{"status": "ok"})
+	})
 }
 
 // jsonSearchSongResult 在 model.Song 基础上附带前端友好的展示字段。
