@@ -421,7 +421,6 @@ func StartWithOptions(port string, opts StartOptions) {
 	api.GET("/videogen.js", func(c *gin.Context) { c.FileFromFS("templates/static/js/videogen.js", http.FS(templateFS)) })
 	api.GET("/app.js", func(c *gin.Context) { c.FileFromFS("templates/static/js/app.js", http.FS(templateFS)) })
 	configAPI := bindAuthMiddleware(api, opts)
-	api.Static("/videos", videoDir)
 
 	api.GET("/render", func(c *gin.Context) {
 		c.HTML(200, "render.html", gin.H{
@@ -462,7 +461,6 @@ func StartWithOptions(port string, opts StartOptions) {
 	RegisterQRLoginRoutes(configAPI)
 	RegisterCollectionRoutes(api)
 	RegisterLocalMusicRoutes(api)
-	RegisterVideogenRoutes(api, videoDir)
 	RegisterUpdateRoutes(api)
 
 	// TuneScout+ 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。

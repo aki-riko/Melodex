@@ -6,7 +6,6 @@ const sections = [
   { key: 'Artists', label: '艺人' },
   { key: 'Discover', label: '发现' },
   { key: 'Download', label: '下载' },
-  { key: 'Videogen', label: '视频生成' },
   { key: 'Settings', label: '设置' },
   { key: 'FAQ', label: '帮助' },
 ];

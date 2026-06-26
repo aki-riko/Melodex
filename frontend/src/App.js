@@ -7,7 +7,6 @@ import Artists from './components/Artists';
 import Discover from './components/Discover';
 import Download from './components/Download';
 import Settings from './components/Settings';
-import Videogen from './components/Videogen';
 import { onDownloadSearch } from './services/downloadBus';
 import { PlayerProvider, PlayerBar } from './contexts/PlayerContext';
 import FAQ from './components/FAQ';
@@ -98,11 +97,6 @@ function App() {
             {currentSection === 'Settings' && (
               <section id="settings" className="container mx-auto container-padding section-padding">
                 <Settings />
-              </section>
-            )}
-            {currentSection === 'Videogen' && (
-              <section id="videogen" className="container mx-auto container-padding section-padding">
-                <Videogen />
               </section>
             )}
             {currentSection === 'Artists' && (
