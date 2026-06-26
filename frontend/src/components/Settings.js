@@ -22,6 +22,15 @@ const SOURCE_LABELS = {
   bilibili: '哔哩哔哩',
 };
 
+// 各源手填 Cookie 的获取指引:网址 + 关键字段
+const COOKIE_HELP = {
+  netease: { url: 'https://music.163.com', key: 'MUSIC_U' },
+  qq: { url: 'https://y.qq.com', key: 'qm_keyst' },
+  qq_wx: { url: 'https://y.qq.com', key: 'qm_keyst' },
+  kugou: { url: 'https://www.kugou.com', key: 'kg_mid / token' },
+  bilibili: { url: 'https://www.bilibili.com', key: 'SESSDATA' },
+};
+
 const STATUS_TEXT = {
   waiting: '等待扫码…',
   scanned: '已扫码,请在手机上确认',
@@ -127,10 +136,19 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
       </button>
       {showManual && (
         <div className="mt-2">
+          {COOKIE_HELP[source] && (
+            <div className="text-xs text-muted-foreground mb-2 leading-relaxed bg-muted rounded-md p-2">
+              <p className="font-medium text-foreground mb-1">如何获取 Cookie:</p>
+              <p>1. 浏览器打开 <a href={COOKIE_HELP[source].url} target="_blank" rel="noreferrer" className="text-primary underline">{COOKIE_HELP[source].url}</a> 并登录(用会员账号)</p>
+              <p>2. 按 F12 打开开发者工具 → 「网络/Network」标签</p>
+              <p>3. 刷新页面,点任一请求 → 「标头/Headers」→ 找到请求头里的 <code className="bg-card px-1 rounded">Cookie:</code></p>
+              <p>4. 复制整段 Cookie 值(需包含 <code className="bg-card px-1 rounded">{COOKIE_HELP[source].key}</code>)粘到下方</p>
+            </div>
+          )}
           <textarea
             value={manualCookie}
             onChange={(e) => setManualCookie(e.target.value)}
-            placeholder="粘贴该平台网页版登录后的完整 Cookie(QQ 音乐需含 qm_keyst)…"
+            placeholder={`粘贴 ${SOURCE_LABELS[source] || source} 网页版登录后的完整 Cookie…`}
             rows={3}
             className="w-full px-2 py-1.5 border border-border rounded-md bg-card text-xs outline-none focus:border-primary"
           />
