@@ -60,8 +60,8 @@ const Artists = () => {
     }
   }, [artists, currentPage]);
 
-  if (error) return <p className="text-destructive text-center mt-4" role="alert">Failed to fetch top artists</p>;
-  if (isLoading) return <p className="text-center mt-4" role="status">Loading...</p>;
+  if (error) return <p className="text-destructive text-center mt-4" role="alert">获取热门艺人失败</p>;
+  if (isLoading) return <p className="text-center mt-4" role="status">加载中…</p>;
 
   const paginate = (pageNumber) => {
     setCurrentArtists([]); // Clear current artists before updating the page
@@ -79,7 +79,7 @@ const Artists = () => {
   return (
     <div className="p-4 mb-3">
       <header>
-        <h1 className="text-5xl font-bold text-center mb-5 text-primary py-3" id="top-artists-heading">Top 50 Artists</h1>
+        <h1 className="text-5xl font-bold text-center mb-5 text-primary py-3" id="top-artists-heading">Top 50 艺人</h1>
       </header>
       <main>
         <div className="flex justify-center">
@@ -96,21 +96,21 @@ const Artists = () => {
             ))}
           </div>
         </div>
-        <nav aria-label="Pagination" className="flex justify-center mt-6">
+        <nav aria-label="分页" className="flex justify-center mt-6">
           <button
             onClick={handlePreviousPage}
             className={`px-4 py-2 mx-1 border-2 border-border font-bold shadow-brutal-sm transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none ${currentPage === 1 ? 'bg-muted text-muted-foreground' : 'bg-card text-primary'}`}
             disabled={currentPage === 1}
-            aria-label="Previous Page"
+            aria-label="上一页"
           >
-            Previous
+            上一页
           </button>
           {artists && Array.from({ length: Math.ceil(artists.length / artistsPerPage) }, (_, i) => (
             <button
               key={i + 1}
               onClick={() => paginate(i + 1)}
               className={`px-4 py-2 mx-1 border-2 border-border font-bold shadow-brutal-sm transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none ${i + 1 === currentPage ? 'bg-primary text-primary-foreground' : 'bg-card text-primary'}`}
-              aria-label={`Page ${i + 1}`}
+              aria-label={`第 ${i + 1} 页`}
               aria-current={i + 1 === currentPage ? 'page' : undefined}
             >
               {i + 1}
@@ -120,9 +120,9 @@ const Artists = () => {
             onClick={handleNextPage}
             className={`px-4 py-2 mx-1 border-2 border-border font-bold shadow-brutal-sm transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none ${currentPage === Math.ceil(artists.length / artistsPerPage) ? 'bg-muted text-muted-foreground' : 'bg-card text-primary'}`}
             disabled={currentPage === Math.ceil(artists.length / artistsPerPage)}
-            aria-label="Next Page"
+            aria-label="下一页"
           >
-            Next
+            下一页
           </button>
         </nav>
       </main>

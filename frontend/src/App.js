@@ -47,11 +47,11 @@ const PopupMenu = ({ isOpen, onClose }) => {
         className="bg-white p-6 rounded-lg shadow-lg w-1/2"
         tabIndex={0}
       >
-        <h2 className="text-2xl font-semibold mb-4">Welcome to TuneScout!</h2>
-        <p className="mb-1">- TuneScout uses real Last.fm and Spotify information (API implementation) 📈</p>
-        <p className="mb-1">- Cards ARE clickable, and Embeds let you play music and add to your Spotify 🎶</p>
-        <p className="mb-1">- Please zoom out for a better experience 🔎</p>
-        <p className="mb-4">- Psss! Try holding down the Vinyl record and dragging it UP and DOWN quickly 😉</p>
+        <h2 className="text-2xl font-semibold mb-4">欢迎使用 TuneScout+!</h2>
+        <p className="mb-1">- 在「发现 / 热门 / 艺人」里浏览 Last.fm 与 Spotify 的榜单与艺人信息 📈</p>
+        <p className="mb-1">- 在「下载」页从国内多源搜索、在线播放、下载音乐 🎶</p>
+        <p className="mb-1">- 在歌曲详情里可一键跳到「下载」从国内源获取 🔎</p>
+        <p className="mb-4">- 在「视频生成」把歌曲做成带封面与歌词的视频 🎬</p>
         <button
           onClick={onClose}
           className="bg-primary text-white px-6 py-2 rounded-full hover:bg-red-500 transition duration-300"
@@ -60,7 +60,7 @@ const PopupMenu = ({ isOpen, onClose }) => {
             if (e.key === 'Enter') onClose();
           }}
         >
-          Close
+          开始使用
         </button>
       </div>
     </div>

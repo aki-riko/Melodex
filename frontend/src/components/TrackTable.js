@@ -9,9 +9,9 @@ const TrackTable = ({ tracks, onClick }) => {
           <tr>
             <th className="px-2 py-1 text-left">#</th>
             <th className="px-2 py-1 text-left"></th>
-            <th className="px-2 py-1 text-left">Name</th>
-            <th className="px-2 py-1 text-left">Artist</th>
-            <th className="px-2 py-1 text-right">Streams</th>
+            <th className="px-2 py-1 text-left">歌曲</th>
+            <th className="px-2 py-1 text-left">艺人</th>
+            <th className="px-2 py-1 text-right">播放量</th>
           </tr>
         </thead>
       </table>

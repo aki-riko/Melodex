@@ -18,7 +18,7 @@ const TrackCard = ({ track, index, onClick }) => {
         </h3>
         <p className="text-sm font-bold text-primary truncate mt-3">{track.artist}</p>
         {index !== undefined ? (
-          <p className="text-sm text-muted-foreground">Streams: {formatNumber(track.playcount)}</p>
+          <p className="text-sm text-muted-foreground">播放量: {formatNumber(track.playcount)}</p>
         ) : null}
       </div>
     </div>

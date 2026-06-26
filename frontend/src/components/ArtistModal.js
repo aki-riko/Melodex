@@ -110,7 +110,7 @@ const ArtistModal = ({ artist, isVisible, onClose, modalRef }) => {
           isVisible ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
         }`}
       >
-        <button onClick={onClose} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground" aria-label="Close modal">
+        <button onClick={onClose} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground" aria-label="关闭弹窗">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -119,11 +119,11 @@ const ArtistModal = ({ artist, isVisible, onClose, modalRef }) => {
           <div className="w-1/2 pr-6">
             <h2 className="text-3xl font-bold mb-4">{artist.name}</h2>
             <p className="text-xl mb-2">
-              <strong>Followers:</strong>{' '}
+              <strong>粉丝数:</strong>{' '}
               {formatNumber(spotifyArtist?.followers?.total ?? artistInfo?.stats?.listeners ?? artist.listeners)}
             </p>
             <p className="text-xl mb-2">
-              <strong>Genres:</strong>{' '}
+              <strong>风格:</strong>{' '}
               {(spotifyArtist?.genres?.length
                 ? spotifyArtist.genres.map(capitalize).join(', ')
                 : artistInfo?.tags?.length
@@ -131,11 +131,11 @@ const ArtistModal = ({ artist, isVisible, onClose, modalRef }) => {
                   : 'N/A')}
             </p>
             <p className="text-xl mb-2">
-              <strong>Popularity:</strong>{' '}
+              <strong>热度:</strong>{' '}
               {spotifyArtist?.popularity ? `${spotifyArtist.popularity}/100` : 'N/A'}
             </p>
             <p className="text-xl mb-6">
-              <strong>Playcount:</strong>{' '}
+              <strong>播放量:</strong>{' '}
               {formatNumber(artistInfo?.stats?.playcount ?? artist.playcount)}
             </p>
             {artistInfo?.bio?.summary ? (
@@ -143,7 +143,7 @@ const ArtistModal = ({ artist, isVisible, onClose, modalRef }) => {
                 {artistInfo.bio.summary.replace(/<[^>]+>/g, '').slice(0, 300)}{artistInfo.bio.summary.length > 300 ? '…' : ''}
               </p>
             ) : null}
-            {loading ? <p className="mt-4 text-muted-foreground">Loading details…</p> : null}
+            {loading ? <p className="mt-4 text-muted-foreground">正在加载详情…</p> : null}
           </div>
           <div className="w-1/2 pl-6 flex flex-col">
             <div className="mb-6">

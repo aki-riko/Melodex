@@ -2,23 +2,23 @@ import React, { useState } from 'react';
 
 const translations = {
   en: {
-    faq: "Frequently Asked Questions",
+    faq: "常见问题",
     questions: [
       {
-        question: "What is TuneScout?",
-        answer: "TuneScout is a dynamic music exploration platform designed to help you discover new music tailored to your tastes."
+        question: "TuneScout 是什么?",
+        answer: "TuneScout 是一个动态的音乐探索平台,帮助你发现符合自己口味的新音乐。"
       },
       {
-        question: "How do I search for music?",
-        answer: "You can search for music using the search bar on the Discover page. Simply enter the name of the song or album you are looking for."
+        question: "如何搜索音乐?",
+        answer: "你可以在「发现」页面的搜索栏里搜索音乐,只需输入你想找的歌曲或专辑名称即可。"
       },
       {
-        question: "Which APIs does TuneScout use?",
-        answer: "TuneScout integrates data from Spotify and Last.fm APIs to deliver a comprehensive music discovery experience."
+        question: "TuneScout 用到了哪些 API?",
+        answer: "TuneScout 整合了 Spotify 和 Last.fm 的 API 数据,带来全面的音乐发现体验。"
       },
       {
-        question: "Is TuneScout free to use?",
-        answer: "Yes, TuneScout is free to use and provides you with the latest trending music and top artists."
+        question: "TuneScout 是免费的吗?",
+        answer: "是的,TuneScout 完全免费,为你提供最新的热门音乐和热门艺人。"
       }
     ]
   },

@@ -42,9 +42,9 @@ const Trending = () => {
     };
   }, [isModalVisible, closePopup]);
 
-  if (error) return <p className="text-destructive text-center mt-4">Failed to fetch top songs</p>;
-  if (isLoading) return <p className="text-center mt-4">Loading...</p>;
-  if (!tracks || !tracks.length) return <p className="text-center mt-4">No trending tracks available right now.</p>;
+  if (error) return <p className="text-destructive text-center mt-4">获取热门歌曲失败</p>;
+  if (isLoading) return <p className="text-center mt-4">加载中…</p>;
+  if (!tracks || !tracks.length) return <p className="text-center mt-4">暂时没有热门歌曲。</p>;
 
   const sortedTracks = [...tracks].sort((a, b) => b.playcount - a.playcount);
 
@@ -53,7 +53,7 @@ const Trending = () => {
 
   return (
     <div className="p-4 mb-3">
-      <h1 className="text-5xl font-bold text-center mb-5 text-primary">Trending (Top 50)</h1>
+      <h1 className="text-5xl font-bold text-center mb-5 text-primary">热门歌曲(Top 50)</h1>
       <div className="flex">
         <div className="w-1/2 pr-4 grid grid-cols-3 gap-4" style={{ height: '700px' }}>
           {topSixTracks.map((track, index) => (

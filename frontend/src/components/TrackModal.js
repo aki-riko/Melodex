@@ -99,7 +99,7 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
   const handleCommentSubmit = (e) => {
     e.preventDefault();
     if (newComment.trim() === '') {
-      setError('Comment cannot be empty');
+      setError('评论不能为空');
       return;
     }
     setComments([...comments, `User 1: ${newComment}`]);
@@ -127,12 +127,12 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
         <div className="flex flex-col md:flex-row">
           <div className="w-full md:w-1/2 pr-0 md:pr-6 mb-6 md:mb-0">
             <h2 className="text-3xl font-bold mb-4">{track.name}</h2>
-            <p className="text-xl mb-2"><strong>Artist:</strong> {track.artist}</p>
+            <p className="text-xl mb-2"><strong>艺人:</strong> {track.artist}</p>
             {trackDetails?.album?.title && trackDetails.album.title !== track.name ? (
-              <p className="text-xl mb-2"><strong>Album:</strong> {trackDetails.album.title}</p>
+              <p className="text-xl mb-2"><strong>专辑:</strong> {trackDetails.album.title}</p>
             ) : null}
             <p className="text-xl mb-6">
-              <strong>Streams:</strong> {formatNumber(track.playcount)}
+              <strong>播放量:</strong> {formatNumber(track.playcount)}
             </p>
             <button
               onClick={() => {
@@ -155,31 +155,31 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
                 title="Track Player"
               ></iframe>
             ) : (
-              <p className="mb-6 text-muted-foreground">Spotify preview unavailable for this track.</p>
+              <p className="mb-6 text-muted-foreground">这首歌暂无 Spotify 试听。</p>
             )}
             <div className="mb-4">
-              <h3 className="text-2xl font-semibold mb-2">Additional Stats</h3>
+              <h3 className="text-2xl font-semibold mb-2">更多数据</h3>
               {hasStats ? (
                 <ul className="list-disc pl-5 text-lg">
                   {releaseDate ? (
-                    <li><strong>Release Date:</strong> {releaseDate}</li>
+                    <li><strong>发行日期:</strong> {releaseDate}</li>
                   ) : null}
                   {durationMs ? (
                     <li>
-                      <strong>Duration:</strong> {formatDuration(durationMs)}
+                      <strong>时长:</strong> {formatDuration(durationMs)}
                     </li>
                   ) : null}
                   {tags.length ? (
                     <li>
-                      <strong>Tags:</strong> {tags.map(capitalize).join(', ')}
+                      <strong>标签:</strong> {tags.map(capitalize).join(', ')}
                     </li>
                   ) : null}
                   {listenerCount ? (
-                    <li><strong>Listeners:</strong> {formatNumber(listenerCount)}</li>
+                    <li><strong>听众:</strong> {formatNumber(listenerCount)}</li>
                   ) : null}
                 </ul>
               ) : (
-                !loading && <p className="text-muted-foreground">We could not find additional stats for this track.</p>
+                !loading && <p className="text-muted-foreground">未能找到这首歌的更多数据。</p>
               )}
             </div>
           </div>
@@ -208,19 +208,19 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
                 title="Album Player"
               ></iframe>
             ) : null}
-            {loading ? <p className="mt-4 text-center text-muted-foreground">Loading details...</p> : null}
+            {loading ? <p className="mt-4 text-center text-muted-foreground">正在加载详情…</p> : null}
           </div>
         </div>
         
         {/* Comment Section */}
         <div className="mt-8">
-          <h3 className="text-2xl font-semibold mb-4">Comments</h3>
+          <h3 className="text-2xl font-semibold mb-4">评论</h3>
           <form onSubmit={handleCommentSubmit} className="mb-4">
             <textarea
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
               className="w-full p-2 border-2 border-border resize-none"
-              placeholder="Write a comment..."
+              placeholder="写下评论…"
               rows="1"
               maxLength="70"
             ></textarea>
@@ -229,7 +229,7 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
               type="submit"
               className="mt-2 bg-primary text-primary-foreground px-5 py-2 rounded-full border-2 border-border font-bold shadow-brutal-sm transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none"
             >
-              Post Comment
+              发表评论
             </button>
           </form>
           <div className="space-y-4">

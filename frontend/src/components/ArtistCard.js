@@ -21,7 +21,7 @@ const ArtistCard = ({ artist, index, onClick, ...rest }) => {
       onKeyDown={handleKeyDown}
       tabIndex="0"
       role="button"
-      aria-label={`Artist ${artist.name}`}
+      aria-label={`艺人 ${artist.name}`}
       {...rest}
     >
       {artist.image && (
@@ -41,10 +41,10 @@ const ArtistCard = ({ artist, index, onClick, ...rest }) => {
         {index !== undefined ? (
           <>
             <p className="text-sm font-bold text-primary truncate mt-3">
-              Listeners: {formatNumber(artist.listeners)}
+              听众: {formatNumber(artist.listeners)}
             </p>
             <p className="text-sm text-muted-foreground">
-              Playcount: {formatNumber(artist.playcount)}
+              播放量: {formatNumber(artist.playcount)}
             </p>
           </>
         ) : null}
