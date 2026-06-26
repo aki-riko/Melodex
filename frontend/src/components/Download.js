@@ -37,8 +37,7 @@ const relevanceScore = (song, query, origIdx = 0) => {
     score = hit * 50;
   }
   if (artist.includes(q)) score += 80; // 歌手也匹配加分
-  // 同分时按原序(origIdx 越小越前):减去极小量
-  return score - origIdx * 0.001;
+  return score;
 };
 
 // 歌曲搜索面板
@@ -84,7 +83,14 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
         const cmp = fieldValue(a.s, a.i, field) - fieldValue(b.s, b.i, field);
         if (cmp !== 0) return order === 'asc' ? cmp : -cmp;
       }
-      return a.i - b.i; // 全相等回退原序
+      // 排序键全相等(如同名"炽心"相关性同分)时,隐式按真实音质降序——
+      // 正版通常有无损会靠前;音质相同再回退原序。
+      if (!sortKeys.some((k) => k.field === 'quality')) {
+        const qa = status[songKey(a.s)]?.bitrateNum || 0;
+        const qb = status[songKey(b.s)]?.bitrateNum || 0;
+        if (qa !== qb) return qb - qa;
+      }
+      return a.i - b.i;
     })
     .map((x) => x.s);
 
