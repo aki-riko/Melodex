@@ -1,9 +1,12 @@
 package core
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -69,6 +72,14 @@ func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics b
 	var coverMime string
 	if withCover && strings.TrimSpace(normalized.Cover) != "" {
 		coverData, coverMime, _ = FetchBytesWithMime(normalized.Cover, normalized.Source)
+		// 国内源(尤其咪咕)封面常为 webp,而 ID3/FLAC 封面被多数播放器/刮削器
+		// 仅识别 JPEG/PNG。这里把非 JPEG/PNG 的封面转成 JPEG,保证封面能被识别。
+		if len(coverData) > 0 {
+			if jpegData, ok := ensureJpegCover(coverData, coverMime); ok {
+				coverData = jpegData
+				coverMime = "image/jpeg"
+			}
+		}
 	}
 
 	finalData := audioData
@@ -261,4 +272,33 @@ func fetchSongAudio(song *model.Song) ([]byte, string, error) {
 	}
 
 	return FetchBytesWithMime(urlStr, song.Source)
+}
+
+// ensureJpegCover 把非 JPEG/PNG 的封面(如国内源常见的 webp)转成 JPEG。
+// 已是 JPEG/PNG 的返回 (nil,false) 表示无需替换;转换成功返回 (jpegData,true);
+// 转换失败(无 ffmpeg 等)也返回 (nil,false),保持原封面不阻断下载。
+func ensureJpegCover(data []byte, mime string) ([]byte, bool) {
+	m := strings.ToLower(strings.TrimSpace(mime))
+	// 按实际字节嗅探,mime 不可信时兜底
+	if m == "" {
+		m = http.DetectContentType(data)
+	}
+	if strings.Contains(m, "jpeg") || strings.Contains(m, "jpg") || strings.Contains(m, "png") {
+		return nil, false // 主流播放器都认,无需转
+	}
+
+	ffmpegPath, err := ResolveFFmpegPath()
+	if err != nil {
+		return nil, false
+	}
+	// 从 stdin 读任意格式图,转码为 JPEG 输出到 stdout
+	cmd := exec.Command(ffmpegPath, "-hide_banner", "-loglevel", "error",
+		"-i", "pipe:0", "-f", "image2", "-c:v", "mjpeg", "-q:v", "3", "pipe:1")
+	cmd.Stdin = bytes.NewReader(data)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil || out.Len() == 0 {
+		return nil, false
+	}
+	return out.Bytes(), true
 }
