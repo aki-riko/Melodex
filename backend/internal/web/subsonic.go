@@ -301,6 +301,26 @@ func RegisterSubsonicRoutes(r *gin.Engine) {
 	rest.GET("/stream.view", subsonicStream)
 	rest.GET("/download", subsonicStream)
 	rest.GET("/download.view", subsonicStream)
+
+	// 封面
+	rest.GET("/getCoverArt", subsonicGetCoverArt)
+	rest.GET("/getCoverArt.view", subsonicGetCoverArt)
+
+	// 曲库浏览(扫共享下载目录,听过入库的歌沉淀在此)
+	rest.GET("/getMusicFolders", subsonicGetMusicFolders)
+	rest.GET("/getMusicFolders.view", subsonicGetMusicFolders)
+	rest.GET("/getIndexes", subsonicGetIndexes)
+	rest.GET("/getIndexes.view", subsonicGetIndexes)
+	rest.GET("/getArtists", subsonicGetArtists)
+	rest.GET("/getArtists.view", subsonicGetArtists)
+	rest.GET("/getArtist", subsonicGetArtist)
+	rest.GET("/getArtist.view", subsonicGetArtist)
+	rest.GET("/getAlbumList2", subsonicGetAlbumList2)
+	rest.GET("/getAlbumList2.view", subsonicGetAlbumList2)
+	rest.GET("/getAlbum", subsonicGetAlbum)
+	rest.GET("/getAlbum.view", subsonicGetAlbum)
+	rest.GET("/getLyrics", subsonicGetLyrics)
+	rest.GET("/getLyrics.view", subsonicGetLyrics)
 }
 
 // subsonicAuthMiddleware 校验 facade 是否启用 + Subsonic 认证(u/t/s 或 u/p)。
