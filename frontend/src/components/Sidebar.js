@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Home, Search, Library, Settings, HelpCircle, Music, Plus } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
+import { importM3U } from '../services/collections';
 import { requestOpenPlaylist } from '../services/playlistBus';
 
 // 导航项:桌面左栏分组展示,移动端取 primary 的几项做底部 Tab
@@ -67,11 +68,18 @@ export function Sidebar({ currentSection, onNavigate }) {
   );
 }
 
-// 侧栏自建歌单列表:列我的歌单 + 新建,点击 → 切到歌单页打开该歌单
+// 侧栏自建歌单列表:列我的歌单 + 新建/导入,点击 → 切到歌单页打开
 function PlaylistNav({ onNavigate }) {
-  const { collections, create } = useCollections();
+  const { collections, create, refresh } = useCollections();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileRef = React.useRef(null);
+
+  const openNew = (c, nm) => {
+    if (c && c.id != null) { onNavigate('MyPlaylist'); requestOpenPlaylist({ collectionId: c.id, name: nm }); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -79,16 +87,51 @@ function PlaylistNav({ onNavigate }) {
     if (!n) return;
     const c = await create(n);
     setName(''); setCreating(false);
-    if (c && c.id != null) { onNavigate('MyPlaylist'); requestOpenPlaylist({ collectionId: c.id, name: n }); }
+    openNew(c, n);
+  };
+
+  // 选 m3u/m3u8 文件 → 读文本 → 后端解析+搜索匹配+新建歌单
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = ''; // 允许重复选同一文件
+    if (!f) return;
+    setImporting(true);
+    try {
+      const content = await f.text();
+      const base = f.name.replace(/\.(m3u8?|M3U8?)$/, '');
+      const r = await importM3U(base || '导入歌单', content);
+      await refresh();
+      window.alert(`导入「${r.name}」:共 ${r.total} 条,匹配 ${r.matched} 首${r.skipped ? `,${r.skipped} 首未匹配` : ''}`);
+      openNew({ id: r.id }, r.name);
+    } catch (err) {
+      window.alert('导入失败:' + (err?.response?.data?.error || err.message || '未知错误'));
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
     <div className="mb-5 border-t border-border pt-4">
-      <div className="flex items-center justify-between px-3 mb-1">
+      <div className="relative flex items-center justify-between px-3 mb-1">
         <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">我的歌单</span>
-        <button onClick={() => setCreating((v) => !v)} className="text-muted-foreground hover:text-foreground" title="新建歌单">
+        <button onClick={() => setMenuOpen((v) => !v)} className="text-muted-foreground hover:text-foreground" title="新建 / 导入">
           <Plus size={16} />
         </button>
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+            <div className="absolute right-2 top-7 z-20 bg-popover border border-border rounded-md shadow-lg py-1 w-32">
+              <button className="w-full px-3 py-2 text-sm text-left hover:bg-secondary"
+                onClick={() => { setMenuOpen(false); setCreating(true); }}>新建空歌单</button>
+              <button className="w-full px-3 py-2 text-sm text-left hover:bg-secondary disabled:opacity-50"
+                disabled={importing}
+                onClick={() => { setMenuOpen(false); fileRef.current && fileRef.current.click(); }}>
+                {importing ? '导入中…' : '导入 m3u/m3u8'}
+              </button>
+            </div>
+          </>
+        )}
+        <input ref={fileRef} type="file" accept=".m3u,.m3u8" className="hidden" onChange={onFile} />
       </div>
       {creating && (
         <form onSubmit={submit} className="px-3 mb-2">
@@ -99,7 +142,7 @@ function PlaylistNav({ onNavigate }) {
         </form>
       )}
       {collections.length === 0 && !creating && (
-        <p className="px-3 text-xs text-muted-foreground/70">点 + 新建你的第一个歌单</p>
+        <p className="px-3 text-xs text-muted-foreground/70">点 + 新建或导入歌单</p>
       )}
       {collections.map((c) => (
         <button

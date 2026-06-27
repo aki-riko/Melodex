@@ -62,3 +62,10 @@ export const removeSongFromCollection = async (id, song) => {
   });
   return data;
 };
+
+// 导入 m3u/m3u8(content=文件全文)→ 新建歌单并按歌名搜索匹配入库
+// 返回 { id, name, total, matched, skipped }
+export const importM3U = async (name, content) => {
+  const { data } = await client.post(`${BASE}/import_m3u`, { name, content });
+  return data;
+};

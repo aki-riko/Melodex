@@ -645,6 +645,9 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 
 	colAPI := api.Group("/collections")
 
+	// m3u/m3u8 导入端点(解析歌名→搜索匹配→新建歌单),见 m3u_import.go
+	registerM3UImport(colAPI)
+
 	colAPI.GET("", func(c *gin.Context) {
 		var collections []Collection
 
