@@ -13,6 +13,21 @@ const client = axios.create({
   withCredentials: true,
 });
 
+// 全局 401 拦截:会话过期/失效时派发事件,由 AuthProvider 监听并切回登录页。
+// 排除鉴权自身接口(/auth/*、/me),避免登录失败时误触发(它们自行处理 401)。
+client.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    const status = error?.response?.status;
+    const url = error?.config?.url || '';
+    const isAuthEndpoint = url.includes('/api/v1/auth/') || url.endsWith('/api/v1/me');
+    if (status === 401 && !isAuthEndpoint && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('melodex:unauthorized'));
+    }
+    return Promise.reject(error);
+  }
+);
+
 // 多源搜索。type: song | playlist | album
 export const searchMusic = async (keyword, { type = 'song', sources = [], exactArtist = '' } = {}) => {
   const params = new URLSearchParams();
@@ -148,6 +163,102 @@ const callSecure = async (fn) => {
     throw e;
   }
 };
+
+// ===== 多用户鉴权 / 账号管理 / 个人偏好 =====
+
+// 当前登录用户 → { user:{id,username,role,disabled,created_at}, allowRegistration, setupRequired?, desktop? }
+// 未登录返回 { authenticated:false, setupRequired?, allowRegistration }。
+export const getMe = async () => {
+  try {
+    const { data } = await client.get('/api/v1/me');
+    return { authenticated: true, ...data };
+  } catch (e) {
+    if (e?.response?.status === 401) {
+      return {
+        authenticated: false,
+        setupRequired: !!e.response.data?.setupRequired,
+        allowRegistration: !!e.response.data?.allowRegistration,
+      };
+    }
+    throw e;
+  }
+};
+
+// 初始化首个管理员 → { user }
+export const setupAdmin = async (username, password) => {
+  const { data } = await client.post('/api/v1/auth/setup', { username, password });
+  return data;
+};
+
+// 登录 → { user }
+export const login = async (username, password) => {
+  const { data } = await client.post('/api/v1/auth/login', { username, password });
+  return data;
+};
+
+// 自助注册(需后端开放)→ { user }
+export const register = async (username, password) => {
+  const { data } = await client.post('/api/v1/auth/register', { username, password });
+  return data;
+};
+
+// 登出
+export const logout = async () => {
+  const { data } = await client.post('/api/v1/auth/logout');
+  return data;
+};
+
+// 个人展示偏好(浮动歌词/每页条数)。返回合并后的完整 settings。
+export const saveUserPrefs = async (prefs) => {
+  const { data } = await client.post('/music/user/prefs', prefs, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
+  return data;
+};
+
+// ===== 用户管理(仅管理员) =====
+
+export const adminListUsers = async () =>
+  callSecure(async () => {
+    const { data } = await client.get('/api/v1/admin/users');
+    return data; // { users:[], allowRegistration }
+  });
+
+export const adminCreateUser = async (username, password, role) =>
+  callSecure(async () => {
+    const { data } = await client.post('/api/v1/admin/users', { username, password, role });
+    return data;
+  });
+
+export const adminSetUserRole = async (id, role) =>
+  callSecure(async () => {
+    const { data } = await client.put(`/api/v1/admin/users/${id}/role`, { role });
+    return data;
+  });
+
+export const adminSetUserDisabled = async (id, disabled) =>
+  callSecure(async () => {
+    const { data } = await client.put(`/api/v1/admin/users/${id}/disabled`, { disabled });
+    return data;
+  });
+
+export const adminResetPassword = async (id, password) =>
+  callSecure(async () => {
+    const { data } = await client.put(`/api/v1/admin/users/${id}/password`, { password });
+    return data;
+  });
+
+export const adminDeleteUser = async (id) =>
+  callSecure(async () => {
+    const { data } = await client.delete(`/api/v1/admin/users/${id}`);
+    return data;
+  });
+
+export const adminSetRegistration = async (allow) =>
+  callSecure(async () => {
+    const { data } = await client.put('/api/v1/admin/registration', { allow });
+    return data;
+  });
 
 // ===== 二维码登录 / Cookie 管理 / 本地音乐 =====
 
