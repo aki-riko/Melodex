@@ -43,6 +43,36 @@ Melodex/
 - **哈希路由**:URL hash 即当前页(#download/#settings),刷新/直达不丢;`handleLinkClick` 写 hash,`hashchange` 监听前进后退。
 - **react-query 全局关 `refetchOnWindowFocus`/`refetchOnReconnect`**(App.js QueryClient defaultOptions):否则切窗口再聚焦会自动重新搜索 + 重新验活。
 
+## 多用户隔离 + 两级 RBAC(2026-06 新增)
+
+Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**。生产 tsp.9li.life 前面已有 Authentik SSO 守门,但后端拿不到 SSO 身份,故**自建多账号**(不依赖 SSO,可脱离 SSO 部署)。
+
+### 数据模型(`backend/internal/web`,settings.db)
+- **User 表**(`users.go`):username 唯一(大小写不敏感)/bcrypt 密码哈希/role(admin|user)/disabled。完整 CRUD + **最后管理员保护**(不能删/降级/禁用最后一个 admin)。
+- **Collection.UserID**:歌单按 user_id 归属;SavedSong 经 Collection 归属。所有歌单查询经 `loadOwnedCollection(id, userID)`,跨用户访问按 404 处理(不泄露存在性)。
+- **DownloadRecord 表**(`download_record.go`):下载**共享同一目录**(DownloadDir 全局),按 user_id 记录"谁下了哪个文件(relPath)"。本地库据此按用户过滤:普通用户只见自己下过的,管理员见全部。同首歌多人下只占一份盘。
+- **userPrefRow 表**(`user_prefs.go`):仅 `disableFloatingLyrics`/`webPageSize` 两个**展示类偏好**按用户隔离;下载目录/并发/文件名模板/embed/更新/代理为**系统级全局**(仅管理员可改)——避免每人不同文件名模板破坏共享目录去重。
+
+### 鉴权(`auth.go` / `auth_api.go`)
+- session payload 含 UserID,全局 HMAC 签名密钥惰性生成存 `WebAuthSettings.SessionSecret`。`authRequired` 注入 userID/role/username 入 gin.Context(**绝不信任前端传的 user_id**),`adminRequired` 非管理员 403。
+- **路由分级**:`bindAuthMiddleware` 返回 `adminAPI`(登录+管理员:cookie/系统设置/QR登录/用户管理)与 `userAPI`(仅登录:歌单/收藏/本地库)。公开读路由(搜索/播放/歌词)挂 `attachUserOptional` 让下载能记归属。
+- **JSON 鉴权接口**:`/api/v1/{me,auth/setup,auth/login,auth/register,auth/logout}` + `/api/v1/admin/users/*` + 开放注册开关(默认关,KV `allow_registration`)。HTML `/music/setup`/`/music/login` 也改查 User 表。
+- **安全**:bcrypt 登录时序防护(不存在用户也跑假哈希)、登录/注册失败限流、禁止自删/自降/自禁、删用户级联清歌单+下载归属。
+- **桌面模式**(`--desktop` / DisableAuth):`desktopUserMiddleware` 注入本地管理员 `local` 免登录,数据仍按 user_id 归属(单用户兜底)。
+- **平台会员 cookie 全局共享**(房主一个会员号,多人共用),仅管理员可配置——这是有意决策,不按用户隔离。
+
+### 迁移(`migrateRootUserAndOwnership`,InitDB 内幂等)
+- 既有单管理员部署:复用旧 `WebAuthSettings` 的密码哈希创建 ROOT(role=admin),**绝不凭空造管理员密码**,全部存量 collection backfill 归 ROOT。全新部署:无用户,首次 setup 即 ROOT。
+
+### 前端(`frontend/src`)
+- `contexts/AuthContext.js`:启动拉 `/api/v1/me` 判登录态;未登录渲染 `AuthGate`(setup/login/register 三模式),登录后渲染主应用。全局 axios 401 拦截器派发 `melodex:unauthorized` 事件,AuthProvider 监听后重新鉴权(会话过期自动切登录页)。
+- `components/UserManagement.js`(#users,仅管理员):用户 CRUD + 开放注册开关。Sidebar 底部显示当前用户+登出+(管理员)用户管理入口。Settings 的账号登录/Cookie 区块仅管理员可见。
+- **重要行为变化**:数据接口现在**需要 Melodex 登录**(原来公开无鉴权,纯靠 SSO);生产上等于 Authentik SSO + Melodex 登录双重门。
+
+### 验证(2026-06 真机端到端)
+- 后端单测覆盖:用户CRUD/最后管理员保护/legacy迁移幂等/下载归属交叉隔离/session验签/RBAC边界/跨用户歌单隔离/偏好隔离,全过零回归。
+- 真机 curl 端到端(本机二进制 + 临时 settings.db):setup ROOT→建user→各自建歌单→交叉访问验隔离(alice 对 root 歌单读/删全 404,root 歌单不受影响)→普通用户改cookie/列用户全 403→管理员可→禁止自删/自降→开放注册后可自助注册role=user→本地库 admin 见全部/user 无归属见空→桌面模式 desktop:true 免登录。
+
 ## 开发运行
 
 ```bash
