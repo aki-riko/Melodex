@@ -4,7 +4,6 @@ import { Sidebar, MobileTabBar } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Trending from './components/Trending';
 import Artists from './components/Artists';
-import Discover from './components/Discover';
 import Download from './components/Download';
 import Settings from './components/Settings';
 import MyPlaylist from './components/MyPlaylist';
@@ -26,7 +25,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const VALID_SECTIONS = ['Home', 'Trending', 'Artists', 'Discover', 'Download', 'Settings', 'FAQ', 'MyPlaylist'];
+const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist'];
 const sectionFromHash = () => {
   const h = (window.location.hash || '').replace(/^#/, '').toLowerCase();
   return VALID_SECTIONS.find((s) => s.toLowerCase() === h) || 'Home';
@@ -76,8 +75,8 @@ function App() {
             >
               <div className="container mx-auto px-4 md:px-6 py-6 max-w-6xl">
                 {/* 首页直接用发现页(分类浏览歌单),去掉无实质内容的欢迎页 */}
-                {(currentSection === 'Home' || currentSection === 'Discover') && <Discover />}
-                {currentSection === 'Trending' && <Trending />}
+                {/* 首页=热门推荐(分类浏览歌单);原"发现"页与之重叠,已删 */}
+                {(currentSection === 'Home' || currentSection === 'Trending') && <Trending />}
                 {currentSection === 'Download' && <Download downloadRequest={downloadRequest} />}
                 {currentSection === 'Settings' && <Settings />}
                 {currentSection === 'Artists' && <Artists />}

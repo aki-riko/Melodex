@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, TrendingUp, Compass, Search, Library, Settings, HelpCircle, Music, Plus } from 'lucide-react';
+import { Home, Search, Library, Settings, HelpCircle, Music, Plus } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { requestOpenPlaylist } from '../services/playlistBus';
 
@@ -9,8 +9,6 @@ const GROUPS = [
     title: '发现',
     items: [
       { key: 'Home', label: '首页', icon: Home, primary: true },
-      { key: 'Trending', label: '热门', icon: TrendingUp },
-      { key: 'Discover', label: '发现', icon: Compass },
     ],
   },
   {

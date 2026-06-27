@@ -25,16 +25,13 @@ const Trending = () => {
 
   const tabs = data?.tabs || [];
   return (
-    <div className="max-w-5xl mx-auto p-4">
-      <h1 className="text-4xl font-semibold mb-6 text-foreground">
-        热门推荐
-      </h1>
+    <div>
+      <h1 className="text-3xl font-black mb-6">热门推荐</h1>
       {isLoading && <p className="text-muted-foreground font-medium">加载中…</p>}
       {isError && <p className="text-destructive font-medium">获取热门推荐失败</p>}
-      <div className="space-y-8 pb-32">
+      <div className="space-y-8">
         {tabs.map((tab) => (
-          <div key={tab.source}>
-            <h3 className="text-xl font-semibold mb-3 text-foreground">
+          <div key={tab.source}>            <h3 className="text-xl font-semibold mb-3 text-foreground">
               {tab.source_name || tab.source}
             </h3>
             {tab.error && <p className="text-destructive font-medium text-sm mb-2">{tab.error}</p>}
