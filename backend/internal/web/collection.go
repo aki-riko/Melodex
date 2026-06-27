@@ -41,6 +41,7 @@ var (
 // metadata and fetch songs on demand from the upstream source.
 type Collection struct {
 	ID          uint        `gorm:"primaryKey" json:"id"`
+	UserID      uint        `gorm:"index;not null;default:0" json:"user_id"`
 	Name        string      `gorm:"not null" json:"name"`
 	Description string      `json:"description"`
 	Cover       string      `json:"cover"`
@@ -188,7 +189,7 @@ func InitDB() {
 		panic("Failed to connect to SQLite: " + err.Error())
 	}
 
-	if err := db.AutoMigrate(&Collection{}, &SavedSong{}); err != nil {
+	if err := db.AutoMigrate(&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}); err != nil {
 		panic("Failed to migrate database: " + err.Error())
 	}
 
@@ -197,6 +198,9 @@ func InitDB() {
 	}
 	if err := backfillCollectionDefaults(); err != nil {
 		panic("Failed to normalize collection defaults: " + err.Error())
+	}
+	if err := migrateRootUserAndOwnership(); err != nil {
+		panic("Failed to migrate multi-user ownership: " + err.Error())
 	}
 }
 
