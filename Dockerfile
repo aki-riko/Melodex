@@ -22,6 +22,9 @@ ARG GOPROXY=direct
 ENV GOPROXY=$GOPROXY
 
 COPY backend/go.mod backend/go.sum ./
+# music-lib 以本地 replace 引入(backend/third_party/music-lib),go mod download
+# 需在解析 replace 前就能读到它的 go.mod,故先 COPY third_party 再 download。
+COPY backend/third_party/ ./third_party/
 RUN go mod download
 
 COPY backend/ .
