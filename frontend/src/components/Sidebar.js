@@ -1,5 +1,8 @@
 import React from 'react';
-import { Home, TrendingUp, Compass, Search, Library, Settings, HelpCircle } from 'lucide-react';
+import { useQuery } from 'react-query';
+import { Home, TrendingUp, Compass, Search, Library, Settings, HelpCircle, Music } from 'lucide-react';
+import { getRecommend } from '../services/musicdl';
+import { requestOpenPlaylist } from '../services/playlistBus';
 
 // 导航项:桌面左栏分组展示,移动端取 primary 的几项做底部 Tab
 const GROUPS = [
@@ -60,8 +63,35 @@ export function Sidebar({ currentSection, onNavigate }) {
             })}
           </div>
         ))}
+        {/* 歌单组:列推荐歌单,点击跳热门页并打开该歌单(1:1 复刻 Spotify 左栏 Playlists) */}
+        <PlaylistNav onNavigate={onNavigate} />
       </nav>
     </aside>
+  );
+}
+
+// 侧栏歌单列表:拉推荐歌单,点击 → 切热门页 + 打开歌单详情
+function PlaylistNav({ onNavigate }) {
+  const { data } = useQuery(['sidebar-recommend'], () => getRecommend(['netease', 'qq']), {
+    staleTime: 10 * 60 * 1000,
+  });
+  const playlists = (data?.tabs || []).flatMap((t) => t.playlists || []).slice(0, 30);
+  if (!playlists.length) return null;
+  return (
+    <div className="mb-5 border-t border-border pt-4">
+      <div className="px-3 mb-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">歌单</div>
+      {playlists.map((pl) => (
+        <button
+          key={`${pl.source}-${pl.id}`}
+          onClick={() => { onNavigate('Trending'); requestOpenPlaylist({ id: pl.id, source: pl.source, name: pl.name }); }}
+          className="w-full flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors text-left"
+          title={pl.name}
+        >
+          <Music size={16} className="flex-shrink-0" />
+          <span className="truncate">{pl.name}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
