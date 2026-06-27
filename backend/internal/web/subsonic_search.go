@@ -333,11 +333,46 @@ func liveCheckSongs(songs []model.Song, concurrency int) []model.Song {
 // songToSubsonicChild 把一首在线歌曲映射成 Subsonic song 元素。
 // 带上 albumId/artistId(合成 id)并把封面记入映射表 —— 音流播放页可能
 // 用 albumId/artistId 取封面而非 song 自身的 coverArt,缺这俩会拿空 id 查不到图。
+// estimateDuration 在源未提供时长时估算秒数:有 size+bitrate 用公式,
+// 否则按格式典型码率(FLAC~1000k,mp3~320k)反推。返回 0 表示估不出。
+func estimateDuration(size int64, bitrate int, suffix string) int {
+	if size <= 0 {
+		return 0
+	}
+	kbps := bitrate
+	if kbps <= 0 {
+		switch suffix {
+		case "flac", "wav":
+			kbps = 1000
+		case "m4a", "ogg":
+			kbps = 256
+		default: // mp3 等
+			kbps = 320
+		}
+	}
+	sec := (size * 8) / int64(kbps) / 1000
+	if sec <= 0 {
+		return 0
+	}
+	return int(sec)
+}
+
 func songToSubsonicChild(song model.Song) subsonicChild {
 	id := encodeOnlineSongID(song)
 	suffix := strings.ToLower(strings.TrimPrefix(song.Ext, "."))
 	if suffix == "" {
 		suffix = "mp3"
+	}
+	// duration 缺失时估算:音流等客户端没时长无法建立播放时间轴,会反复重拉
+	// 死循环(完整拉几十遍、从不 seek)。有 size+bitrate 时按公式算,否则按
+	// 格式典型码率估。宁可估个近似值也不能留空。
+	duration := song.Duration
+	if duration <= 0 {
+		duration = estimateDuration(song.Size, song.Bitrate, suffix)
+	}
+	bitrate := song.Bitrate
+	if bitrate <= 0 && song.Size > 0 && duration > 0 {
+		bitrate = int((song.Size * 8) / int64(duration) / 1000)
 	}
 	child := subsonicChild{
 		ID:          id,
@@ -345,8 +380,8 @@ func songToSubsonicChild(song model.Song) subsonicChild {
 		Title:       song.Name,
 		Album:       song.Album,
 		Artist:      song.Artist,
-		Duration:    song.Duration,
-		BitRate:     song.Bitrate,
+		Duration:    duration,
+		BitRate:     bitrate,
 		Size:        song.Size,
 		Suffix:      suffix,
 		ContentType: core.AudioMimeByExt(suffix),

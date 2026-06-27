@@ -72,11 +72,8 @@ func serveLocalTrackAbs(c *gin.Context, track *localMusicTrack) {
 		return
 	}
 	defer file.Close()
-	rangeH := c.GetHeader("Range")
-	log.Printf("[subsonic] 本地stream开始 %s Range=%q ext=%s", track.Filename, rangeH, track.Ext)
 	c.Header("Content-Type", localAudioMimeByExt(track.Ext))
 	http.ServeContent(c.Writer, c.Request, track.Filename, track.modTime, file)
-	log.Printf("[subsonic] 本地stream结束 %s 写出字节=%d status=%d", track.Filename, c.Writer.Size(), c.Writer.Status())
 }
 
 // streamOnlineAndCache 在线反代播放,并后台完整下载落盘入库。

@@ -115,6 +115,38 @@ func TestSubsonicSearch3EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestEstimateDuration(t *testing.T) {
+	// 有 bitrate:35661811 字节 * 8 / 1111 / 1000 ≈ 256s
+	if got := estimateDuration(35661811, 1111, "flac"); got < 250 || got > 262 {
+		t.Fatalf("有码率估算应约256s, 实际 %d", got)
+	}
+	// 无 bitrate 的 FLAC:按 1000k 估
+	if got := estimateDuration(35661811, 0, "flac"); got < 270 || got > 290 {
+		t.Fatalf("FLAC无码率按1000k估应约285s, 实际 %d", got)
+	}
+	// 无 bitrate 的 mp3:按 320k
+	if got := estimateDuration(4087052, 0, "mp3"); got < 95 || got > 108 {
+		t.Fatalf("mp3无码率按320k估应约102s, 实际 %d", got)
+	}
+	// 无 size:估不出返 0
+	if got := estimateDuration(0, 0, "flac"); got != 0 {
+		t.Fatalf("无size应返0, 实际 %d", got)
+	}
+}
+
+func TestSongToSubsonicChildFillsDuration(t *testing.T) {
+	// 源没给 duration(=0)但有 size:必须估算出非零 duration,
+	// 否则音流没时长会反复重拉死循环。
+	song := model.Song{
+		Source: "qq", ID: "x", Name: "t", Artist: "a",
+		Ext: "flac", Size: 35661811, Duration: 0, Bitrate: 0,
+	}
+	child := songToSubsonicChild(song)
+	if child.Duration <= 0 {
+		t.Fatalf("duration 缺失时必须估算非零, 实际 %d", child.Duration)
+	}
+}
+
 func TestDetectRealExt(t *testing.T) {
 	cases := []struct {
 		url, ct, want string
