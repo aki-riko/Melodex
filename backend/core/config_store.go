@@ -78,6 +78,24 @@ func configDBPath() string {
 	return ConfigDBFile
 }
 
+// ResetConfigStateForTest 重置 config DB 单例与内存 cookie,供其他包的测试在切换
+// 临时 settings.db 后调用(InitDB 与 GetWebAuthSettings 等共享同一 configDB 单例)。
+// 仅用于测试。
+func ResetConfigStateForTest() {
+	if configDB != nil {
+		if sqlDB, err := configDB.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}
+	configDB = nil
+	configInitErr = nil
+	configInit = sync.Once{}
+
+	CM.mu.Lock()
+	CM.cookies = make(map[string]string)
+	CM.mu.Unlock()
+}
+
 // ConfigDBPath returns the canonical SQLite file used by the app.
 func ConfigDBPath() string {
 	return configDBPath()
