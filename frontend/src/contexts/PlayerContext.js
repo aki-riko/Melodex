@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered } from 'lucide-react';
-import { getStreamUrl } from '../services/musicdl';
+import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX } from 'lucide-react';
+import { getStreamUrl, coverProxyUrl } from '../services/musicdl';
 
 const PlayerContext = createContext(null);
 
@@ -8,6 +8,13 @@ const songKey = (s) => `${s.source}-${s.id}`;
 
 // 播放模式:order 顺序 / repeat 单曲循环 / shuffle 随机
 const MODES = ['order', 'repeat', 'shuffle'];
+
+// 音量持久化(纯前端展示偏好,localStorage 即可,无需后端)。
+const VOLUME_KEY = 'melodex_volume';
+const loadVolume = () => {
+  const v = parseFloat(localStorage.getItem(VOLUME_KEY));
+  return isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+};
 
 // 全局播放器:audio 元素与播放状态常驻 App 顶层,切换页面不中断。
 // 支持播放队列(上/下一首)、进度、播放模式、MediaSession(锁屏/通知栏控制)。
@@ -17,11 +24,30 @@ export const PlayerProvider = ({ children }) => {
   const [isPaused, setIsPaused] = useState(true);
   const [progress, setProgress] = useState({ cur: 0, dur: 0 });
   const [mode, setMode] = useState('order');
+  const [volume, setVolumeState] = useState(loadVolume);
+  const [muted, setMuted] = useState(false);
   const audioRef = useRef(null);
   const queueRef = useRef([]); // 当前播放队列
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
   const modeRef = useRef('order');
   useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  // 音量/静音应用到 audio 元素,并持久化音量。
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+      audioRef.current.muted = muted;
+    }
+    localStorage.setItem(VOLUME_KEY, String(volume));
+  }, [volume, muted]);
+
+  const setVolume = useCallback((v) => {
+    const nv = Math.min(1, Math.max(0, v));
+    setVolumeState(nv);
+    if (nv > 0) setMuted(false); // 拖动音量自动取消静音
+  }, []);
+
+  const toggleMute = useCallback(() => setMuted((m) => !m), []);
 
   const startPlay = useCallback((song) => {
     setNowPlaying(song);
@@ -125,6 +151,7 @@ export const PlayerProvider = ({ children }) => {
   return (
     <PlayerContext.Provider value={{
       nowPlaying, play, audioRef, notice, isPaused, progress, mode, setMode,
+      volume, setVolume, muted, toggleMute,
       isPlaying: (s) => nowPlaying && nowPlaying.id === s.id && nowPlaying.source === s.source,
       next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
       cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
@@ -154,6 +181,7 @@ export const PlayerBar = () => {
     nowPlaying, audioRef, notice, isPaused, progress, mode,
     next, prev, togglePlay, seek, handleError, handleEnded,
     setIsPaused, setProgress, cycleMode,
+    volume, setVolume, muted, toggleMute,
   } = usePlayer();
 
   const modeIcon = mode === 'repeat'
@@ -161,6 +189,14 @@ export const PlayerBar = () => {
     : mode === 'shuffle'
       ? <Shuffle size={18} />
       : <ListOrdered size={18} />;
+
+  // 音量图标:静音/0 → X,低 → Volume1,高 → Volume2
+  const effectiveVol = muted ? 0 : volume;
+  const volIcon = effectiveVol === 0
+    ? <VolumeX size={18} />
+    : effectiveVol < 0.5
+      ? <Volume1 size={18} />
+      : <Volume2 size={18} />;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-40"
@@ -171,7 +207,7 @@ export const PlayerBar = () => {
           {/* 左:封面 + 标题/歌手 */}
           <div className="flex items-center gap-3 min-w-0" style={{ width: '26%' }}>
             {nowPlaying?.cover && (
-              <img src={nowPlaying.cover} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow" />
+              <img src={coverProxyUrl(nowPlaying)} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow" />
             )}
             <div className="min-w-0">
               <p className="truncate font-semibold text-sm">{nowPlaying?.name}</p>
@@ -206,6 +242,19 @@ export const PlayerBar = () => {
               className="flex-grow accent-primary cursor-pointer" aria-label="播放进度"
             />
             <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
+          </div>
+          {/* 音量:仅桌面显示(移动端用系统音量)。点击图标静音/恢复,拖动调音量 */}
+          <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0" style={{ width: 120 }}>
+            <button onClick={toggleMute}
+              className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+              title={muted ? '取消静音' : '静音'} aria-label="静音">
+              {volIcon}
+            </button>
+            <input
+              type="range" min={0} max={1} step="0.01" value={effectiveVol}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              className="flex-grow accent-primary cursor-pointer" aria-label="音量"
+            />
           </div>
           <audio
             ref={audioRef}
