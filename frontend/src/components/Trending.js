@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from 'react-query';
+import { Play } from 'lucide-react';
 import { getRecommend } from '../services/musicdl';
 import PlaylistSongs from './PlaylistSongs';
 
@@ -37,13 +38,14 @@ const Trending = () => {
               {(tab.playlists || []).map((pl) => (
                 <div
                   key={`${pl.source}-${pl.id}`}
-                  className="cursor-pointer group border border-border rounded-lg bg-card shadow-brutal-sm transition-shadow hover:shadow-fluent-lg p-2"
+                  className="media-card group"
                   onClick={() => setOpen({ id: pl.id, source: pl.source, name: pl.name })}
                 >
-                  <div className="aspect-square overflow-hidden rounded-md border border-border bg-muted">
-                    {pl.cover && <img src={pl.cover} alt={pl.name} loading="lazy" className="w-full h-full object-cover" />}
+                  <div className="media-card__art">
+                    {pl.cover && <img src={pl.cover} alt={pl.name} loading="lazy" />}
+                    <span className="media-card__play"><Play size={20} fill="currentColor" /></span>
                   </div>
-                  <p className="text-sm font-medium mt-2 line-clamp-2">{pl.name}</p>
+                  <p className="text-sm font-medium line-clamp-2">{pl.name}</p>
                 </div>
               ))}
             </div>

@@ -41,3 +41,51 @@
 html {
   scroll-behavior: smooth;
 }
+
+/* ===== Spotify 风 app-shell 布局(皮肤改编自 Adam Lowenthal CodePen, MIT) ===== */
+
+/* 主内容区细滚动条(Spotify 风) */
+.app-scroll::-webkit-scrollbar { width: 10px; }
+.app-scroll::-webkit-scrollbar-track { background: transparent; }
+.app-scroll::-webkit-scrollbar-thumb {
+  background: hsl(0 0% 30%);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.app-scroll::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 45%); background-clip: content-box; }
+
+/* media-card:封面卡片(hover 浮起 + 显示播放钮) */
+.media-card {
+  background: hsl(var(--card));
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+.media-card:hover { background: hsl(0 0% 22%); }
+.media-card__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  margin-bottom: 0.6rem;
+  background: hsl(0 0% 12%);
+}
+.media-card__art img { width: 100%; height: 100%; object-fit: cover; }
+.media-card__play {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  width: 2.75rem; height: 2.75rem;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  transform: translateY(0.5rem);
+  transition: all 0.2s;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+}
+.media-card:hover .media-card__play { opacity: 1; transform: translateY(0); }
