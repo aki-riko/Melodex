@@ -200,9 +200,10 @@ func decodeLocalSongID(id string) (string, bool) {
 	return string(raw), true
 }
 
-// liveCheckSong 对单首在线歌曲做验活:取真实下载 URL 后发 Range 探测,
-// 返回是否可播 + 真实字节大小 + 真实格式(从 URL 后缀/Content-Type 判断)。
-// 真实格式很关键:声明 mp3 但实流 FLAC 会让客户端按 mp3 解 FLAC → 播不出。
+// liveCheckSong 对单首在线歌曲做验活 + 探测真实格式。
+// 用 NewSourceRangeFetch(与 stream 同一下载路径),它按文件魔数判真实格式 +
+// 返回真实总大小 —— 关键:GetDownloadFunc 直连可能拿到 128k mp3,而 stream
+// 走 RangeFetch 拿到 VIP FLAC,两者不一致会导致声明 mp3 实流 FLAC 播不出。
 func liveCheckSong(song model.Song) (ok bool, size int64, ext string) {
 	fn := core.GetDownloadFunc(song.Source)
 	if fn == nil {
@@ -212,6 +213,16 @@ func liveCheckSong(song model.Song) (ok bool, size int64, ext string) {
 	if err != nil || urlStr == "" {
 		return false, 0, ""
 	}
+	// 优先用 RangeFetch(与 stream 同路径):按魔数判真实格式 + 真实大小。
+	if rf, handled, rfErr := core.NewSourceRangeFetch(urlStr, song.Source, "bytes=0-1"); rfErr == nil && handled && rf != nil {
+		realExt := strings.ToLower(strings.TrimPrefix(rf.Ext, "."))
+		total := rf.Total
+		if total <= 0 {
+			total = rf.ContentLength
+		}
+		return true, total, realExt
+	}
+	// 退化:普通 Range 探测(拿不到真实格式时靠 URL/Content-Type 猜)。
 	req, reqErr := core.BuildSourceRequest("GET", urlStr, song.Source, "bytes=0-1")
 	if reqErr != nil {
 		return false, 0, ""
