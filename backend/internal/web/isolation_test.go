@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -62,7 +64,38 @@ func listCollectionIDs(t *testing.T, r *gin.Engine) []uint {
 	return ids
 }
 
-// TestCollectionsIsolatedAcrossUsers 验证两个用户的歌单互不可见、互不可改。
+// TestNonAdminUploadVisibleToSelf 回归:普通用户上传后必须在自己本地库可见
+// (上传须登记 DownloadRecord,否则被 filterLocalTracksForUser 隐藏)。
+func TestNonAdminUploadVisibleToSelf(t *testing.T) {
+	setupUserTestDB(t)
+	alice, _ := createUser("alice", "alicepass1", RoleUser)
+
+	dir := t.TempDir()
+	withLocalMusicDownloadDir(t, dir)
+
+	// 直接造文件 + 登记归属(等价于 upload handler 内 recordDownload 的效果)。
+	rel := "alice-upload.mp3"
+	if err := os.WriteFile(filepath.Join(dir, rel), []byte("ID3test-audio-bytes-padding-padding"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := recordDownload(alice.ID, rel, localMusicSource, "x", "AliceUpload", "A"); err != nil {
+		t.Fatalf("recordDownload: %v", err)
+	}
+	invalidateLocalMusicScanCache()
+
+	tracks, _, _, _, _, _ := scanLocalMusicTracksCached(true)
+	// 普通用户视图:能看到自己登记的文件。
+	mine := filterLocalTracksForUser(tracks, alice.ID, false)
+	if len(mine) != 1 {
+		t.Fatalf("alice should see her uploaded file, got %d", len(mine))
+	}
+	// 另一个无归属的普通用户看不到。
+	bob, _ := createUser("bob", "bobpass1", RoleUser)
+	if got := filterLocalTracksForUser(tracks, bob.ID, false); len(got) != 0 {
+		t.Fatalf("bob should not see alice's upload, got %d", len(got))
+	}
+}
+
 func TestCollectionsIsolatedAcrossUsers(t *testing.T) {
 	setupUserTestDB(t)
 	alice, _ := createUser("alice", "alicepass1", RoleUser)
