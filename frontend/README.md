@@ -4,7 +4,7 @@
 
 ![](.github/banner.png)
 
-TuneScout is a React application that surfaces trending music and artist insights by combining data from Last.fm and Spotify. Users can explore top charts, drill into rich track and artist detail, and sample music directly through Spotify embeds.
+Melodex is a React application that surfaces trending music and artist insights by combining data from Last.fm and Spotify. Users can explore top charts, drill into rich track and artist detail, and sample music directly through Spotify embeds.
 
 ## Features
 

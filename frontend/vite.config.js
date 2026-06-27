@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'favicon-32.png', 'logo192.png', 'logo512.png'],
       manifest: {
-        name: 'TuneScout+',
-        short_name: 'TuneScout+',
+        name: 'Melodex',
+        short_name: 'Melodex',
         description: '音乐发现与多源下载二合一',
         theme_color: '#181818',
         background_color: '#181818',

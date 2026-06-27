@@ -35,7 +35,7 @@ export function Sidebar({ currentSection, onNavigate }) {
         onClick={(e) => { e.preventDefault(); onNavigate('Home'); }}
         className="text-2xl font-black tracking-tight text-primary px-5 py-5 hover:opacity-80"
       >
-        TuneScout<span className="text-foreground">+</span>
+        Melo<span className="text-foreground">dex</span>
       </a>
       <nav className="flex-grow px-2">
         {GROUPS.map((g) => (

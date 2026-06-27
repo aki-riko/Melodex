@@ -219,7 +219,7 @@ func clearAuthCookie(c *gin.Context) {
 }
 
 func safeAuthRedirectTarget(raw string) string {
-	// TuneScout+:登录/初始化成功后默认回到 React 应用根路径 "/",
+	// Melodex:登录/初始化成功后默认回到 React 应用根路径 "/",
 	// 不再回老的 RoutePrefix(/music 已下线)。仅接受站内相对路径。
 	const defaultTarget = "/"
 	raw = strings.TrimSpace(raw)
@@ -292,7 +292,7 @@ func authRequired(provider authSettingsProvider) gin.HandlerFunc {
 }
 
 func renderAuthPage(c *gin.Context, mode string, errMsg string, username string) {
-	title := "登录 TuneScout+"
+	title := "登录 Melodex"
 	action := RoutePrefix + "/login"
 	button := "登录"
 	if mode == "setup" {

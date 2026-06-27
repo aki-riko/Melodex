@@ -1,10 +1,10 @@
 services:
-  tunescout-plus:
+  melodex:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tunescout-plus:latest
-    container_name: tunescout-plus
+    image: melodex:latest
+    container_name: melodex
     restart: unless-stopped
     ports:
       - "8329:8329"

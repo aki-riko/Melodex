@@ -1,6 +1,6 @@
 # TuneScout+ 一体化镜像:React 前端 + Go 后端 + ffmpeg,单容器同源部署。
 # 构建上下文为仓库根(同时含 frontend/ 与 backend/):
-#   docker build -t tunescout-plus -f Dockerfile .
+#   docker build -t melodex -f Dockerfile .
 
 # ===== 阶段1:构建 React 前端 =====
 FROM node:20-alpine AS frontend

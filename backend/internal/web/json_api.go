@@ -21,7 +21,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	api := r.Group("/api/v1")
 
 	api.GET("/healthz", func(c *gin.Context) {
-		c.JSON(200, gin.H{"app": "tunescout+", "status": "ok"})
+		c.JSON(200, gin.H{"app": "melodex", "status": "ok"})
 	})
 
 	// 可用音乐源列表(前端 source 选择用)

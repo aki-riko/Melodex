@@ -99,7 +99,7 @@ function Hero({ onLinkClick }) {
       <div className="container mx-auto px-4 py-8 flex flex-col md:flex-row items-center">
         <div className="md:w-1/2 mb-8 md:mb-0 z-10">
           <h1 className="text-4xl font-bold mb-4">发现你的下一首心头好 🎵</h1>
-          <p className="text-xl mb-6">TuneScout+ 替你在全网搜罗,帮你发现新音乐。</p>
+          <p className="text-xl mb-6">Melodex 替你在全网搜罗,帮你发现新音乐。</p>
           <a
             href="#trending"
             className="discover-music-btn bg-primary text-primary-foreground px-8 py-3 rounded-md font-semibold shadow-brutal-sm transition-colors hover:bg-[#106EBE]"

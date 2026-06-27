@@ -1,10 +1,10 @@
-# AGENTS.md — TuneScout+ 项目纪律与概况
+# AGENTS.md — Melodex 项目纪律与概况
 
 > 给接手本项目的 AI / 开发者。动手前务必读完本文件。
 
 ## 这是什么
 
-TuneScout+ 是两个开源项目合并的成果:
+Melodex 是两个开源项目合并的成果:
 - **[peter-bf/tunescout](https://github.com/peter-bf/tunescout)** —— React 发现页 UI(原英法双语,原接 Last.fm/Spotify)
 - **[guohuiyuan/go-music-dl](https://github.com/guohuiyuan/go-music-dl)** —— Go 全网音乐搜索下载引擎(国内多源 + ffmpeg),**AGPL-3.0**
 
@@ -13,7 +13,7 @@ TuneScout+ 是两个开源项目合并的成果:
 ## 架构(读源码得出,非臆测)
 
 ```
-TuneScout+/
+Melodex/
 ├── backend/    Go(Gin)。go-music-dl 改造而来,平台解析在外部依赖 music-lib
 │   └── internal/web/
 │       ├── json_api.go      新增的 /api/v1/* JSON 接口(React 用);含 cookie 管理(GET/POST/DELETE /cookies)
@@ -60,7 +60,7 @@ cd frontend && npm install && npm run dev   # 读 .env.development.local 指向�
 
 ## Subsonic API facade(2026-06 新增,音流/substreamer 等客户端直连)
 
-TuneScout+ 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navidrome),让标准 Subsonic 客户端连一个地址即可「搜全网在线听 + 浏览已入库本地曲库 + 听过自动入库」。代码在 `backend/internal/web/subsonic*.go`(facade 主体 `subsonic.go`、id编解码+search3 `subsonic_search.go`、stream `subsonic_stream.go`、封面+曲库浏览 `subsonic_library.go`)。
+Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navidrome),让标准 Subsonic 客户端连一个地址即可「搜全网在线听 + 浏览已入库本地曲库 + 听过自动入库」。代码在 `backend/internal/web/subsonic*.go`(facade 主体 `subsonic.go`、id编解码+search3 `subsonic_search.go`、stream `subsonic_stream.go`、封面+曲库浏览 `subsonic_library.go`)。
 
 ### 设计要点(读源码得出)
 - **默认关**:`MUSIC_DL_SUBSONIC_ENABLED` + `_USER` + `_PASS` 三个 env 配齐才启用;缺凭据强制关(无法认证的 facade 不暴露端点)。纯下载/现有部署不受影响。
@@ -94,7 +94,7 @@ TuneScout+ 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Na
 ## 测试与验证纪律(重要)
 
 - 后端改动:`go build ./...` + `go test ./internal/web/ ./core/`,**零回归**才提交(go-music-dl 自带大量测试)。
-- 前端**无自动化测试**(原 TuneScout 就没有)→ 靠 **playwright 真机验证**:搜索真返结果、播放查 `audio.currentTime` 真在走、getComputedStyle 验配色、派发 `tunescout:go-download` 事件测联动。
+- 前端**无自动化测试**(原 TuneScout 就没有)→ 靠 **playwright 真机验证**:搜索真返结果、播放查 `audio.currentTime` 真在走、getComputedStyle 验配色、派发 `melodex:go-download` 事件测联动。
 - **真实数据验证**:用真实关键词(周杰伦晴天等),不自造样本。ffprobe 验下载文件的元数据/封面。
 - **playwright 会话偶发卡死**("Browser is already in use",清 SingletonLock 也无效)→ 别死磕,改用真实搜索数据直接跑纯逻辑函数(如 relevanceScore 排序)验证,同样可靠。
 - **音质相关验证需登录**:未登录后端验活/inspect 多返 128k,看不出无损/音质排序效果;无登录环境用合成数据验证排序逻辑,真实效果在生产(已登录会员)才显现。
@@ -110,7 +110,7 @@ TuneScout+ 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Na
 ## Git
 
 - 双远程:fetch 走私仓,`git push` 一次双发 → 私仓 `git@<PRIVATE-GIT-HOST>:<GIT-NAMESPACE>/TuneScoutPlus.git` + GitHub `git@github.com:aki-riko/TuneScoutPlus.git`。
-- 仓库名 **TuneScoutPlus**(`+` 在仓库名非法;品牌名 / 界面仍用 "TuneScout+")。
+- 仓库名 **TuneScoutPlus**(`+` 在仓库名非法;品牌名 / 界面仍用 "Melodex")。
 - git 身份 local:Kotori <kotori@9li.life>。每次改动提交,push 前确保 build/test 过。
 
 ## 能力边界(已做到极限,别白费功夫)

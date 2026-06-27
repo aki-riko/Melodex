@@ -1,8 +1,8 @@
-# TuneScout+
+# Melodex
 
 > 音乐**发现**与**下载**二合一:在精致的 React 界面里发现好音乐,一键从国内多源解析下载。
 
-TuneScout+ 把两个开源项目合并为一个统一工具:
+Melodex 把两个开源项目合并为一个统一工具:
 
 - **发现** —— 沿用 [TuneScout](https://github.com/peter-bf/tunescout) 的 Last.fm / Spotify 榜单与艺人洞察界面。
 - **下载** —— 集成 [go-music-dl](https://github.com/guohuiyuan/go-music-dl) 的全网多源搜索与无损下载能力(网易云、QQ、酷狗、酷我、咪咕、汽水、Bilibili、Apple Music 等 10+ 平台)。
@@ -23,7 +23,7 @@ TuneScout+ 把两个开源项目合并为一个统一工具:
 
 ## Subsonic API(让音流等客户端直连)
 
-TuneScout+ 后端实现了一套轻量 Subsonic 服务端,音流/substreamer 等标准 Subsonic 客户端连一个地址即可:
+Melodex 后端实现了一套轻量 Subsonic 服务端,音流/substreamer 等标准 Subsonic 客户端连一个地址即可:
 
 - **搜索**(`search3`)直接接全网多源搜索,结果**验活后**返回(只给能播的)
 - **播放**(`stream`)在线实时解析;同一首**播放过即在后台完整下载+刮削落盘入库**,下次播放走本地
@@ -42,7 +42,7 @@ MUSIC_DL_SUBSONIC_PASS=强密码
 ## 项目结构
 
 ```
-TuneScout+/
+Melodex/
 ├── backend/    Go 后端(基于 go-music-dl,Gin + music-lib)
 │   └── internal/web/json_api.go   新增的 /api/v1/* JSON 接口
 └── frontend/   React 前端(基于 TuneScout,Vite + react-query + tailwind)
