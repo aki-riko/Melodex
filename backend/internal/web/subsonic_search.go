@@ -12,7 +12,6 @@ package web
 
 import (
 	"encoding/base64"
-	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -221,10 +220,8 @@ func liveCheckSong(song model.Song) (ok bool, size int64, ext string) {
 		if total <= 0 {
 			total = rf.ContentLength
 		}
-		log.Printf("[subsonic] 验活RangeFetch %s-%s src=%s ext=%s total=%d url=%.60s", song.Name, song.Artist, song.Source, realExt, total, urlStr)
 		return true, total, realExt
 	}
-	log.Printf("[subsonic] 验活退化(RangeFetch未handled) %s-%s src=%s url=%.60s", song.Name, song.Artist, song.Source, urlStr)
 	// 退化:普通 Range 探测(拿不到真实格式时靠 URL/Content-Type 猜)。
 	req, reqErr := core.BuildSourceRequest("GET", urlStr, song.Source, "bytes=0-1")
 	if reqErr != nil {
