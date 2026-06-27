@@ -43,6 +43,71 @@ var globalExtraStore = &songExtraStore{
 	maxSize: 5000,
 }
 
+// coverURLStore 存「艺人名/专辑名 → 在线封面 URL」映射,供 getCoverArt 解析
+// artist:/album: 合成 id 的封面(音流忽略响应里的 coverArt 字段,直接拿
+// artist/album 的 id 当封面 id 请求,故合成 id 必须能反查到封面 URL)。
+type coverURLStore struct {
+	mu      sync.Mutex
+	data    map[string]string
+	maxSize int
+}
+
+var globalCoverStore = &coverURLStore{
+	data:    make(map[string]string),
+	maxSize: 5000,
+}
+
+func (s *coverURLStore) put(key, coverURL string) {
+	if key == "" || coverURL == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.data) >= s.maxSize {
+		s.data = make(map[string]string)
+	}
+	// 只记首次(搜索结果已按相关性排序,首个通常最具代表性)。
+	if _, ok := s.data[key]; !ok {
+		s.data[key] = coverURL
+	}
+}
+
+func (s *coverURLStore) get(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data[key]
+}
+
+// coverStoreKey 由类型(artist/album)+名称派生 coverURLStore 的键。
+func coverStoreKey(kind, name string) string {
+	return kind + "\x00" + name
+}
+
+// resolveSyntheticCoverURL 解析 artist:/album: 合成 id(可能带音流加的
+// ar-/al- 前缀)对应的在线封面 URL;解不出返回空串。
+func resolveSyntheticCoverURL(id string) string {
+	s := strings.TrimSpace(id)
+	// 音流给 getCoverArt 的 id 会加 ar-/al- 前缀,先剥离。
+	s = strings.TrimPrefix(s, "ar-")
+	s = strings.TrimPrefix(s, "al-")
+	var kind string
+	switch {
+	case strings.HasPrefix(s, "artist:"):
+		kind = "artist"
+		s = strings.TrimPrefix(s, "artist:")
+	case strings.HasPrefix(s, "album:"):
+		kind = "album"
+		s = strings.TrimPrefix(s, "album:")
+	default:
+		return ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return ""
+	}
+	return globalCoverStore.get(coverStoreKey(kind, string(raw)))
+}
+
 func (s *songExtraStore) put(key string, extra map[string]string) {
 	if len(extra) == 0 {
 		return
@@ -296,6 +361,7 @@ func subsonicSearch3(c *gin.Context) {
 		result.Songs = append(result.Songs, child)
 		if s.Artist != "" && !seenArtist[s.Artist] {
 			seenArtist[s.Artist] = true
+			globalCoverStore.put(coverStoreKey("artist", s.Artist), s.Cover)
 			result.Artists = append(result.Artists, subsonicArtist{
 				ID:       "artist:" + base64.RawURLEncoding.EncodeToString([]byte(s.Artist)),
 				Name:     s.Artist,
@@ -304,6 +370,7 @@ func subsonicSearch3(c *gin.Context) {
 		}
 		if s.Album != "" && !seenAlbum[s.Album] {
 			seenAlbum[s.Album] = true
+			globalCoverStore.put(coverStoreKey("album", s.Album), s.Cover)
 			result.Albums = append(result.Albums, subsonicAlbum{
 				ID:       "album:" + base64.RawURLEncoding.EncodeToString([]byte(s.Album)),
 				Name:     s.Album,
