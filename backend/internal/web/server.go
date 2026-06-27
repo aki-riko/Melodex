@@ -209,11 +209,11 @@ func playlistDetailURL(root string, searchType string, playlist model.Playlist) 
 }
 
 func renderIndex(c *gin.Context, songs []model.Song, playlists []model.Playlist, q string, selected []string, errMsg string, searchType string, playlistLink string, colID string, colName string, isLocalColPage bool, collectionKind string, importCollection *importCollectionMeta) {
-	// TuneScout+:旧版 HTMX 网页界面已下线,统一改用 React 前端 + /api/v1 JSON 接口。
+	// Melodex:旧版 HTMX 网页界面已下线,统一改用 React 前端 + /api/v1 JSON 接口。
 	// 所有原 HTML 页面入口(首页/搜索/歌单/专辑/分类/本地等)在此返回 410,不再渲染老页面。
 	// 注意:这只影响 HTML 页面,/api/v1/*、/music/download、/music/local_music(JSON)、
 	// /music/lyric、登录等接口不经过本函数,完全不受影响。
-	c.String(http.StatusGone, "该网页界面已下线,请使用 TuneScout+ 前端。")
+	c.String(http.StatusGone, "该网页界面已下线,请使用 Melodex 前端。")
 	return
 	//nolint:govet // 以下为旧 HTML 渲染逻辑,保留备查,已被上方 return 短路。
 	//goland:noinspection GoUnreachableCode
@@ -409,7 +409,7 @@ func StartWithOptions(port string, opts StartOptions) {
 
 	api.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"app":    "tunescout+",
+			"app":    "melodex",
 			"status": "ok",
 		})
 	})
@@ -463,15 +463,15 @@ func StartWithOptions(port string, opts StartOptions) {
 	RegisterLocalMusicRoutes(api)
 	RegisterUpdateRoutes(api)
 
-	// TuneScout+ 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。
+	// Melodex 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。
 	// 敏感接口(登录/cookie)复用同一套管理员鉴权。
 	RegisterJSONAPIRoutes(r, opts)
 
-	// TuneScout+ 新增:Subsonic API facade(/rest),让音流等标准 Subsonic 客户端直接连。
+	// Melodex 新增:Subsonic API facade(/rest),让音流等标准 Subsonic 客户端直接连。
 	// 默认关闭,须配 env(MUSIC_DL_SUBSONIC_ENABLED + USER + PASS)才启用;自带 Subsonic 认证。
 	RegisterSubsonicRoutes(r)
 
-	// TuneScout+:在根路径托管 React 前端 SPA(产物嵌入二进制)。必须最后注册(含 NoRoute 兜底)。
+	// Melodex:在根路径托管 React 前端 SPA(产物嵌入二进制)。必须最后注册(含 NoRoute 兜底)。
 	registerFrontend(r)
 
 	listenAddr := opts.ListenHost + ":" + port

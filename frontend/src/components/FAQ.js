@@ -4,8 +4,8 @@ const FAQ_DATA = {
   faq: '常见问题',
   questions: [
     {
-      question: 'TuneScout+ 是什么?',
-      answer: 'TuneScout+ 是音乐发现与下载二合一的工具:在发现页浏览榜单与艺人,在下载页从国内多源搜索、在线播放并下载音乐。',
+      question: 'Melodex 是什么?',
+      answer: 'Melodex 是音乐发现与下载二合一的工具:在发现页浏览榜单与艺人,在下载页从国内多源搜索、在线播放并下载音乐。',
     },
     {
       question: '如何搜索并下载音乐?',
@@ -20,8 +20,8 @@ const FAQ_DATA = {
       answer: '可以。在「视频生成」页选一首歌,即可生成带封面与歌词的 1080P 视频。',
     },
     {
-      question: 'TuneScout+ 是免费的吗?',
-      answer: '是的,TuneScout+ 完全免费且开源,仅供学习与技术交流使用。',
+      question: 'Melodex 是免费的吗?',
+      answer: '是的,Melodex 完全免费且开源,仅供学习与技术交流使用。',
     },
   ],
 };

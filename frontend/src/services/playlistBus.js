@@ -1,6 +1,6 @@
 // 极简事件总线:侧栏点歌单 → 切到热门页并打开该歌单详情。
 // 复用 downloadBus 的思路,用浏览器原生事件,避免引全局状态库。
-const EVENT = 'tunescout:open-playlist';
+const EVENT = 'melodex:open-playlist';
 
 // meta: 推荐歌单 {id, source, name} 或 自建歌单 {collectionId, name}
 export const requestOpenPlaylist = (meta) => {

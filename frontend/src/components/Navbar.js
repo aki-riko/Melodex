@@ -36,7 +36,7 @@ function Navbar({ onLinkClick, isVisible = true, currentSection }) {
             handleLinkClick('Home');
           }}
         >
-          TuneScout<span className="text-foreground">+</span>
+          Melodex<span className="text-foreground">+</span>
         </a>
         <ul className="flex flex-wrap gap-1 text-sm">
           {sections.map((item) => (

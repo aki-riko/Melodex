@@ -188,7 +188,7 @@ func loadLibraryTracks() []*localMusicTrack {
 func subsonicGetMusicFolders(c *gin.Context) {
 	resp := newSubsonicOK()
 	resp.MusicFolders = &musicFoldersBody{
-		MusicFolders: []subsonicMusicFolder{{ID: 0, Name: "TuneScout+ 曲库"}},
+		MusicFolders: []subsonicMusicFolder{{ID: 0, Name: "Melodex 曲库"}},
 	}
 	respondSubsonic(c, resp)
 }

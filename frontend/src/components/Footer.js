@@ -4,7 +4,7 @@ import React from 'react';
 const Footer = () => {
   return (
     <div className="bg-card rounded-lg p-5 mt-4 text-sm text-muted-foreground">
-      <p className="text-foreground/90">© 2024 TuneScout+ · 仅供学习与技术交流</p>
+      <p className="text-foreground/90">© 2024 Melodex · 仅供学习与技术交流</p>
       <p className="mt-1">音乐发现与多源下载二合一。</p>
       <p className="mt-3 text-xs opacity-70">
         界面设计改编自 Adam Lowenthal 的 Spotify Artist Page UI(

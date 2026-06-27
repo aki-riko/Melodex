@@ -22,7 +22,7 @@ export default function TopBar({ currentSection, onNavigate }) {
         onClick={(e) => { e.preventDefault(); onNavigate('Home'); }}
         className="md:hidden text-xl font-black text-primary"
       >
-        TS<span className="text-foreground">+</span>
+        M<span className="text-foreground">dx</span>
       </a>
       <form onSubmit={submit} className="flex-grow max-w-md relative">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />

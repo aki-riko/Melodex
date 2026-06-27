@@ -1,6 +1,6 @@
-// Subsonic API facade —— TuneScout+ 自实现的轻量 Subsonic 服务端。
+// Subsonic API facade —— Melodex 自实现的轻量 Subsonic 服务端。
 //
-// 设计目标:让音流(substreamer)等标准 Subsonic 客户端直接连 TuneScout+ 一个地址,
+// 设计目标:让音流(substreamer)等标准 Subsonic 客户端直接连 Melodex 一个地址,
 // 即可「搜全网在线听 + 浏览已下载本地曲库 + 听过自动入库」。
 //
 //   - search3      → 接 go-music-dl 联网搜索,验活后返回能播的结果(全网搜)
