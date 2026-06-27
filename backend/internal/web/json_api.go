@@ -143,13 +143,21 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		c.JSON(200, gin.H{"sources": core.GetQRLoginSourceNames()})
 	})
 
-	// 敏感接口(写/清 cookie、触发登录)挂到管理员鉴权之后。
-	// DisableAuth(桌面/本机模式)时放行,与原版 configAPI 行为一致。
-	secure := api.Group("")
-	if !opts.DisableAuth {
-		secure.Use(authRequired(core.GetWebAuthSettings))
+	// 账号鉴权接口(登录/登出/注册/初始化/当前用户)。见 auth_api.go。
+	registerAuthAPIRoutes(api, opts)
+
+	// Cookie 与二维码登录管理是管理员独占(平台会员 cookie 全局共享,见隔离决策)。
+	// DisableAuth(桌面/本机模式)时注入本地管理员用户放行。
+	adminSecure := api.Group("")
+	if opts.DisableAuth {
+		adminSecure.Use(desktopUserMiddleware())
+	} else {
+		adminSecure.Use(authRequired(), adminRequired())
 	}
-	registerLoginAndCookieRoutes(secure)
+	registerLoginAndCookieRoutes(adminSecure)
+
+	// 用户管理(增删用户/改角色/重置密码/开放注册开关)同为管理员独占。
+	registerAdminUserRoutes(adminSecure)
 }
 
 // registerLoginAndCookieRoutes 注册二维码登录与 Cookie 管理。

@@ -364,16 +364,17 @@ func StartDesktop(port string) {
 
 func StartWithOptions(port string, opts StartOptions) {
 	core.CM.Load()
+	InitDB()
+	defer CloseDB()
+
 	if !opts.DisableAuth {
-		settings, err := core.GetWebAuthSettings()
+		n, err := countUsers()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to read web auth settings: %v\n", err)
-		} else if token, tokenErr := prepareSetupToken(settings); tokenErr == nil && token != "" {
+			fmt.Fprintf(os.Stderr, "Failed to read account config: %v\n", err)
+		} else if token, tokenErr := prepareSetupToken(n > 0); tokenErr == nil && token != "" {
 			fmt.Printf("Web setup token: %s\nOpen %s/setup and keep this startup terminal private until setup is complete.\n", token, RoutePrefix)
 		}
 	}
-	InitDB()
-	defer CloseDB()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -420,7 +421,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	api.GET("/videogen.css", func(c *gin.Context) { c.FileFromFS("templates/static/css/videogen.css", http.FS(templateFS)) })
 	api.GET("/videogen.js", func(c *gin.Context) { c.FileFromFS("templates/static/js/videogen.js", http.FS(templateFS)) })
 	api.GET("/app.js", func(c *gin.Context) { c.FileFromFS("templates/static/js/app.js", http.FS(templateFS)) })
-	configAPI := bindAuthMiddleware(api, opts)
+	configAPI, userAPI := bindAuthMiddleware(api, opts)
 
 	api.GET("/render", func(c *gin.Context) {
 		c.HTML(200, "render.html", gin.H{
@@ -457,10 +458,17 @@ func StartWithOptions(port string, opts StartOptions) {
 		c.JSON(200, core.GetWebSettings())
 	})
 
+	// 公开读路由(搜索/播放/歌词/inspect)上挂可选用户注入:不强制登录,
+	// 但下载(save_local 写 NAS)能拿到当前用户以登记归属。save_local 的写权限
+	// 仍由 handler 内 requireUserForWrite 强制要求登录。
+	if !opts.DisableAuth {
+		api.Use(attachUserOptional())
+	}
 	RegisterMusicRoutes(api)
 	RegisterQRLoginRoutes(configAPI)
-	RegisterCollectionRoutes(api)
-	RegisterLocalMusicRoutes(api)
+	// 歌单/收藏/本地库按 user_id 隔离 → 必须登录(userAPI)。
+	RegisterCollectionRoutes(userAPI)
+	RegisterLocalMusicRoutes(userAPI)
 	RegisterUpdateRoutes(api)
 
 	// Melodex 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。
@@ -499,12 +507,20 @@ func StartWithOptions(port string, opts StartOptions) {
 	}
 }
 
-func bindAuthMiddleware(api *gin.RouterGroup, opts StartOptions) *gin.RouterGroup {
+// bindAuthMiddleware 装配鉴权并返回两个分组:
+//   - adminAPI:登录 + 管理员(cookie/系统设置/QR 登录/用户管理)。
+//   - userAPI:仅需登录(歌单/收藏/下载/本地库,按 user_id 隔离)。
+//
+// 桌面/本机模式(DisableAuth):注入本地管理员用户免登录,两个分组都等于注入了用户的 api。
+func bindAuthMiddleware(api *gin.RouterGroup, opts StartOptions) (adminAPI, userAPI *gin.RouterGroup) {
 	bindAuthRoutes(api)
 	if opts.DisableAuth {
-		return api
+		api.Use(desktopUserMiddleware())
+		return api, api
 	}
-	configAPI := api.Group("")
-	configAPI.Use(authRequired(core.GetWebAuthSettings))
-	return configAPI
+	adminAPI = api.Group("")
+	adminAPI.Use(authRequired(), adminRequired())
+	userAPI = api.Group("")
+	userAPI.Use(authRequired())
+	return adminAPI, userAPI
 }

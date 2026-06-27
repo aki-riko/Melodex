@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
 )
 
 func TestPrepareSetupTokenLifecycle(t *testing.T) {
 	resetAuthRuntimeForTest()
 	t.Cleanup(resetAuthRuntimeForTest)
 
-	token, err := prepareSetupToken(core.WebAuthSettings{Username: core.DefaultWebAuthUsername})
+	// 无用户(未配置)时生成令牌。
+	token, err := prepareSetupToken(false)
 	if err != nil {
 		t.Fatalf("prepare setup token: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestPrepareSetupTokenLifecycle(t *testing.T) {
 		t.Fatalf("current setup token = %q, want %q", got, token)
 	}
 
-	again, err := prepareSetupToken(core.WebAuthSettings{Username: core.DefaultWebAuthUsername})
+	again, err := prepareSetupToken(false)
 	if err != nil {
 		t.Fatalf("prepare setup token again: %v", err)
 	}
@@ -39,11 +39,8 @@ func TestPrepareSetupTokenLifecycle(t *testing.T) {
 		t.Fatalf("setup token should be consumed, got %q", got)
 	}
 
-	configuredToken, err := prepareSetupToken(core.WebAuthSettings{
-		Username:      "owner",
-		PasswordHash:  "hash",
-		SessionSecret: "secret",
-	})
+	// 已有用户(已配置)则不生成令牌。
+	configuredToken, err := prepareSetupToken(true)
 	if err != nil {
 		t.Fatalf("prepare configured setup token: %v", err)
 	}
@@ -52,32 +49,38 @@ func TestPrepareSetupTokenLifecycle(t *testing.T) {
 	}
 }
 
-func TestSessionValueValidation(t *testing.T) {
-	settings := core.WebAuthSettings{
-		Username:      "owner",
-		PasswordHash:  "hash",
-		SessionSecret: "secret",
+func TestUserSessionValidation(t *testing.T) {
+	setupUserTestDB(t)
+	u, err := createUser("owner", "ownerpass1", RoleAdmin)
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
 	}
-	now := time.Unix(1000, 0)
+	secret, err := signingSecret()
+	if err != nil {
+		t.Fatalf("signingSecret: %v", err)
+	}
+	now := time.Unix(1_700_000_000, 0)
 
-	value, err := createSessionValue(settings, now)
+	value, err := createUserSession(u, now)
 	if err != nil {
 		t.Fatalf("create session value: %v", err)
 	}
-	if !validateSessionValue(settings, value, now.Add(time.Minute)) {
+	if _, ok := parseSessionValue(secret, value, now.Add(time.Minute)); !ok {
 		t.Fatal("fresh session should be valid")
 	}
-	if validateSessionValue(settings, value+"x", now.Add(time.Minute)) {
+	if _, ok := parseSessionValue(secret, value+"x", now.Add(time.Minute)); ok {
 		t.Fatal("tampered session should be invalid")
 	}
-	if validateSessionValue(settings, value, now.Add(sessionMaxAge+time.Second)) {
+	if _, ok := parseSessionValue(secret, value, now.Add(sessionMaxAge+time.Second)); ok {
 		t.Fatal("expired session should be invalid")
 	}
-
-	otherSettings := settings
-	otherSettings.SessionSecret = "other-secret"
-	if validateSessionValue(otherSettings, value, now.Add(time.Minute)) {
+	if _, ok := parseSessionValue("other-secret", value, now.Add(time.Minute)); ok {
 		t.Fatal("session signed with another secret should be invalid")
+	}
+	// payload 携带正确的 UserID。
+	payload, ok := parseSessionValue(secret, value, now.Add(time.Minute))
+	if !ok || payload.UserID != u.ID {
+		t.Fatalf("session payload UserID = %d, want %d", payload.UserID, u.ID)
 	}
 }
 
@@ -220,11 +223,10 @@ func TestAllowSaveLocalRequestRequiresPostAndSameOriginXHR(t *testing.T) {
 }
 
 func TestAuthRequiredRedirectsWhenSetupMissing(t *testing.T) {
+	setupUserTestDB(t) // 无用户
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(authRequired(func() (core.WebAuthSettings, error) {
-		return core.WebAuthSettings{Username: core.DefaultWebAuthUsername}, nil
-	}))
+	router.Use(authRequired())
 	router.GET(RoutePrefix, func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -243,24 +245,21 @@ func TestAuthRequiredRedirectsWhenSetupMissing(t *testing.T) {
 }
 
 func TestAuthRequiredAllowsSignedSession(t *testing.T) {
+	setupUserTestDB(t)
 	gin.SetMode(gin.TestMode)
-	settings := core.WebAuthSettings{
-		Username:      "owner",
-		PasswordHash:  "hash",
-		SessionSecret: "secret",
+	u, err := createUser("owner", "ownerpass1", RoleUser)
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
 	}
-	value, err := createSessionValue(settings, time.Now())
+	value, err := createUserSession(u, time.Now())
 	if err != nil {
 		t.Fatalf("create session value: %v", err)
 	}
 
 	router := gin.New()
-	router.Use(authRequired(func() (core.WebAuthSettings, error) {
-		return settings, nil
-	}))
+	router.Use(authRequired())
 	router.GET(RoutePrefix, func(c *gin.Context) {
-		username, _ := c.Get("AuthUsername")
-		c.String(http.StatusOK, username.(string))
+		c.String(http.StatusOK, c.GetString(ctxUsername))
 	})
 
 	req := httptest.NewRequest(http.MethodGet, RoutePrefix, nil)
@@ -276,12 +275,41 @@ func TestAuthRequiredAllowsSignedSession(t *testing.T) {
 	}
 }
 
+func TestAdminRequiredBlocksNonAdmin(t *testing.T) {
+	setupUserTestDB(t)
+	gin.SetMode(gin.TestMode)
+	user, err := createUser("plainuser", "userpass1", RoleUser)
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	value, err := createUserSession(user, time.Now())
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	router := gin.New()
+	grp := router.Group("")
+	grp.Use(authRequired(), adminRequired())
+	grp.GET("/admin-only", func(c *gin.Context) { c.String(http.StatusOK, "secret") })
+
+	req := httptest.NewRequest(http.MethodGet, "/admin-only", nil)
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: value})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin status = %d, want 403", rec.Code)
+	}
+}
+
 func TestDesktopModeSkipsWebAuthMiddleware(t *testing.T) {
+	setupUserTestDB(t)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group(RoutePrefix)
-	bindAuthMiddleware(api, StartOptions{DisableAuth: true})
-	api.GET("", func(c *gin.Context) {
+	_, userAPI := bindAuthMiddleware(api, StartOptions{DisableAuth: true})
+	userAPI.GET("", func(c *gin.Context) {
 		c.String(http.StatusOK, "desktop")
 	})
 
@@ -299,13 +327,15 @@ func TestDesktopModeSkipsWebAuthMiddleware(t *testing.T) {
 }
 
 func TestConfigAuthOnlyProtectsConfigRoutes(t *testing.T) {
+	setupUserTestDB(t)
+	if _, err := createUser("owner", "ownerpass1", RoleAdmin); err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group(RoutePrefix)
 	configAPI := api.Group("")
-	configAPI.Use(authRequired(func() (core.WebAuthSettings, error) {
-		return core.WebAuthSettings{Username: core.DefaultWebAuthUsername}, nil
-	}))
+	configAPI.Use(authRequired(), adminRequired())
 	api.GET("", func(c *gin.Context) {
 		c.String(http.StatusOK, "public")
 	})
