@@ -34,8 +34,20 @@ func subsonicGetSong(c *gin.Context) {
 		respondSubsonicError(c, errSubsonicNotFound)
 		return
 	}
-	// 在线源歌曲:解码 id 即得完整信息(含封面)。
+	// 在线源歌曲:解码 id 得基本信息。验活回填真实格式/大小/码率 ——
+	// id 里不含 Ext,不验活会误报 mp3,FLAC 歌会被客户端按 mp3 解码播不出。
 	if song, ok := decodeOnlineSongID(id); ok {
+		if okLive, size, ext := liveCheckSong(song); okLive {
+			if ext != "" {
+				song.Ext = ext
+			}
+			if size > 0 {
+				song.Size = size
+				if song.Duration > 0 {
+					song.Bitrate = int((size * 8) / int64(song.Duration) / 1000)
+				}
+			}
+		}
 		child := songToSubsonicChild(song)
 		resp := newSubsonicOK()
 		resp.Song = &child

@@ -142,7 +142,6 @@ func streamOnlineAndCache(c *gin.Context, song model.Song) {
 func findDownloadedTrack(song model.Song) *localMusicTrack {
 	tracks, _, exists, _, _, _ := scanLocalMusicTracksCached(false)
 	if !exists || len(tracks) == 0 {
-		log.Printf("[subsonic] findDownloaded: 曲库空 exists=%v n=%d", exists, len(tracks))
 		return nil
 	}
 	wantName := normalizeMatchKey(song.Name)

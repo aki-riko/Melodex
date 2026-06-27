@@ -201,28 +201,29 @@ func decodeLocalSongID(id string) (string, bool) {
 }
 
 // liveCheckSong 对单首在线歌曲做验活:取真实下载 URL 后发 Range 探测,
-// 返回是否可播 + 真实字节大小(用于推算码率)。复用 /music/inspect 的判定逻辑。
-func liveCheckSong(song model.Song) (ok bool, size int64) {
+// 返回是否可播 + 真实字节大小 + 真实格式(从 URL 后缀/Content-Type 判断)。
+// 真实格式很关键:声明 mp3 但实流 FLAC 会让客户端按 mp3 解 FLAC → 播不出。
+func liveCheckSong(song model.Song) (ok bool, size int64, ext string) {
 	fn := core.GetDownloadFunc(song.Source)
 	if fn == nil {
-		return false, 0
+		return false, 0, ""
 	}
 	urlStr, err := fn(&song)
 	if err != nil || urlStr == "" {
-		return false, 0
+		return false, 0, ""
 	}
 	req, reqErr := core.BuildSourceRequest("GET", urlStr, song.Source, "bytes=0-1")
 	if reqErr != nil {
-		return false, 0
+		return false, 0, ""
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, 0
+		return false, 0, ""
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 && resp.StatusCode != 206 {
-		return false, 0
+		return false, 0, ""
 	}
 	if cr := resp.Header.Get("Content-Range"); cr != "" {
 		if parts := strings.Split(cr, "/"); len(parts) == 2 {
@@ -232,7 +233,34 @@ func liveCheckSong(song model.Song) (ok bool, size int64) {
 	if size == 0 {
 		size = resp.ContentLength
 	}
-	return true, size
+	// 判真实格式:优先 URL 路径后缀,其次 Content-Type。
+	ext = detectRealExt(urlStr, resp.Header.Get("Content-Type"))
+	return true, size, ext
+}
+
+// detectRealExt 从下载 URL 后缀或 Content-Type 判断真实音频格式后缀。
+func detectRealExt(urlStr, contentType string) string {
+	lower := strings.ToLower(urlStr)
+	// 去掉 query 再看后缀
+	if i := strings.IndexByte(lower, '?'); i >= 0 {
+		lower = lower[:i]
+	}
+	for _, e := range []string{".flac", ".mp3", ".m4a", ".ogg", ".wav", ".aac"} {
+		if strings.HasSuffix(lower, e) {
+			return strings.TrimPrefix(e, ".")
+		}
+	}
+	switch {
+	case strings.Contains(contentType, "flac"):
+		return "flac"
+	case strings.Contains(contentType, "mp4"), strings.Contains(contentType, "m4a"):
+		return "m4a"
+	case strings.Contains(contentType, "ogg"):
+		return "ogg"
+	case strings.Contains(contentType, "mpeg"):
+		return "mp3"
+	}
+	return ""
 }
 
 // liveCheckSongs 并发验活一批歌曲,过滤死链/版权受限,只返回能播的。
@@ -256,11 +284,17 @@ func liveCheckSongs(songs []model.Song, concurrency int) []model.Song {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			ok, size := liveCheckSong(song)
-			if ok && size > 0 {
-				song.Size = size
-				if song.Duration > 0 {
-					song.Bitrate = int((size * 8) / int64(song.Duration) / 1000)
+			ok, size, ext := liveCheckSong(song)
+			if ok {
+				if size > 0 {
+					song.Size = size
+					if song.Duration > 0 {
+						song.Bitrate = int((size * 8) / int64(song.Duration) / 1000)
+					}
+				}
+				// 回填真实格式:声明格式必须与实际流一致,否则客户端按错误解码器播不出。
+				if ext != "" {
+					song.Ext = ext
 				}
 			}
 			resCh <- result{idx: idx, song: song, ok: ok}

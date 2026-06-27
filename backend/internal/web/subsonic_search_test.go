@@ -115,6 +115,25 @@ func TestSubsonicSearch3EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestDetectRealExt(t *testing.T) {
+	cases := []struct {
+		url, ct, want string
+	}{
+		{"http://x/song.flac", "", "flac"},
+		{"http://x/song.flac?vkey=abc&t=1", "", "flac"},      // 带 query
+		{"http://x/song.mp3", "", "mp3"},
+		{"http://x/a/b.m4a?x=1", "audio/mp4", "m4a"},
+		{"http://x/nopath", "audio/flac", "flac"},            // 无后缀靠 Content-Type
+		{"http://x/nopath", "audio/mpeg", "mp3"},
+		{"http://x/stream?id=1", "application/octet-stream", ""}, // 都判不出
+	}
+	for _, c := range cases {
+		if got := detectRealExt(c.url, c.ct); got != c.want {
+			t.Fatalf("detectRealExt(%q,%q)=%q want %q", c.url, c.ct, got, c.want)
+		}
+	}
+}
+
 func TestResolveSyntheticCoverURL(t *testing.T) {
 	// 用唯一名称避免与其他测试经 songToSubsonicChild 写入的全局映射冲突
 	// (coverURLStore 保留首次写入)。
