@@ -303,26 +303,34 @@ func TestRelevanceScore(t *testing.T) {
 
 func TestSortSongsByRelevance(t *testing.T) {
 	q := "晴天"
-	// 故意乱序 + 同名不同码率
 	songs := []model.Song{
-		{Name: "无关歌", Artist: "A", Bitrate: 999},                 // 噪声,应沉底
-		{Name: "晴天", Artist: "翻唱", Bitrate: 128},                 // 完全相等,低码率
-		{Name: "晴天", Artist: "周杰伦", Bitrate: 900},               // 完全相等,高码率 → 应最前
-		{Name: "晴天娃娃", Artist: "B", Bitrate: 320},               // 前缀
+		{Name: "无关歌", Artist: "A", Bitrate: 999},   // 噪声,应沉底
+		{Name: "晴天", Artist: "周杰伦", Bitrate: 900}, // 完全相等原唱 → 应最前
+		{Name: "晴天娃娃", Artist: "B", Bitrate: 320},  // 前缀匹配
 	}
 	sortSongsByRelevance(songs, q)
 
-	// 第一首应是「晴天/周杰伦/900」(相等分最高,同分码率最高)
+	// 首位:高码率完全匹配的原唱
 	if songs[0].Name != "晴天" || songs[0].Bitrate != 900 {
-		t.Fatalf("首位应是高码率的完全匹配, 实际 %+v", songs[0])
+		t.Fatalf("首位应是完全匹配原唱, 实际 %+v", songs[0])
 	}
-	// 第二首应是同名低码率
-	if songs[1].Name != "晴天" || songs[1].Bitrate != 128 {
-		t.Fatalf("次位应是低码率同名, 实际 %+v", songs[1])
-	}
-	// 末位应是噪声
+	// 末位:噪声沉底
 	if songs[len(songs)-1].Name != "无关歌" {
 		t.Fatalf("噪声应沉底, 实际末位 %+v", songs[len(songs)-1])
+	}
+}
+
+func TestCoverPenaltyDemotesCover(t *testing.T) {
+	q := "晴天"
+	songs := []model.Song{
+		{Name: "晴天", Artist: "翻唱歌手", Bitrate: 999},     // 标记翻唱,应被压
+		{Name: "晴天", Artist: "周杰伦", Bitrate: 128},      // 原唱低码率
+		{Name: "晴天 (钢琴版)", Artist: "X", Bitrate: 900}, // 钢琴版,重罚
+	}
+	sortSongsByRelevance(songs, q)
+	// 原唱(周杰伦)应排在翻唱和钢琴版之前,即便码率低
+	if songs[0].Artist != "周杰伦" {
+		t.Fatalf("原唱应置顶于翻唱/演奏版前, 实际首位 %+v", songs[0])
 	}
 }
 

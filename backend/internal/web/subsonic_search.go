@@ -527,12 +527,38 @@ func upstreamRankScore(song model.Song) int {
 	return s
 }
 
-// combinedScore 综合排序分 = 本地相关性(主导) + 上游名次(兜底)。
+// coverPenalty 翻唱/演奏/改编版的降权惩罚。无"原唱"元数据时,靠歌名/艺人里的
+// 特征词近似识别非原唱版本(Cover/翻唱/钢琴版/手指弹奏/演奏曲/伴奏/remix/DJ 等),
+// 减分让原唱版排到这些版本前面。惩罚分调得比本地相关性档位大,确保跨档压制。
+func coverPenalty(song model.Song) int {
+	hay := strings.ToLower(song.Name + " " + song.Artist)
+	// 强特征(明显非原唱):钢琴/伴奏/演奏/纯音乐/手指弹奏等,重罚。
+	strongMarkers := []string{
+		"cover", "翻唱", "钢琴版", "钢琴", "手指弹奏", "演奏曲", "演奏版", "伴奏",
+		"纯音乐", "纯享", "remix", "dj", "重混", "改编", "口琴", "吉他版", "古筝",
+		"八音盒", "music box", "instrumental", "karaoke", "伴唱",
+	}
+	for _, m := range strongMarkers {
+		if strings.Contains(hay, m) {
+			return 1200 // 大于本地完全匹配档(1000),确保翻唱被压到原唱后
+		}
+	}
+	// 弱特征:Live/现场/翻自/翻 等,轻罚。
+	weakMarkers := []string{"live", "现场", "翻自", "(翻", "（翻"}
+	for _, m := range weakMarkers {
+		if strings.Contains(hay, m) {
+			return 300
+		}
+	}
+	return 0
+}
+
+// combinedScore 综合排序分 = 本地相关性(主导) + 上游名次(兜底) - 翻唱惩罚。
 //   - query 直接命中歌名(搜"晴天"):本地分高(1000)主导,正常置顶
-//   - query 是译名匹配不上(搜"珍珠星的距离"):本地分=0,靠上游名次分,
-//     上游把原名「スピカテリブル」排第1 → +500 → 顶上来
+//   - query 是译名匹配不上(搜"珍珠星的距离"):本地分=0,靠上游名次分
+//   - 翻唱/演奏版(歌名含 Cover/钢琴版等):重罚,排到原唱后
 func combinedScore(song model.Song, query string) int {
-	return relevanceScore(song, query) + upstreamRankScore(song)
+	return relevanceScore(song, query) + upstreamRankScore(song) - coverPenalty(song)
 }
 
 // sortSongsByRelevance 原地排序:综合分(本地相关+上游名次)降序,
