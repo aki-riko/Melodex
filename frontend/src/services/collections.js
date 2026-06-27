@@ -64,8 +64,8 @@ export const removeSongFromCollection = async (id, song) => {
 };
 
 // 导入 m3u/m3u8(content=文件全文)→ 新建歌单并按歌名搜索匹配入库
-// 返回 { id, name, total, matched, skipped }
+// 每首一次多源搜索,大歌单可能耗时数分钟,故单独放宽超时到 10 分钟。
 export const importM3U = async (name, content) => {
-  const { data } = await client.post(`${BASE}/import_m3u`, { name, content });
+  const { data } = await client.post(`${BASE}/import_m3u`, { name, content }, { timeout: 600000 });
   return data;
 };
