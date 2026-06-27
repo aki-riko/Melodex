@@ -2,6 +2,26 @@ package web
 
 import "testing"
 
+func TestParseM3UPrefersFilename(t *testing.T) {
+	// 真实场景:EXTINF 只有歌名,文件名才含歌手 → 应优先用文件名做搜索词
+	content := `#EXTM3U
+#EXTINF:219.0,爱的供养
+/app/media/爱的供养 - 杨幂.flac
+#EXTINF:240.89,可不可以
+/app/media/张紫豪 - 可不可以.flac
+`
+	entries, _ := parseM3U(content)
+	if len(entries) != 2 {
+		t.Fatalf("应 2 条, 实际 %d", len(entries))
+	}
+	if entries[0].Title != "爱的供养 - 杨幂" {
+		t.Fatalf("应优先用文件名(含歌手), 实际 %q", entries[0].Title)
+	}
+	if entries[1].Title != "张紫豪 - 可不可以" {
+		t.Fatalf("第2条应用文件名, 实际 %q", entries[1].Title)
+	}
+}
+
 func TestParseM3UStandard(t *testing.T) {
 	content := `#EXTM3U
 #EXTINF:213,周杰伦 - 晴天
