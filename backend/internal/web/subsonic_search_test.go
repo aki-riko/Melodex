@@ -217,6 +217,67 @@ func TestStripClientIDPrefix(t *testing.T) {
 	}
 }
 
+func TestUpstreamRankScore(t *testing.T) {
+	mk := func(rank string) model.Song {
+		return model.Song{Extra: map[string]string{"_rank": rank}}
+	}
+	if upstreamRankScore(mk("0")) != 500 {
+		t.Fatal("上游第1名应=500")
+	}
+	if upstreamRankScore(mk("1")) != 470 {
+		t.Fatal("第2名应=470")
+	}
+	if upstreamRankScore(mk("100")) != 0 {
+		t.Fatal("极靠后应封底0")
+	}
+	if upstreamRankScore(model.Song{}) != 0 {
+		t.Fatal("无rank应=0")
+	}
+}
+
+func TestCombinedScoreTranslationName(t *testing.T) {
+	// 译名场景:query="珍珠星的距离",原名"スピカテリブル"本地匹配=0,
+	// 但上游把它排第1(rank=0)→ 综合分应=500,能顶上来。
+	q := "珍珠星的距离"
+	orig := model.Song{Name: "スピカテリブル", Artist: "内田彩", Extra: map[string]string{"_rank": "0"}}
+	other := model.Song{Name: "别的歌", Artist: "X", Extra: map[string]string{"_rank": "5"}}
+
+	so := combinedScore(orig, q)
+	oo := combinedScore(other, q)
+	if so <= 0 {
+		t.Fatalf("译名场景原名应靠上游名次得分>0, 实际 %d", so)
+	}
+	if so <= oo {
+		t.Fatalf("上游排第1的原名(%d)应高于排第5的(%d)", so, oo)
+	}
+}
+
+func TestCombinedScoreDirectHitNotBroken(t *testing.T) {
+	// 直接命中场景:搜"晴天",本地完全匹配=1000 主导,
+	// 不能被一首上游排第1但歌名不匹配的歌盖过。
+	q := "晴天"
+	hit := model.Song{Name: "晴天", Artist: "周杰伦", Extra: map[string]string{"_rank": "8"}}
+	upstreamTop := model.Song{Name: "无关歌", Artist: "Y", Extra: map[string]string{"_rank": "0"}}
+
+	if combinedScore(hit, q) <= combinedScore(upstreamTop, q) {
+		t.Fatalf("直接命中歌名(本地1000)应高于仅上游第1的无关歌: hit=%d top=%d",
+			combinedScore(hit, q), combinedScore(upstreamTop, q))
+	}
+}
+
+func TestSortSongsByRelevanceWithUpstream(t *testing.T) {
+	q := "珍珠星的距离"
+	songs := []model.Song{
+		{Name: "无关A", Artist: "A", Extra: map[string]string{"_rank": "3"}, Bitrate: 999},
+		{Name: "スピカテリブル", Artist: "内田彩", Extra: map[string]string{"_rank": "0"}, Bitrate: 128},
+		{Name: "无关B", Artist: "B", Extra: map[string]string{"_rank": "1"}, Bitrate: 320},
+	}
+	sortSongsByRelevance(songs, q)
+	if songs[0].Name != "スピカテリブル" {
+		t.Fatalf("译名搜索应把上游第1的原名置顶, 实际首位 %s", songs[0].Name)
+	}
+}
+
 func TestRelevanceScore(t *testing.T) {
 	q := "晴天"
 	exact := model.Song{Name: "晴天", Artist: "周杰伦"}

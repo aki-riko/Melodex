@@ -424,9 +424,10 @@ func subsonicSearch3(c *gin.Context) {
 	// 多源并发搜索(复用现有逻辑),默认 song 类型。
 	songs, _ := concurrentKeywordSearch(query, "song", defaultSourcesForSearchType("song"))
 
-	// 验活前先裁候选:多源合并常 60~100 首,全量验活约 20~25s,
-	// 而 Subsonic 客户端(音流)通常 30s 超时,验完再截断既浪费又可能超时。
-	// 取 songCount 的若干倍(留验活淘汰余量),封顶 candidateCap 控制总延迟。
+	// 验活前先按综合分(本地相关+上游名次,此时无码率)预排序再裁候选 ——
+	// 否则按多源 append 的任意顺序截断,相关的歌(尤其译名命中靠上游名次的)
+	// 可能在验活前就被裁掉进不了结果。预排序保证最相关的优先进验活。
+	sortSongsByRelevance(songs, query)
 	candidates := candidateLimit(songCount)
 	if len(songs) > candidates {
 		songs = songs[:candidates]
@@ -435,8 +436,7 @@ func subsonicSearch3(c *gin.Context) {
 	// 验活:过滤死链/版权受限,只把能播的返回客户端。
 	songs = liveCheckSongs(songs, 6)
 
-	// 排序(与前端 Download.js 一致):相关性降序,同分按真实码率降序。
-	// Subsonic 客户端按服务端返回顺序展示,故排序必须在后端做。
+	// 终排序:验活回填真实码率后,用完整综合分(同分按码率)重排。
 	sortSongsByRelevance(songs, query)
 
 	if songCount > 0 && len(songs) > songCount {
@@ -509,11 +509,38 @@ func relevanceScore(song model.Song, query string) int {
 	return score
 }
 
-// sortSongsByRelevance 原地排序:相关性降序,同分按真实码率(验活回填的 Bitrate)降序,
-// 再同则保持稳定。与前端默认排序一致。
+// upstreamRankScore 把上游源内的原始名次(Extra["_rank"])换算成分数:
+// 上游第1名=500,每靠后一名减 30,封底 0。译名/别名搜索时本地字符串匹配
+// 不到(relevanceScore=0),靠这个分把上游认为相关的结果顶上来。
+func upstreamRankScore(song model.Song) int {
+	if song.Extra == nil {
+		return 0
+	}
+	rank, err := strconv.Atoi(song.Extra["_rank"])
+	if err != nil || rank < 0 {
+		return 0
+	}
+	s := 500 - rank*30
+	if s < 0 {
+		return 0
+	}
+	return s
+}
+
+// combinedScore 综合排序分 = 本地相关性(主导) + 上游名次(兜底)。
+//   - query 直接命中歌名(搜"晴天"):本地分高(1000)主导,正常置顶
+//   - query 是译名匹配不上(搜"珍珠星的距离"):本地分=0,靠上游名次分,
+//     上游把原名「スピカテリブル」排第1 → +500 → 顶上来
+func combinedScore(song model.Song, query string) int {
+	return relevanceScore(song, query) + upstreamRankScore(song)
+}
+
+// sortSongsByRelevance 原地排序:综合分(本地相关+上游名次)降序,
+// 同分按真实码率(验活回填的 Bitrate)降序(无损正版顶到翻唱前 ≈ 近似原唱置顶),
+// 再同则保持稳定。
 func sortSongsByRelevance(songs []model.Song, query string) {
 	sort.SliceStable(songs, func(i, j int) bool {
-		si, sj := relevanceScore(songs[i], query), relevanceScore(songs[j], query)
+		si, sj := combinedScore(songs[i], query), combinedScore(songs[j], query)
 		if si != sj {
 			return si > sj
 		}
