@@ -139,6 +139,12 @@ type subsonicResponse struct {
 	Album         *albumBody         `xml:"album,omitempty" json:"album,omitempty"`
 	AlbumList2    *albumList2Body    `xml:"albumList2,omitempty" json:"albumList2,omitempty"`
 	Lyrics        *lyricsBody        `xml:"lyrics,omitempty" json:"lyrics,omitempty"`
+	Song          *subsonicChild     `xml:"song,omitempty" json:"song,omitempty"`
+	SimilarSongs2 *songsListBody     `xml:"similarSongs2,omitempty" json:"similarSongs2,omitempty"`
+	RandomSongs   *songsListBody     `xml:"randomSongs,omitempty" json:"randomSongs,omitempty"`
+	ArtistInfo2   *artistInfo2Body   `xml:"artistInfo2,omitempty" json:"artistInfo2,omitempty"`
+	ScanStatus    *scanStatusBody    `xml:"scanStatus,omitempty" json:"scanStatus,omitempty"`
+	Playlists     *playlistsBody     `xml:"playlists,omitempty" json:"playlists,omitempty"`
 }
 
 type subsonicErrorBody struct {
@@ -279,6 +285,34 @@ type lyricsBody struct {
 	Value  string `xml:",chardata" json:"value,omitempty"`
 }
 
+// songsListBody 用于 similarSongs2 / randomSongs(一组 song 元素)。
+type songsListBody struct {
+	Songs []subsonicChild `xml:"song" json:"song,omitempty"`
+}
+
+// artistInfo2Body 艺人信息(简介/大图)。本期只回大图 URL(用搜索记下的封面)。
+type artistInfo2Body struct {
+	Biography      string `xml:"biography,omitempty" json:"biography,omitempty"`
+	SmallImageURL  string `xml:"smallImageUrl,omitempty" json:"smallImageUrl,omitempty"`
+	MediumImageURL string `xml:"mediumImageUrl,omitempty" json:"mediumImageUrl,omitempty"`
+	LargeImageURL  string `xml:"largeImageUrl,omitempty" json:"largeImageUrl,omitempty"`
+}
+
+type scanStatusBody struct {
+	Scanning bool `xml:"scanning,attr" json:"scanning"`
+	Count    int  `xml:"count,attr" json:"count"`
+}
+
+type playlistsBody struct {
+	Playlists []subsonicPlaylist `xml:"playlist" json:"playlist,omitempty"`
+}
+
+type subsonicPlaylist struct {
+	ID        string `xml:"id,attr" json:"id"`
+	Name      string `xml:"name,attr" json:"name"`
+	SongCount int    `xml:"songCount,attr" json:"songCount"`
+}
+
 // RegisterSubsonicRoutes 注册 Subsonic facade 路由,挂在标准前缀 /rest 下。
 // 直接挂到 raw engine(不走 /music 管理员鉴权);facade 自带 Subsonic 认证。
 // facade 默认关闭:未配置凭据时所有端点返回「未启用」错误。
@@ -321,6 +355,33 @@ func RegisterSubsonicRoutes(r *gin.Engine) {
 	rest.GET("/getAlbum.view", subsonicGetAlbum)
 	rest.GET("/getLyrics", subsonicGetLyrics)
 	rest.GET("/getLyrics.view", subsonicGetLyrics)
+
+	// 歌曲详情 / 推荐 / 艺人信息 / 扫描状态 / 歌单(音流播放页与各界面用到)
+	rest.GET("/getSong", subsonicGetSong)
+	rest.GET("/getSong.view", subsonicGetSong)
+	rest.GET("/getSimilarSongs2", subsonicGetSimilarSongs)
+	rest.GET("/getSimilarSongs2.view", subsonicGetSimilarSongs)
+	rest.GET("/getSimilarSongs", subsonicGetSimilarSongs)
+	rest.GET("/getSimilarSongs.view", subsonicGetSimilarSongs)
+	rest.GET("/getRandomSongs", subsonicGetRandomSongs)
+	rest.GET("/getRandomSongs.view", subsonicGetRandomSongs)
+	rest.GET("/getArtistInfo2", subsonicGetArtistInfo2)
+	rest.GET("/getArtistInfo2.view", subsonicGetArtistInfo2)
+	rest.GET("/getArtistInfo", subsonicGetArtistInfo2)
+	rest.GET("/getArtistInfo.view", subsonicGetArtistInfo2)
+	rest.GET("/getScanStatus", subsonicGetScanStatus)
+	rest.GET("/getScanStatus.view", subsonicGetScanStatus)
+	rest.GET("/startScan", subsonicGetScanStatus)
+	rest.GET("/startScan.view", subsonicGetScanStatus)
+	rest.GET("/getPlaylists", subsonicGetPlaylists)
+	rest.GET("/getPlaylists.view", subsonicGetPlaylists)
+	// scrobble(播放上报):接受并返回 ok(本期不持久化播放统计)。
+	rest.GET("/scrobble", subsonicEmptyOK)
+	rest.GET("/scrobble.view", subsonicEmptyOK)
+	rest.GET("/star", subsonicEmptyOK)
+	rest.GET("/star.view", subsonicEmptyOK)
+	rest.GET("/unstar", subsonicEmptyOK)
+	rest.GET("/unstar.view", subsonicEmptyOK)
 }
 
 // subsonicAuthMiddleware 校验 facade 是否启用 + Subsonic 认证(u/t/s 或 u/p)。
