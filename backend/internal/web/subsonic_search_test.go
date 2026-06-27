@@ -114,6 +114,54 @@ func TestSubsonicSearch3EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestRelevanceScore(t *testing.T) {
+	q := "晴天"
+	exact := model.Song{Name: "晴天", Artist: "周杰伦"}
+	prefix := model.Song{Name: "晴天娃娃", Artist: "X"}
+	contain := model.Song{Name: "好想见你的晴天", Artist: "Y"}
+	noise := model.Song{Name: "完全无关", Artist: "Z"}
+
+	if relevanceScore(exact, q) <= relevanceScore(prefix, q) {
+		t.Fatal("完全相等应高于前缀匹配")
+	}
+	if relevanceScore(prefix, q) <= relevanceScore(contain, q) {
+		t.Fatal("前缀应高于包含")
+	}
+	if relevanceScore(noise, q) != 0 {
+		t.Fatalf("噪声应为 0, 实际 %d", relevanceScore(noise, q))
+	}
+	// 多词:歌名命中+歌手命中
+	multi := relevanceScore(model.Song{Name: "晴天", Artist: "周杰伦"}, "周杰伦 晴天")
+	if multi <= 0 {
+		t.Fatalf("多词命中应 >0, 实际 %d", multi)
+	}
+}
+
+func TestSortSongsByRelevance(t *testing.T) {
+	q := "晴天"
+	// 故意乱序 + 同名不同码率
+	songs := []model.Song{
+		{Name: "无关歌", Artist: "A", Bitrate: 999},                 // 噪声,应沉底
+		{Name: "晴天", Artist: "翻唱", Bitrate: 128},                 // 完全相等,低码率
+		{Name: "晴天", Artist: "周杰伦", Bitrate: 900},               // 完全相等,高码率 → 应最前
+		{Name: "晴天娃娃", Artist: "B", Bitrate: 320},               // 前缀
+	}
+	sortSongsByRelevance(songs, q)
+
+	// 第一首应是「晴天/周杰伦/900」(相等分最高,同分码率最高)
+	if songs[0].Name != "晴天" || songs[0].Bitrate != 900 {
+		t.Fatalf("首位应是高码率的完全匹配, 实际 %+v", songs[0])
+	}
+	// 第二首应是同名低码率
+	if songs[1].Name != "晴天" || songs[1].Bitrate != 128 {
+		t.Fatalf("次位应是低码率同名, 实际 %+v", songs[1])
+	}
+	// 末位应是噪声
+	if songs[len(songs)-1].Name != "无关歌" {
+		t.Fatalf("噪声应沉底, 实际末位 %+v", songs[len(songs)-1])
+	}
+}
+
 func TestCandidateLimit(t *testing.T) {
 	cases := map[int]int{
 		0:   20 * candidateFactor, // 0 → 默认 20 → 60 → 封顶 40
