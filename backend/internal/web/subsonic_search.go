@@ -13,6 +13,7 @@ package web
 import (
 	"encoding/base64"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -278,33 +279,88 @@ func subsonicSearch3(c *gin.Context) {
 	// 验活:过滤死链/版权受限,只把能播的返回客户端。
 	songs = liveCheckSongs(songs, 6)
 
+	// 排序(与前端 Download.js 一致):相关性降序,同分按真实码率降序。
+	// Subsonic 客户端按服务端返回顺序展示,故排序必须在后端做。
+	sortSongsByRelevance(songs, query)
+
 	if songCount > 0 && len(songs) > songCount {
 		songs = songs[:songCount]
 	}
 
-	// 聚合 artist/album(去重),歌曲逐条映射。
+	// 聚合 artist/album(去重)。封面:用该 artist/album 下首次出现歌曲的
+	// 编码 id 作 coverArt(getCoverArt 解析出在线封面 URL),否则客户端无图。
 	seenArtist := make(map[string]bool)
 	seenAlbum := make(map[string]bool)
 	for _, s := range songs {
-		result.Songs = append(result.Songs, songToSubsonicChild(s))
+		child := songToSubsonicChild(s)
+		result.Songs = append(result.Songs, child)
 		if s.Artist != "" && !seenArtist[s.Artist] {
 			seenArtist[s.Artist] = true
 			result.Artists = append(result.Artists, subsonicArtist{
-				ID:   "artist:" + base64.RawURLEncoding.EncodeToString([]byte(s.Artist)),
-				Name: s.Artist,
+				ID:       "artist:" + base64.RawURLEncoding.EncodeToString([]byte(s.Artist)),
+				Name:     s.Artist,
+				CoverArt: child.CoverArt,
 			})
 		}
 		if s.Album != "" && !seenAlbum[s.Album] {
 			seenAlbum[s.Album] = true
 			result.Albums = append(result.Albums, subsonicAlbum{
-				ID:     "album:" + base64.RawURLEncoding.EncodeToString([]byte(s.Album)),
-				Name:   s.Album,
-				Artist: s.Artist,
+				ID:       "album:" + base64.RawURLEncoding.EncodeToString([]byte(s.Album)),
+				Name:     s.Album,
+				Artist:   s.Artist,
+				CoverArt: child.CoverArt,
 			})
 		}
 	}
 
 	respondSubsonic(c, resp)
+}
+
+// relevanceScore 与前端 Download.js 的 relevanceScore 一致:
+// 歌名完全相等=1000/开头=600/包含=400/否则多词命中(歌名+2 歌手+1)*50;
+// 歌手也含 query 再 +80。分越高越相关。
+func relevanceScore(song model.Song, query string) int {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return 0
+	}
+	name := strings.ToLower(song.Name)
+	artist := strings.ToLower(song.Artist)
+	var score int
+	switch {
+	case name == q:
+		score = 1000
+	case strings.HasPrefix(name, q):
+		score = 600
+	case strings.Contains(name, q):
+		score = 400
+	default:
+		hit := 0
+		for _, p := range strings.Fields(q) {
+			if strings.Contains(name, p) {
+				hit += 2
+			} else if strings.Contains(artist, p) {
+				hit++
+			}
+		}
+		score = hit * 50
+	}
+	if strings.Contains(artist, q) {
+		score += 80
+	}
+	return score
+}
+
+// sortSongsByRelevance 原地排序:相关性降序,同分按真实码率(验活回填的 Bitrate)降序,
+// 再同则保持稳定。与前端默认排序一致。
+func sortSongsByRelevance(songs []model.Song, query string) {
+	sort.SliceStable(songs, func(i, j int) bool {
+		si, sj := relevanceScore(songs[i], query), relevanceScore(songs[j], query)
+		if si != sj {
+			return si > sj
+		}
+		return songs[i].Bitrate > songs[j].Bitrate
+	})
 }
 
 // parseIntDefault 解析整数,失败返回默认值。
