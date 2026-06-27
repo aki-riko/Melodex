@@ -109,8 +109,8 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 
 ## Git
 
-- 双远程:fetch 走私仓,`git push` 一次双发 → 私仓 `git@<PRIVATE-GIT-HOST>:<GIT-NAMESPACE>/TuneScoutPlus.git` + GitHub `git@github.com:aki-riko/TuneScoutPlus.git`。
-- 仓库名 **TuneScoutPlus**(`+` 在仓库名非法;品牌名 / 界面仍用 "Melodex")。
+- 双远程:fetch 走私仓,`git push` 一次双发 → 私仓 `git@<PRIVATE-GIT-HOST>:<GIT-NAMESPACE>/Melodex.git` + GitHub `git@github.com:aki-riko/Melodex.git`。
+- 仓库名 **Melodex**(2026-06 由 TuneScoutPlus 改名;品牌名 / 界面同为 "Melodex")。
 - git 身份 local:Kotori <kotori@9li.life>。每次改动提交,push 前确保 build/test 过。
 
 ## 能力边界(已做到极限,别白费功夫)
