@@ -89,6 +89,38 @@ func TestLocalTrackToSubsonicChild(t *testing.T) {
 	}
 }
 
+func TestLocalTrackBitrate(t *testing.T) {
+	// 优先用 ffprobe 探测值
+	tr := &localMusicTrack{Extra: map[string]string{"bitrate": "320"}, Size: 5000000, Duration: 200}
+	if got := localTrackBitrate(tr); got != 320 {
+		t.Fatalf("应优先用探测值 320, 实际 %d", got)
+	}
+	// 无探测值 → size+duration 估算:3464181*8/216/1000 ≈ 128
+	tr2 := &localMusicTrack{Size: 3464181, Duration: 216}
+	got := localTrackBitrate(tr2)
+	if got < 120 || got > 135 {
+		t.Fatalf("估算码率应约 128, 实际 %d", got)
+	}
+	// 都没有 → 0
+	if got := localTrackBitrate(&localMusicTrack{}); got != 0 {
+		t.Fatalf("无数据应为 0, 实际 %d", got)
+	}
+}
+
+func TestLocalTrackToSubsonicChildHasBitrate(t *testing.T) {
+	tr := &localMusicTrack{
+		ID: encodeLocalMusicID("a.mp3"), Name: "炽心", Artist: "希林娜依高",
+		Album: "与凤行", Ext: "mp3", Size: 3464181, Duration: 216,
+	}
+	child := localTrackToSubsonicChild(tr)
+	if child.BitRate <= 0 {
+		t.Fatalf("本地曲库 song 应有 bitRate, 实际 %d", child.BitRate)
+	}
+	if child.Size != 3464181 {
+		t.Fatalf("size 应保留, 实际 %d", child.Size)
+	}
+}
+
 func TestFetchLyricByIDEmptyAndBad(t *testing.T) {
 	if got := fetchLyricByID(""); got != "" {
 		t.Fatalf("空 id 应返回空歌词, 实际 %q", got)

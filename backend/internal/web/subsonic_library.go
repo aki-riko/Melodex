@@ -13,6 +13,7 @@ package web
 import (
 	"encoding/base64"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -38,6 +39,7 @@ func localTrackToSubsonicChild(t *localMusicTrack) subsonicChild {
 		CoverArt:    id,
 		Duration:    t.Duration,
 		Size:        t.Size,
+		BitRate:     localTrackBitrate(t),
 		Suffix:      suffix,
 		ContentType: localAudioMimeByExt(suffix),
 		Type:        "music",
@@ -49,6 +51,20 @@ func localTrackToSubsonicChild(t *localMusicTrack) subsonicChild {
 		child.ArtistID = artistSyntheticID(t.Artist)
 	}
 	return child
+}
+
+// localTrackBitrate 取本地曲库 track 的码率(kbps):优先 ffprobe 探测值
+// (存在 Extra["bitrate"]),否则用 size+duration 估算。音流缺码率会显示 "0K"。
+func localTrackBitrate(t *localMusicTrack) int {
+	if t.Extra != nil {
+		if kbps, err := strconv.Atoi(strings.TrimSpace(t.Extra["bitrate"])); err == nil && kbps > 0 {
+			return kbps
+		}
+	}
+	if t.Size > 0 && t.Duration > 0 {
+		return int((t.Size * 8) / int64(t.Duration) / 1000)
+	}
+	return 0
 }
 
 // albumSyntheticID / artistSyntheticID 由名称派生稳定 id(曲库浏览用)。
