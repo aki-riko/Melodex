@@ -33,9 +33,6 @@ func subsonicStream(c *gin.Context) {
 		respondSubsonicError(c, errSubsonicMissingParam)
 		return
 	}
-	log.Printf("[subsonic] stream请求头 Range=%q Accept=%q Conn=%q UA=%q Icy=%q",
-		c.GetHeader("Range"), c.GetHeader("Accept"), c.GetHeader("Connection"),
-		c.GetHeader("User-Agent"), c.GetHeader("Icy-MetaData"))
 
 	// 本地曲库 id:直接发本地文件。
 	if localTrackID, ok := decodeLocalSongID(id); ok {
@@ -57,11 +54,9 @@ func subsonicStream(c *gin.Context) {
 
 	// 1) 先查共享目录是否已下载该曲(听过的会沉淀在这)。
 	if track := findDownloadedTrack(song); track != nil {
-		log.Printf("[subsonic] stream 命中本地 %s-%s → %s", song.Name, song.Artist, track.Filename)
 		serveLocalTrackAbs(c, track)
 		return
 	}
-	log.Printf("[subsonic] stream 未命中本地,走在线 %s-%s (source=%s)", song.Name, song.Artist, song.Source)
 
 	// 2) 未下载:在线反代播放 + 后台完整下载入库。
 	streamOnlineAndCache(c, song)
