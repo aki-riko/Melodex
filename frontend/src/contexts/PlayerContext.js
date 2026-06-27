@@ -1,17 +1,26 @@
-import React, { createContext, useContext, useRef, useState, useCallback } from 'react';
+import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { getStreamUrl } from '../services/musicdl';
 
 const PlayerContext = createContext(null);
 
-// 全局播放器:audio 元素与播放状态常驻 App 顶层,切换页面(section)不中断播放。
+const songKey = (s) => `${s.source}-${s.id}`;
+
+// 播放模式:order 顺序 / repeat 单曲循环 / shuffle 随机
+const MODES = ['order', 'repeat', 'shuffle'];
+
+// 全局播放器:audio 元素与播放状态常驻 App 顶层,切换页面不中断。
+// 支持播放队列(上/下一首)、进度、播放模式、MediaSession(锁屏/通知栏控制)。
 export const PlayerProvider = ({ children }) => {
   const [nowPlaying, setNowPlaying] = useState(null);
-  const [notice, setNotice] = useState(''); // 自动跳源等提示
+  const [notice, setNotice] = useState('');
+  const [isPaused, setIsPaused] = useState(true);
+  const [progress, setProgress] = useState({ cur: 0, dur: 0 });
+  const [mode, setMode] = useState('order');
   const audioRef = useRef(null);
-  const listRef = useRef([]); // 当前播放上下文的歌曲列表(用于失败自动跳下一首)
+  const queueRef = useRef([]); // 当前播放队列
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
-
-  const songKey = (s) => `${s.source}-${s.id}`;
+  const modeRef = useRef('order');
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
   const startPlay = useCallback((song) => {
     setNowPlaying(song);
@@ -23,38 +32,102 @@ export const PlayerProvider = ({ children }) => {
     }, 0);
   }, []);
 
-  // play(song, list):list 为当前列表,播放失败(死链)时自动跳到 list 里下一首可播的
+  // play(song, list):list 为当前列表(队列),用于上/下一首与失败自动跳
   const play = useCallback((song, list = []) => {
-    listRef.current = Array.isArray(list) ? list : [];
+    queueRef.current = Array.isArray(list) && list.length ? list : [song];
     triedRef.current = new Set();
     setNotice('');
     startPlay(song);
   }, [startPlay]);
 
-  // audio 报错(死链/无法播放)→ 自动跳下一首
+  // 计算下一首:shuffle 随机,repeat 同一首,order 顺序
+  const pickNext = useCallback((cur, forward = true) => {
+    const list = queueRef.current;
+    if (!list.length) return null;
+    const idx = list.findIndex((s) => songKey(s) === songKey(cur));
+    if (modeRef.current === 'shuffle' && list.length > 1) {
+      let r = idx;
+      while (r === idx) r = Math.floor(Math.random() * list.length);
+      return list[r];
+    }
+    const step = forward ? 1 : -1;
+    const nextIdx = (idx + step + list.length) % list.length;
+    return list[nextIdx];
+  }, []);
+
+  // 手动下一首/上一首
+  const next = useCallback(() => {
+    if (!nowPlaying) return;
+    triedRef.current = new Set();
+    const n = pickNext(nowPlaying, true);
+    if (n) startPlay(n);
+  }, [nowPlaying, pickNext, startPlay]);
+
+  const prev = useCallback(() => {
+    if (!nowPlaying) return;
+    triedRef.current = new Set();
+    const p = pickNext(nowPlaying, false);
+    if (p) startPlay(p);
+  }, [nowPlaying, pickNext, startPlay]);
+
+  const togglePlay = useCallback(() => {
+    const a = audioRef.current;
+    if (!a || !nowPlaying) return;
+    if (a.paused) a.play().catch(() => {}); else a.pause();
+  }, [nowPlaying]);
+
+  const seek = useCallback((sec) => {
+    if (audioRef.current) audioRef.current.currentTime = sec;
+  }, []);
+
+  // 播放结束:repeat 重播当前,否则跳下一首
+  const handleEnded = useCallback(() => {
+    if (modeRef.current === 'repeat' && nowPlaying) { startPlay(nowPlaying); return; }
+    next();
+  }, [nowPlaying, next, startPlay]);
+
+  // audio 报错(死链/无法播放)→ 自动跳下一首没试过的
   const handleError = useCallback(() => {
     const cur = nowPlaying;
     if (!cur) return;
     triedRef.current.add(songKey(cur));
-    const list = listRef.current;
+    const list = queueRef.current;
     const idx = list.findIndex((s) => songKey(s) === songKey(cur));
-    // 从当前位置往后找没试过的
-    const next = list.slice(idx + 1).find((s) => !triedRef.current.has(songKey(s)));
-    if (next) {
+    const nxt = list.slice(idx + 1).find((s) => !triedRef.current.has(songKey(s)));
+    if (nxt) {
       setNotice(`「${cur.name}」该源无法播放,已自动切换…`);
-      startPlay(next);
+      startPlay(nxt);
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
     }
   }, [nowPlaying, startPlay]);
 
-  const isPlaying = useCallback(
-    (song) => nowPlaying && nowPlaying.id === song.id && nowPlaying.source === song.source,
-    [nowPlaying]
-  );
+  // MediaSession:锁屏/通知栏/蓝牙耳机控制 + 元数据
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    if (nowPlaying) {
+      navigator.mediaSession.metadata = new window.MediaMetadata({
+        title: nowPlaying.name || '',
+        artist: nowPlaying.artist || '',
+        album: nowPlaying.album || '',
+        artwork: nowPlaying.cover ? [{ src: nowPlaying.cover, sizes: '300x300' }] : [],
+      });
+    }
+    navigator.mediaSession.setActionHandler('play', togglePlay);
+    navigator.mediaSession.setActionHandler('pause', togglePlay);
+    navigator.mediaSession.setActionHandler('previoustrack', prev);
+    navigator.mediaSession.setActionHandler('nexttrack', next);
+    navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
+  }, [nowPlaying, togglePlay, prev, next, seek]);
+
 
   return (
-    <PlayerContext.Provider value={{ nowPlaying, play, isPlaying, audioRef, handleError, notice }}>
+    <PlayerContext.Provider value={{
+      nowPlaying, play, audioRef, notice, isPaused, progress, mode, setMode,
+      isPlaying: (s) => nowPlaying && nowPlaying.id === s.id && nowPlaying.source === s.source,
+      next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
+      cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
+    }}>
       {children}
     </PlayerContext.Provider>
   );
@@ -66,25 +139,64 @@ export const usePlayer = () => {
   return ctx;
 };
 
-// 常驻底部播放器条
+const fmtTime = (s) => {
+  if (!s || !isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+};
+
+const MODE_LABEL = { order: '顺序', repeat: '单曲', shuffle: '随机' };
+
+// 常驻底部播放器条:封面/标题 + 上/播/下 + 进度条 + 播放模式
 export const PlayerBar = () => {
-  const { nowPlaying, audioRef, handleError, notice } = usePlayer();
+  const {
+    nowPlaying, audioRef, notice, isPaused, progress, mode,
+    next, prev, togglePlay, seek, handleError, handleEnded,
+    setIsPaused, setProgress, cycleMode,
+  } = usePlayer();
+
   return (
-    <div
-      className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-3 z-40 shadow-brutal-lg"
-      style={{ display: nowPlaying ? 'block' : 'none' }}
-    >
+    <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-3 z-40 shadow-brutal-lg"
+      style={{ display: nowPlaying ? 'block' : 'none' }}>
       <div className="max-w-5xl mx-auto">
         {notice && <p className="text-sm text-primary font-medium mb-1">{notice}</p>}
-        <div className="flex items-center gap-4">
-          <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          {nowPlaying?.cover && (
+            <img src={nowPlaying.cover} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0" />
+          )}
+          <div className="min-w-0 flex-shrink" style={{ width: '30%' }}>
             <p className="truncate font-semibold">{nowPlaying?.name}</p>
             <p className="text-muted-foreground text-sm truncate">
               {nowPlaying ? `${nowPlaying.artist} · ${nowPlaying.source}` : ''}
             </p>
           </div>
-          {/* audio 元素常驻,不随页面切换卸载;onError 触发自动跳下一首 */}
-          <audio ref={audioRef} controls className="flex-grow" onError={handleError} />
+          <button onClick={prev} className="px-2 py-1 text-lg" title="上一首" aria-label="上一首">⏮</button>
+          <button onClick={togglePlay} className="px-3 py-1 text-xl" title="播放/暂停" aria-label="播放/暂停">
+            {isPaused ? '▶' : '⏸'}
+          </button>
+          <button onClick={next} className="px-2 py-1 text-lg" title="下一首" aria-label="下一首">⏭</button>
+          <button onClick={cycleMode} className="px-2 py-1 text-sm border border-border rounded" title="播放模式">
+            {MODE_LABEL[mode]}
+          </button>
+          <div className="flex items-center gap-2 flex-grow min-w-0">
+            <span className="text-xs text-muted-foreground tabular-nums">{fmtTime(progress.cur)}</span>
+            <input
+              type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+              onChange={(e) => seek(Number(e.target.value))}
+              className="flex-grow" aria-label="播放进度"
+            />
+            <span className="text-xs text-muted-foreground tabular-nums">{fmtTime(progress.dur)}</span>
+          </div>
+          <audio
+            ref={audioRef}
+            onError={handleError}
+            onEnded={handleEnded}
+            onPlay={() => setIsPaused(false)}
+            onPause={() => setIsPaused(true)}
+            onTimeUpdate={(e) => setProgress({ cur: e.target.currentTime, dur: e.target.duration || 0 })}
+            onLoadedMetadata={(e) => setProgress({ cur: e.target.currentTime, dur: e.target.duration || 0 })}
+            style={{ display: 'none' }}
+          />
         </div>
       </div>
     </div>

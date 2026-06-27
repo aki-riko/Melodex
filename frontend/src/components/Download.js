@@ -15,30 +15,8 @@ const TABS = [
   { key: 'discover', label: '推荐歌单' },
 ];
 
-// 相关性评分:歌名/歌手与搜索词的匹配度,分越高越相关(噪声=0 沉底)。
-// origIdx 作为同分时的次级因子(保持各源原始顺序),并入小数位。
-const relevanceScore = (song, query, origIdx = 0) => {
-  const q = (query || '').trim().toLowerCase();
-  if (!q) return -origIdx;
-  const name = (song.name || '').toLowerCase();
-  const artist = (song.artist || '').toLowerCase();
-  let score = 0;
-  if (name === q) score = 1000;
-  else if (name.startsWith(q)) score = 600;
-  else if (name.includes(q)) score = 400;
-  else {
-    // 搜索词按空格拆成多词(如"周杰伦 晴天"),命中歌名/歌手的词数累加
-    const parts = q.split(/\s+/).filter(Boolean);
-    let hit = 0;
-    for (const p of parts) {
-      if (name.includes(p)) hit += 2;
-      else if (artist.includes(p)) hit += 1;
-    }
-    score = hit * 50;
-  }
-  if (artist.includes(q)) score += 80; // 歌手也匹配加分
-  return score;
-};
+// 搜索结果相关性排序已下沉到后端(/api/v1/search 综合排序:上游名次+翻唱降权+
+// 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
 
 // 歌曲搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onShowLyric, isPlaying }) => {
@@ -71,7 +49,9 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
   const fieldValue = (s, origIdx, field) => {
     if (field === 'size') return s.size || 0;
     if (field === 'quality') return status[songKey(s)]?.bitrateNum || 0;
-    if (field === 'relevance') return relevanceScore(s, query, origIdx);
+    // 相关性:信任后端综合排序(上游名次+翻唱降权+原唱信号,前端看不到这些),
+    // 用返回序的相反数(origIdx 越小越靠前)。不再前端重算 relevanceScore。
+    if (field === 'relevance') return -origIdx;
     return origIdx;
   };
 

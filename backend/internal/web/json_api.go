@@ -291,6 +291,12 @@ func jsonSearchHandler(c *gin.Context) {
 		resp.Playlists = playlists
 	}
 
+	// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
+	// Web 前端默认用此返回序;搜索时尚无验活码率,综合分仍能把原唱/正版顶前、翻唱沉底。
+	if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
+		sortSongsByRelevance(resp.Songs, keyword)
+	}
+
 	if resp.Type == "song" && exactArtist != "" && len(resp.Songs) > 0 {
 		resp.Songs = filterSongsByExactArtist(resp.Songs, exactArtist)
 	}
