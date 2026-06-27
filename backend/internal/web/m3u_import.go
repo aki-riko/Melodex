@@ -103,6 +103,11 @@ func guessTitleFromMediaLine(line string) string {
 // POST /music/collections/import_m3u  body: {name?, content}
 func registerM3UImport(colAPI *gin.RouterGroup) {
 	colAPI.POST("/import_m3u", func(c *gin.Context) {
+		uid := currentUserID(c)
+		if uid == 0 {
+			c.JSON(401, gin.H{"error": "请先登录"})
+			return
+		}
 		var req struct {
 			Name    string `json:"name"`
 			Content string `json:"content"`
@@ -128,6 +133,7 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 			name = "导入歌单 " + time.Now().Format("01-02 15:04")
 		}
 		coll := Collection{
+			UserID:      uid,
 			Name:        name,
 			Kind:        collectionKindManual,
 			ContentType: collectionContentPlaylist,

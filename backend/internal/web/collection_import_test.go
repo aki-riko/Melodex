@@ -13,6 +13,9 @@ import (
 	"github.com/guohuiyuan/music-lib/model"
 )
 
+// testUserID 是测试 router 注入的当前用户 id(在 initCollectionDBForTest 中创建)。
+var testUserID uint
+
 func initCollectionDBForTest(t *testing.T) {
 	t.Helper()
 
@@ -22,24 +25,45 @@ func initCollectionDBForTest(t *testing.T) {
 
 	t.Setenv("MUSIC_DL_CONFIG_DB", settingsDB)
 	t.Setenv("MUSIC_DL_FAVORITES_DB", legacyDB)
+	t.Setenv("MUSIC_DL_COOKIE_FILE", filepath.Join(baseDir, "data", "cookies.json"))
 	resetCollectionStateForTest()
 	t.Cleanup(resetCollectionStateForTest)
 
 	InitDB()
+
+	u, err := createUser("tester", "testerpass1", RoleAdmin)
+	if err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+	testUserID = u.ID
+}
+
+// withTestUser 注入固定测试用户(模拟已登录管理员),供数据隔离路由在测试中拿到 user_id。
+// 用管理员角色:本地库列表/删除测试验证扫描机制(管理员看全部),而歌单查询仍按 user_id
+// 过滤(管理员不绕过歌单归属),两类测试都成立。
+func withTestUser() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(ctxUserID, testUserID)
+		c.Set(ctxUserRole, RoleAdmin)
+		c.Set(ctxUsername, "tester")
+		c.Next()
+	}
 }
 
 func newCollectionTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterCollectionRoutes(r.Group(RoutePrefix))
+	grp := r.Group(RoutePrefix)
+	grp.Use(withTestUser())
+	RegisterCollectionRoutes(grp)
 	return r
 }
 
 func TestCollectionsEndpointDefaultsToManualCollections(t *testing.T) {
 	initCollectionDBForTest(t)
 
-	manual := Collection{Name: "Manual", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"}
-	imported := Collection{Name: "Imported", Kind: collectionKindImported, ContentType: collectionContentAlbum, Source: "qq", ExternalID: "album-1"}
+	manual := Collection{UserID: testUserID, Name: "Manual", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"}
+	imported := Collection{UserID: testUserID, Name: "Imported", Kind: collectionKindImported, ContentType: collectionContentAlbum, Source: "qq", ExternalID: "album-1"}
 	if err := db.Create(&manual).Error; err != nil {
 		t.Fatalf("create manual collection: %v", err)
 	}
@@ -141,6 +165,7 @@ func TestImportedCollectionSongsEndpointUsesLiveFetchAndBlocksMutations(t *testi
 	initCollectionDBForTest(t)
 
 	collection := Collection{
+		UserID:      testUserID,
 		Name:        "Imported Playlist",
 		Kind:        collectionKindImported,
 		ContentType: collectionContentPlaylist,
@@ -215,6 +240,7 @@ func TestManualCollectionSongsEndpointSupportsBatchDelete(t *testing.T) {
 	initCollectionDBForTest(t)
 
 	collection := Collection{
+		UserID:      testUserID,
 		Name:        "Manual Playlist",
 		Kind:        collectionKindManual,
 		ContentType: collectionContentPlaylist,

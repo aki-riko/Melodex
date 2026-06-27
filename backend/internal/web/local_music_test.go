@@ -34,6 +34,7 @@ func newLocalMusicTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	group := r.Group(RoutePrefix)
+	group.Use(withTestUser())
 	RegisterMusicRoutes(group)
 	RegisterCollectionRoutes(group)
 	RegisterLocalMusicRoutes(group)
@@ -90,6 +91,7 @@ func TestLocalMusicListScansDownloadDirWithFallbacks(t *testing.T) {
 	}
 
 	collection := Collection{
+		UserID:      testUserID,
 		Name:        "Local",
 		Kind:        collectionKindManual,
 		ContentType: collectionContentPlaylist,
@@ -354,6 +356,7 @@ func TestUploadLocalMusicAddToCollectionAndDownload(t *testing.T) {
 	withLocalMusicDownloadDir(t, downloadDir)
 
 	collection := Collection{
+		UserID:      testUserID,
 		Name:        "Uploads",
 		Kind:        collectionKindManual,
 		ContentType: collectionContentPlaylist,
@@ -447,8 +450,8 @@ func TestDeleteLocalMusicRequiresRemovingCollectionReferencesFirst(t *testing.T)
 	localID := encodeLocalMusicID("Delete Me.mp3")
 
 	collections := []Collection{
-		{Name: "Local One", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"},
-		{Name: "Local Two", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"},
+		{UserID: testUserID, Name: "Local One", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"},
+		{UserID: testUserID, Name: "Local Two", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"},
 	}
 	if err := db.Create(&collections).Error; err != nil {
 		t.Fatalf("create collections: %v", err)

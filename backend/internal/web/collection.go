@@ -349,9 +349,14 @@ func countSavedSongs(collectionID uint) int {
 	return int(count)
 }
 
-func loadCollection(collectionID string) (*Collection, error) {
+// loadOwnedCollection 加载归属于指定用户的歌单。跨用户访问按"不存在"处理
+// (不泄露他人歌单的存在性)。userID=0(异常)一律拒绝。
+func loadOwnedCollection(collectionID string, userID uint) (*Collection, error) {
+	if userID == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
 	var collection Collection
-	if err := db.First(&collection, collectionID).Error; err != nil {
+	if err := db.Where("id = ? AND user_id = ?", collectionID, userID).First(&collection).Error; err != nil {
 		return nil, err
 	}
 	return &collection, nil
@@ -611,8 +616,9 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 
 func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	api.GET("/my_collections", func(c *gin.Context) {
+		uid := currentUserID(c)
 		var collections []Collection
-		if err := db.Order("id DESC").Find(&collections).Error; err != nil {
+		if err := db.Where("user_id = ?", uid).Order("id DESC").Find(&collections).Error; err != nil {
 			renderIndex(c, nil, nil, "我的本地歌单", nil, "获取本地歌单失败", "playlist", "", "", "", true, "", nil)
 			return
 		}
@@ -632,7 +638,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		collection, err := loadCollection(id)
+		collection, err := loadOwnedCollection(id, currentUserID(c))
 		if err != nil {
 			renderIndex(c, nil, nil, "", nil, "本地歌单不存在", "song", "", "", "", false, "", nil)
 			return
@@ -653,9 +659,10 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	registerM3UImport(colAPI)
 
 	colAPI.GET("", func(c *gin.Context) {
+		uid := currentUserID(c)
 		var collections []Collection
 
-		query := db.Order("id DESC")
+		query := db.Where("user_id = ?", uid).Order("id DESC")
 		if c.Query("include_imported") != "1" {
 			query = query.Where("kind = ? OR kind = '' OR kind IS NULL", collectionKindManual)
 		}
@@ -668,12 +675,18 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	})
 
 	colAPI.POST("", func(c *gin.Context) {
+		uid := currentUserID(c)
+		if uid == 0 {
+			c.JSON(401, gin.H{"error": "请先登录"})
+			return
+		}
 		var req Collection
 		if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
 			c.JSON(400, gin.H{"error": "参数错误，必须提供歌单名"})
 			return
 		}
 
+		req.UserID = uid
 		req.Name = strings.TrimSpace(req.Name)
 		req.Description = strings.TrimSpace(req.Description)
 		req.Cover = strings.TrimSpace(req.Cover)
@@ -693,6 +706,11 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	})
 
 	colAPI.POST("/import", func(c *gin.Context) {
+		uid := currentUserID(c)
+		if uid == 0 {
+			c.JSON(401, gin.H{"error": "请先登录"})
+			return
+		}
 		var req importCollectionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(400, gin.H{"error": "参数错误"})
@@ -704,10 +722,12 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
+		collection.UserID = uid
 
 		var existing Collection
 		err = db.Where(
-			"kind = ? AND content_type = ? AND source = ? AND external_id = ?",
+			"user_id = ? AND kind = ? AND content_type = ? AND source = ? AND external_id = ?",
+			uid,
 			collectionKindImported,
 			collection.ContentType,
 			collection.Source,
@@ -736,7 +756,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	colAPI.PUT("/:id", func(c *gin.Context) {
 		id := c.Param("id")
 
-		existing, err := loadCollection(id)
+		existing, err := loadOwnedCollection(id, currentUserID(c))
 		if err != nil {
 			c.JSON(404, gin.H{"error": "歌单不存在"})
 			return
@@ -752,7 +772,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		if err := db.Model(&Collection{}).Where("id = ?", id).Updates(map[string]interface{}{
+		if err := db.Model(&Collection{}).Where("id = ? AND user_id = ?", existing.ID, existing.UserID).Updates(map[string]interface{}{
 			"name":        strings.TrimSpace(req.Name),
 			"description": strings.TrimSpace(req.Description),
 			"cover":       strings.TrimSpace(req.Cover),
@@ -764,8 +784,12 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	})
 
 	colAPI.DELETE("/:id", func(c *gin.Context) {
-		id := c.Param("id")
-		if err := db.Delete(&Collection{}, id).Error; err != nil {
+		existing, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
+		if err != nil {
+			c.JSON(404, gin.H{"error": "歌单不存在"})
+			return
+		}
+		if err := db.Where("user_id = ?", existing.UserID).Delete(&Collection{}, existing.ID).Error; err != nil {
 			c.JSON(500, gin.H{"error": "删除失败"})
 			return
 		}
@@ -773,7 +797,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	})
 
 	colAPI.GET("/:id/songs", func(c *gin.Context) {
-		collection, err := loadCollection(c.Param("id"))
+		collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
 		if err != nil {
 			c.JSON(404, gin.H{"error": "歌单不存在"})
 			return
@@ -788,7 +812,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	})
 
 	colAPI.POST("/:id/songs", func(c *gin.Context) {
-		collection, err := loadCollection(c.Param("id"))
+		collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
 		if err != nil {
 			c.JSON(404, gin.H{"error": "歌单不存在"})
 			return
@@ -839,7 +863,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 	})
 
 	colAPI.DELETE("/:id/songs", func(c *gin.Context) {
-		collection, err := loadCollection(c.Param("id"))
+		collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
 		if err != nil {
 			c.JSON(404, gin.H{"error": "歌单不存在"})
 			return

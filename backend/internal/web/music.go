@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -813,6 +814,14 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			if err != nil {
 				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 				return
+			}
+
+			// 登记下载归属(共享目录 + 归属表方案):本地库据此按用户隔离。
+			// userID=0(桌面模式异常/未登录)时 recordDownload 内部跳过,不影响下载本身。
+			if rel := relPathUnderDir(settings.DownloadDir, result.SavedPath); rel != "" {
+				if err := recordDownload(currentUserID(c), rel, source, id, name, artist); err != nil {
+					log.Printf("[download] 登记下载归属失败 user=%d rel=%q: %v", currentUserID(c), rel, err)
+				}
 			}
 
 			payload := gin.H{

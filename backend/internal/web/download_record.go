@@ -1,6 +1,7 @@
 package web
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -79,10 +80,58 @@ func deleteDownloadRecordForUser(userID uint, relPath string) (stillReferenced b
 	return remaining > 0, nil
 }
 
+// filterLocalTracksForUser 按归属过滤本地扫描结果。
+//   - admin=true:返回全部(管理员可见全部本地库)。
+//   - 否则:只返回该用户 DownloadRecord 里登记过的文件(按 RelPath 匹配)。
+//
+// userID=0(异常)按"无任何归属"处理,返回空,避免越权看到全部。
+func filterLocalTracksForUser(tracks []*localMusicTrack, userID uint, admin bool) []*localMusicTrack {
+	if admin {
+		return tracks
+	}
+	if userID == 0 || len(tracks) == 0 {
+		return []*localMusicTrack{}
+	}
+	owned, err := downloadedRelPathsForUser(userID)
+	if err != nil || len(owned) == 0 {
+		return []*localMusicTrack{}
+	}
+	out := make([]*localMusicTrack, 0, len(tracks))
+	for _, t := range tracks {
+		if t == nil {
+			continue
+		}
+		if _, ok := owned[normalizeRelPath(t.RelPath)]; ok {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func normalizeRelPath(p string) string {
 	p = strings.TrimSpace(p)
 	p = strings.ReplaceAll(p, "\\", "/")
 	p = strings.TrimPrefix(p, "./")
 	p = strings.TrimPrefix(p, "/")
 	return p
+}
+
+// relPathUnderDir 计算 fullPath 相对 baseDir 的路径(归一化为正斜杠)。
+// 若 fullPath 不在 baseDir 下或计算失败,返回 fullPath 的 basename 兜底
+// (仍能作为归属键,只是不含子目录层级)。
+func relPathUnderDir(baseDir, fullPath string) string {
+	baseDir = strings.TrimSpace(baseDir)
+	fullPath = strings.TrimSpace(fullPath)
+	if fullPath == "" {
+		return ""
+	}
+	if baseDir != "" {
+		if rel, err := filepath.Rel(baseDir, fullPath); err == nil {
+			rel = normalizeRelPath(rel)
+			if rel != "" && !strings.HasPrefix(rel, "../") && rel != ".." {
+				return rel
+			}
+		}
+	}
+	return normalizeRelPath(filepath.Base(fullPath))
 }

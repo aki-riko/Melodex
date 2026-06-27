@@ -111,10 +111,14 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 			return
 		}
 
+		// 按用户隔离:普通用户只看自己下载过的文件(共享目录 + 归属表)。
+		// 管理员看全部(便于管理/排障)。
+		tracks = filterLocalTracksForUser(tracks, currentUserID(c), currentUserIsAdmin(c))
+
 		offset := parseLocalMusicRangeInt(c.Query("offset"), 0)
 		limit := parseLocalMusicRangeInt(c.Query("limit"), 0)
 		pageTracks := paginateLocalMusicTracks(tracks, offset, limit)
-		markAlreadyAddedLocalTracks(c.Query("collection_id"), pageTracks)
+		markAlreadyAddedLocalTracks(c.Query("collection_id"), currentUserID(c), pageTracks)
 		c.JSON(http.StatusOK, gin.H{
 			"download_dir": filepath.ToSlash(dir),
 			"exists":       exists,
@@ -177,7 +181,7 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 	})
 
 	api.DELETE("/local_music", func(c *gin.Context) {
-		if err := deleteLocalMusicTrack(c.Query("id")); err != nil {
+		if err := deleteLocalMusicTrackForUser(c.Query("id"), currentUserID(c), currentUserIsAdmin(c)); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -186,7 +190,7 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 
 	colAPI := api.Group("/collections")
 	colAPI.POST("/:id/local_music", func(c *gin.Context) {
-		collection, err := loadCollection(c.Param("id"))
+		collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "歌单不存在"})
 			return
@@ -425,12 +429,12 @@ func paginateLocalMusicTracks(tracks []*localMusicTrack, offset int, limit int) 
 	return tracks[offset : offset+limit]
 }
 
-func markAlreadyAddedLocalTracks(collectionID string, tracks []*localMusicTrack) {
+func markAlreadyAddedLocalTracks(collectionID string, userID uint, tracks []*localMusicTrack) {
 	if strings.TrimSpace(collectionID) == "" || len(tracks) == 0 || db == nil {
 		return
 	}
 
-	collection, err := loadCollection(collectionID)
+	collection, err := loadOwnedCollection(collectionID, userID)
 	if err != nil || collection.isImported() {
 		return
 	}
@@ -1261,7 +1265,7 @@ func removeString(values []string, target string) []string {
 	return filtered
 }
 
-func localMusicSavedCollectionNames(trackID string) ([]string, error) {
+func localMusicSavedCollectionNames(trackID string, userID uint) ([]string, error) {
 	if db == nil {
 		return nil, nil
 	}
@@ -1272,9 +1276,14 @@ func localMusicSavedCollectionNames(trackID string) ([]string, error) {
 	}
 
 	var collections []Collection
-	if err := db.
+	query := db.
 		Joins("JOIN saved_songs ON saved_songs.collection_id = collections.id").
-		Where("saved_songs.song_id = ? AND saved_songs.source IN ?", trackID, []string{localMusicSource, legacyLocalMusicSource}).
+		Where("saved_songs.song_id = ? AND saved_songs.source IN ?", trackID, []string{localMusicSource, legacyLocalMusicSource})
+	// 普通删除只检查当前用户自己的歌单(userID>0);userID=0 表示管理员物理删除,检查全部歌单。
+	if userID != 0 {
+		query = query.Where("collections.user_id = ?", userID)
+	}
+	if err := query.
 		Order("collections.id DESC").
 		Find(&collections).Error; err != nil {
 		return nil, err
@@ -1291,18 +1300,50 @@ func localMusicSavedCollectionNames(trackID string) ([]string, error) {
 	return names, nil
 }
 
-func deleteLocalMusicTrack(id string) error {
+// deleteLocalMusicTrackForUser 删除本地音乐,按用户隔离:
+//   - 普通用户:仅从自己的本地库移除(删自己的下载归属)。若文件仍被其他用户引用,
+//     不删物理文件;若已无人引用,则删物理文件。删除前检查该文件是否还在自己的歌单里。
+//   - 管理员:物理删除文件并清除所有用户的归属记录(检查全局歌单引用)。
+func deleteLocalMusicTrackForUser(id string, userID uint, admin bool) error {
 	track, err := localMusicTrackByID(id)
 	if err != nil {
 		return errors.New("本地音乐不存在或已不在下载目录内")
 	}
-	collectionNames, err := localMusicSavedCollectionNames(track.ID)
+
+	guardUserID := userID
+	if admin {
+		guardUserID = 0 // 检查全局歌单引用
+	}
+	collectionNames, err := localMusicSavedCollectionNames(track.ID, guardUserID)
 	if err != nil {
 		return err
 	}
 	if len(collectionNames) > 0 {
 		return fmt.Errorf("本地音乐已收藏在：%s。请先从这些自建歌单中取消收藏，再删除本地文件", strings.Join(collectionNames, "、"))
 	}
+
+	rel := normalizeRelPath(track.RelPath)
+
+	if admin {
+		if err := os.Remove(track.absPath); err != nil {
+			return err
+		}
+		_ = deleteDownloadRecordsByPath(rel)
+		invalidateLocalMusicScanCache()
+		return nil
+	}
+
+	// 普通用户:先移除自己的归属。
+	stillReferenced, err := deleteDownloadRecordForUser(userID, rel)
+	if err != nil {
+		return err
+	}
+	if stillReferenced {
+		// 文件仍被他人引用,只从当前用户视图移除,不删物理文件。
+		invalidateLocalMusicScanCache()
+		return nil
+	}
+	// 已无人引用,删物理文件。
 	if err := os.Remove(track.absPath); err != nil {
 		return err
 	}
