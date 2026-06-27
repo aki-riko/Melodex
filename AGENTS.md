@@ -102,10 +102,10 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 
 ## 部署(NAS,Unraid x86_64)
 
-- 代码在 NAS `/mnt/cache/appdata/tunescout-plus-src`,Docker compose 运行,端口 **8329**。
+- 代码在 NAS `/mnt/cache/appdata/melodex-src`,Docker compose 运行,端口 **8329**。
 - 访问 `https://tsp.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
 - **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@192.168.1.99:28022/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:22-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)。
-- 部署流程:NAS 上 `git pull origin master` → `docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t tunescout-plus:latest .` → `docker compose up -d`。
+- 部署流程:NAS 上 `git pull origin master` → `docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t melodex:latest .` → `docker compose up -d`。
 
 ## Git
 

@@ -6,7 +6,7 @@
 
 ## Spotify Artist Page UI (视觉设计参考)
 
-TuneScout+ 的暗色界面皮肤(配色、播放器条、曲目行、卡片等视觉样式)
+Melodex 的暗色界面皮肤(配色、播放器条、曲目行、卡片等视觉样式)
 改编自 Adam Lowenthal 在 CodePen 发布的 "Spotify Artist Page UI" 作品。
 原作为静态 HTML/CSS 视觉稿,本项目将其视觉语言移植为 React 组件并接入实际功能。
 
@@ -42,5 +42,5 @@ SOFTWARE.
 
 ---
 
-> 注:TuneScout+ 整体采用 AGPL-3.0(继承自 go-music-dl)。MIT 资源并入 AGPL 项目
+> 注:Melodex 整体采用 AGPL-3.0(继承自 go-music-dl)。MIT 资源并入 AGPL 项目
 > 合规,仅需保留上述版权与许可声明。
