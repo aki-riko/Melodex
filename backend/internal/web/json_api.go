@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -336,6 +337,13 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 					if res, err := fn(keyword); err == nil {
 						for i := range res {
 							res[i].Source = s
+							// 记录该结果在本源内的原始排名(上游相关性信号)。
+							// 译名/别名搜索时上游知道相关性而本地字符串匹配不到,
+							// 排序回退到此名次,避免被判 0 分沉底。
+							if res[i].Extra == nil {
+								res[i].Extra = map[string]string{}
+							}
+							res[i].Extra["_rank"] = strconv.Itoa(i)
 						}
 						mu.Lock()
 						allSongs = append(allSongs, res...)
