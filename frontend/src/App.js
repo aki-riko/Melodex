@@ -79,8 +79,9 @@ function App() {
                 {currentSection === 'Settings' && <Settings />}
                 {currentSection === 'Artists' && <Artists />}
                 {currentSection === 'FAQ' && <FAQ />}
+                {/* 页脚(含第三方署名)只放帮助页,其余页保持干净 */}
+                {currentSection === 'FAQ' && <Footer />}
               </div>
-              <Footer />
             </main>
           </div>
         </div>
