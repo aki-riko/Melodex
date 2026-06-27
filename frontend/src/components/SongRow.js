@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Play, Download, FileText, Gauge, Check, RotateCw } from 'lucide-react';
+import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus } from 'lucide-react';
 import { getStreamUrl, saveToServer, inspectQuality } from '../services/musicdl';
+import { useCollections } from '../contexts/CollectionsContext';
 import { formatDuration } from '../utils/format';
 
 const fmtSec = (sec) => (sec ? formatDuration(sec * 1000) : '');
@@ -23,6 +24,7 @@ const qualityOf = (song) => {
 // 单首歌曲行:歌曲搜索结果与歌单/专辑详情共用。
 const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
   const q = qualityOf(song);
+  const { setAddTarget } = useCollections();
   const [real, setReal] = useState(null); // 手动验音质结果 {size, bitrate}
   const [checking, setChecking] = useState(false);
   const [dlState, setDlState] = useState(''); // '' | 'saving' | 'done' | 'fail'
@@ -96,6 +98,11 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
       className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
       title="验真实音质与大小">
       <Gauge size={16} className={checking ? 'animate-pulse' : ''} />
+    </button>
+    <button onClick={() => setAddTarget(song)}
+      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+      title="加入歌单">
+      <ListPlus size={16} />
     </button>
     {onShowLyric && (
       <button onClick={() => onShowLyric(song)}

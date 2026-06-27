@@ -2,14 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { Sidebar, MobileTabBar } from './components/Sidebar';
 import TopBar from './components/TopBar';
-import Hero from './components/Hero';
 import Trending from './components/Trending';
 import Artists from './components/Artists';
 import Discover from './components/Discover';
 import Download from './components/Download';
 import Settings from './components/Settings';
+import MyPlaylist from './components/MyPlaylist';
 import { onDownloadSearch } from './services/downloadBus';
 import { PlayerProvider, PlayerBar } from './contexts/PlayerContext';
+import { CollectionsProvider } from './contexts/CollectionsContext';
+import AddToPlaylistModal from './components/AddToPlaylistModal';
 import FAQ from './components/FAQ';
 import Footer from './components/Footer';
 import 'react-toastify/dist/ReactToastify.css';
@@ -24,7 +26,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const VALID_SECTIONS = ['Home', 'Trending', 'Artists', 'Discover', 'Download', 'Settings', 'FAQ'];
+const VALID_SECTIONS = ['Home', 'Trending', 'Artists', 'Discover', 'Download', 'Settings', 'FAQ', 'MyPlaylist'];
 const sectionFromHash = () => {
   const h = (window.location.hash || '').replace(/^#/, '').toLowerCase();
   return VALID_SECTIONS.find((s) => s.toLowerCase() === h) || 'Home';
@@ -60,6 +62,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <CollectionsProvider>
       <PlayerProvider>
         {/* app-shell:左侧固定栏 + 右侧(顶栏+滚动主区);底部播放条与移动 Tab 固定 */}
         <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -72,12 +75,13 @@ function App() {
               style={{ paddingBottom: '7rem' }}
             >
               <div className="container mx-auto px-4 md:px-6 py-6 max-w-6xl">
-                {currentSection === 'Home' && <Hero onLinkClick={navigate} />}
+                {/* 首页直接用发现页(分类浏览歌单),去掉无实质内容的欢迎页 */}
+                {(currentSection === 'Home' || currentSection === 'Discover') && <Discover />}
                 {currentSection === 'Trending' && <Trending />}
-                {currentSection === 'Discover' && <Discover />}
                 {currentSection === 'Download' && <Download downloadRequest={downloadRequest} />}
                 {currentSection === 'Settings' && <Settings />}
                 {currentSection === 'Artists' && <Artists />}
+                {currentSection === 'MyPlaylist' && <MyPlaylist />}
                 {currentSection === 'FAQ' && <FAQ />}
                 {/* 页脚(含第三方署名)只放帮助页,其余页保持干净 */}
                 {currentSection === 'FAQ' && <Footer />}
@@ -87,7 +91,9 @@ function App() {
         </div>
         <PlayerBar />
         <MobileTabBar currentSection={currentSection} onNavigate={navigate} />
+        <AddToPlaylistModal />
       </PlayerProvider>
+      </CollectionsProvider>
     </QueryClientProvider>
   );
 }

@@ -1,7 +1,6 @@
-import React from 'react';
-import { useQuery } from 'react-query';
-import { Home, TrendingUp, Compass, Search, Library, Settings, HelpCircle, Music } from 'lucide-react';
-import { getRecommend } from '../services/musicdl';
+import React, { useState } from 'react';
+import { Home, TrendingUp, Compass, Search, Library, Settings, HelpCircle, Music, Plus } from 'lucide-react';
+import { useCollections } from '../contexts/CollectionsContext';
 import { requestOpenPlaylist } from '../services/playlistBus';
 
 // 导航项:桌面左栏分组展示,移动端取 primary 的几项做底部 Tab
@@ -70,25 +69,49 @@ export function Sidebar({ currentSection, onNavigate }) {
   );
 }
 
-// 侧栏歌单列表:拉推荐歌单,点击 → 切热门页 + 打开歌单详情
+// 侧栏自建歌单列表:列我的歌单 + 新建,点击 → 切到歌单页打开该歌单
 function PlaylistNav({ onNavigate }) {
-  const { data } = useQuery(['sidebar-recommend'], () => getRecommend(['netease', 'qq']), {
-    staleTime: 10 * 60 * 1000,
-  });
-  const playlists = (data?.tabs || []).flatMap((t) => t.playlists || []).slice(0, 30);
-  if (!playlists.length) return null;
+  const { collections, create } = useCollections();
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const n = name.trim();
+    if (!n) return;
+    const c = await create(n);
+    setName(''); setCreating(false);
+    if (c && c.id != null) { onNavigate('MyPlaylist'); requestOpenPlaylist({ collectionId: c.id, name: n }); }
+  };
+
   return (
     <div className="mb-5 border-t border-border pt-4">
-      <div className="px-3 mb-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">歌单</div>
-      {playlists.map((pl) => (
+      <div className="flex items-center justify-between px-3 mb-1">
+        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">我的歌单</span>
+        <button onClick={() => setCreating((v) => !v)} className="text-muted-foreground hover:text-foreground" title="新建歌单">
+          <Plus size={16} />
+        </button>
+      </div>
+      {creating && (
+        <form onSubmit={submit} className="px-3 mb-2">
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
+            onBlur={() => { if (!name.trim()) setCreating(false); }}
+            placeholder="歌单名,回车创建"
+            className="w-full bg-secondary rounded px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary" />
+        </form>
+      )}
+      {collections.length === 0 && !creating && (
+        <p className="px-3 text-xs text-muted-foreground/70">点 + 新建你的第一个歌单</p>
+      )}
+      {collections.map((c) => (
         <button
-          key={`${pl.source}-${pl.id}`}
-          onClick={() => { onNavigate('Trending'); requestOpenPlaylist({ id: pl.id, source: pl.source, name: pl.name }); }}
+          key={c.id}
+          onClick={() => { onNavigate('MyPlaylist'); requestOpenPlaylist({ collectionId: c.id, name: c.name }); }}
           className="w-full flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors text-left"
-          title={pl.name}
+          title={c.name}
         >
           <Music size={16} className="flex-shrink-0" />
-          <span className="truncate">{pl.name}</span>
+          <span className="truncate">{c.name}</span>
         </button>
       ))}
     </div>

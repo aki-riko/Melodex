@@ -12,8 +12,8 @@ const Trending = () => {
     getRecommend(['netease', 'qq'])
   );
 
-  // 侧栏点歌单 → 打开该歌单详情(playlistBus 事件)
-  useEffect(() => onOpenPlaylist((meta) => { if (meta) setOpen(meta); }), []);
+  // 仅处理推荐歌单(带 id+source);自建歌单(collectionId)由 MyPlaylist 处理
+  useEffect(() => onOpenPlaylist((meta) => { if (meta && meta.id && meta.source) setOpen(meta); }), []);
 
   if (open) {
     return (
