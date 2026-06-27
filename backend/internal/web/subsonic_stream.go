@@ -54,9 +54,11 @@ func subsonicStream(c *gin.Context) {
 
 	// 1) 先查共享目录是否已下载该曲(听过的会沉淀在这)。
 	if track := findDownloadedTrack(song); track != nil {
+		log.Printf("[subsonic] stream 命中本地 %s-%s → %s", song.Name, song.Artist, track.Filename)
 		serveLocalTrackAbs(c, track)
 		return
 	}
+	log.Printf("[subsonic] stream 未命中本地,走在线 %s-%s (source=%s)", song.Name, song.Artist, song.Source)
 
 	// 2) 未下载:在线反代播放 + 后台完整下载入库。
 	streamOnlineAndCache(c, song)
@@ -140,6 +142,7 @@ func streamOnlineAndCache(c *gin.Context, song model.Song) {
 func findDownloadedTrack(song model.Song) *localMusicTrack {
 	tracks, _, exists, _, _, _ := scanLocalMusicTracksCached(false)
 	if !exists || len(tracks) == 0 {
+		log.Printf("[subsonic] findDownloaded: 曲库空 exists=%v n=%d", exists, len(tracks))
 		return nil
 	}
 	wantName := normalizeMatchKey(song.Name)
