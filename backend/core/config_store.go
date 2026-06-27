@@ -333,3 +333,30 @@ func SaveWebAuthSettings(settings WebAuthSettings) error {
 		Value: string(data),
 	}).Error
 }
+
+// GetConfigValue 读取一个通用配置项(不存在返回空串)。供 web 层存放系统级开关
+// (如开放注册)而无需在 core 增加专用类型。
+func GetConfigValue(key string) (string, error) {
+	if err := ensureConfigDB(); err != nil {
+		return "", err
+	}
+	var row configKV
+	if err := configDB.Where("key = ?", key).Limit(1).Find(&row).Error; err != nil {
+		return "", err
+	}
+	return row.Value, nil
+}
+
+// SetConfigValue 写入一个通用配置项。
+func SetConfigValue(key, value string) error {
+	if err := ensureConfigDB(); err != nil {
+		return err
+	}
+	return configDB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&configKV{
+		Key:   key,
+		Value: value,
+	}).Error
+}

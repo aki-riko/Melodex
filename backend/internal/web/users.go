@@ -19,6 +19,8 @@ const (
 
 	minUsernameLen = 2
 	maxUsernameLen = 32
+
+	desktopUsername = "local"
 )
 
 var (
@@ -282,6 +284,34 @@ func deleteUser(id uint) error {
 	return db.Delete(&User{}, id).Error
 }
 
+// deleteUserAndData 删除用户及其归属数据(歌单连同 saved_songs 级联、下载归属记录),
+// 事务内完成。保护最后一个管理员。
+func deleteUserAndData(id uint) error {
+	u, err := findUserByID(id)
+	if err != nil {
+		return err
+	}
+	if u.isAdmin() {
+		others, err := countAdmins(u.ID)
+		if err != nil {
+			return err
+		}
+		if others == 0 {
+			return ErrLastRootProtected
+		}
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		// 删该用户的歌单(SavedSong 经 Collection 的 OnDelete:CASCADE 级联删除)。
+		if err := tx.Where("user_id = ?", id).Delete(&Collection{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&DownloadRecord{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&User{}, id).Error
+	})
+}
+
 func listUsers() ([]publicUser, error) {
 	var users []User
 	if err := db.Order("id ASC").Find(&users).Error; err != nil {
@@ -297,6 +327,30 @@ func listUsers() ([]publicUser, error) {
 // verifyPassword 校验明文密码与哈希是否匹配。
 func verifyPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+// ensureDesktopUser 返回桌面/本机模式使用的本地管理员用户(不存在则创建)。
+// 该用户作为单用户兜底,数据归属它。密码哈希设为不可登录的占位(桌面模式免登录)。
+func ensureDesktopUser() (*User, error) {
+	if u, err := findUserByUsername(desktopUsername); err == nil {
+		return u, nil
+	} else if !errors.Is(err, ErrUserNotFound) {
+		return nil, err
+	}
+	// 若已有任意管理员(例如曾以多用户模式跑过),复用最早的管理员,避免重复账号。
+	var admin User
+	if err := db.Where("role = ?", RoleAdmin).Order("id ASC").First(&admin).Error; err == nil {
+		return &admin, nil
+	}
+	u := User{
+		Username:     desktopUsername,
+		PasswordHash: "!", // 非法 bcrypt 哈希 → 永远无法通过密码登录(桌面模式免登录)
+		Role:         RoleAdmin,
+	}
+	if err := db.Create(&u).Error; err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 func isUniqueConstraintErr(err error) bool {
