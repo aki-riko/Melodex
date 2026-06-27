@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX } from 'lucide-react';
+import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic } from 'lucide-react';
 import { getStreamUrl, coverProxyUrl } from '../services/musicdl';
 
 const PlayerContext = createContext(null);
@@ -26,8 +26,9 @@ export const PlayerProvider = ({ children }) => {
   const [mode, setMode] = useState('order');
   const [volume, setVolumeState] = useState(loadVolume);
   const [muted, setMuted] = useState(false);
+  const [queue, setQueue] = useState([]); // 当前播放队列(state 副本,供队列面板渲染)
   const audioRef = useRef(null);
-  const queueRef = useRef([]); // 当前播放队列
+  const queueRef = useRef([]); // 当前播放队列(ref,供 next/prev 等回调读取免闭包陈旧)
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
   const modeRef = useRef('order');
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -61,7 +62,16 @@ export const PlayerProvider = ({ children }) => {
 
   // play(song, list):list 为当前列表(队列),用于上/下一首与失败自动跳
   const play = useCallback((song, list = []) => {
-    queueRef.current = Array.isArray(list) && list.length ? list : [song];
+    const q = Array.isArray(list) && list.length ? list : [song];
+    queueRef.current = q;
+    setQueue(q);
+    triedRef.current = new Set();
+    setNotice('');
+    startPlay(song);
+  }, [startPlay]);
+
+  // playFromQueue:从队列面板点击某首,直接播放(不改变队列)
+  const playFromQueue = useCallback((song) => {
     triedRef.current = new Set();
     setNotice('');
     startPlay(song);
@@ -152,6 +162,7 @@ export const PlayerProvider = ({ children }) => {
     <PlayerContext.Provider value={{
       nowPlaying, play, audioRef, notice, isPaused, progress, mode, setMode,
       volume, setVolume, muted, toggleMute,
+      queue, playFromQueue,
       isPlaying: (s) => nowPlaying && nowPlaying.id === s.id && nowPlaying.source === s.source,
       next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
       cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
@@ -182,7 +193,11 @@ export const PlayerBar = () => {
     next, prev, togglePlay, seek, handleError, handleEnded,
     setIsPaused, setProgress, cycleMode,
     volume, setVolume, muted, toggleMute,
+    queue, playFromQueue,
   } = usePlayer();
+
+  const [queueOpen, setQueueOpen] = useState(false);
+  const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
 
   const modeIcon = mode === 'repeat'
     ? <Repeat1 size={18} />
@@ -255,6 +270,51 @@ export const PlayerBar = () => {
               onChange={(e) => setVolume(Number(e.target.value))}
               className="flex-grow accent-primary cursor-pointer" aria-label="音量"
             />
+          </div>
+          {/* 播放队列:音量键右侧,点击弹出当前队列面板 */}
+          <div className="relative flex-shrink-0">
+            <button onClick={() => setQueueOpen((o) => !o)}
+              className={`transition-colors ${queueOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title="播放队列" aria-label="播放队列">
+              <ListMusic size={18} />
+            </button>
+            {queueOpen && (
+              <>
+                {/* 点击外部关闭 */}
+                <div className="fixed inset-0 z-40" onClick={() => setQueueOpen(false)} />
+                <div className="absolute bottom-full right-0 mb-3 w-80 max-h-96 overflow-y-auto app-scroll bg-card border border-border rounded-lg shadow-xl z-50">
+                  <div className="sticky top-0 bg-card border-b border-border px-3 py-2 flex items-center justify-between">
+                    <span className="font-semibold text-sm">播放队列</span>
+                    <span className="text-xs text-muted-foreground">{queue.length} 首</span>
+                  </div>
+                  {queue.length === 0 ? (
+                    <p className="text-sm text-muted-foreground px-3 py-4">队列为空</p>
+                  ) : (
+                    <div className="py-1">
+                      {queue.map((s, i) => {
+                        const k = `${s.source}-${s.id}`;
+                        const active = k === curKey;
+                        return (
+                          <button
+                            key={`${k}-${i}`}
+                            onClick={() => { playFromQueue(s); }}
+                            className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${active ? 'bg-secondary' : 'hover:bg-secondary/60'}`}
+                          >
+                            <span className={`w-5 text-right text-xs tabular-nums flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`}>
+                              {active ? '▶' : i + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${s.source}` : ''}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
           <audio
             ref={audioRef}
