@@ -98,6 +98,19 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 			bitrate = 320
 		}
 
+		songExtra := map[string]string{
+			"songmid": item.SongMID,
+			"song_id": strconv.FormatInt(item.SongID, 10),
+		}
+		// 原唱/正版信号(TuneScout+ 排序用,见 facade combinedScore):
+		// 有无损授权 + 付费单曲 ≈ 正版原唱,区别于草根译名翻唱。
+		if item.SizeFlac > 0 {
+			songExtra["has_lossless"] = "1"
+		}
+		if item.Pay.PayTrackPrice > 0 {
+			songExtra["is_paid"] = "1"
+		}
+
 		songs = append(songs, model.Song{
 			Source:   "qq",
 			ID:       item.SongMID,
@@ -109,10 +122,7 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 			Bitrate:  bitrate,
 			Cover:    coverURL,
 			Link:     fmt.Sprintf("https://y.qq.com/n/ryqq/songDetail/%s", item.SongMID),
-			Extra: map[string]string{
-				"songmid": item.SongMID,
-				"song_id": strconv.FormatInt(item.SongID, 10),
-			},
+			Extra:    songExtra,
 		})
 	}
 	return songs, nil
