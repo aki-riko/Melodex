@@ -10,9 +10,8 @@ import {
   setCookie,
   getLocalMusic,
   deleteLocalMusic,
-  adminSetupUrl,
-  adminLoginUrl,
 } from '../services/musicdl';
+import { useAuth } from '../contexts/AuthContext';
 
 const SOURCE_LABELS = {
   netease: '网易云音乐',
@@ -168,13 +167,13 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
 };
 
 const Settings = () => {
-  const qrSources = useQuery(['qr-sources'], getQRSources);
+  const { isAdmin } = useAuth();
+  const qrSources = useQuery(['qr-sources'], getQRSources, { enabled: isAdmin });
   const cookieStatus = useQuery(['cookie-status'], getCookieStatus, {
+    enabled: isAdmin,
     retry: (count, err) => err?.name !== 'AuthRequiredError' && count < 2,
   });
   const localMusic = useQuery(['local-music'], () => getLocalMusic({ limit: 200 }));
-
-  const authErr = cookieStatus.error?.name === 'AuthRequiredError' ? cookieStatus.error : null;
 
   const handleLoggedIn = () => {
     cookieStatus.refetch();
@@ -197,44 +196,35 @@ const Settings = () => {
   return (
     <div className="max-w-5xl mx-auto pb-32">
       <h2 className="text-3xl font-semibold mb-2 text-foreground">设置 · Settings</h2>
-      <p className="text-muted-foreground mb-6 mt-3">扫码登录各平台以解锁会员/无损音质,管理已下载的本地音乐。</p>
+      <p className="text-muted-foreground mb-6 mt-3">
+        {isAdmin
+          ? '扫码登录各平台以解锁会员/无损音质(全局共享),管理你的本地音乐。'
+          : '管理你的本地音乐。平台会员登录由管理员统一配置。'}
+      </p>
 
-      {authErr && (
-        <div className="mb-6 p-4 border border-border rounded-lg bg-destructive/10 shadow-brutal-sm">
-          <p className="font-semibold mb-1">需要管理员身份</p>
-          <p className="text-sm mb-2">
-            扫码登录与 Cookie 管理属于敏感操作,后端已要求管理员鉴权。请先
-            {authErr.setupRequired ? '初始化管理员账号' : '登录'}后再使用本页功能。
+      {isAdmin && (
+        <section className="mb-10">
+          <h3 className="text-xl font-semibold mb-4">账号登录</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            平台会员 Cookie 为全局共享(所有用户共用同一会员链路),仅管理员可配置。
           </p>
-          <a
-            href={authErr.setupRequired ? adminSetupUrl : adminLoginUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-block px-3 py-1.5 border border-border rounded-md bg-destructive text-destructive-foreground font-semibold text-sm shadow-brutal-sm transition-colors hover:brightness-[0.97]"
-          >
-            前往{authErr.setupRequired ? '初始化' : '登录'}页 ↗
-          </a>
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {sources.map((src) => (
+              <div key={src}>
+                <QRLoginCard source={src} loggedIn={!!status[src]} onLoggedIn={handleLoggedIn} />
+                {status[src] && (
+                  <button
+                    onClick={() => handleLogout(src)}
+                    className="w-full mt-2 px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm shadow-brutal-sm transition-colors hover:bg-secondary"
+                  >
+                    退出登录
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
-
-      <section className="mb-10">
-        <h3 className="text-xl font-semibold mb-4">账号登录</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {sources.map((src) => (
-            <div key={src}>
-              <QRLoginCard source={src} loggedIn={!!status[src]} onLoggedIn={handleLoggedIn} />
-              {status[src] && (
-                <button
-                  onClick={() => handleLogout(src)}
-                  className="w-full mt-2 px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm shadow-brutal-sm transition-colors hover:bg-secondary"
-                >
-                  退出登录
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
 
       <section>
         <div className="flex items-center justify-between mb-4">

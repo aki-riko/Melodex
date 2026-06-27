@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Home, Search, Library, Settings, HelpCircle, Music, Plus } from 'lucide-react';
+import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { importM3U } from '../services/collections';
 import { requestOpenPlaylist } from '../services/playlistBus';
 
@@ -28,6 +29,7 @@ const MOBILE_TABS = GROUPS.flatMap((g) => g.items).filter((i) => i.primary);
 
 // 桌面左侧固定栏
 export function Sidebar({ currentSection, onNavigate }) {
+  const { user, isAdmin, logout, desktop } = useAuth();
   return (
     <aside className="hidden md:flex flex-col w-60 flex-shrink-0 bg-black/40 border-r border-border h-full overflow-y-auto app-scroll">
       <a
@@ -59,11 +61,43 @@ export function Sidebar({ currentSection, onNavigate }) {
                 </a>
               );
             })}
+            {/* 管理员专属:用户管理入口,放在「音乐」组末尾 */}
+            {g.title === '音乐' && isAdmin && (
+              <a
+                href="#users"
+                onClick={(e) => { e.preventDefault(); onNavigate('Users'); }}
+                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  currentSection === 'Users' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+                aria-current={currentSection === 'Users' ? 'page' : undefined}
+              >
+                <Users size={18} />
+                <span>用户管理</span>
+              </a>
+            )}
           </div>
         ))}
         {/* 歌单组:列推荐歌单,点击跳热门页并打开该歌单(1:1 复刻 Spotify 左栏 Playlists) */}
         <PlaylistNav onNavigate={onNavigate} />
       </nav>
+      {/* 底部:当前用户 + 登出(桌面本机模式无需登出) */}
+      {user && (
+        <div className="border-t border-border px-3 py-3 flex items-center gap-2">
+          <div className="flex-grow min-w-0">
+            <p className="text-sm font-semibold truncate">{user.username}</p>
+            <p className="text-xs text-muted-foreground">{user.role === 'admin' ? '管理员' : '普通用户'}</p>
+          </div>
+          {!desktop && (
+            <button
+              onClick={logout}
+              className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              title="退出登录"
+            >
+              <LogOut size={18} />
+            </button>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
