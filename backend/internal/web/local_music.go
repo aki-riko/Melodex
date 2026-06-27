@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -172,6 +173,14 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+
+		// 登记归属:上传也是"获得本地文件"的途径,普通用户上传后须在自己的本地库可见
+		// (否则 filterLocalTracksForUser 会因无归属记录而隐藏)。
+		if track != nil {
+			if err := recordDownload(currentUserID(c), track.RelPath, localMusicSource, track.ID, track.Name, track.Artist); err != nil {
+				log.Printf("[upload] 登记上传归属失败 user=%d rel=%q: %v", currentUserID(c), track.RelPath, err)
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{

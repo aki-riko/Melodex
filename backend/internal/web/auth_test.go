@@ -189,13 +189,15 @@ func TestAllowSaveLocalRequestRequiresPostAndSameOriginXHR(t *testing.T) {
 		method     string
 		origin     string
 		xrw        string
+		withUser   bool
 		wantStatus int
 		wantAllow  bool
 	}{
 		{name: "get rejected", method: http.MethodGet, xrw: "XMLHttpRequest", wantStatus: http.StatusMethodNotAllowed},
 		{name: "missing xhr rejected", method: http.MethodPost, wantStatus: http.StatusForbidden},
 		{name: "cross origin rejected", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "https://evil.example", wantStatus: http.StatusForbidden},
-		{name: "same origin allowed", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", wantAllow: true},
+		{name: "same origin but unauthenticated rejected", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", wantStatus: http.StatusUnauthorized},
+		{name: "same origin authenticated allowed", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", withUser: true, wantAllow: true},
 	}
 
 	for _, tt := range tests {
@@ -210,6 +212,10 @@ func TestAllowSaveLocalRequestRequiresPostAndSameOriginXHR(t *testing.T) {
 				req.Header.Set("X-Requested-With", tt.xrw)
 			}
 			c.Request = req
+			if tt.withUser {
+				c.Set(ctxUserID, uint(1))
+				c.Set(ctxUserRole, RoleUser)
+			}
 
 			gotAllow := allowSaveLocalRequest(c)
 			if gotAllow != tt.wantAllow {
