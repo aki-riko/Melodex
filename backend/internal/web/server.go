@@ -423,6 +423,14 @@ func StartWithOptions(port string, opts StartOptions) {
 	api.GET("/app.js", func(c *gin.Context) { c.FileFromFS("templates/static/js/app.js", http.FS(templateFS)) })
 	configAPI, userAPI := bindAuthMiddleware(api, opts)
 
+	// optionalUserAPI:公开读路由,但若已登录则注入用户(GET /settings 据此返回个人偏好)。
+	optionalUserAPI := api.Group("")
+	if !opts.DisableAuth {
+		optionalUserAPI.Use(attachUserOptional())
+	} else {
+		optionalUserAPI.Use(desktopUserMiddleware())
+	}
+
 	api.GET("/render", func(c *gin.Context) {
 		c.HTML(200, "render.html", gin.H{
 			"Root": RoutePrefix,
@@ -442,9 +450,13 @@ func StartWithOptions(port string, opts StartOptions) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cookies payload"})
 	})
 
-	api.GET("/settings", func(c *gin.Context) {
-		c.JSON(200, core.GetWebSettings())
+	// GET /settings:返回合并视图(系统级全局设置 + 当前用户展示偏好)。
+	// 公开读(未登录返回全局默认),登录后浮动歌词/每页条数为用户自己的偏好。
+	optionalUserAPI.GET("/settings", func(c *gin.Context) {
+		c.JSON(200, effectiveSettingsForUser(currentUserID(c)))
 	})
+	// POST /settings:系统级设置写入,仅管理员(configAPI)。
+	// 注意:展示偏好(浮动歌词/每页条数)请走 /user/prefs,按用户隔离。
 	configAPI.POST("/settings", func(c *gin.Context) {
 		var req core.WebSettings
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -455,7 +467,25 @@ func StartWithOptions(port string, opts StartOptions) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, core.GetWebSettings())
+		c.JSON(200, effectiveSettingsForUser(currentUserID(c)))
+	})
+	// 用户展示偏好(浮动歌词/每页条数),仅登录即可,按 user_id 隔离。
+	userAPI.POST("/user/prefs", func(c *gin.Context) {
+		uid := currentUserID(c)
+		if uid == 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
+			return
+		}
+		var req UserPref
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid prefs payload"})
+			return
+		}
+		if err := saveUserPref(uid, req); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, effectiveSettingsForUser(uid))
 	})
 
 	// 公开读路由(搜索/播放/歌词/inspect)上挂可选用户注入:不强制登录,
