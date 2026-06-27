@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
+import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered } from 'lucide-react';
 import { getStreamUrl } from '../services/musicdl';
 
 const PlayerContext = createContext(null);
@@ -155,37 +156,56 @@ export const PlayerBar = () => {
     setIsPaused, setProgress, cycleMode,
   } = usePlayer();
 
+  const modeIcon = mode === 'repeat'
+    ? <Repeat1 size={18} />
+    : mode === 'shuffle'
+      ? <Shuffle size={18} />
+      : <ListOrdered size={18} />;
+
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-3 z-40 shadow-brutal-lg"
+    <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-40"
       style={{ display: nowPlaying ? 'block' : 'none' }}>
-      <div className="max-w-5xl mx-auto">
-        {notice && <p className="text-sm text-primary font-medium mb-1">{notice}</p>}
+      <div className="max-w-6xl mx-auto">
+        {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
         <div className="flex items-center gap-3">
-          {nowPlaying?.cover && (
-            <img src={nowPlaying.cover} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0" />
-          )}
-          <div className="min-w-0 flex-shrink" style={{ width: '30%' }}>
-            <p className="truncate font-semibold">{nowPlaying?.name}</p>
-            <p className="text-muted-foreground text-sm truncate">
-              {nowPlaying ? `${nowPlaying.artist} · ${nowPlaying.source}` : ''}
-            </p>
+          {/* 左:封面 + 标题/歌手 */}
+          <div className="flex items-center gap-3 min-w-0" style={{ width: '26%' }}>
+            {nowPlaying?.cover && (
+              <img src={nowPlaying.cover} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow" />
+            )}
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-sm">{nowPlaying?.name}</p>
+              <p className="text-muted-foreground text-xs truncate">
+                {nowPlaying ? `${nowPlaying.artist} · ${nowPlaying.source}` : ''}
+              </p>
+            </div>
           </div>
-          <button onClick={prev} className="px-2 py-1 text-lg" title="上一首" aria-label="上一首">⏮</button>
-          <button onClick={togglePlay} className="px-3 py-1 text-xl" title="播放/暂停" aria-label="播放/暂停">
-            {isPaused ? '▶' : '⏸'}
+          {/* 中:控制按钮 */}
+          <button onClick={prev} className="text-muted-foreground hover:text-foreground transition-colors" title="上一首" aria-label="上一首">
+            <SkipBack size={20} fill="currentColor" />
           </button>
-          <button onClick={next} className="px-2 py-1 text-lg" title="下一首" aria-label="下一首">⏭</button>
-          <button onClick={cycleMode} className="px-2 py-1 text-sm border border-border rounded" title="播放模式">
-            {MODE_LABEL[mode]}
+          <button onClick={togglePlay}
+            className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
+            title="播放/暂停" aria-label="播放/暂停">
+            {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
           </button>
+          <button onClick={next} className="text-muted-foreground hover:text-foreground transition-colors" title="下一首" aria-label="下一首">
+            <SkipForward size={20} fill="currentColor" />
+          </button>
+          <button onClick={cycleMode}
+            className={`transition-colors ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'}`}
+            title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
+            {modeIcon}
+          </button>
+          {/* 右:进度条 */}
           <div className="flex items-center gap-2 flex-grow min-w-0">
-            <span className="text-xs text-muted-foreground tabular-nums">{fmtTime(progress.cur)}</span>
+            <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>
             <input
               type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
               onChange={(e) => seek(Number(e.target.value))}
-              className="flex-grow" aria-label="播放进度"
+              className="flex-grow accent-primary cursor-pointer" aria-label="播放进度"
             />
-            <span className="text-xs text-muted-foreground tabular-nums">{fmtTime(progress.dur)}</span>
+            <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
           </div>
           <audio
             ref={audioRef}

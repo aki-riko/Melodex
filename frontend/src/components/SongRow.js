@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Play, Download, FileText, Gauge, Check, RotateCw } from 'lucide-react';
 import { getStreamUrl, saveToServer, inspectQuality } from '../services/musicdl';
 import { formatDuration } from '../utils/format';
 
@@ -55,78 +56,70 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
 
   return (
   <div
-    className={`flex items-center gap-3 p-3 border bg-card text-card-foreground transition-shadow rounded-md ${
-      isPlaying ? 'border-primary shadow-brutal' : 'border-border shadow-brutal-sm'
+    className={`group flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+      isPlaying ? 'bg-secondary' : 'hover:bg-secondary/60'
     }`}
   >
-    <span className="text-muted-foreground font-medium w-6 text-right">{index + 1}</span>
+    <span className={`w-6 text-right text-sm tabular-nums ${isPlaying ? 'text-primary' : 'text-muted-foreground'}`}>
+      {index + 1}
+    </span>
     <div className="flex-grow min-w-0">
-      <p className="font-semibold truncate">
+      <p className={`font-medium truncate ${isPlaying ? 'text-primary' : ''}`}>
         {song.name}
-        {song.is_vip && <span className="ml-2 text-xs font-medium px-1.5 py-0.5 rounded bg-primary text-primary-foreground">VIP</span>}
+        {song.is_vip && <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary text-primary-foreground align-middle">VIP</span>}
       </p>
       <p className="text-sm text-muted-foreground truncate">
         {song.artist}
         {song.album ? ` · ${song.album}` : ''}
       </p>
     </div>
-    {/* 验音质后显示真实码率,否则显示预览音质标签 */}
+    {/* 音质标签:真实码率优先,否则预览 */}
     {(() => {
-      // 有真实码率(自动验活/手动验)时按真实值判等级,否则用搜索预览
       const br = effectiveReal?.bitrateNum || 0;
       let label, cls;
       if (effectiveReal) {
-        if (br >= 800) { label = '无损'; cls = 'bg-primary text-primary-foreground'; }
-        else if (br >= 320) { label = '高品'; cls = 'bg-success text-success-foreground'; }
+        if (br >= 800) { label = '无损'; cls = 'bg-primary/20 text-primary'; }
+        else if (br >= 320) { label = '高品'; cls = 'bg-primary/10 text-primary'; }
         else if (br > 0) { label = `${br}k`; cls = 'bg-muted text-muted-foreground'; }
         else { label = '标准'; cls = 'bg-muted text-muted-foreground'; }
-        return <span className={`text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${cls}`} title="真实下载音质">{label}</span>;
+        return <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${cls}`} title="真实下载音质">{label}</span>;
       }
-      return q && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${q.cls}`}>{q.label}</span>;
+      return q && <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${q.cls}`}>{q.label}</span>;
     })()}
-    <span className="text-xs font-medium text-muted-foreground whitespace-nowrap uppercase">{song.source}</span>
-    {song.duration ? <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtSec(song.duration)}</span> : null}
-    {/* 大小:验活/验音质拿到真实值则用真实值,否则预览值 */}
+    <span className="text-[11px] text-muted-foreground whitespace-nowrap uppercase hidden sm:inline">{song.source}</span>
+    {song.duration ? <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums hidden sm:inline">{fmtSec(song.duration)}</span> : null}
     {(effectiveReal?.size || song.size) ? (
-      <span className="text-xs text-muted-foreground whitespace-nowrap">{effectiveReal?.size || fmtSize(song.size)}</span>
+      <span className="text-xs text-muted-foreground whitespace-nowrap hidden md:inline">{effectiveReal?.size || fmtSize(song.size)}</span>
     ) : null}
-    <button
-      onClick={handleInspect}
-      disabled={checking}
-      className="px-2 py-1.5 border border-border bg-card font-medium text-sm rounded-md shadow-brutal-sm transition-colors hover:bg-secondary disabled:opacity-50"
-      title="验真实音质与大小"
-    >
-      {checking ? '…' : '验'}
+    {/* 操作按钮:图标化,hover 显现 */}
+    <button onClick={handleInspect} disabled={checking}
+      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+      title="验真实音质与大小">
+      <Gauge size={16} className={checking ? 'animate-pulse' : ''} />
     </button>
     {onShowLyric && (
-      <button
-        onClick={() => onShowLyric(song)}
-        className="px-3 py-1.5 border border-border bg-card font-medium text-sm rounded-md shadow-brutal-sm transition-colors hover:bg-secondary"
-        title="查看歌词"
-      >
-        词
+      <button onClick={() => onShowLyric(song)}
+        className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+        title="查看歌词">
+        <FileText size={16} />
       </button>
     )}
-    <button
-      onClick={() => onPlay(song)}
-      className="px-3 py-1.5 border border-border bg-card font-medium text-sm rounded-md shadow-brutal-sm transition-colors hover:bg-secondary"
-      title="在线播放"
-    >
-      ▶ 播放
+    <button onClick={handleDownload} disabled={dlState === 'saving' || dlState === 'done'}
+      className={`p-1.5 transition-colors ${
+        dlState === 'done' ? 'text-primary'
+        : dlState === 'fail' ? 'text-destructive'
+        : 'text-muted-foreground hover:text-foreground'
+      }`}
+      title="下载到服务器(NAS)">
+      {dlState === 'saving' ? <Download size={16} className="animate-pulse" />
+        : dlState === 'done' ? <Check size={16} />
+        : dlState === 'fail' ? <RotateCw size={16} />
+        : <Download size={16} />}
     </button>
-    <button
-      onClick={handleDownload}
-      disabled={dlState === 'saving' || dlState === 'done'}
-      className={`px-3 py-1.5 border font-medium text-sm rounded-md shadow-brutal-sm transition-opacity no-underline ${
-        dlState === 'done'
-          ? 'border-success bg-success text-success-foreground'
-          : dlState === 'fail'
-          ? 'border-destructive bg-destructive text-destructive-foreground'
-          : 'border-primary bg-primary text-primary-foreground hover:opacity-90'
-      } disabled:opacity-80`}
-      title="下载到服务器(NAS)"
-    >
-      {dlState === 'saving' ? '下载中…' : dlState === 'done' ? '✓ 已下载' : dlState === 'fail' ? '✗ 重试' : '↓ 下载'}
+    <button onClick={() => onPlay(song)}
+      className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
+      title="在线播放" aria-label="播放">
+      <Play size={16} fill="currentColor" />
     </button>
   </div>
   );

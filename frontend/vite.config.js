@@ -13,8 +13,8 @@ export default defineConfig({
         name: 'TuneScout+',
         short_name: 'TuneScout+',
         description: '音乐发现与多源下载二合一',
-        theme_color: '#f97316',
-        background_color: '#fafaf0',
+        theme_color: '#181818',
+        background_color: '#181818',
         display: 'standalone',
         start_url: '.',
         icons: [
