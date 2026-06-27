@@ -37,6 +37,33 @@ func TestCoverCacheSaveAndLookup(t *testing.T) {
 	}
 }
 
+func TestIsLikelyImage(t *testing.T) {
+	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0}
+	png := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0}
+	webp := append([]byte("RIFF"), append([]byte{0, 0, 0, 0}, []byte("WEBP")...)...)
+	html := []byte("<!DOCTYPE html><html><body>403 Forbidden</body></html>")
+
+	cases := []struct {
+		name string
+		ct   string
+		data []byte
+		want bool
+	}{
+		{"content-type image even if body odd", "image/jpeg", html, true},
+		{"jpeg magic no content-type", "", jpeg, true},
+		{"png magic", "", png, true},
+		{"webp magic", "", webp, true},
+		{"html error page rejected", "text/html", html, false},
+		{"html no content-type rejected", "", html, false},
+		{"too short rejected", "", []byte{0xFF}, false},
+	}
+	for _, c := range cases {
+		if got := isLikelyImage(c.ct, c.data); got != c.want {
+			t.Fatalf("%s: isLikelyImage(%q,...) = %v, want %v", c.name, c.ct, got, c.want)
+		}
+	}
+}
+
 func TestCoverCacheExtMapping(t *testing.T) {
 	cases := map[string]string{
 		"image/jpeg":               ".jpg",

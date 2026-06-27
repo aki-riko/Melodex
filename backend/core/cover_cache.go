@@ -88,9 +88,40 @@ func GetCachedCover(url, source string) ([]byte, string, error) {
 		contentType = "image/jpeg"
 	}
 
-	// 落盘(失败不影响返回)。
-	saveCoverToCache(url, contentType, data)
+	// 仅缓存"看起来确实是图片"的响应,避免把上游的防盗链/限流 HTML 错误页
+	// 当封面落盘(否则会被 7 天 TTL 固化,所有人拿到坏图)。校验:
+	//   ① content-type 为 image/*,或 ② 字节magic 是常见图片格式
+	// 且大小在合理区间(封面通常几十 KB,>8MB 视为异常不缓存)。
+	if isLikelyImage(contentType, data) && len(data) <= coverMaxBytes {
+		saveCoverToCache(url, contentType, data)
+	}
 	return data, contentType, nil
+}
+
+const coverMaxBytes = 8 * 1024 * 1024
+
+// isLikelyImage 判断响应是否为图片:content-type 为 image/*,或字节头匹配
+// JPEG/PNG/GIF/WebP/BMP magic number(防上游不给/给错 content-type)。
+func isLikelyImage(contentType string, data []byte) bool {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "image/") {
+		return true
+	}
+	if len(data) < 12 {
+		return false
+	}
+	switch {
+	case data[0] == 0xFF && data[1] == 0xD8: // JPEG
+		return true
+	case data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G': // PNG
+		return true
+	case data[0] == 'G' && data[1] == 'I' && data[2] == 'F': // GIF
+		return true
+	case data[0] == 'B' && data[1] == 'M': // BMP
+		return true
+	case string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP": // WebP
+		return true
+	}
+	return false
 }
 
 func saveCoverToCache(url, contentType string, data []byte) {
