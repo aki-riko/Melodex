@@ -254,7 +254,7 @@ export const PlayerBar = () => {
             <input
               type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
               onChange={(e) => seek(Number(e.target.value))}
-              className="flex-grow accent-primary cursor-pointer" aria-label="播放进度"
+              className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="播放进度"
             />
             <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
           </div>
@@ -268,7 +268,7 @@ export const PlayerBar = () => {
             <input
               type="range" min={0} max={1} step="0.01" value={effectiveVol}
               onChange={(e) => setVolume(Number(e.target.value))}
-              className="flex-grow accent-primary cursor-pointer" aria-label="音量"
+              className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="音量"
             />
           </div>
           {/* 播放队列:音量键右侧,点击弹出当前队列面板 */}
