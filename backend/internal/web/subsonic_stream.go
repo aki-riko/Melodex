@@ -33,6 +33,9 @@ func subsonicStream(c *gin.Context) {
 		respondSubsonicError(c, errSubsonicMissingParam)
 		return
 	}
+	log.Printf("[subsonic] stream请求头 Range=%q Accept=%q Conn=%q UA=%q Icy=%q",
+		c.GetHeader("Range"), c.GetHeader("Accept"), c.GetHeader("Connection"),
+		c.GetHeader("User-Agent"), c.GetHeader("Icy-MetaData"))
 
 	// 本地曲库 id:直接发本地文件。
 	if localTrackID, ok := decodeLocalSongID(id); ok {
