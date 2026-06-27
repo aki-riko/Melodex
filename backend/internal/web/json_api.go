@@ -20,6 +20,14 @@ import (
 func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	api := r.Group("/api/v1")
 
+	// 公开读接口(搜索等)挂非阻塞用户注入:登录用户的搜索可记入个人历史,
+	// 匿名用户照常可用。桌面模式注入本地用户。
+	if opts.DisableAuth {
+		api.Use(desktopUserMiddleware())
+	} else {
+		api.Use(attachUserOptional())
+	}
+
 	api.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{"app": "melodex", "status": "ok"})
 	})
@@ -293,20 +301,32 @@ func jsonSearchHandler(c *gin.Context) {
 			return
 		}
 	} else {
+		// 关键词搜索:先查结果缓存(含完整元数据),命中直接返回。
+		cacheKey := searchCacheKey(searchType, keyword, exactArtist, sources)
+		if cached, ok := getCachedSearch(cacheKey); ok {
+			recordSearchHistory(currentUserID(c), keyword, cached.Type)
+			c.JSON(200, cached)
+			return
+		}
+
 		// 关键词多源并发搜索
 		songs, playlists := concurrentKeywordSearch(keyword, searchType, sources)
 		resp.Songs = songs
 		resp.Playlists = playlists
-	}
 
-	// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
-	// Web 前端默认用此返回序;搜索时尚无验活码率,综合分仍能把原唱/正版顶前、翻唱沉底。
-	if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
-		sortSongsByRelevance(resp.Songs, keyword)
-	}
+		// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
+		if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
+			sortSongsByRelevance(resp.Songs, keyword)
+		}
+		if resp.Type == "song" && exactArtist != "" && len(resp.Songs) > 0 {
+			resp.Songs = filterSongsByExactArtist(resp.Songs, exactArtist)
+		}
 
-	if resp.Type == "song" && exactArtist != "" && len(resp.Songs) > 0 {
-		resp.Songs = filterSongsByExactArtist(resp.Songs, exactArtist)
+		// 写缓存(排序/过滤后的最终结果)+ 记搜索历史。
+		putCachedSearch(cacheKey, resp)
+		recordSearchHistory(currentUserID(c), keyword, resp.Type)
+		c.JSON(200, resp)
+		return
 	}
 
 	c.JSON(200, resp)

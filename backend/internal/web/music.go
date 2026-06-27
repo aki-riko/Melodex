@@ -1056,7 +1056,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		data, contentType, err := core.FetchBytesWithMime(u, strings.TrimSpace(c.Query("source")))
+		data, contentType, err := core.GetCachedCover(u, strings.TrimSpace(c.Query("source")))
 		if err != nil || len(data) == 0 {
 			c.Status(http.StatusBadGateway)
 			return
@@ -1065,7 +1065,8 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			contentType = "image/jpeg"
 		}
 
-		c.Header("Cache-Control", "public, max-age=21600")
+		// 封面不可变,长缓存(7天):浏览器/PWA SW 也能命中,减少 cover_proxy 请求。
+		c.Header("Cache-Control", "public, max-age=604800")
 		c.Data(http.StatusOK, contentType, data)
 	})
 

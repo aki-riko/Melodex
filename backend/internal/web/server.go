@@ -499,6 +499,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	// 歌单/收藏/本地库按 user_id 隔离 → 必须登录(userAPI)。
 	RegisterCollectionRoutes(userAPI)
 	RegisterLocalMusicRoutes(userAPI)
+	RegisterSearchHistoryRoutes(userAPI)
 	RegisterUpdateRoutes(api)
 
 	// Melodex 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。
