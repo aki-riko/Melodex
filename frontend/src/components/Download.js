@@ -5,7 +5,10 @@ import {
   getRecommend,
   getPlaylistDetail,
   getLyric,
+  getSearchHistory,
+  clearSearchHistory,
 } from '../services/musicdl';
+import { X } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useLiveCheck } from '../hooks/useLiveCheck';
@@ -19,10 +22,38 @@ const TABS = [
 // 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
 
 // 歌曲搜索面板
-const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onShowLyric, isPlaying }) => {
+const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onShowLyric, isPlaying }) => {
   const allSongs = state.data?.songs || [];
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
   const { status, progress } = useLiveCheck(allSongs);
+
+  // 搜索历史(仅登录用户有;未登录返回空)。搜索成功后刷新。
+  const history = useQuery(['search-history'], getSearchHistory, {
+    refetchOnWindowFocus: false,
+    staleTime: 60 * 1000,
+  });
+  useEffect(() => {
+    if (query) history.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  const onChipSearch = (kw) => {
+    if (runSearch) runSearch(kw);
+  };
+  const onChipDelete = async (kw, e) => {
+    e.stopPropagation();
+    try {
+      await clearSearchHistory(kw);
+      history.refetch();
+    } catch { /* 忽略 */ }
+  };
+  const onClearAll = async () => {
+    try {
+      await clearSearchHistory();
+      history.refetch();
+    } catch { /* 忽略 */ }
+  };
+  const historyItems = history.data || [];
   // 多级排序:数组顺序即优先级(先点=主键,后点=辅键)。每项 {field, order}
   // field: relevance(相关) / quality(音质,用验活真实码率) / size(大小)
   const [sortKeys, setSortKeys] = useState([{ field: 'relevance', order: 'desc' }]);
@@ -103,6 +134,37 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, query, state, onPlay, onSho
           搜索
         </button>
       </form>
+      {/* 最近搜索:仅在未发起搜索时显示(登录用户专属,匿名为空不显示) */}
+      {!query && historyItems.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm text-muted-foreground">最近搜索</span>
+            <button onClick={onClearAll} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
+              清空
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {historyItems.map((h) => (
+              <span
+                key={h.keyword}
+                onClick={() => onChipSearch(h.keyword)}
+                className="group inline-flex items-center gap-1 pl-3 pr-1.5 py-1.5 border border-border rounded-full bg-card text-sm cursor-pointer hover:bg-secondary transition-colors"
+                title={`搜索「${h.keyword}」`}
+              >
+                {h.keyword}
+                <button
+                  onClick={(e) => onChipDelete(h.keyword, e)}
+                  className="p-0.5 rounded-full text-muted-foreground hover:text-destructive hover:bg-background transition-colors"
+                  title="删除"
+                  aria-label="删除"
+                >
+                  <X size={13} />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {state.data?.error && <p className="text-destructive font-medium mb-4">{state.data.error}</p>}
       {state.isLoading && <p className="text-muted-foreground font-medium mb-4">搜索中…</p>}
       {state.isError && <p className="text-destructive font-medium">搜索失败:{String(state.error?.message || state.error)}</p>}
@@ -279,6 +341,14 @@ const Download = ({ downloadRequest }) => {
     if (k) setQuery(k);
   };
 
+  // 供搜索历史 chips 点击:同时回填输入框并触发搜索。
+  const runSearch = (kw) => {
+    const k = (kw || '').trim();
+    if (!k) return;
+    setKeyword(k);
+    setQuery(k);
+  };
+
   const handlePlay = (song) => play(song);
 
   const handleShowLyric = async (song) => {
@@ -322,6 +392,7 @@ const Download = ({ downloadRequest }) => {
           keyword={keyword}
           setKeyword={setKeyword}
           onSubmit={handleSearch}
+          runSearch={runSearch}
           query={query}
           state={search}
           onPlay={handlePlay}

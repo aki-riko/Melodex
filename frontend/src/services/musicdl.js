@@ -139,6 +139,15 @@ export const saveToServer = async (song) => {
 
 export const apiBase = API_BASE;
 
+// 封面代理 URL:封面源站常有防盗链 + 网易封面是 http(生产 https 会被浏览器拦混合内容),
+// 故统一走后端 cover_proxy(带 referer + 磁盘缓存)。无 cover 返回空串(前端显占位)。
+export const coverProxyUrl = (song) => {
+  const url = (song && (song.cover || song.Cover)) || '';
+  if (!url) return '';
+  const src = (song && (song.source || song.Source)) || '';
+  return `${API_BASE}/music/cover_proxy?url=${encodeURIComponent(url)}${src ? `&source=${encodeURIComponent(src)}` : ''}`;
+};
+
 // 后端管理员登录/初始化页(原版 HTMX 页面)。敏感接口需先在此登录。
 export const adminSetupUrl = `${API_BASE}/music/setup`;
 export const adminLoginUrl = `${API_BASE}/music/login`;
@@ -214,6 +223,25 @@ export const saveUserPrefs = async (prefs) => {
     headers: { 'X-Requested-With': 'XMLHttpRequest' },
   });
   return data;
+};
+
+// ===== 搜索历史(按用户隔离,仅登录) =====
+
+export const getSearchHistory = async () => {
+  try {
+    const { data } = await client.get('/music/search_history');
+    return data.history || [];
+  } catch {
+    return []; // 未登录/出错时静默返回空,不打断搜索页
+  }
+};
+
+// 删除单条(传 keyword)或清空(不传)
+export const clearSearchHistory = async (keyword) => {
+  const qs = keyword ? `?keyword=${encodeURIComponent(keyword)}` : '';
+  await client.delete(`/music/search_history${qs}`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
 };
 
 // ===== 用户管理(仅管理员) =====

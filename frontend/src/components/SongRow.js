@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus } from 'lucide-react';
-import { getStreamUrl, saveToServer, inspectQuality } from '../services/musicdl';
+import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music } from 'lucide-react';
+import { getStreamUrl, saveToServer, inspectQuality, coverProxyUrl } from '../services/musicdl';
 import { useCollections } from '../contexts/CollectionsContext';
 import { formatDuration } from '../utils/format';
 
@@ -9,6 +9,33 @@ const fmtSize = (bytes) => {
   if (!bytes) return '';
   const mb = bytes / 1024 / 1024;
   return mb >= 1 ? `${mb.toFixed(1)}MB` : `${(bytes / 1024).toFixed(0)}KB`;
+};
+
+// 封面缩略图:走 cover_proxy(防盗链/混合内容/磁盘缓存);无封面或加载失败显音符占位。
+const CoverThumb = ({ song, size = 40 }) => {
+  const [failed, setFailed] = useState(false);
+  const url = coverProxyUrl(song);
+  const showImg = url && !failed;
+  return (
+    <div
+      className="flex-shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      {showImg ? (
+        <img
+          src={url}
+          alt=""
+          width={size}
+          height={size}
+          loading="lazy"
+          className="w-full h-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Music size={Math.round(size * 0.45)} className="text-muted-foreground" />
+      )}
+    </div>
+  );
 };
 
 // 根据码率/扩展名判定音质等级
@@ -65,6 +92,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
     <span className={`w-6 text-right text-sm tabular-nums ${isPlaying ? 'text-primary' : 'text-muted-foreground'}`}>
       {index + 1}
     </span>
+    <CoverThumb song={song} />
     <div className="flex-grow min-w-0">
       <p className={`font-medium truncate ${isPlaying ? 'text-primary' : ''}`}>
         {song.name}
