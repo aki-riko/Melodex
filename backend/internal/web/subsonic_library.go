@@ -61,16 +61,22 @@ func artistSyntheticID(artist string) string {
 }
 
 // subsonicGetCoverArt 返回封面图片(二进制)。
-// id 为本地曲库 id → 读嵌入封面;为在线源 id → 代理在线封面 URL。
+// 音流等客户端会给 id 加 ar-/al-/mf- 等前缀,需先剥离再按类型解析:
+//   - 本地曲库 id(loc:)→ 读文件嵌入图
+//   - 在线源歌曲 id(ts1:)→ 代理歌曲封面 URL
+//   - 合成 artist:/album: id → 从 coverURLStore 反查在线封面 URL
 func subsonicGetCoverArt(c *gin.Context) {
 	id := strings.TrimSpace(c.Query("id"))
 	if id == "" {
 		respondSubsonicError(c, errSubsonicMissingParam)
 		return
 	}
+	// 剥离客户端可能加的前缀(ar-=artist, al-=album, mf-=media file 等),
+	// 还原出我们编码的原始 id。
+	stripped := stripClientIDPrefix(id)
 
 	// 本地曲库封面:读文件嵌入图。
-	if localTrackID, ok := decodeLocalSongID(id); ok {
+	if localTrackID, ok := decodeLocalSongID(stripped); ok {
 		track, err := localMusicTrackByID(localTrackID)
 		if err != nil {
 			respondSubsonicError(c, errSubsonicNotFound)
@@ -86,27 +92,54 @@ func subsonicGetCoverArt(c *gin.Context) {
 		return
 	}
 
-	// 在线源封面:代理 cover URL(SSRF 防护)。
-	if song, ok := decodeOnlineSongID(id); ok && song.Cover != "" {
-		if err := isPublicHTTPURL(song.Cover); err != nil {
-			respondSubsonicError(c, errSubsonicNotFound)
-			return
-		}
-		data, contentType, err := core.FetchBytesWithMime(song.Cover, song.Source)
-		if err != nil || len(data) == 0 {
-			respondSubsonicError(c, errSubsonicNotFound)
-			return
-		}
-		if contentType == "" {
-			contentType = "image/jpeg"
-		}
-		c.Header("Cache-Control", "public, max-age=21600")
-		c.Data(200, contentType, data)
+	// 在线源歌曲封面:代理歌曲 cover URL。
+	if song, ok := decodeOnlineSongID(stripped); ok && song.Cover != "" {
+		proxyOnlineCover(c, song.Cover, song.Source)
+		return
+	}
+
+	// 合成 artist:/album: id(音流拿 artist/album 的 id 当封面 id 请求):
+	// 从 coverURLStore 反查搜索时记下的在线封面 URL。
+	if coverURL := resolveSyntheticCoverURL(id); coverURL != "" {
+		proxyOnlineCover(c, coverURL, "")
 		return
 	}
 
 	respondSubsonicError(c, errSubsonicNotFound)
 }
+
+// proxyOnlineCover 代理在线封面 URL(SSRF 防护),失败返 Subsonic 错误。
+func proxyOnlineCover(c *gin.Context, coverURL, source string) {
+	if err := isPublicHTTPURL(coverURL); err != nil {
+		respondSubsonicError(c, errSubsonicNotFound)
+		return
+	}
+	data, contentType, err := core.FetchBytesWithMime(coverURL, source)
+	if err != nil || len(data) == 0 {
+		respondSubsonicError(c, errSubsonicNotFound)
+		return
+	}
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	c.Header("Cache-Control", "public, max-age=21600")
+	c.Data(200, contentType, data)
+}
+
+// stripClientIDPrefix 剥离 Subsonic 客户端给 id 加的常见前缀(ar-/al-/mf-/tr-),
+// 仅当剥离后是我们认识的 id 前缀(ts1:/loc:)时才剥,避免误伤。
+func stripClientIDPrefix(id string) string {
+	for _, p := range []string{"ar-", "al-", "mf-", "tr-"} {
+		if strings.HasPrefix(id, p) {
+			rest := strings.TrimPrefix(id, p)
+			if strings.HasPrefix(rest, onlineSongIDPrefix) || strings.HasPrefix(rest, localSongIDPrefix) {
+				return rest
+			}
+		}
+	}
+	return id
+}
+
 
 // encodeNameID 把名称编码成稳定的 url-safe id 片段。
 func encodeNameID(name string) string {

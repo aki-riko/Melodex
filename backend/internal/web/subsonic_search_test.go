@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -111,6 +112,54 @@ func TestSubsonicSearch3EmptyQuery(t *testing.T) {
 	}
 	if !strings.Contains(body, "searchResult3") {
 		t.Fatalf("应含 searchResult3: %s", body)
+	}
+}
+
+func TestResolveSyntheticCoverURL(t *testing.T) {
+	// 模拟 search3 时记下的封面映射
+	globalCoverStore.put(coverStoreKey("artist", "周杰伦"), "http://cdn/jay.jpg")
+	globalCoverStore.put(coverStoreKey("album", "叶惠美"), "http://cdn/yhm.jpg")
+
+	artistID := "artist:" + base64.RawURLEncoding.EncodeToString([]byte("周杰伦"))
+	albumID := "album:" + base64.RawURLEncoding.EncodeToString([]byte("叶惠美"))
+
+	// 裸合成 id
+	if got := resolveSyntheticCoverURL(artistID); got != "http://cdn/jay.jpg" {
+		t.Fatalf("artist 封面解析错误: %q", got)
+	}
+	// 音流加 ar-/al- 前缀也要能解
+	if got := resolveSyntheticCoverURL("ar-" + artistID); got != "http://cdn/jay.jpg" {
+		t.Fatalf("带 ar- 前缀解析错误: %q", got)
+	}
+	if got := resolveSyntheticCoverURL("al-" + albumID); got != "http://cdn/yhm.jpg" {
+		t.Fatalf("带 al- 前缀解析错误: %q", got)
+	}
+	// 未知名称返回空
+	unknown := "artist:" + base64.RawURLEncoding.EncodeToString([]byte("查无此人"))
+	if got := resolveSyntheticCoverURL(unknown); got != "" {
+		t.Fatalf("未知应返回空: %q", got)
+	}
+	// 非合成 id 返回空
+	if got := resolveSyntheticCoverURL("ts1:abc"); got != "" {
+		t.Fatalf("非合成 id 应返回空: %q", got)
+	}
+}
+
+func TestStripClientIDPrefix(t *testing.T) {
+	// 仅当剥离后是已知 id 前缀才剥
+	if got := stripClientIDPrefix("ar-ts1:abc"); got != "ts1:abc" {
+		t.Fatalf("应剥离 ar- 还原 ts1: , 实际 %q", got)
+	}
+	if got := stripClientIDPrefix("al-loc:xyz"); got != "loc:xyz" {
+		t.Fatalf("应剥离 al- 还原 loc: , 实际 %q", got)
+	}
+	// 剥离后不是已知前缀,不动(避免误伤 artist:/album:)
+	if got := stripClientIDPrefix("ar-artist:abc"); got != "ar-artist:abc" {
+		t.Fatalf("artist 合成 id 不应被剥, 实际 %q", got)
+	}
+	// 无前缀不动
+	if got := stripClientIDPrefix("ts1:abc"); got != "ts1:abc" {
+		t.Fatalf("无前缀不应改, 实际 %q", got)
 	}
 }
 
