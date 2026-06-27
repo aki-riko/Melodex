@@ -102,7 +102,7 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 			"songmid": item.SongMID,
 			"song_id": strconv.FormatInt(item.SongID, 10),
 		}
-		// 原唱/正版信号(TuneScout+ 排序用,见 facade combinedScore):
+		// 原唱/正版信号(Melodex 排序用,见 facade combinedScore):
 		// 有无损授权 + 付费单曲 ≈ 正版原唱,区别于草根译名翻唱。
 		if item.SizeFlac > 0 {
 			songExtra["has_lossless"] = "1"
