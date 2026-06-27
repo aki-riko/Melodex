@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/guohuiyuan/music-lib/model"
 )
 
 func sampleLibraryTracks() []*localMusicTrack {
@@ -84,6 +86,35 @@ func TestLocalTrackToSubsonicChild(t *testing.T) {
 	}
 	if child.AlbumID == "" || child.ArtistID == "" {
 		t.Fatal("有专辑/艺人时应带合成 id")
+	}
+}
+
+func TestFetchLyricByIDEmptyAndBad(t *testing.T) {
+	if got := fetchLyricByID(""); got != "" {
+		t.Fatalf("空 id 应返回空歌词, 实际 %q", got)
+	}
+	if got := fetchLyricByID("garbage-not-an-id"); got != "" {
+		t.Fatalf("非法 id 应返回空歌词, 实际 %q", got)
+	}
+	// 在线 id 但源无歌词函数 / 无 cookie 环境:不应 panic,返回空。
+	song := model.Song{Source: "nonexistent-source", ID: "x", Name: "t", Artist: "a"}
+	if got := fetchLyricByID(encodeOnlineSongID(song)); got != "" {
+		t.Fatalf("未知源 id 应返回空歌词, 实际 %q", got)
+	}
+}
+
+func TestSubsonicGetLyricsNoID(t *testing.T) {
+	r := newSubsonicTestRouter(t)
+	salt := "abcdef"
+	token := makeToken("sesame", salt)
+	url := "/rest/getLyrics?u=kotori&t=" + token + "&s=" + salt +
+		"&v=1.16.1&c=test&f=json&artist=周杰伦&title=晴天"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "\"status\":\"ok\"") || !strings.Contains(body, "lyrics") {
+		t.Fatalf("getLyrics 响应异常: %s", body)
 	}
 }
 

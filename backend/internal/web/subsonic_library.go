@@ -337,12 +337,46 @@ func subsonicGetArtist(c *gin.Context) {
 	respondSubsonic(c, resp)
 }
 
-// subsonicGetLyrics 返回歌词(本期返回空 lyrics 占位,客户端多从嵌入标签读)。
+// subsonicGetLyrics 返回歌词。Subsonic 标准 getLyrics 传 artist/title,
+// 但拉真实 LRC 需要 source+id;故同时支持 id 参数(客户端播放中常带):
+//   - id 为本地曲库 → 读同名 .lrc / 嵌入歌词
+//   - id 为在线源 → GetLyricFunc 拉真实 LRC
+//   - 无 id → 仅回 artist/title 占位(拿不到歌词源)
 func subsonicGetLyrics(c *gin.Context) {
+	artist := strings.TrimSpace(c.Query("artist"))
+	title := strings.TrimSpace(c.Query("title"))
+	lrc := fetchLyricByID(strings.TrimSpace(c.Query("id")))
+
 	resp := newSubsonicOK()
-	resp.Lyrics = &lyricsBody{
-		Artist: strings.TrimSpace(c.Query("artist")),
-		Title:  strings.TrimSpace(c.Query("title")),
+	body := &lyricsBody{Artist: artist, Title: title}
+	if lrc != "" {
+		body.Value = lrc
 	}
+	resp.Lyrics = body
 	respondSubsonic(c, resp)
+}
+
+// fetchLyricByID 按 Subsonic id 取真实歌词(取不到返回空串)。
+func fetchLyricByID(id string) string {
+	if id == "" {
+		return ""
+	}
+	// 本地曲库:读同名歌词文件 / 嵌入歌词。
+	if localTrackID, ok := decodeLocalSongID(id); ok {
+		track, err := localMusicTrackByID(localTrackID)
+		if err != nil {
+			return ""
+		}
+		lrc, _ := readLocalMusicLyrics(track.absPath)
+		return lrc
+	}
+	// 在线源:用源的歌词函数拉真实 LRC。
+	if song, ok := decodeOnlineSongID(id); ok {
+		if fn := core.GetLyricFunc(song.Source); fn != nil {
+			s := song
+			lrc, _ := fn(&s)
+			return lrc
+		}
+	}
+	return ""
 }
