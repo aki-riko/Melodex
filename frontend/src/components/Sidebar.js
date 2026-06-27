@@ -74,8 +74,10 @@ function PlaylistNav({ onNavigate }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const [importing, setImporting] = useState(false);
   const fileRef = React.useRef(null);
+  const btnRef = React.useRef(null);
 
   const openNew = (c, nm) => {
     if (c && c.id != null) { onNavigate('MyPlaylist'); requestOpenPlaylist({ collectionId: c.id, name: nm }); }
@@ -112,15 +114,29 @@ function PlaylistNav({ onNavigate }) {
 
   return (
     <div className="mb-5 border-t border-border pt-4">
-      <div className="relative flex items-center justify-between px-3 mb-1">
+      <div className="flex items-center justify-between px-3 mb-1">
         <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">我的歌单</span>
-        <button onClick={() => setMenuOpen((v) => !v)} className="text-muted-foreground hover:text-foreground" title="新建 / 导入">
+        <button
+          ref={btnRef}
+          onClick={() => {
+            const r = btnRef.current?.getBoundingClientRect();
+            if (r) setMenuPos({ top: r.bottom + 4, left: r.right - 144 });
+            setMenuOpen((v) => !v);
+          }}
+          className="text-muted-foreground hover:text-foreground"
+          title="新建 / 导入"
+        >
           <Plus size={16} />
         </button>
         {menuOpen && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-2 top-7 z-20 bg-popover border border-border rounded-md shadow-lg py-1 w-32">
+            {/* 点遮罩关闭 */}
+            <div className="fixed inset-0 z-[60]" onClick={() => setMenuOpen(false)} />
+            {/* fixed 定位脱离侧栏 overflow 裁切,按按钮坐标弹出 */}
+            <div
+              className="fixed z-[61] bg-popover border border-border rounded-md shadow-xl py-1 w-36"
+              style={{ top: menuPos.top, left: menuPos.left }}
+            >
               <button className="w-full px-3 py-2 text-sm text-left hover:bg-secondary"
                 onClick={() => { setMenuOpen(false); setCreating(true); }}>新建空歌单</button>
               <button className="w-full px-3 py-2 text-sm text-left hover:bg-secondary disabled:opacity-50"
