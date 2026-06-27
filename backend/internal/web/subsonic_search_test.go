@@ -116,12 +116,15 @@ func TestSubsonicSearch3EmptyQuery(t *testing.T) {
 }
 
 func TestResolveSyntheticCoverURL(t *testing.T) {
-	// 模拟 search3 时记下的封面映射
-	globalCoverStore.put(coverStoreKey("artist", "周杰伦"), "http://cdn/jay.jpg")
-	globalCoverStore.put(coverStoreKey("album", "叶惠美"), "http://cdn/yhm.jpg")
+	// 用唯一名称避免与其他测试经 songToSubsonicChild 写入的全局映射冲突
+	// (coverURLStore 保留首次写入)。
+	an := "测试歌手_RSC_" + t.Name()
+	bn := "测试专辑_RSC_" + t.Name()
+	globalCoverStore.put(coverStoreKey("artist", an), "http://cdn/jay.jpg")
+	globalCoverStore.put(coverStoreKey("album", bn), "http://cdn/yhm.jpg")
 
-	artistID := "artist:" + base64.RawURLEncoding.EncodeToString([]byte("周杰伦"))
-	albumID := "album:" + base64.RawURLEncoding.EncodeToString([]byte("叶惠美"))
+	artistID := "artist:" + base64.RawURLEncoding.EncodeToString([]byte(an))
+	albumID := "album:" + base64.RawURLEncoding.EncodeToString([]byte(bn))
 
 	// 裸合成 id
 	if got := resolveSyntheticCoverURL(artistID); got != "http://cdn/jay.jpg" {

@@ -286,6 +286,8 @@ func liveCheckSongs(songs []model.Song, concurrency int) []model.Song {
 }
 
 // songToSubsonicChild 把一首在线歌曲映射成 Subsonic song 元素。
+// 带上 albumId/artistId(合成 id)并把封面记入映射表 —— 音流播放页可能
+// 用 albumId/artistId 取封面而非 song 自身的 coverArt,缺这俩会拿空 id 查不到图。
 func songToSubsonicChild(song model.Song) subsonicChild {
 	id := encodeOnlineSongID(song)
 	suffix := strings.ToLower(strings.TrimPrefix(song.Ext, "."))
@@ -307,6 +309,15 @@ func songToSubsonicChild(song model.Song) subsonicChild {
 	}
 	if song.Cover != "" {
 		child.CoverArt = id // getCoverArt 用同一 id 解析封面
+	}
+	// 带上 albumId/artistId,并把封面记入映射表(播放页用这俩 id 取封面时能查到)。
+	if song.Album != "" {
+		child.AlbumID = "album:" + base64.RawURLEncoding.EncodeToString([]byte(song.Album))
+		globalCoverStore.put(coverStoreKey("album", song.Album), song.Cover)
+	}
+	if song.Artist != "" {
+		child.ArtistID = "artist:" + base64.RawURLEncoding.EncodeToString([]byte(song.Artist))
+		globalCoverStore.put(coverStoreKey("artist", song.Artist), song.Cover)
 	}
 	return child
 }
