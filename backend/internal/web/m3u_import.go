@@ -50,12 +50,17 @@ func parseM3U(content string) (entries []m3uEntry, isHLS bool) {
 		if strings.HasPrefix(line, "#") {
 			continue // 其他注释/标签忽略
 		}
-		// 媒体行:用前面的 EXTINF 标题做搜索词;没有标题就用媒体行末段文件名兜底
+		// 媒体行:决定搜索词。文件名常含"歌手 - 歌名"(信息比 EXTINF 全,
+		// EXTINF 标题常只有歌名),故文件名含分隔符时优先用文件名;否则用 EXTINF 标题。
+		fileTitle := guessTitleFromMediaLine(line)
 		title := ""
-		if hasTitle {
+		switch {
+		case fileTitle != "" && strings.ContainsAny(fileTitle, "-–—_"):
+			title = fileTitle // 文件名带歌手信息,最全
+		case hasTitle:
 			title = pendingTitle
-		} else {
-			title = guessTitleFromMediaLine(line)
+		default:
+			title = fileTitle
 		}
 		pendingTitle = ""
 		hasTitle = false
