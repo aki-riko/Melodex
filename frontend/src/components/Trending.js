@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import { Play } from 'lucide-react';
 import { getRecommend } from '../services/musicdl';
+import { onOpenPlaylist } from '../services/playlistBus';
 import PlaylistSongs from './PlaylistSongs';
 
 // 热门:展示国内各源(网易云/QQ)的推荐歌单,点进看歌曲并播放/下载。
@@ -10,6 +11,9 @@ const Trending = () => {
   const { data, isLoading, isError } = useQuery(['trending-recommend'], () =>
     getRecommend(['netease', 'qq'])
   );
+
+  // 侧栏点歌单 → 打开该歌单详情(playlistBus 事件)
+  useEffect(() => onOpenPlaylist((meta) => { if (meta) setOpen(meta); }), []);
 
   if (open) {
     return (
