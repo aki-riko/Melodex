@@ -84,6 +84,14 @@ func (n *Netease) Search(keyword string) ([]model.Song, error) {
 			artistNames = append(artistNames, ar.Name)
 		}
 
+		songExtra := map[string]string{
+			"song_id": strconv.Itoa(item.ID),
+		}
+		// 原唱/正版信号:有无损授权(最高音质档达无损 或 无损文件可用)。
+		if item.Privilege.Fl >= 999000 || item.H.Size > 0 {
+			songExtra["has_lossless"] = "1"
+		}
+
 		songs = append(songs, model.Song{
 			Source:   "netease",
 			ID:       strconv.Itoa(item.ID),
@@ -95,9 +103,7 @@ func (n *Netease) Search(keyword string) ([]model.Song, error) {
 			Bitrate:  bitrate,
 			Cover:    item.Al.PicURL,
 			Link:     fmt.Sprintf("https://music.163.com/#/song?id=%d", item.ID),
-			Extra: map[string]string{
-				"song_id": strconv.Itoa(item.ID),
-			},
+			Extra:    songExtra,
 		})
 	}
 	return songs, nil

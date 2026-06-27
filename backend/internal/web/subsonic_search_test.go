@@ -217,6 +217,38 @@ func TestStripClientIDPrefix(t *testing.T) {
 	}
 }
 
+func TestOfficialBonusFlipsTranslationCover(t *testing.T) {
+	// 核心场景:搜译名"珍珠星的距离"
+	//  - 原唱 内田彩 スピカテリブル:本地匹配=0,但有无损(正版)+上游rank0
+	//  - 译名翻唱 Cherisy 珍珠星的距离:本地完全匹配=1000,但无无损授权
+	// 期望:原唱综合分 > 翻唱(正版信号翻盘)
+	q := "珍珠星的距离"
+	orig := model.Song{
+		Name: "スピカテリブル", Artist: "内田彩",
+		Extra: map[string]string{"_rank": "0", "has_lossless": "1", "is_paid": "1"},
+	}
+	transCover := model.Song{
+		Name: "珍珠星的距离", Artist: "Cherisy",
+		Extra: map[string]string{"_rank": "0"}, // 无 has_lossless
+	}
+	so, sc := combinedScore(orig, q), combinedScore(transCover, q)
+	if so <= sc {
+		t.Fatalf("有正版信号的原唱(%d)应高于无信号的译名翻唱(%d)", so, sc)
+	}
+}
+
+func TestOfficialBonus(t *testing.T) {
+	if officialBonus(model.Song{Extra: map[string]string{"has_lossless": "1"}}) != 600 {
+		t.Fatal("无损应+600")
+	}
+	if officialBonus(model.Song{Extra: map[string]string{"has_lossless": "1", "is_paid": "1"}}) != 800 {
+		t.Fatal("无损+付费应+800")
+	}
+	if officialBonus(model.Song{}) != 0 {
+		t.Fatal("无信号应0")
+	}
+}
+
 func TestUpstreamRankScore(t *testing.T) {
 	mk := func(rank string) model.Song {
 		return model.Song{Extra: map[string]string{"_rank": rank}}
