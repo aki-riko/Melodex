@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic } from 'lucide-react';
 import { getStreamUrl, coverProxyUrl } from '../services/musicdl';
+import { useAuth } from './AuthContext';
 
 const PlayerContext = createContext(null);
 
@@ -15,6 +16,10 @@ const loadVolume = () => {
   const v = parseFloat(localStorage.getItem(VOLUME_KEY));
   return isFinite(v) && v >= 0 && v <= 1 ? v : 1;
 };
+
+// 播放进度记忆:按登录用户隔离存上次播放的歌/队列/进度(localStorage,本地恢复零延迟、
+// 不打后端、按 user.id 区分)。浏览器禁 autoplay,故恢复时只加载+定位不自动播放。
+const playbackKey = (userId) => `melodex_playback_${userId || 'anon'}`;
 
 // 全局播放器:audio 元素与播放状态常驻 App 顶层,切换页面不中断。
 // 支持播放队列(上/下一首)、进度、播放模式、MediaSession(锁屏/通知栏控制)。
@@ -33,6 +38,11 @@ export const PlayerProvider = ({ children }) => {
   const modeRef = useRef('order');
   useEffect(() => { modeRef.current = mode; }, [mode]);
 
+  const { user } = useAuth();
+  const userId = user?.id || 0;
+  const resumeRef = useRef(null);   // 待恢复的进度秒数(audio 加载完成后 seek 到这里)
+  const restoredRef = useRef(false); // 防重复恢复
+
   // 音量/静音应用到 audio 元素,并持久化音量。
   useEffect(() => {
     if (audioRef.current) {
@@ -49,6 +59,42 @@ export const PlayerProvider = ({ children }) => {
   }, []);
 
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
+
+  // 恢复上次播放:登录后(userId 确定)读 localStorage,加载上次的歌+队列+进度,
+  // 但不自动播放(浏览器禁 autoplay)——只把进度暂存 resumeRef,onLoadedMetadata 时 seek。
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(playbackKey(userId));
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved || !saved.song) return;
+      const q = Array.isArray(saved.queue) && saved.queue.length ? saved.queue : [saved.song];
+      queueRef.current = q;
+      setQueue(q);
+      resumeRef.current = saved.cur > 0 ? saved.cur : null;
+      setNowPlaying(saved.song);
+      // 预载音频(paused 状态),onLoadedMetadata 会 seek 到 resumeRef
+      setTimeout(() => {
+        if (audioRef.current) audioRef.current.src = getStreamUrl(saved.song);
+      }, 0);
+    } catch { /* 损坏数据忽略 */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // 保存当前播放快照(节流:由调用点控制频率)。
+  const savePlayback = useCallback((cur) => {
+    try {
+      const song = nowPlaying;
+      if (!song) return;
+      localStorage.setItem(playbackKey(userId), JSON.stringify({
+        song,
+        queue: queueRef.current,
+        cur: cur > 0 ? cur : 0,
+      }));
+    } catch { /* 配额满等忽略 */ }
+  }, [nowPlaying, userId]);
 
   const startPlay = useCallback((song) => {
     setNowPlaying(song);
@@ -117,6 +163,30 @@ export const PlayerProvider = ({ children }) => {
     if (audioRef.current) audioRef.current.currentTime = sec;
   }, []);
 
+  // 进度更新:刷新进度条 + 节流保存播放快照(每 5 秒)。
+  const lastSaveRef = useRef(0);
+  const handleTimeUpdate = useCallback((e) => {
+    const cur = e.target.currentTime;
+    const dur = e.target.duration || 0;
+    setProgress({ cur, dur });
+    const now = Date.now();
+    if (now - lastSaveRef.current > 5000) {
+      lastSaveRef.current = now;
+      savePlayback(cur);
+    }
+  }, [savePlayback]);
+
+  // 元数据加载完成:更新时长 + 若有待恢复进度则 seek 过去(只定位不播放)。
+  const handleLoadedMetadata = useCallback((e) => {
+    const dur = e.target.duration || 0;
+    setProgress({ cur: e.target.currentTime, dur });
+    if (resumeRef.current != null && isFinite(resumeRef.current)) {
+      const t = Math.min(resumeRef.current, dur > 0 ? dur - 1 : resumeRef.current);
+      if (t > 0) { try { e.target.currentTime = t; } catch { /* ignore */ } }
+      resumeRef.current = null;
+    }
+  }, []);
+
   // 播放结束:repeat 重播当前,否则跳下一首
   const handleEnded = useCallback(() => {
     if (modeRef.current === 'repeat' && nowPlaying) { startPlay(nowPlaying); return; }
@@ -165,6 +235,7 @@ export const PlayerProvider = ({ children }) => {
       queue, playFromQueue,
       isPlaying: (s) => nowPlaying && nowPlaying.id === s.id && nowPlaying.source === s.source,
       next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
+      handleTimeUpdate, handleLoadedMetadata, savePlayback,
       cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
     }}>
       {children}
@@ -194,6 +265,7 @@ export const PlayerBar = () => {
     setIsPaused, setProgress, cycleMode,
     volume, setVolume, muted, toggleMute,
     queue, playFromQueue,
+    handleTimeUpdate, handleLoadedMetadata, savePlayback,
   } = usePlayer();
 
   const [queueOpen, setQueueOpen] = useState(false);
@@ -321,9 +393,9 @@ export const PlayerBar = () => {
             onError={handleError}
             onEnded={handleEnded}
             onPlay={() => setIsPaused(false)}
-            onPause={() => setIsPaused(true)}
-            onTimeUpdate={(e) => setProgress({ cur: e.target.currentTime, dur: e.target.duration || 0 })}
-            onLoadedMetadata={(e) => setProgress({ cur: e.target.currentTime, dur: e.target.duration || 0 })}
+            onPause={(e) => { setIsPaused(true); savePlayback(e.target.currentTime); }}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
             style={{ display: 'none' }}
           />
         </div>
