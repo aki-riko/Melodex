@@ -5,6 +5,37 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
+import { coverProxyUrl } from '../services/musicdl';
+
+// 歌单详情头图:用歌单内歌曲封面拼图(Spotify 风格)。
+//   - 取前 4 首"有封面"的歌:1 张铺满 / 2-3 张仍用首张铺满(半拼不好看) / ≥4 张 2x2 马赛克
+//   - 走 cover_proxy(网易 http 封面在 https 生产会被拦混合内容)
+//   - 无封面 → 灰占位 + Play 图标(保留原样)
+function PlaylistCover({ songs }) {
+  const covered = (songs || []).filter((s) => s && (s.cover || s.Cover));
+  const placeholder = (
+    <div className="w-32 h-32 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 overflow-hidden shadow">
+      <Play size={40} className="text-muted-foreground" />
+    </div>
+  );
+  if (covered.length === 0) return placeholder;
+
+  if (covered.length >= 4) {
+    const four = covered.slice(0, 4);
+    return (
+      <div className="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0 shadow grid grid-cols-2 grid-rows-2 bg-secondary">
+        {four.map((s, i) => (
+          <img key={i} src={coverProxyUrl(s)} alt="" loading="lazy" className="w-full h-full object-cover" />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0 shadow bg-secondary">
+      <img src={coverProxyUrl(covered[0])} alt="" loading="lazy" className="w-full h-full object-cover" />
+    </div>
+  );
+}
 
 // 自建歌单详情页:侧栏点歌单 → 派发 {collectionId,name} → 这里加载歌曲并播放/移除。
 export default function MyPlaylist() {
@@ -47,9 +78,7 @@ export default function MyPlaylist() {
   return (
     <div>
       <div className="flex items-end gap-4 mb-6">
-        <div className="w-32 h-32 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
-          <Play size={40} className="text-muted-foreground" />
-        </div>
+        <PlaylistCover songs={songs} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">歌单</p>
           <h1 className="text-3xl font-black truncate">{meta.name}</h1>
