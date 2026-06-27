@@ -134,8 +134,8 @@ function PlaylistNav({ onNavigate }) {
             <div className="fixed inset-0 z-[60]" onClick={() => setMenuOpen(false)} />
             {/* fixed 定位脱离侧栏 overflow 裁切,按按钮坐标弹出 */}
             <div
-              className="fixed z-[61] bg-popover border border-border rounded-md shadow-xl py-1 w-36"
-              style={{ top: menuPos.top, left: menuPos.left }}
+              className="fixed z-[61] border border-border rounded-md shadow-xl py-1 w-36"
+              style={{ top: menuPos.top, left: menuPos.left, backgroundColor: '#282828' }}
             >
               <button className="w-full px-3 py-2 text-sm text-left hover:bg-secondary"
                 onClick={() => { setMenuOpen(false); setCreating(true); }}>新建空歌单</button>
