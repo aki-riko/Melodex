@@ -25,7 +25,7 @@ const GROUPS = [
   {
     title: '音乐库',
     items: [
-      { key: 'Recent', label: '最近播放·500', icon: Clock },
+      { key: 'Recent', label: '最近播放', icon: Clock },
       { key: 'Local', label: '本地和下载', icon: Download },
     ],
   },
