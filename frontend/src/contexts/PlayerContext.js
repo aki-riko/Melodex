@@ -266,15 +266,15 @@ const parseLRC = (raw) => {
   for (const line of lines) {
     re.lastIndex = 0;
     const text = line.replace(/\[[^\]]*\]/g, '').trim();
-    let m;
-    const stamps = [];
-    while ((m = re.exec(line)) !== null) {
-      const min = parseInt(m[1], 10);
-      const sec = parseInt(m[2], 10);
-      const ms = m[3] ? parseInt(m[3].padEnd(3, '0'), 10) : 0;
-      stamps.push(min * 60 + sec + ms / 1000);
-    }
-    if (stamps.length && text) for (const t of stamps) out.push({ t, text });
+    if (!text) continue;
+    // QQ 等逐字 LRC 一行内含多个时间戳(每字一个),只取首个作为该行起始时间,
+    // 否则整行会被重复 push 多次(同句刷屏)。
+    const m = re.exec(line);
+    if (!m) continue; // 无时间戳(如 [ti:]/[ar:] 元信息)跳过
+    const min = parseInt(m[1], 10);
+    const sec = parseInt(m[2], 10);
+    const ms = m[3] ? parseInt(m[3].padEnd(3, '0'), 10) : 0;
+    out.push({ t: min * 60 + sec + ms / 1000, text });
   }
   out.sort((a, b) => a.t - b.t);
   return out;
