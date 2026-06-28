@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic } from 'lucide-react';
+import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic, ChevronDown } from 'lucide-react';
 import { getStreamUrl, coverProxyUrl } from '../services/musicdl';
 import { useAuth } from './AuthContext';
 
@@ -269,6 +269,7 @@ export const PlayerBar = () => {
   } = usePlayer();
 
   const [queueOpen, setQueueOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false); // 移动端:点击迷你条展开全屏播放页
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
 
   const modeIcon = mode === 'repeat'
@@ -286,120 +287,241 @@ export const PlayerBar = () => {
       : <Volume2 size={18} />;
 
   return (
-    <div className="fixed bottom-14 md:bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-40"
-      style={{ display: nowPlaying ? 'block' : 'none' }}>
-      <div className="max-w-6xl mx-auto">
-        {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
-        <div className="flex items-center gap-3">
-          {/* 左:封面 + 标题/歌手 */}
-          <div className="flex items-center gap-3 min-w-0" style={{ width: '26%' }}>
-            {nowPlaying?.cover && (
-              <img src={coverProxyUrl(nowPlaying)} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow" />
-            )}
-            <div className="min-w-0">
-              <p className="truncate font-semibold text-sm">{nowPlaying?.name}</p>
-              <p className="text-muted-foreground text-xs truncate">
-                {nowPlaying ? `${nowPlaying.artist} · ${nowPlaying.source}` : ''}
-              </p>
+    <>
+      {/* ===== 桌面端:完整播放条(原样) ===== */}
+      <div className="hidden md:block fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-40"
+        style={{ display: nowPlaying ? undefined : 'none' }}>
+        <div className="max-w-6xl mx-auto">
+          {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
+          <div className="flex items-center gap-3">
+            {/* 左:封面 + 标题/歌手 */}
+            <div className="flex items-center gap-3 min-w-0" style={{ width: '26%' }}>
+              {nowPlaying?.cover && (
+                <img src={coverProxyUrl(nowPlaying)} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow" />
+              )}
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-sm">{nowPlaying?.name}</p>
+                <p className="text-muted-foreground text-xs truncate">
+                  {nowPlaying ? `${nowPlaying.artist} · ${nowPlaying.source}` : ''}
+                </p>
+              </div>
+            </div>
+            {/* 中:控制按钮 */}
+            <button onClick={prev} className="text-muted-foreground hover:text-foreground transition-colors" title="上一首" aria-label="上一首">
+              <SkipBack size={20} fill="currentColor" />
+            </button>
+            <button onClick={togglePlay}
+              className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
+              title="播放/暂停" aria-label="播放/暂停">
+              {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
+            </button>
+            <button onClick={next} className="text-muted-foreground hover:text-foreground transition-colors" title="下一首" aria-label="下一首">
+              <SkipForward size={20} fill="currentColor" />
+            </button>
+            <button onClick={cycleMode}
+              className={`transition-colors ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'}`}
+              title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
+              {modeIcon}
+            </button>
+            {/* 右:进度条 */}
+            <div className="flex items-center gap-2 flex-grow min-w-0">
+              <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>
+              <input
+                type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+                onChange={(e) => seek(Number(e.target.value))}
+                className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="播放进度"
+              />
+              <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
+            </div>
+            {/* 音量:仅桌面。点击图标静音/恢复,拖动调音量 */}
+            <div className="flex items-center gap-1.5 flex-shrink-0" style={{ width: 120 }}>
+              <button onClick={toggleMute}
+                className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                title={muted ? '取消静音' : '静音'} aria-label="静音">
+                {volIcon}
+              </button>
+              <input
+                type="range" min={0} max={1} step="0.01" value={effectiveVol}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="音量"
+              />
+            </div>
+            {/* 播放队列:音量键右侧 */}
+            <div className="relative flex-shrink-0">
+              <button onClick={() => setQueueOpen((o) => !o)}
+                className={`transition-colors ${queueOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                title="播放队列" aria-label="播放队列">
+                <ListMusic size={18} />
+              </button>
+              {queueOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setQueueOpen(false)} />
+                  <div className="absolute bottom-full right-0 mb-3 w-80 max-h-96 overflow-y-auto app-scroll bg-card border border-border rounded-lg shadow-xl z-50">
+                    <div className="sticky top-0 bg-card border-b border-border px-3 py-2 flex items-center justify-between">
+                      <span className="font-semibold text-sm">播放队列</span>
+                      <span className="text-xs text-muted-foreground">{queue.length} 首</span>
+                    </div>
+                    {queue.length === 0 ? (
+                      <p className="text-sm text-muted-foreground px-3 py-4">队列为空</p>
+                    ) : (
+                      <div className="py-1">
+                        {queue.map((s, i) => {
+                          const k = `${s.source}-${s.id}`;
+                          const active = k === curKey;
+                          return (
+                            <button key={`${k}-${i}`} onClick={() => { playFromQueue(s); }}
+                              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${active ? 'bg-secondary' : 'hover:bg-secondary/60'}`}>
+                              <span className={`w-5 text-right text-xs tabular-nums flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`}>
+                                {active ? '▶' : i + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${s.source}` : ''}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
-          {/* 中:控制按钮 */}
-          <button onClick={prev} className="text-muted-foreground hover:text-foreground transition-colors" title="上一首" aria-label="上一首">
-            <SkipBack size={20} fill="currentColor" />
+        </div>
+      </div>
+
+      {/* ===== 移动端:迷你条(封面+名+播放),点击展开全屏播放页 ===== */}
+      <div className="md:hidden fixed bottom-14 left-0 right-0 bg-card border-t border-border z-40"
+        style={{ display: nowPlaying ? 'block' : 'none' }}>
+        {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
+        {/* 顶部细进度条 */}
+        <div className="h-0.5 bg-secondary">
+          <div className="h-full bg-primary" style={{ width: progress.dur ? `${(progress.cur / progress.dur) * 100}%` : '0%' }} />
+        </div>
+        <div className="flex items-center gap-3 px-3 py-2">
+          <button className="flex items-center gap-3 min-w-0 flex-grow text-left" onClick={() => setExpanded(true)} aria-label="展开播放页">
+            {nowPlaying?.cover
+              ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
+              : <div className="w-11 h-11 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></div>}
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-sm">{nowPlaying?.name}</p>
+              <p className="text-muted-foreground text-xs truncate">{nowPlaying?.artist}</p>
+            </div>
           </button>
           <button onClick={togglePlay}
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
-            title="播放/暂停" aria-label="播放/暂停">
+            className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground flex-shrink-0"
+            aria-label="播放/暂停">
             {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
           </button>
-          <button onClick={next} className="text-muted-foreground hover:text-foreground transition-colors" title="下一首" aria-label="下一首">
-            <SkipForward size={20} fill="currentColor" />
+          <button onClick={next} className="text-muted-foreground flex-shrink-0" aria-label="下一首">
+            <SkipForward size={22} fill="currentColor" />
           </button>
-          <button onClick={cycleMode}
-            className={`transition-colors ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'}`}
-            title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
-            {modeIcon}
-          </button>
-          {/* 右:进度条 */}
-          <div className="flex items-center gap-2 flex-grow min-w-0">
-            <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>
+        </div>
+      </div>
+
+      {/* ===== 移动端:全屏展开播放页(QQ音乐式) ===== */}
+      {expanded && nowPlaying && (
+        <div className="md:hidden fixed inset-0 z-[70] bg-background flex flex-col"
+          style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
+          {/* 顶部:收起 */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <button onClick={() => setExpanded(false)} className="text-muted-foreground" aria-label="收起">
+              <ChevronDown size={28} />
+            </button>
+            <span className="text-xs uppercase tracking-wider text-muted-foreground">正在播放</span>
+            <button onClick={() => setQueueOpen((o) => !o)} className={queueOpen ? 'text-primary' : 'text-muted-foreground'} aria-label="播放队列">
+              <ListMusic size={22} />
+            </button>
+          </div>
+
+          {/* 移动端队列覆盖层(展开页内) */}
+          {queueOpen && (
+            <div className="absolute inset-0 z-[71] bg-background flex flex-col"
+              style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="font-semibold">播放队列 · {queue.length} 首</span>
+                <button onClick={() => setQueueOpen(false)} className="text-muted-foreground" aria-label="关闭队列">
+                  <ChevronDown size={26} />
+                </button>
+              </div>
+              <div className="flex-grow overflow-y-auto app-scroll py-1">
+                {queue.length === 0 ? (
+                  <p className="text-sm text-muted-foreground px-4 py-4">队列为空</p>
+                ) : queue.map((s, i) => {
+                  const k = `${s.source}-${s.id}`;
+                  const active = k === curKey;
+                  return (
+                    <button key={`${k}-${i}`} onClick={() => { playFromQueue(s); setQueueOpen(false); }}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${active ? 'bg-secondary' : ''}`}>
+                      <span className={`w-5 text-right text-xs tabular-nums flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`}>{active ? '▶' : i + 1}</span>
+                      <div className="min-w-0">
+                        <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${s.source}` : ''}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {/* 大封面 */}
+          <div className="flex-grow flex items-center justify-center px-8 min-h-0">
+            {nowPlaying?.cover
+              ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-full max-w-xs aspect-square rounded-2xl object-cover shadow-2xl" />
+              : <div className="w-full max-w-xs aspect-square rounded-2xl bg-secondary flex items-center justify-center"><ListMusic size={64} className="text-muted-foreground" /></div>}
+          </div>
+          {/* 标题/歌手 */}
+          <div className="px-8 mt-4">
+            <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
+            <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${nowPlaying.source}` : ''}</p>
+          </div>
+          {/* 进度 */}
+          <div className="px-8 mt-5">
             <input
               type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
               onChange={(e) => seek(Number(e.target.value))}
-              className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="播放进度"
+              className="w-full accent-primary cursor-pointer" aria-label="播放进度"
             />
-            <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
+            <div className="flex justify-between text-xs text-muted-foreground tabular-nums mt-1">
+              <span>{fmtTime(progress.cur)}</span>
+              <span>{fmtTime(progress.dur)}</span>
+            </div>
           </div>
-          {/* 音量:仅桌面显示(移动端用系统音量)。点击图标静音/恢复,拖动调音量 */}
-          <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0" style={{ width: 120 }}>
-            <button onClick={toggleMute}
-              className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-              title={muted ? '取消静音' : '静音'} aria-label="静音">
-              {volIcon}
+          {/* 控制按钮 */}
+          <div className="flex items-center justify-between px-10 mt-6">
+            <button onClick={cycleMode}
+              className={`${mode === 'order' ? 'text-muted-foreground' : 'text-primary'}`}
+              title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
+              {modeIcon}
             </button>
-            <input
-              type="range" min={0} max={1} step="0.01" value={effectiveVol}
-              onChange={(e) => setVolume(Number(e.target.value))}
-              className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="音量"
-            />
-          </div>
-          {/* 播放队列:音量键右侧,点击弹出当前队列面板 */}
-          <div className="relative flex-shrink-0">
-            <button onClick={() => setQueueOpen((o) => !o)}
-              className={`transition-colors ${queueOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-              title="播放队列" aria-label="播放队列">
-              <ListMusic size={18} />
+            <button onClick={prev} className="text-foreground" aria-label="上一首">
+              <SkipBack size={32} fill="currentColor" />
             </button>
-            {queueOpen && (
-              <>
-                {/* 点击外部关闭 */}
-                <div className="fixed inset-0 z-40" onClick={() => setQueueOpen(false)} />
-                <div className="absolute bottom-full right-0 mb-3 w-80 max-h-96 overflow-y-auto app-scroll bg-card border border-border rounded-lg shadow-xl z-50">
-                  <div className="sticky top-0 bg-card border-b border-border px-3 py-2 flex items-center justify-between">
-                    <span className="font-semibold text-sm">播放队列</span>
-                    <span className="text-xs text-muted-foreground">{queue.length} 首</span>
-                  </div>
-                  {queue.length === 0 ? (
-                    <p className="text-sm text-muted-foreground px-3 py-4">队列为空</p>
-                  ) : (
-                    <div className="py-1">
-                      {queue.map((s, i) => {
-                        const k = `${s.source}-${s.id}`;
-                        const active = k === curKey;
-                        return (
-                          <button
-                            key={`${k}-${i}`}
-                            onClick={() => { playFromQueue(s); }}
-                            className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${active ? 'bg-secondary' : 'hover:bg-secondary/60'}`}
-                          >
-                            <span className={`w-5 text-right text-xs tabular-nums flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`}>
-                              {active ? '▶' : i + 1}
-                            </span>
-                            <div className="min-w-0">
-                              <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${s.source}` : ''}</p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+            <button onClick={togglePlay}
+              className="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground"
+              aria-label="播放/暂停">
+              {isPaused ? <Play size={30} fill="currentColor" /> : <Pause size={30} fill="currentColor" />}
+            </button>
+            <button onClick={next} className="text-foreground" aria-label="下一首">
+              <SkipForward size={32} fill="currentColor" />
+            </button>
+            <div className="w-[18px]" />
           </div>
-          <audio
-            ref={audioRef}
-            onError={handleError}
-            onEnded={handleEnded}
-            onPlay={() => setIsPaused(false)}
-            onPause={(e) => { setIsPaused(true); savePlayback(e.target.currentTime); }}
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            style={{ display: 'none' }}
-          />
         </div>
-      </div>
-    </div>
+      )}
+
+      {/* 全局唯一 audio 元素(桌面/移动共用) */}
+      <audio
+        ref={audioRef}
+        onError={handleError}
+        onEnded={handleEnded}
+        onPlay={() => setIsPaused(false)}
+        onPause={(e) => { setIsPaused(true); savePlayback(e.target.currentTime); }}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        style={{ display: 'none' }}
+      />
+    </>
   );
 };
