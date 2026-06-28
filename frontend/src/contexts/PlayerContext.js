@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Repeat1, Repeat, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
+import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite } from '../services/musicdl';
 import { useAuth } from './AuthContext';
 
@@ -267,6 +267,44 @@ const fmtTime = (s) => {
 
 const MODE_LABEL = { order: '顺序', loop: '列表循环', repeat: '单曲循环', shuffle: '随机' };
 
+// 播放模式图标:统一圆角描边风格(参考 QQ 音乐)。
+// 顺序=右箭头直线 / 列表循环=回环箭头 / 单曲循环=回环+1 / 随机=交叉箭头。
+const PlayModeIcon = ({ mode, size = 20 }) => {
+  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  if (mode === 'shuffle') {
+    return (
+      <svg {...common}>
+        <path d="M16 3h5v5" /><path d="M4 20 21 3" />
+        <path d="M21 16v5h-5" /><path d="m15 15 6 6" /><path d="M4 4l5 5" />
+      </svg>
+    );
+  }
+  if (mode === 'loop') {
+    return (
+      <svg {...common}>
+        <path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+        <path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" />
+      </svg>
+    );
+  }
+  if (mode === 'repeat') {
+    return (
+      <svg {...common}>
+        <path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+        <path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" />
+        <path d="M11 10h1v4" />
+      </svg>
+    );
+  }
+  // order 顺序:向右的直线箭头(放完停)
+  return (
+    <svg {...common}>
+      <path d="M4 7h11" /><path d="M4 12h11" /><path d="M4 17h7" />
+      <path d="m16 14 4 3-4 3" /><path d="M20 17h-5" />
+    </svg>
+  );
+};
+
 // 跑马灯:文字超出容器宽度才滚动,否则静态显示(避免短标题也无谓滚动)。
 const Marquee = ({ text, className }) => {
   const wrapRef = useRef(null);
@@ -467,13 +505,8 @@ export const PlayerBar = () => {
     }
   }, [lyricIdx, showLyric]);
 
-  const modeIcon = mode === 'repeat'
-    ? <Repeat1 size={18} />
-    : mode === 'loop'
-      ? <Repeat size={18} />
-      : mode === 'shuffle'
-        ? <Shuffle size={18} />
-        : <ListOrdered size={18} />;
+  // 播放模式图标(自定义 SVG,圆角风格统一):顺序/列表循环/单曲循环/随机
+  const modeIcon = <PlayModeIcon mode={mode} size={20} />;
 
   // 音量图标:静音/0 → X,低 → Volume1,高 → Volume2
   const effectiveVol = muted ? 0 : volume;
@@ -687,12 +720,32 @@ export const PlayerBar = () => {
               </div>
             ) : (
               <div className="fade-in turntable flex-shrink-0" style={{ width: 'min(78vw, 20rem)', height: 'min(78vw, 20rem)' }}>
-                {/* 唱臂:暂停时抬起,播放时落到唱片上 */}
-                <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
-                  <div className="tonearm__base" />
-                  <div className="tonearm__arm" />
-                  <div className="tonearm__head" />
-                </div>
+                {/* 唱臂(SVG):支点在右上,暂停抬起、播放落到唱片上 */}
+                <svg className={`tonearm ${isPaused ? 'up' : 'down'}`} viewBox="0 0 100 100" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="armMetal" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stopColor="#f2f2f2" />
+                      <stop offset="0.5" stopColor="#c8c8c8" />
+                      <stop offset="1" stopColor="#9a9a9a" />
+                    </linearGradient>
+                    <radialGradient id="armPivot" cx="0.4" cy="0.4" r="0.7">
+                      <stop offset="0" stopColor="#fff" />
+                      <stop offset="1" stopColor="#b0b0b0" />
+                    </radialGradient>
+                  </defs>
+                  {/* 臂杆(从支点 88,16 伸向唱头 60,74) */}
+                  <line x1="86" y1="20" x2="60" y2="72" stroke="url(#armMetal)" strokeWidth="3.4" strokeLinecap="round" />
+                  {/* 配重端(支点上方小柱) */}
+                  <line x1="86" y1="20" x2="90" y2="9" stroke="url(#armMetal)" strokeWidth="3" strokeLinecap="round" />
+                  {/* 支点圆座 */}
+                  <circle cx="88" cy="16" r="7.5" fill="url(#armPivot)" stroke="#888" strokeWidth="0.8" />
+                  <circle cx="88" cy="16" r="2.6" fill="#777" />
+                  {/* 唱头(headshell) */}
+                  <g transform="rotate(28 60 74)">
+                    <rect x="55.5" y="70" width="9" height="11" rx="2" fill="url(#armMetal)" stroke="#888" strokeWidth="0.7" />
+                    <rect x="58.6" y="80" width="2.8" height="3" rx="1" fill="#555" />
+                  </g>
+                </svg>
                 {/* 黑胶唱片 */}
                 <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
                   {nowPlaying?.cover
