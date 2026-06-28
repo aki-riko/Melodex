@@ -561,18 +561,20 @@ export const PlayerBar = () => {
         <div className="max-w-6xl mx-auto">
           {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
           <div className="flex items-center gap-3">
-            {/* 左:封面 + 标题/歌手 */}
-            <div className="flex items-center gap-3 min-w-0" style={{ width: '26%' }}>
-              {nowPlaying?.cover && (
-                <img src={coverProxyUrl(nowPlaying)} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow" />
-              )}
+            {/* 左:封面 + 标题/歌手(点击展开全屏播放页) */}
+            <button onClick={openExpanded}
+              className="flex items-center gap-3 min-w-0 text-left group" style={{ width: '26%' }}
+              title="展开播放页" aria-label="展开播放页">
+              {nowPlaying?.cover
+                ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow transition-transform group-hover:scale-105" />
+                : <div className="w-12 h-12 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={20} className="text-muted-foreground" /></div>}
               <div className="min-w-0">
-                <p className="truncate font-semibold text-sm">{nowPlaying?.name}</p>
+                <p className="truncate font-semibold text-sm group-hover:text-primary transition-colors">{nowPlaying?.name}</p>
                 <p className="text-muted-foreground text-xs truncate">
                   {nowPlaying ? `${nowPlaying.artist} · ${nowPlaying.source}` : ''}
                 </p>
               </div>
-            </div>
+            </button>
             {/* 中:控制按钮 */}
             <button onClick={prev} className="text-muted-foreground hover:text-foreground transition-colors" title="上一首" aria-label="上一首">
               <SkipBack size={20} fill="currentColor" />
@@ -820,6 +822,104 @@ export const PlayerBar = () => {
               className={queueOpen ? 'text-primary' : 'text-muted-foreground'} aria-label="播放列表">
               <ListMusic size={26} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 桌面端:全屏展开播放页(网易云式:左唱片 / 右歌词) ===== */}
+      {expanded && nowPlaying && (
+        <div className={`hidden md:flex fixed inset-0 z-[70] flex-col player-cover-bg ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}>
+          {/* 背景:封面大图模糊铺底 + 暗色遮罩 */}
+          {nowPlaying?.cover && (
+            <div className="absolute inset-0 -z-10 bg-cover bg-center"
+              style={{ backgroundImage: `url(${coverProxyUrl(nowPlaying)})`, filter: 'blur(60px) brightness(0.35)', transform: 'scale(1.2)' }} />
+          )}
+          <div className="absolute inset-0 -z-10 bg-background/70" />
+
+          {/* 顶部:收起 */}
+          <div className="flex items-center justify-between px-8 py-5">
+            <button onClick={collapseExpanded} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors" aria-label="收起">
+              <ChevronDown size={28} />
+              <span className="text-sm">收起</span>
+            </button>
+            <span className="text-xs uppercase tracking-wider text-muted-foreground">正在播放</span>
+            <span className="w-16" />
+          </div>
+
+          {/* 中部:左唱片 + 右歌词 */}
+          <div className="flex-grow flex items-center justify-center gap-12 px-16 min-h-0 overflow-hidden">
+            {/* 左:黑胶唱片 + 标题/歌手/收藏 */}
+            <div className="flex flex-col items-center flex-shrink-0" style={{ width: 'min(40vw, 28rem)' }}>
+              <div className="turntable" style={{ width: 'min(30vw, 22rem)', height: 'min(30vw, 22rem)' }}>
+                <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
+                  <div className="tonearm__base" />
+                  <div className="tonearm__arm" />
+                  <div className="tonearm__head" />
+                </div>
+                <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
+                  {nowPlaying?.cover
+                    ? <img src={coverProxyUrl(nowPlaying)} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    : <ListMusic size={72} className="text-muted-foreground" />}
+                </div>
+              </div>
+              <div className="mt-8 text-center max-w-full px-4">
+                <p className="text-2xl font-bold truncate">{nowPlaying?.name}</p>
+                <p className="text-muted-foreground truncate mt-2">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${nowPlaying.source}` : ''}</p>
+              </div>
+            </div>
+
+            {/* 右:滚动歌词 */}
+            <div className="flex-grow max-w-xl h-full overflow-y-auto app-scroll py-16 min-w-0" aria-label="歌词">
+              {lrc.length === 0 ? (
+                <p className="text-muted-foreground text-center mt-20">暂无歌词</p>
+              ) : (
+                lrc.map((line, i) => (
+                  <p key={i}
+                    ref={i === lyricIdx ? activeLyricRef : null}
+                    className={`py-2 leading-relaxed transition-all ${
+                      i === lyricIdx ? 'text-xl font-semibold' : 'text-muted-foreground/70 text-base'
+                    }`}>
+                    {i === lyricIdx ? <KaraokeLine line={line} cur={progress.cur} /> : line.text}
+                  </p>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* 底部:进度 + 控制 + 音量 + 收藏 */}
+          <div className="px-16 pb-8">
+            <div className="flex items-center gap-3 mb-3 max-w-4xl mx-auto w-full">
+              <span className="text-xs text-muted-foreground tabular-nums w-10 text-right">{fmtTime(progress.cur)}</span>
+              <input type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+                onChange={(e) => seek(Number(e.target.value))}
+                className="flex-grow accent-primary cursor-pointer" aria-label="播放进度" />
+              <span className="text-xs text-muted-foreground tabular-nums w-10">{fmtTime(progress.dur)}</span>
+            </div>
+            <div className="flex items-center justify-center gap-8">
+              <button onClick={onToggleFavorite} className="p-1" aria-label="收藏" title="收藏">
+                <Heart size={24} className={favorited ? 'text-primary' : 'text-muted-foreground hover:text-foreground transition-colors'} fill={favorited ? 'currentColor' : 'none'} />
+              </button>
+              <button onClick={cycleMode}
+                className={`${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'} transition-colors`}
+                title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">{modeIcon}</button>
+              <button onClick={prev} className="text-foreground hover:scale-110 transition-transform" aria-label="上一首">
+                <SkipBack size={30} fill="currentColor" />
+              </button>
+              <button onClick={togglePlay}
+                className="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform"
+                aria-label="播放/暂停">
+                {isPaused ? <Play size={30} fill="currentColor" /> : <Pause size={30} fill="currentColor" />}
+              </button>
+              <button onClick={next} className="text-foreground hover:scale-110 transition-transform" aria-label="下一首">
+                <SkipForward size={30} fill="currentColor" />
+              </button>
+              <div className="flex items-center gap-2" style={{ width: 130 }}>
+                <button onClick={toggleMute} className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0" aria-label="静音">{volIcon}</button>
+                <input type="range" min={0} max={1} step="0.01" value={effectiveVol}
+                  onChange={(e) => setVolume(Number(e.target.value))}
+                  className="flex-grow accent-primary cursor-pointer" aria-label="音量" />
+              </div>
+            </div>
           </div>
         </div>
       )}
