@@ -407,6 +407,20 @@ func StartWithOptions(port string, opts StartOptions) {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	// 可信代理:env MUSIC_DL_TRUSTED_PROXIES(逗号分隔 CIDR/IP)配置后,仅这些来源的
+	// X-Forwarded-For 被 ClientIP() 采信,防客户端伪造 XFF 绕过限流/登录锁。
+	// 未配置则交给 gin 默认(信任全部)——自托管无代理时无影响,有代理务必配置。
+	if tp := strings.TrimSpace(os.Getenv("MUSIC_DL_TRUSTED_PROXIES")); tp != "" {
+		var proxies []string
+		for _, p := range strings.Split(tp, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				proxies = append(proxies, p)
+			}
+		}
+		if err := r.SetTrustedProxies(proxies); err != nil {
+			fmt.Fprintf(os.Stderr, "SetTrustedProxies failed: %v\n", err)
+		}
+	}
 	r.Use(corsMiddleware())
 	r.Use(securityHeadersMiddleware())
 

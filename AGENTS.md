@@ -159,6 +159,11 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - 访问 `https://tsp.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
 - **NAS 构建坑**:① 私仓 clone 用内网 `ssh://<NAS-USER>@<NAS-LAN-IP>:<NAS-SSH-PORT>/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:22-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)。
 - 部署流程:NAS 上 `git pull origin master` → `docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t melodex:latest .` → `docker compose up -d`。
+- **安全相关 env(2026-06 审计后新增,反代部署建议配)**:
+  - `MUSIC_DL_TRUSTED_PROXIES`:逗号分隔 CIDR/IP(如 NPM 容器网段 `172.18.0.0/16`)。配后仅这些来源的 `X-Forwarded-For` 被 `ClientIP()` 采信,防客户端伪造 XFF 绕过限流/登录锁。**不配则 gin 信任全部 XFF(可被伪造)**;有反代务必配。
+  - `MUSIC_DL_CORS_ORIGINS`:逗号分隔的可信跨域来源(同源无需配)。CORS 不再反射任意 Origin,只对同源+此白名单回显凭据。
+  - cookie `Secure` 自动按 `X-Forwarded-Proto=https` 置位(NPM 终止 TLS 场景),无需配置但 NPM 需透传该头。
+  - 资源上限默认值:搜索 per-IP 30 次/分钟、search_cache 5000 行、上传单文件 200MB、m3u 导入 ≤1000 条(均硬编码,需调改源码)。
 
 ## Git
 
