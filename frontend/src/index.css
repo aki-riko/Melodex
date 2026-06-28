@@ -114,15 +114,17 @@ html {
 .vinyl-wrap {
   border-radius: 9999px;
   background: radial-gradient(circle at center,
-    #111 0%, #111 30%, #1c1c1c 31%, #111 33%,
-    #1c1c1c 34%, #111 36%, #1c1c1c 37%, #0a0a0a 70%);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    #2a2a2a 0%, #1a1a1a 30%, #2e2e2e 31%, #1a1a1a 33%,
+    #2e2e2e 34%, #1a1a1a 36%, #2e2e2e 37%, #141414 70%, #050505 100%);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(255,255,255,0.04);
   display: flex; align-items: center; justify-content: center;
 }
 .vinyl-wrap img {
   width: 62%; height: 62%;
   border-radius: 9999px;
   object-fit: cover;
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.5);
 }
 
 @keyframes player-slide-down {

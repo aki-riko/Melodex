@@ -549,7 +549,7 @@ export const PlayerBar = () => {
                 )}
               </div>
             ) : (
-              <div className="fade-in turntable w-full max-w-xs aspect-square">
+              <div className="fade-in turntable flex-shrink-0" style={{ width: 'min(78vw, 20rem)', height: 'min(78vw, 20rem)' }}>
                 {/* 唱臂:暂停时抬起,播放时落到唱片上 */}
                 <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
                   <div className="tonearm__base" />
@@ -559,7 +559,8 @@ export const PlayerBar = () => {
                 {/* 黑胶唱片 */}
                 <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
                   {nowPlaying?.cover
-                    ? <img src={coverProxyUrl(nowPlaying)} alt="" />
+                    ? <img src={coverProxyUrl(nowPlaying)} alt=""
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     : <ListMusic size={64} className="text-muted-foreground" />}
                 </div>
               </div>
