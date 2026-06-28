@@ -103,16 +103,9 @@ export default function MyPlaylist() {
       )}
       <div className="space-y-0.5">
         {songs.map((song, i) => (
-          <div key={`${song.source}-${song.id}`} className="flex items-center group">
-            <div className="flex-grow min-w-0">
-              <SongRow song={song} index={i} isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)} />
-            </div>
-            <button onClick={() => handleRemove(song)}
-              className="p-1.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-              title="从歌单移除">
-              <Trash2 size={16} />
-            </button>
-          </div>
+          <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
+            isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
+            onRemove={handleRemove} />
         ))}
       </div>
     </div>

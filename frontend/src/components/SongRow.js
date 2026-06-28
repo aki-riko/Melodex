@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music } from 'lucide-react';
+import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music, Trash2 } from 'lucide-react';
 import { getStreamUrl, saveToServer, inspectQuality, coverProxyUrl } from '../services/musicdl';
 import { useCollections } from '../contexts/CollectionsContext';
 import { formatDuration } from '../utils/format';
@@ -49,7 +49,8 @@ const qualityOf = (song) => {
 };
 
 // 单首歌曲行:歌曲搜索结果与歌单/专辑详情共用。
-const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
+// onRemove 不为空时在行尾显示删除按钮(歌单详情用),并被包进同一高亮长条内。
+const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemove }) => {
   const q = qualityOf(song);
   const { setAddTarget } = useCollections();
   const [real, setReal] = useState(null); // 手动验音质结果 {size, bitrate}
@@ -83,9 +84,17 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
     }
   };
 
+  // 行播放:手机(coarse 指针)单击整行播放;电脑(精确指针)双击整行播放。
+  // 行内按钮均 stopPropagation,点按钮不触发行播放。
+  const isCoarse = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const handleRowClick = () => { if (isCoarse) onPlay(song); };
+  const handleRowDouble = () => { if (!isCoarse) onPlay(song); };
+
   return (
   <div
-    className={`group flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+    onClick={handleRowClick}
+    onDoubleClick={handleRowDouble}
+    className={`group flex items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer select-none ${
       isPlaying ? 'bg-secondary' : 'hover:bg-secondary/60'
     }`}
   >
@@ -127,13 +136,13 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
       title="验真实音质与大小">
       <Gauge size={16} className={checking ? 'animate-pulse' : ''} />
     </button>
-    <button onClick={() => setAddTarget(song)}
+    <button onClick={(e) => { e.stopPropagation(); setAddTarget(song); }}
       className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
       title="加入歌单">
       <ListPlus size={16} />
     </button>
     {onShowLyric && (
-      <button onClick={() => onShowLyric(song)}
+      <button onClick={(e) => { e.stopPropagation(); onShowLyric(song); }}
         className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
         title="查看歌词">
         <FileText size={16} />
@@ -151,11 +160,18 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo }) => {
         : dlState === 'fail' ? <RotateCw size={16} />
         : <Download size={16} />}
     </button>
-    <button onClick={() => onPlay(song)}
+    <button onClick={(e) => { e.stopPropagation(); onPlay(song); }}
       className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
       title="在线播放" aria-label="播放">
       <Play size={16} fill="currentColor" />
     </button>
+    {onRemove && (
+      <button onClick={(e) => { e.stopPropagation(); onRemove(song); }}
+        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+        title="从歌单移除">
+        <Trash2 size={16} />
+      </button>
+    )}
   </div>
   );
 };

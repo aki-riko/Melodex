@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { X, Plus, Check } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
+import { saveToServer } from '../services/musicdl';
 
 // 加歌弹窗:SongRow 点"+"设置 addTarget 后弹出,选歌单加入或新建歌单。
+// 加入歌单的同时,后台静默下载该歌到 NAS(不验活、不阻塞 UI)。
 export default function AddToPlaylistModal() {
   const { collections, addTarget, setAddTarget, addSong, create } = useCollections();
   const [newName, setNewName] = useState('');
@@ -13,9 +15,14 @@ export default function AddToPlaylistModal() {
 
   const close = () => { setAddTarget(null); setNewName(''); setDone(null); };
 
+  // 后台下载到 NAS:失败不打断(下载链路自有重试入口),不弹验活。
+  const autoDownload = (song) => {
+    saveToServer(song).catch(() => { /* 静默,用户可在歌单行手动重试下载 */ });
+  };
+
   const addTo = async (id) => {
     setBusy(true);
-    try { await addSong(id, addTarget); setDone(id); setTimeout(close, 700); }
+    try { await addSong(id, addTarget); autoDownload(addTarget); setDone(id); setTimeout(close, 700); }
     catch { /* 静默 */ } finally { setBusy(false); }
   };
 
@@ -26,7 +33,7 @@ export default function AddToPlaylistModal() {
     setBusy(true);
     try {
       const c = await create(name);
-      if (c && c.id != null) { await addSong(c.id, addTarget); setDone(c.id); setTimeout(close, 700); }
+      if (c && c.id != null) { await addSong(c.id, addTarget); autoDownload(addTarget); setDone(c.id); setTimeout(close, 700); }
     } catch { /* 静默 */ } finally { setBusy(false); }
   };
 

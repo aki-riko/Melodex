@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
-import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite } from '../services/musicdl';
+import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer } from '../services/musicdl';
 import { useAuth } from './AuthContext';
 
 const PlayerContext = createContext(null);
@@ -448,6 +448,8 @@ export const PlayerBar = () => {
     try {
       const f = await toggleFavorite(nowPlaying);
       setFavorited(f);
+      // 收藏(加入「我喜欢」)时后台静默下载到 NAS,与"加歌单即下载"一致;取消收藏不下载。
+      if (f) saveToServer(nowPlaying).catch(() => {});
     } catch {
       setFavorited(prev); // 失败回滚
     }
