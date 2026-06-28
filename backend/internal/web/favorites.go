@@ -60,7 +60,8 @@ func RegisterFavoriteRoutes(api *gin.RouterGroup) {
 		uid := currentUserID(c)
 		source := strings.TrimSpace(c.Query("source"))
 		songID := strings.TrimSpace(c.Query("id"))
-		if uid == 0 || source == "" || songID == "" {
+		// 路由已在 userAPI(authRequired 保证 uid>0);此处只校验业务参数。
+		if source == "" || songID == "" {
 			c.JSON(http.StatusOK, gin.H{"favorited": false})
 			return
 		}
