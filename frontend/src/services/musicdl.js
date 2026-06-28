@@ -244,6 +244,30 @@ export const clearSearchHistory = async (keyword) => {
   });
 };
 
+// ===== 收藏(「我喜欢」歌单,按用户隔离) =====
+
+// 查某歌是否已收藏 → bool
+export const getFavoriteStatus = async (song) => {
+  try {
+    const { data } = await client.get(
+      `/music/favorites/status?source=${encodeURIComponent(song.source)}&id=${encodeURIComponent(song.id)}`,
+    );
+    return !!data.favorited;
+  } catch {
+    return false;
+  }
+};
+
+// 切换收藏(有则取消/无则加)→ 返回切换后的 bool
+export const toggleFavorite = async (song) => {
+  const { data } = await client.post('/music/favorites/toggle', {
+    id: song.id, source: song.source, name: song.name || '',
+    artist: song.artist || '', cover: song.cover || '', duration: song.duration || 0,
+    extra: song.extra,
+  }, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  return !!data.favorited;
+};
+
 // ===== 用户管理(仅管理员) =====
 
 export const adminListUsers = async () =>

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic, ChevronDown } from 'lucide-react';
-import { getStreamUrl, coverProxyUrl, getLyric } from '../services/musicdl';
+import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
+import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite } from '../services/musicdl';
 import { useAuth } from './AuthContext';
 
 const PlayerContext = createContext(null);
@@ -257,6 +257,26 @@ const fmtTime = (s) => {
 
 const MODE_LABEL = { order: '顺序', repeat: '单曲', shuffle: '随机' };
 
+// 跑马灯:文字超出容器宽度才滚动,否则静态显示(避免短标题也无谓滚动)。
+const Marquee = ({ text, className }) => {
+  const wrapRef = useRef(null);
+  const textRef = useRef(null);
+  const [scroll, setScroll] = useState(false);
+  useEffect(() => {
+    const w = wrapRef.current, t = textRef.current;
+    if (w && t) setScroll(t.scrollWidth > w.clientWidth + 2);
+  }, [text]);
+  return (
+    <div ref={wrapRef} className={`marquee ${className || ''}`}>
+      {scroll ? (
+        <span className="marquee__inner"><span ref={textRef}>{text}</span></span>
+      ) : (
+        <span ref={textRef}>{text}</span>
+      )}
+    </div>
+  );
+};
+
 // 解析 LRC 为 [{t, end, text, words}],按时间升序。
 //   - 逐字 LRC(QQ:一行多个时间戳,每字一个)→ words=[{t, end, s}],可做卡拉OK填色
 //   - 行级 LRC(网易:一行仅一个时间戳)→ words=null,整行高亮
@@ -363,6 +383,27 @@ export const PlayerBar = () => {
   const [closing, setClosing] = useState(false); // 展开页收起动画中
   const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
+
+  // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
+  const [favorited, setFavorited] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!nowPlaying) { setFavorited(false); return; }
+    getFavoriteStatus(nowPlaying).then((f) => { if (!cancelled) setFavorited(f); });
+    return () => { cancelled = true; };
+  }, [curKey, nowPlaying]);
+
+  const onToggleFavorite = async () => {
+    if (!nowPlaying) return;
+    const prev = favorited;
+    setFavorited(!prev); // 乐观更新
+    try {
+      const f = await toggleFavorite(nowPlaying);
+      setFavorited(f);
+    } catch {
+      setFavorited(prev); // 失败回滚
+    }
+  };
 
   const expandedRef = useRef(false);
   useEffect(() => { expandedRef.current = expanded; }, [expanded]);
@@ -543,23 +584,29 @@ export const PlayerBar = () => {
         <div className="h-0.5 bg-secondary">
           <div className="h-full bg-primary" style={{ width: progress.dur ? `${(progress.cur / progress.dur) * 100}%` : '0%' }} />
         </div>
-        <div className="flex items-center gap-3 px-3 py-2">
+        <div className="flex items-center gap-2 px-3 py-2">
           <button className="flex items-center gap-3 min-w-0 flex-grow text-left" onClick={openExpanded} aria-label="展开播放页">
             {nowPlaying?.cover
               ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
               : <div className="w-11 h-11 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></div>}
             <div className="min-w-0">
-              <p className="truncate font-semibold text-sm">{nowPlaying?.name}</p>
+              <Marquee text={nowPlaying?.name || ''} className="font-semibold text-sm" />
               <p className="text-muted-foreground text-xs truncate">{nowPlaying?.artist}</p>
             </div>
           </button>
+          {/* 收藏 */}
+          <button onClick={onToggleFavorite} className="flex-shrink-0 p-1" aria-label="收藏">
+            <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
+          </button>
+          {/* 播放/暂停 */}
           <button onClick={togglePlay}
             className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground flex-shrink-0"
             aria-label="播放/暂停">
             {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
           </button>
-          <button onClick={next} className="text-muted-foreground flex-shrink-0" aria-label="下一首">
-            <SkipForward size={22} fill="currentColor" />
+          {/* 播放列表 */}
+          <button onClick={() => { openExpanded(); setQueueOpen(true); }} className="text-muted-foreground flex-shrink-0 p-1" aria-label="播放列表">
+            <ListMusic size={22} />
           </button>
         </div>
       </div>
@@ -647,10 +694,15 @@ export const PlayerBar = () => {
             )}
           </div>
           <p className="text-center text-xs text-muted-foreground/60">{showLyric ? '点击显示封面' : '点击显示歌词'}</p>
-          {/* 标题/歌手 */}
-          <div className="px-8 mt-3">
-            <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
-            <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${nowPlaying.source}` : ''}</p>
+          {/* 标题/歌手 + 收藏 */}
+          <div className="px-8 mt-3 flex items-center gap-3">
+            <div className="min-w-0 flex-grow">
+              <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
+              <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${nowPlaying.source}` : ''}</p>
+            </div>
+            <button onClick={onToggleFavorite} className="flex-shrink-0 p-1" aria-label="收藏">
+              <Heart size={28} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
+            </button>
           </div>
           {/* 进度 */}
           <div className="px-8 mt-5">
