@@ -107,14 +107,22 @@ func TestCollectionsIsolatedAcrossUsers(t *testing.T) {
 	aliceCol := createCollectionViaAPI(t, aliceR, "Alice歌单")
 	bobCol := createCollectionViaAPI(t, bobR, "Bob歌单")
 
-	// alice 只看到自己的。
+	// alice 看到自己的(含自动创建的「我喜欢」),看不到 bob 的。
+	contains := func(ids []uint, id uint) bool {
+		for _, x := range ids {
+			if x == id {
+				return true
+			}
+		}
+		return false
+	}
 	aliceIDs := listCollectionIDs(t, aliceR)
-	if len(aliceIDs) != 1 || aliceIDs[0] != aliceCol {
-		t.Fatalf("alice should see only her collection, got %v", aliceIDs)
+	if !contains(aliceIDs, aliceCol) || contains(aliceIDs, bobCol) {
+		t.Fatalf("alice isolation broken: ids=%v aliceCol=%d bobCol=%d", aliceIDs, aliceCol, bobCol)
 	}
 	bobIDs := listCollectionIDs(t, bobR)
-	if len(bobIDs) != 1 || bobIDs[0] != bobCol {
-		t.Fatalf("bob should see only his collection, got %v", bobIDs)
+	if !contains(bobIDs, bobCol) || contains(bobIDs, aliceCol) {
+		t.Fatalf("bob isolation broken: ids=%v", bobIDs)
 	}
 
 	// bob 不能访问 alice 的歌单详情(按不存在处理)。
@@ -134,7 +142,7 @@ func TestCollectionsIsolatedAcrossUsers(t *testing.T) {
 	}
 
 	// 确认 alice 的歌单仍在。
-	if ids := listCollectionIDs(t, aliceR); len(ids) != 1 {
+	if ids := listCollectionIDs(t, aliceR); !contains(ids, aliceCol) {
 		t.Fatalf("alice's collection should survive bob's delete attempt, got %v", ids)
 	}
 
