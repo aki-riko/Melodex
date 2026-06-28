@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
+import { SkipBack, SkipForward, Play, Pause, Repeat1, Repeat, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite } from '../services/musicdl';
 import { useAuth } from './AuthContext';
 
@@ -8,7 +8,8 @@ const PlayerContext = createContext(null);
 const songKey = (s) => `${s.source}-${s.id}`;
 
 // 播放模式:order 顺序 / repeat 单曲循环 / shuffle 随机
-const MODES = ['order', 'repeat', 'shuffle'];
+// 播放模式:shuffle 随机 / order 顺序(放完停) / repeat 单曲循环 / loop 列表循环(放完从头)
+const MODES = ['order', 'loop', 'repeat', 'shuffle'];
 
 // 音量持久化(纯前端展示偏好,localStorage 即可,无需后端)。
 const VOLUME_KEY = 'melodex_volume';
@@ -123,8 +124,10 @@ export const PlayerProvider = ({ children }) => {
     startPlay(song);
   }, [startPlay]);
 
-  // 计算下一首:shuffle 随机,repeat 同一首,order 顺序
-  const pickNext = useCallback((cur, forward = true) => {
+  // 计算下一首。auto=true 表示自动续播(歌曲自然结束):order 模式到队尾返回 null(停止);
+  // auto=false 表示用户手动点上/下一首:任何模式都绕回(不停)。
+  // shuffle 随机;loop/repeat/手动 均环绕。
+  const pickNext = useCallback((cur, forward = true, auto = false) => {
     const list = queueRef.current;
     if (!list.length) return null;
     const idx = list.findIndex((s) => songKey(s) === songKey(cur));
@@ -134,7 +137,12 @@ export const PlayerProvider = ({ children }) => {
       return list[r];
     }
     const step = forward ? 1 : -1;
-    const nextIdx = (idx + step + list.length) % list.length;
+    const rawNext = idx + step;
+    // order 模式自动续播到队尾后停止(不环绕)。
+    if (auto && modeRef.current === 'order' && rawNext >= list.length) {
+      return null;
+    }
+    const nextIdx = (rawNext + list.length) % list.length;
     return list[nextIdx];
   }, []);
 
@@ -190,8 +198,10 @@ export const PlayerProvider = ({ children }) => {
   // 播放结束:repeat 重播当前,否则跳下一首
   const handleEnded = useCallback(() => {
     if (modeRef.current === 'repeat' && nowPlaying) { startPlay(nowPlaying); return; }
-    next();
-  }, [nowPlaying, next, startPlay]);
+    triedRef.current = new Set();
+    const n = pickNext(nowPlaying, true, true); // auto 续播:order 到尾则停
+    if (n) startPlay(n);
+  }, [nowPlaying, pickNext, startPlay]);
 
   // audio 报错(死链/无法播放)→ 自动跳下一首没试过的
   const handleError = useCallback(() => {
@@ -255,7 +265,7 @@ const fmtTime = (s) => {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 };
 
-const MODE_LABEL = { order: '顺序', repeat: '单曲', shuffle: '随机' };
+const MODE_LABEL = { order: '顺序', loop: '列表循环', repeat: '单曲循环', shuffle: '随机' };
 
 // 跑马灯:文字超出容器宽度才滚动,否则静态显示(避免短标题也无谓滚动)。
 const Marquee = ({ text, className }) => {
@@ -459,9 +469,11 @@ export const PlayerBar = () => {
 
   const modeIcon = mode === 'repeat'
     ? <Repeat1 size={18} />
-    : mode === 'shuffle'
-      ? <Shuffle size={18} />
-      : <ListOrdered size={18} />;
+    : mode === 'loop'
+      ? <Repeat size={18} />
+      : mode === 'shuffle'
+        ? <Shuffle size={18} />
+        : <ListOrdered size={18} />;
 
   // 音量图标:静音/0 → X,低 → Volume1,高 → Volume2
   const effectiveVol = muted ? 0 : volume;
@@ -621,9 +633,7 @@ export const PlayerBar = () => {
               <ChevronDown size={28} />
             </button>
             <span className="text-xs uppercase tracking-wider text-muted-foreground">正在播放</span>
-            <button onClick={() => setQueueOpen((o) => !o)} className={queueOpen ? 'text-primary' : 'text-muted-foreground'} aria-label="播放队列">
-              <ListMusic size={22} />
-            </button>
+            <span className="w-7" />
           </div>
 
           {/* 移动端队列覆盖层(展开页内) */}
@@ -734,7 +744,10 @@ export const PlayerBar = () => {
             <button onClick={next} className="text-foreground" aria-label="下一首">
               <SkipForward size={32} fill="currentColor" />
             </button>
-            <div className="w-[18px]" />
+            <button onClick={() => setQueueOpen((o) => !o)}
+              className={queueOpen ? 'text-primary' : 'text-muted-foreground'} aria-label="播放列表">
+              <ListMusic size={26} />
+            </button>
           </div>
         </div>
       )}
