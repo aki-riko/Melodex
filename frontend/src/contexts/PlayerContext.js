@@ -622,8 +622,8 @@ export const PlayerBar = () => {
       </div>
 
       {/* ===== 移动端:迷你条(封面+名+播放),点击展开全屏播放页 ===== */}
-      <div className="md:hidden fixed bottom-14 left-0 right-0 bg-card border-t border-border z-40"
-        style={{ display: nowPlaying ? 'block' : 'none' }}>
+      <div className="md:hidden fixed left-0 right-0 bg-card border-t border-border z-40"
+        style={{ display: nowPlaying ? 'block' : 'none', bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
         {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
         {/* 顶部细进度条 */}
         <div className="h-0.5 bg-secondary">

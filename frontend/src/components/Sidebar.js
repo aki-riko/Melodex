@@ -294,8 +294,8 @@ export function MobileTabBar({ currentSection, onNavigate }) {
         </>
       )}
 
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex bg-card border-t border-border"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch bg-card border-t border-border"
+        style={{ height: 'calc(3.25rem + env(safe-area-inset-bottom))', paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {MOBILE_TABS.map((it) => {
           const Icon = it.icon;
           const active = currentSection === it.key && !moreOpen;
@@ -304,7 +304,7 @@ export function MobileTabBar({ currentSection, onNavigate }) {
               key={it.key}
               href={`#${it.key.toLowerCase()}`}
               onClick={(e) => { e.preventDefault(); setMoreOpen(false); onNavigate(it.key); }}
-              className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[11px] transition-colors ${
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] transition-colors ${
                 active ? 'text-primary' : 'text-muted-foreground'
               }`}
               aria-current={active ? 'page' : undefined}
@@ -317,7 +317,7 @@ export function MobileTabBar({ currentSection, onNavigate }) {
         {/* 更多:打开抽屉(歌单/艺人/帮助/账号/登出/用户管理) */}
         <button
           onClick={() => setMoreOpen((o) => !o)}
-          className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[11px] transition-colors ${
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] transition-colors ${
             moreOpen ? 'text-primary' : 'text-muted-foreground'
           }`}
           aria-label="更多"
