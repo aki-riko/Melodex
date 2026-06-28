@@ -244,6 +244,40 @@ export const clearSearchHistory = async (keyword) => {
   });
 };
 
+// ===== 播放历史(最近播放,按用户隔离,仅登录,封顶 500 条) =====
+
+// 记一次播放(播放器开始播放时 fire-and-forget 调用)。失败静默。
+export const recordPlayHistory = async (song) => {
+  if (!song || !song.id || !song.source) return;
+  try {
+    await client.post('/music/play_history', {
+      id: song.id, source: song.source, name: song.name || '',
+      artist: song.artist || '', cover: song.cover || '',
+      duration: song.duration || 0, extra: song.extra,
+    }, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  } catch { /* 未登录/出错静默,不打断播放 */ }
+};
+
+// 取最近播放列表(按 played_at 降序)。
+export const getPlayHistory = async () => {
+  try {
+    const { data } = await client.get('/music/play_history');
+    return data.history || [];
+  } catch {
+    return [];
+  }
+};
+
+// 删除单条(传 song:id+source)或清空(不传)。
+export const clearPlayHistory = async (song) => {
+  const qs = song && song.id && song.source
+    ? `?id=${encodeURIComponent(song.id)}&source=${encodeURIComponent(song.source)}`
+    : '';
+  await client.delete(`/music/play_history${qs}`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
+};
+
 // ===== 收藏(「我喜欢」歌单,按用户隔离) =====
 
 // 查某歌是否已收藏 → bool
@@ -367,5 +401,15 @@ export const getLocalMusic = async ({ offset = 0, limit = 100, refresh = false }
 // 删除本地音乐
 export const deleteLocalMusic = async (id) => {
   const { data } = await client.delete(`/music/local_music?id=${encodeURIComponent(id)}`);
+  return data;
+};
+
+// 上传本地音乐文件(multipart),返回 { status, track }
+export const uploadLocalMusic = async (file) => {
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await client.post('/music/local_music/upload', form, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
   return data;
 };

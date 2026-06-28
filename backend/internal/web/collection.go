@@ -192,7 +192,7 @@ func InitDB() {
 		panic("Failed to connect to SQLite: " + err.Error())
 	}
 
-	if err := db.AutoMigrate(&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &searchHistoryRow{}); err != nil {
+	if err := db.AutoMigrate(&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &searchHistoryRow{}, &playHistoryRow{}); err != nil {
 		panic("Failed to migrate database: " + err.Error())
 	}
 
