@@ -18,6 +18,13 @@ const loadVolume = () => {
   return isFinite(v) && v >= 0 && v <= 1 ? v : 1;
 };
 
+// 播放模式持久化(默认列表循环 loop)。
+const MODE_KEY = 'melodex_play_mode';
+const loadMode = () => {
+  const m = localStorage.getItem(MODE_KEY);
+  return ['order', 'loop', 'repeat', 'shuffle'].includes(m) ? m : 'loop';
+};
+
 // 播放进度记忆:按登录用户隔离存上次播放的歌/队列/进度(localStorage,本地恢复零延迟、
 // 不打后端、按 user.id 区分)。浏览器禁 autoplay,故恢复时只加载+定位不自动播放。
 const playbackKey = (userId) => `melodex_playback_${userId || 'anon'}`;
@@ -29,15 +36,15 @@ export const PlayerProvider = ({ children }) => {
   const [notice, setNotice] = useState('');
   const [isPaused, setIsPaused] = useState(true);
   const [progress, setProgress] = useState({ cur: 0, dur: 0 });
-  const [mode, setMode] = useState('order');
+  const [mode, setMode] = useState(loadMode);
   const [volume, setVolumeState] = useState(loadVolume);
   const [muted, setMuted] = useState(false);
   const [queue, setQueue] = useState([]); // 当前播放队列(state 副本,供队列面板渲染)
   const audioRef = useRef(null);
   const queueRef = useRef([]); // 当前播放队列(ref,供 next/prev 等回调读取免闭包陈旧)
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
-  const modeRef = useRef('order');
-  useEffect(() => { modeRef.current = mode; }, [mode]);
+  const modeRef = useRef(loadMode());
+  useEffect(() => { modeRef.current = mode; localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
   const { user } = useAuth();
   const userId = user?.id || 0;
