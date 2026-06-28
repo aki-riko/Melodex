@@ -549,10 +549,19 @@ export const PlayerBar = () => {
                 )}
               </div>
             ) : (
-              <div className={`fade-in vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full max-w-xs aspect-square`}>
-                {nowPlaying?.cover
-                  ? <img src={coverProxyUrl(nowPlaying)} alt="" />
-                  : <ListMusic size={64} className="text-muted-foreground" />}
+              <div className="fade-in turntable w-full max-w-xs aspect-square">
+                {/* 唱臂:暂停时抬起,播放时落到唱片上 */}
+                <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
+                  <div className="tonearm__base" />
+                  <div className="tonearm__arm" />
+                  <div className="tonearm__head" />
+                </div>
+                {/* 黑胶唱片 */}
+                <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
+                  {nowPlaying?.cover
+                    ? <img src={coverProxyUrl(nowPlaying)} alt="" />
+                    : <ListMusic size={64} className="text-muted-foreground" />}
+                </div>
               </div>
             )}
           </div>
