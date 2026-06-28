@@ -364,11 +364,36 @@ export const PlayerBar = () => {
   const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
 
-  // 收起:先播放下滑动画再卸载。
-  const collapseExpanded = useCallback(() => {
+  const expandedRef = useRef(false);
+  useEffect(() => { expandedRef.current = expanded; }, [expanded]);
+
+  // 收起播放页。fromPop=true 表示由返回键(popstate)触发,此时不再 history.back
+  // (历史已被浏览器弹出);否则主动收起需 history.back() 弹掉展开时压入的历史条目。
+  const collapseExpanded = useCallback((fromPop = false) => {
+    expandedRef.current = false; // 立即置否,避免 history.back 触发的 popstate 二次收起
     setClosing(true);
     setTimeout(() => { setExpanded(false); setClosing(false); }, 260);
+    if (fromPop !== true && window.history.state && window.history.state.playerExpanded) {
+      window.history.back();
+    }
   }, []);
+
+  // 展开播放页:压入一条带标记的历史,让手机返回键先收起而非退站。
+  const openExpanded = useCallback(() => {
+    setExpanded(true);
+    if (!window.history.state || !window.history.state.playerExpanded) {
+      window.history.pushState({ playerExpanded: true }, '');
+    }
+  }, []);
+
+  // 返回键(popstate):若正展开,拦截为收起播放页(带下滑动画,不再退站)。
+  useEffect(() => {
+    const onPop = () => {
+      if (expandedRef.current) collapseExpanded(true);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [collapseExpanded]);
 
   // 展开且当前歌变化时拉取并解析歌词(仅在展开播放页用,省请求)。
   useEffect(() => {
@@ -519,7 +544,7 @@ export const PlayerBar = () => {
           <div className="h-full bg-primary" style={{ width: progress.dur ? `${(progress.cur / progress.dur) * 100}%` : '0%' }} />
         </div>
         <div className="flex items-center gap-3 px-3 py-2">
-          <button className="flex items-center gap-3 min-w-0 flex-grow text-left" onClick={() => setExpanded(true)} aria-label="展开播放页">
+          <button className="flex items-center gap-3 min-w-0 flex-grow text-left" onClick={openExpanded} aria-label="展开播放页">
             {nowPlaying?.cover
               ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
               : <div className="w-11 h-11 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></div>}
