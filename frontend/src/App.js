@@ -7,6 +7,8 @@ import Artists from './components/Artists';
 import Download from './components/Download';
 import Settings from './components/Settings';
 import MyPlaylist from './components/MyPlaylist';
+import RecentlyPlayed from './components/RecentlyPlayed';
+import LocalMusic from './components/LocalMusic';
 import UserManagement from './components/UserManagement';
 import AuthGate from './components/AuthGate';
 import { onDownloadSearch } from './services/downloadBus';
@@ -28,7 +30,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Users'];
+const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Users'];
 // hash 形如 #myplaylist 或 #myplaylist/123(歌单 id);section 取第一段。
 const sectionFromHash = () => {
   const h = (window.location.hash || '').replace(/^#/, '').split('/')[0].toLowerCase();
@@ -88,6 +90,8 @@ function AppShell() {
               {section === 'Settings' && <Settings />}
               {section === 'Artists' && <Artists />}
               {section === 'MyPlaylist' && <MyPlaylist />}
+              {section === 'Recent' && <RecentlyPlayed />}
+              {section === 'Local' && <LocalMusic />}
               {section === 'Users' && isAdmin && <UserManagement />}
               {section === 'FAQ' && <FAQ />}
               {/* 页脚(含第三方署名)只放帮助页,其余页保持干净 */}

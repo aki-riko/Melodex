@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu } from 'lucide-react';
+import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu, Clock, Download } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { importM3U } from '../services/collections';
@@ -20,6 +20,13 @@ const GROUPS = [
       { key: 'Artists', label: '艺人', icon: Library },
       { key: 'Settings', label: '设置', icon: Settings, primary: true },
       { key: 'FAQ', label: '帮助', icon: HelpCircle },
+    ],
+  },
+  {
+    title: '音乐库',
+    items: [
+      { key: 'Recent', label: '最近播放·500', icon: Clock },
+      { key: 'Local', label: '本地和下载', icon: Download },
     ],
   },
 ];
@@ -224,6 +231,8 @@ export function MobileTabBar({ currentSection, onNavigate }) {
 
   // 「更多」抽屉里展示的次级导航(非 primary 的桌面项)。
   const moreNav = [
+    { key: 'Recent', label: '最近播放', icon: Clock },
+    { key: 'Local', label: '本地和下载', icon: Download },
     { key: 'Artists', label: '艺人', icon: Library },
     { key: 'FAQ', label: '帮助', icon: HelpCircle },
   ];

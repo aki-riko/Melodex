@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
-import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer } from '../services/musicdl';
+import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory } from '../services/musicdl';
 import { useAuth } from './AuthContext';
 
 const PlayerContext = createContext(null);
@@ -106,6 +106,8 @@ export const PlayerProvider = ({ children }) => {
 
   const startPlay = useCallback((song) => {
     setNowPlaying(song);
+    // 记录最近播放(按用户隔离,后端去重+封顶 500;未登录静默)。fire-and-forget。
+    recordPlayHistory(song);
     setTimeout(() => {
       if (audioRef.current) {
         audioRef.current.src = getStreamUrl(song);
