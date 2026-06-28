@@ -141,9 +141,13 @@ export const apiBase = API_BASE;
 
 // 封面代理 URL:封面源站常有防盗链 + 网易封面是 http(生产 https 会被浏览器拦混合内容),
 // 故统一走后端 cover_proxy(带 referer + 磁盘缓存)。无 cover 返回空串(前端显占位)。
+// 例外:本地音乐封面是站内相对路径(/music/local_music/cover?id=...),直接用原路径,
+// 不能套 cover_proxy——cover_proxy 的 isPublicHTTPURL 会拒绝站内/相对 URL(SSRF 防护)返 403。
 export const coverProxyUrl = (song) => {
   const url = (song && (song.cover || song.Cover)) || '';
   if (!url) return '';
+  // 站内相对路径(本地音乐封面)直接返回,拼上 API_BASE 即可。
+  if (url.startsWith('/')) return `${API_BASE}${url}`;
   const src = (song && (song.source || song.Source)) || '';
   return `${API_BASE}/music/cover_proxy?url=${encodeURIComponent(url)}${src ? `&source=${encodeURIComponent(src)}` : ''}`;
 };
