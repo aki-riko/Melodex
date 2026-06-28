@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut } from 'lucide-react';
+import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { importM3U } from '../services/collections';
@@ -209,29 +209,123 @@ function PlaylistNav({ onNavigate }) {
   );
 }
 
-// 移动端底部 Tab 栏
+// 移动端底部 Tab 栏:主项(首页/搜索/设置)+「更多」抽屉(桌面侧栏在手机上没有,
+// 此前歌单/艺人/帮助/账号/登出/用户管理在手机端全丢失,这里用抽屉补回)。
 export function MobileTabBar({ currentSection, onNavigate }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const { user, isAdmin, logout, desktop } = useAuth();
+  const { collections } = useCollections();
+
+  const go = (section, after) => {
+    setMoreOpen(false);
+    onNavigate(section);
+    if (after) after();
+  };
+
+  // 「更多」抽屉里展示的次级导航(非 primary 的桌面项)。
+  const moreNav = [
+    { key: 'Artists', label: '艺人', icon: Library },
+    { key: 'FAQ', label: '帮助', icon: HelpCircle },
+  ];
+
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex bg-card border-t border-border"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {MOBILE_TABS.map((it) => {
-        const Icon = it.icon;
-        const active = currentSection === it.key;
-        return (
-          <a
-            key={it.key}
-            href={`#${it.key.toLowerCase()}`}
-            onClick={(e) => { e.preventDefault(); onNavigate(it.key); }}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[11px] transition-colors ${
-              active ? 'text-primary' : 'text-muted-foreground'
-            }`}
-            aria-current={active ? 'page' : undefined}
-          >
-            <Icon size={20} />
-            <span>{it.mobileLabel || it.label}</span>
-          </a>
-        );
-      })}
-    </nav>
+    <>
+      {moreOpen && (
+        <>
+          <div className="md:hidden fixed inset-0 bg-black/50 z-[55]" onClick={() => setMoreOpen(false)} />
+          <div className="md:hidden fixed left-0 right-0 bottom-0 z-[56] bg-card border-t border-border rounded-t-2xl max-h-[75vh] overflow-y-auto app-scroll"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
+            {/* 当前用户 + 登出 */}
+            {user && (
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+                <div className="flex-grow min-w-0">
+                  <p className="font-semibold truncate">{user.username}</p>
+                  <p className="text-xs text-muted-foreground">{user.role === 'admin' ? '管理员' : '普通用户'}</p>
+                </div>
+                {!desktop && (
+                  <button onClick={() => { setMoreOpen(false); logout(); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+                    <LogOut size={16} /> 退出
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* 次级导航 + 管理员入口 */}
+            <div className="px-2 py-2 border-b border-border">
+              {moreNav.map((it) => {
+                const Icon = it.icon;
+                return (
+                  <button key={it.key} onClick={() => go(it.key)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                      currentSection === it.key ? 'bg-secondary text-foreground' : 'text-muted-foreground'
+                    }`}>
+                    <Icon size={18} /> {it.label}
+                  </button>
+                );
+              })}
+              {isAdmin && (
+                <button onClick={() => go('Users')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                    currentSection === 'Users' ? 'bg-secondary text-foreground' : 'text-muted-foreground'
+                  }`}>
+                  <Users size={18} /> 用户管理
+                </button>
+              )}
+            </div>
+
+            {/* 我的歌单 */}
+            <div className="px-2 py-2">
+              <p className="px-3 py-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">我的歌单</p>
+              {(collections || []).length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">还没有歌单</p>
+              ) : (
+                collections.map((c) => (
+                  <button key={c.id}
+                    onClick={() => go('MyPlaylist', () => requestOpenPlaylist({ collectionId: c.id, name: c.name }))}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors text-left">
+                    <Music size={16} className="flex-shrink-0" />
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex bg-card border-t border-border"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        {MOBILE_TABS.map((it) => {
+          const Icon = it.icon;
+          const active = currentSection === it.key && !moreOpen;
+          return (
+            <a
+              key={it.key}
+              href={`#${it.key.toLowerCase()}`}
+              onClick={(e) => { e.preventDefault(); setMoreOpen(false); onNavigate(it.key); }}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[11px] transition-colors ${
+                active ? 'text-primary' : 'text-muted-foreground'
+              }`}
+              aria-current={active ? 'page' : undefined}
+            >
+              <Icon size={20} />
+              <span>{it.mobileLabel || it.label}</span>
+            </a>
+          );
+        })}
+        {/* 更多:打开抽屉(歌单/艺人/帮助/账号/登出/用户管理) */}
+        <button
+          onClick={() => setMoreOpen((o) => !o)}
+          className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[11px] transition-colors ${
+            moreOpen ? 'text-primary' : 'text-muted-foreground'
+          }`}
+          aria-label="更多"
+        >
+          <Menu size={20} />
+          <span>更多</span>
+        </button>
+      </nav>
+    </>
   );
 }

@@ -286,7 +286,7 @@ export const PlayerBar = () => {
       : <Volume2 size={18} />;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-40"
+    <div className="fixed bottom-14 md:bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-40"
       style={{ display: nowPlaying ? 'block' : 'none' }}>
       <div className="max-w-6xl mx-auto">
         {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
