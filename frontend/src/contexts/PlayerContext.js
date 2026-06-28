@@ -226,7 +226,7 @@ export const PlayerProvider = ({ children }) => {
     }
   }, [nowPlaying, startPlay]);
 
-  // MediaSession:锁屏/通知栏/蓝牙耳机控制 + 元数据
+  // MediaSession:PC 全局媒体键 / 锁屏 / 通知栏 / 蓝牙耳机控制 + 元数据
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     if (nowPlaying) {
@@ -234,15 +234,41 @@ export const PlayerProvider = ({ children }) => {
         title: nowPlaying.name || '',
         artist: nowPlaying.artist || '',
         album: nowPlaying.album || '',
-        artwork: nowPlaying.cover ? [{ src: nowPlaying.cover, sizes: '300x300' }] : [],
+        // 走 cover_proxy:OS 媒体面板才能加载封面(网易 http 封面/防盗链直链常失败)
+        artwork: nowPlaying.cover
+          ? [96, 192, 300, 512].map((s) => ({ src: coverProxyUrl(nowPlaying), sizes: `${s}x${s}`, type: 'image/jpeg' }))
+          : [],
       });
     }
-    navigator.mediaSession.setActionHandler('play', togglePlay);
-    navigator.mediaSession.setActionHandler('pause', togglePlay);
-    navigator.mediaSession.setActionHandler('previoustrack', prev);
-    navigator.mediaSession.setActionHandler('nexttrack', next);
-    navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
+    const safe = (fn) => () => { try { fn(); } catch { /* ignore */ } };
+    navigator.mediaSession.setActionHandler('play', safe(togglePlay));
+    navigator.mediaSession.setActionHandler('pause', safe(togglePlay));
+    navigator.mediaSession.setActionHandler('previoustrack', safe(prev));
+    navigator.mediaSession.setActionHandler('nexttrack', safe(next));
+    navigator.mediaSession.setActionHandler('stop', safe(() => { const a = audioRef.current; if (a) a.pause(); }));
+    try {
+      navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
+      navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
+      navigator.mediaSession.setActionHandler('seekbackward', (d) => seek(Math.max(0, (audioRef.current?.currentTime || 0) - (d.seekOffset || 10))));
+    } catch { /* 部分浏览器不支持 seek 动作 */ }
   }, [nowPlaying, togglePlay, prev, next, seek]);
+
+  // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = nowPlaying ? (isPaused ? 'paused' : 'playing') : 'none';
+  }, [isPaused, nowPlaying]);
+
+  // 上报播放进度(OS 媒体面板显示进度条 + 改善媒体键路由)
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    const dur = progress.dur || 0;
+    if (dur > 0 && progress.cur <= dur) {
+      try {
+        navigator.mediaSession.setPositionState({ duration: dur, playbackRate: 1, position: progress.cur || 0 });
+      } catch { /* ignore */ }
+    }
+  }, [progress.cur, progress.dur]);
 
 
   return (
