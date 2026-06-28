@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Melodex maskable 图标:满底 + M 缩进到安全区(系统裁圆/圆角不切主体) -->
+  <defs>
+    <linearGradient id="mGradM" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#42E885"/>
+      <stop offset="1" stop-color="#1ED760"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" fill="#18241d"/>
+  <!-- M 整体缩放到 ~72% 居中(把原 152..374 的图形按 0.72 缩放并居中) -->
+  <g transform="translate(256,256) scale(0.72) translate(-256,-256)">
+    <path d="M152 372 L152 150 L256 296 L360 150 L360 372"
+          fill="none" stroke="url(#mGradM)" stroke-width="46"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="url(#mGradM)">
+      <ellipse cx="138" cy="380" rx="42" ry="33"/>
+      <ellipse cx="374" cy="380" rx="42" ry="33"/>
+    </g>
+  </g>
+</svg>

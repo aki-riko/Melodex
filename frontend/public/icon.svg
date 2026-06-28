@@ -1,18 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <!-- Neobrutalism 图标:橙底 + 黑粗边 + 音符 -->
-  <rect x="20" y="20" width="472" height="472" rx="24" fill="#f97316" stroke="#000000" stroke-width="24"/>
-  <!-- 硬阴影感:右下偏移的黑块通过描边体现,这里用音符主体 -->
-  <g fill="#000000">
-    <!-- 音符符干 -->
-    <rect x="200" y="120" width="26" height="230"/>
-    <rect x="330" y="100" width="26" height="230"/>
-    <!-- 符梁(连接两符干)-->
-    <path d="M200 120 L356 92 L356 150 L200 178 Z"/>
-    <!-- 左符头 -->
-    <ellipse cx="170" cy="352" rx="52" ry="40"/>
-    <!-- 右符头 -->
-    <ellipse cx="300" cy="332" rx="52" ry="40"/>
+  <!-- Melodex 图标:深色圆角底 + Spotify 绿「M」,M 两腿末端收为音符符头(呼应播放页黑胶) -->
+  <defs>
+    <linearGradient id="mGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#42E885"/>
+      <stop offset="1" stop-color="#1ED760"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角深底(参考图的墨绿近黑) -->
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="#18241d"/>
+  <!-- M 主体:粗圆角折线,两峰一谷 -->
+  <path d="M152 372 L152 150 L256 296 L360 150 L360 372"
+        fill="none" stroke="url(#mGrad)" stroke-width="46"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 两个音符符头:压在 M 两腿底部 -->
+  <g fill="url(#mGrad)">
+    <ellipse cx="138" cy="380" rx="42" ry="33"/>
+    <ellipse cx="374" cy="380" rx="42" ry="33"/>
   </g>
-  <!-- 白色高光描边让音符在橙底上更立体(粗野风硬边)-->
-  <g fill="none" stroke="#ffffff" stroke-width="6" opacity="0.0"/>
 </svg>
