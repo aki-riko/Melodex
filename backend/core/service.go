@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1276,13 +1277,53 @@ func FetchBytesWithMime(urlStr string, source string) ([]byte, string, error) {
 	return fetchBytesSingle(urlStr, source)
 }
 
+// ssrfCheckRedirect 在 HTTP 重定向时校验每一跳目标 IP,拒绝跳向内网/环回/云元数据,
+// 闭合"原始 URL 校验通过但被 302 重定向到内网"的 SSRF 绕过。最多 10 跳。
+func ssrfCheckRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("stopped after 10 redirects")
+	}
+	host := req.URL.Hostname()
+	if host == "" {
+		return fmt.Errorf("redirect to empty host blocked")
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		if ip := net.ParseIP(host); ip != nil {
+			ips = []net.IP{ip}
+		} else {
+			return fmt.Errorf("redirect host unresolvable")
+		}
+	}
+	for _, ip := range ips {
+		if isBlockedRedirectIP(ip) {
+			return fmt.Errorf("redirect to blocked address")
+		}
+	}
+	return nil
+}
+
+func isBlockedRedirectIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 169 && ip4[1] == 254 {
+		return true
+	}
+	return false
+}
+
 func fetchBytesSingle(urlStr string, source string) ([]byte, string, error) {
 	req, err := BuildSourceRequest("GET", urlStr, source, "")
 	if err != nil {
 		return nil, "", err
 	}
 
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: ssrfCheckRedirect}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err

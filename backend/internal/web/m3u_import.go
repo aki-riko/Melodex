@@ -7,6 +7,7 @@ package web
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -124,6 +125,12 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 		}
 		if len(entries) == 0 {
 			c.JSON(400, gin.H{"error": "未从文件解析到任何歌曲条目"})
+			return
+		}
+		// 条目数上限:每条都触发一次全源搜索,限制放大式资源消耗。
+		const maxM3UEntries = 1000
+		if len(entries) > maxM3UEntries {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("歌单条目过多(%d),单次导入上限 %d 条", len(entries), maxM3UEntries)})
 			return
 		}
 

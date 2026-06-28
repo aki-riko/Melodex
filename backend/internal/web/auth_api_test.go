@@ -59,8 +59,23 @@ func TestSetupCreatesFirstAdminThenBlocked(t *testing.T) {
 	setupUserTestDB(t)
 	r := newAuthAPITestRouter(t)
 
+	// 准备一次性初始化令牌(模拟服务启动时生成)。
+	token, err := prepareSetupToken(false)
+	if err != nil {
+		t.Fatalf("prepareSetupToken: %v", err)
+	}
+
+	// 缺令牌 → 403。
 	rec := doJSON(r, http.MethodPost, "/api/v1/auth/setup", map[string]string{
 		"username": "root", "password": "rootpass1",
+	}, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("setup without token should be 403, got %d", rec.Code)
+	}
+
+	// 带正确令牌 → 成功。
+	rec = doJSON(r, http.MethodPost, "/api/v1/auth/setup", map[string]string{
+		"username": "root", "password": "rootpass1", "setup_token": token,
 	}, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("setup status = %d body=%s", rec.Code, rec.Body.String())
@@ -71,7 +86,7 @@ func TestSetupCreatesFirstAdminThenBlocked(t *testing.T) {
 
 	// 第二次 setup 应被拒绝(已有用户)。
 	rec = doJSON(r, http.MethodPost, "/api/v1/auth/setup", map[string]string{
-		"username": "root2", "password": "rootpass2",
+		"username": "root2", "password": "rootpass2", "setup_token": token,
 	}, nil)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("second setup status = %d, want 409", rec.Code)

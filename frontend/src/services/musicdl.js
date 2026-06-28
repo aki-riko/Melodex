@@ -193,9 +193,9 @@ export const getMe = async () => {
   }
 };
 
-// 初始化首个管理员 → { user }
-export const setupAdmin = async (username, password) => {
-  const { data } = await client.post('/api/v1/auth/setup', { username, password });
+// 初始化首个管理员 → { user }。setupToken 为服务启动终端打印的一次性令牌。
+export const setupAdmin = async (username, password, setupToken) => {
+  const { data } = await client.post('/api/v1/auth/setup', { username, password, setup_token: setupToken });
   return data;
 };
 

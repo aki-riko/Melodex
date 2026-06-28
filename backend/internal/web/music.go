@@ -1025,11 +1025,17 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		if u == "" {
 			return
 		}
+		// 防 SSRF:拒绝内网/环回/云元数据等目标,与 cover_proxy 一致。
+		if err := isPublicHTTPURL(u); err != nil {
+			c.Status(http.StatusForbidden)
+			return
+		}
 		saveLocal := wantsSaveLocal(c)
 		if saveLocal && !allowSaveLocalRequest(c) {
 			return
 		}
-		resp, err := utils.Get(u, utils.WithHeader("User-Agent", core.UA_Common))
+		// 用 core.FetchBytesWithMime(带 CheckRedirect SSRF 闭环)而非 utils.Get(跟随重定向不校验)
+		resp, _, err := core.FetchBytesWithMime(u, c.Query("source"))
 		if err == nil {
 			filename := fmt.Sprintf("%s - %s.jpg", c.Query("name"), c.Query("artist"))
 			if saveLocal {

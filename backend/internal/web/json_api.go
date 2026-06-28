@@ -42,7 +42,8 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		})
 	})
 
-	api.GET("/search", jsonSearchHandler)
+	// 搜索会放大到所有上游音源,加 per-IP 限流(30 次/分钟)防滥用。
+	api.GET("/search", rateLimitMiddleware(searchRateLimiter), jsonSearchHandler)
 
 	// 歌单详情:返回歌曲列表
 	api.GET("/playlist", func(c *gin.Context) {

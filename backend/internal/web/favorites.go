@@ -32,8 +32,17 @@ func ensureFavoriteCollection(userID uint) (*Collection, error) {
 		ContentType: collectionContentPlaylist,
 		Source:      "local",
 	}
-	if err := db.Create(&fav).Error; err != nil {
+	// 并发安全:依赖 (user_id) WHERE kind='favorite' 的部分唯一索引;冲突则不重复建,
+	// 随后重新查询取已存在的那条。
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&fav).Error; err != nil {
 		return nil, err
+	}
+	if fav.ID == 0 {
+		// OnConflict 命中(已被并发创建),重新查。
+		if err := db.Where("user_id = ? AND kind = ?", userID, collectionKindFavorite).
+			Order("id ASC").First(&fav).Error; err != nil {
+			return nil, err
+		}
 	}
 	return &fav, nil
 }

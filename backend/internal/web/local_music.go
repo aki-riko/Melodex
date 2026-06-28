@@ -108,7 +108,8 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 		forceRefresh := c.Query("refresh") == "1" || c.Query("force") == "1"
 		tracks, dir, exists, err, refreshing, scannedAt := scanLocalMusicTracksCached(forceRefresh)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			log.Printf("[local_music] 扫描失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "扫描本地音乐失败"})
 			return
 		}
 
@@ -166,6 +167,12 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 		file, err := c.FormFile("file")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要上传的音乐文件"})
+			return
+		}
+		// 单文件大小上限,防塞满磁盘(无损单曲一般 <100MB)。
+		const maxUploadBytes = 200 * 1024 * 1024
+		if file.Size > maxUploadBytes {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "文件过大,单个上传上限 200MB"})
 			return
 		}
 
@@ -1365,6 +1372,21 @@ func serveLocalMusicDownload(c *gin.Context, id string, saveLocal bool) {
 	if err != nil {
 		c.String(http.StatusNotFound, "Local music not found")
 		return
+	}
+
+	// 归属校验:本地文件按用户隔离(共享目录+归属表)。非管理员只能取自己下载过的文件,
+	// 否则按"不存在"处理(404),避免跨用户/匿名枚举他人下载的本地文件。
+	if !currentUserIsAdmin(c) {
+		uid := currentUserID(c)
+		owned, oerr := downloadedRelPathsForUser(uid)
+		if oerr != nil {
+			c.String(http.StatusInternalServerError, "ownership check failed")
+			return
+		}
+		if _, ok := owned[normalizeRelPath(track.RelPath)]; !ok {
+			c.String(http.StatusNotFound, "Local music not found")
+			return
+		}
 	}
 
 	if saveLocal {

@@ -49,8 +49,8 @@ export const AuthProvider = ({ children }) => {
     return res;
   }, [refresh]);
 
-  const setup = useCallback(async (username, password) => {
-    const res = await setupAdmin(username, password);
+  const setup = useCallback(async (username, password, setupToken) => {
+    const res = await setupAdmin(username, password, setupToken);
     await refresh();
     return res;
   }, [refresh]);

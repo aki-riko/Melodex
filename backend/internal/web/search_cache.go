@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm/clause"
@@ -77,4 +78,31 @@ func putCachedSearch(key string, resp jsonSearchResponse) {
 		Columns:   []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"payload", "created_at"}),
 	}).Create(&searchCacheRow{Key: key, Payload: string(data), CreatedAt: time.Now()})
+	maybeGCSearchCache()
+}
+
+const searchCacheMaxRows = 5000
+
+var searchCacheLastGC time.Time
+var searchCacheGCMu sync.Mutex
+
+// maybeGCSearchCache 节流地清理:先删过期行,再在总行数超上限时按 created_at 删最旧的,
+// 防止用大量不同关键词无限撑大 settings.db。最多每 5 分钟跑一次。
+func maybeGCSearchCache() {
+	searchCacheGCMu.Lock()
+	defer searchCacheGCMu.Unlock()
+	if time.Since(searchCacheLastGC) < 5*time.Minute {
+		return
+	}
+	searchCacheLastGC = time.Now()
+	// 删过期
+	db.Where("created_at < ?", time.Now().Add(-searchCacheTTL)).Delete(&searchCacheRow{})
+	// 超量则删最旧
+	var n int64
+	if db.Model(&searchCacheRow{}).Count(&n).Error == nil && n > searchCacheMaxRows {
+		var threshold searchCacheRow
+		if err := db.Order("created_at DESC").Offset(searchCacheMaxRows - 1).Limit(1).Find(&threshold).Error; err == nil && threshold.Key != "" {
+			db.Where("created_at < ?", threshold.CreatedAt).Delete(&searchCacheRow{})
+		}
+	}
 }

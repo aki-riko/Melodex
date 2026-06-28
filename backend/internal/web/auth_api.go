@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strconv"
 	"strings"
@@ -70,11 +71,19 @@ func registerAuthAPIRoutes(api *gin.RouterGroup, opts StartOptions) {
 			return
 		}
 		var req struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
+			Username   string `json:"username"`
+			Password   string `json:"password"`
+			SetupToken string `json:"setup_token"`
 		}
 		if c.ShouldBindJSON(&req) != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+			return
+		}
+		// 与 HTML 版 setup 一致:校验启动终端打印的一次性初始化令牌,防止首次部署窗口内
+		// 任意访问者抢先创建 ROOT 管理员。
+		token := currentSetupToken()
+		if token == "" || subtle.ConstantTimeCompare([]byte(req.SetupToken), []byte(token)) != 1 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "初始化令牌不正确,请查看服务启动终端输出"})
 			return
 		}
 		root, err := createUser(req.Username, req.Password, RoleAdmin)
@@ -82,6 +91,7 @@ func registerAuthAPIRoutes(api *gin.RouterGroup, opts StartOptions) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": setupErrorMessage(err)})
 			return
 		}
+		consumeSetupToken()
 		issueSessionResponse(c, root)
 	})
 

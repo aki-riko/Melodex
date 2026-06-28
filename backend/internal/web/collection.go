@@ -205,6 +205,31 @@ func InitDB() {
 	if err := migrateRootUserAndOwnership(); err != nil {
 		panic("Failed to migrate multi-user ownership: " + err.Error())
 	}
+	if err := ensureFavoriteUniqueIndex(); err != nil {
+		panic("Failed to ensure favorite unique index: " + err.Error())
+	}
+}
+
+// ensureFavoriteUniqueIndex 为「我喜欢」歌单建立每用户唯一约束(SQLite 部分唯一索引),
+// 防并发或历史数据产生多个 favorite 歌单。建索引前先清理已存在的重复(保留最小 id)。
+func ensureFavoriteUniqueIndex() error {
+	// 清理重复:把每个用户多余的 favorite 歌单的歌曲并入最小 id 那个,再删多余歌单。
+	var dups []struct {
+		UserID uint
+		MinID  uint
+	}
+	db.Raw(`SELECT user_id, MIN(id) as min_id FROM collections WHERE kind = ? GROUP BY user_id HAVING COUNT(*) > 1`, collectionKindFavorite).Scan(&dups)
+	for _, d := range dups {
+		var extraIDs []uint
+		db.Raw(`SELECT id FROM collections WHERE kind = ? AND user_id = ? AND id <> ?`, collectionKindFavorite, d.UserID, d.MinID).Scan(&extraIDs)
+		for _, eid := range extraIDs {
+			// 歌曲改挂到主 favorite(冲突则丢弃,主歌单已有同曲)
+			db.Exec(`UPDATE OR IGNORE saved_songs SET collection_id = ? WHERE collection_id = ?`, d.MinID, eid)
+			db.Where("collection_id = ?", eid).Delete(&SavedSong{})
+			db.Delete(&Collection{}, eid)
+		}
+	}
+	return db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_fav_user ON collections(user_id) WHERE kind = 'favorite'`).Error
 }
 
 func CloseDB() {

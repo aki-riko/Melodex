@@ -74,25 +74,54 @@ func searchPlaceholderForType(searchType string) string {
 	}
 }
 
+// corsAllowedOrigins 来自 env MUSIC_DL_CORS_ORIGINS(逗号分隔的完整 Origin,如
+// https://tsp.9li.life,http://localhost:3000)。生产前端与后端同源,通常无需配置。
+func corsAllowedOrigins() map[string]bool {
+	set := map[string]bool{}
+	for _, o := range strings.Split(os.Getenv("MUSIC_DL_CORS_ORIGINS"), ",") {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			set[strings.ToLower(o)] = true
+		}
+	}
+	return set
+}
+
 func corsMiddleware() gin.HandlerFunc {
+	allowed := corsAllowedOrigins()
 	return func(c *gin.Context) {
 		method := c.Request.Method
-		// 带 credentials(鉴权 cookie)的请求,浏览器禁止 Allow-Origin 为通配 "*",
-		// 必须回显具体来源。无 Origin(同源/非浏览器)时回退 "*" 且不允许 credentials。
 		origin := c.GetHeader("Origin")
+		// 只对「同源」或「显式白名单」的来源回显 Allow-Origin + 允许携带凭据,
+		// 不再反射任意 Origin(否则等于授权任意站点带 cookie 跨站读取)。
 		if origin != "" {
-			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Vary", "Origin")
-			c.Header("Access-Control-Allow-Credentials", "true")
-		} else {
-			c.Header("Access-Control-Allow-Origin", "*")
+			parsed, err := url.Parse(origin)
+			sameOrigin := err == nil && strings.EqualFold(parsed.Host, c.Request.Host)
+			if sameOrigin || allowed[strings.ToLower(origin)] {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Vary", "Origin")
+				c.Header("Access-Control-Allow-Credentials", "true")
+			}
+			// 非同源且非白名单:不设任何 Allow-Origin → 浏览器拦截跨站读取。
 		}
 		c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
 		c.Header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
-		c.Header("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Cache-Control, Content-Language, Content-Type")
+		c.Header("Access-Control-Expose-Headers", "Content-Length, Cache-Control, Content-Language, Content-Type")
 		if method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
 		}
+		c.Next()
+	}
+}
+
+// securityHeadersMiddleware 注入基础安全响应头(纵深防御:防 MIME 嗅探/点击劫持/Referer 泄露)。
+// 不设过严的 CSP 以免破坏内联样式/外链封面;仅加广泛兼容的几项。
+func securityHeadersMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h := c.Writer.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		h.Set("Referrer-Policy", "no-referrer")
 		c.Next()
 	}
 }
@@ -379,6 +408,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	r.Use(corsMiddleware())
+	r.Use(securityHeadersMiddleware())
 
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
 		"artistTokens":       splitArtistTokens,

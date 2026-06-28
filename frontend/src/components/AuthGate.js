@@ -10,6 +10,7 @@ const AuthGate = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [setupToken, setSetupToken] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -33,9 +34,13 @@ const AuthGate = () => {
       setError('两次输入的密码不一致');
       return;
     }
+    if (effectiveMode === 'setup' && !setupToken.trim()) {
+      setError('请输入服务启动终端显示的初始化令牌');
+      return;
+    }
     setBusy(true);
     try {
-      if (effectiveMode === 'setup') await setup(username.trim(), password);
+      if (effectiveMode === 'setup') await setup(username.trim(), password, setupToken.trim());
       else if (effectiveMode === 'register') await register(username.trim(), password);
       else await login(username.trim(), password);
       // 成功后 AuthProvider.refresh 会切到主应用。
@@ -80,6 +85,15 @@ const AuthGate = () => {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="确认密码"
+              className="w-full px-3 py-2 border border-border rounded-md bg-background outline-none focus:border-primary"
+            />
+          )}
+          {effectiveMode === 'setup' && (
+            <input
+              type="text"
+              value={setupToken}
+              onChange={(e) => setSetupToken(e.target.value)}
+              placeholder="初始化令牌(见服务启动终端)"
               className="w-full px-3 py-2 border border-border rounded-md bg-background outline-none focus:border-primary"
             />
           )}
