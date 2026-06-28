@@ -542,6 +542,14 @@ export const PlayerBar = () => {
     }
   }, [lyricIdx, showLyric]);
 
+  // 桌面全屏页歌词常驻显示(不走 showLyric 开关),用独立 ref + effect 自动滚动。
+  const desktopLyricRef = useRef(null);
+  useEffect(() => {
+    if (expanded && desktopLyricRef.current) {
+      desktopLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [lyricIdx, expanded]);
+
   // 播放模式图标(自定义 SVG,圆角风格统一):顺序/列表循环/单曲循环/随机
   const modeIcon = <PlayModeIcon mode={mode} size={20} />;
 
@@ -875,7 +883,7 @@ export const PlayerBar = () => {
               ) : (
                 lrc.map((line, i) => (
                   <p key={i}
-                    ref={i === lyricIdx ? activeLyricRef : null}
+                    ref={i === lyricIdx ? desktopLyricRef : null}
                     className={`py-2 leading-relaxed transition-all ${
                       i === lyricIdx ? 'text-xl font-semibold' : 'text-muted-foreground/70 text-base'
                     }`}>
