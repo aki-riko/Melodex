@@ -23,7 +23,7 @@ import (
 const (
 	authCookieName      = "music_dl_session"
 	sessionMaxAge       = 7 * 24 * time.Hour
-	minAuthPasswordSize = 6
+	minAuthPasswordSize = 8
 	setupTokenBytes     = 24
 	loginLockBaseDelay  = time.Second
 	loginLockMaxDelay   = time.Minute
@@ -34,6 +34,7 @@ var authRuntime = newAuthRuntimeState()
 type sessionPayload struct {
 	UserID   uint   `json:"uid"`
 	Username string `json:"u"`
+	Epoch    int    `json:"e"` // 会话纪元:与 User.SessionEpoch 比对,改密码后递增使旧会话失效
 	IssuedAt int64  `json:"iat"`
 	Nonce    string `json:"n"`
 }
@@ -184,6 +185,7 @@ func createUserSession(u *User, now time.Time) (string, error) {
 	payload := sessionPayload{
 		UserID:   u.ID,
 		Username: u.Username,
+		Epoch:    u.SessionEpoch,
 		IssuedAt: now.Unix(),
 		Nonce:    nonce,
 	}
@@ -395,6 +397,10 @@ func authenticateRequest(c *gin.Context, now time.Time) (*User, bool) {
 	}
 	// 用户名变更则旧会话失效(防止改名后旧 cookie 仍显示旧名)。
 	if u.Username != payload.Username {
+		return nil, false
+	}
+	// 会话纪元不匹配(改密码后递增)→ 旧会话作废,实现"改密码即登出所有设备"。
+	if u.SessionEpoch != payload.Epoch {
 		return nil, false
 	}
 	return u, true
@@ -618,7 +624,7 @@ func setupErrorMessage(err error) string {
 	case errors.Is(err, ErrInvalidUsername):
 		return "用户名需 2-32 个字符且不含空白"
 	case errors.Is(err, ErrInvalidPassword):
-		return fmt.Sprintf("密码至少需要 %d 位", minAuthPasswordSize)
+		return fmt.Sprintf("密码至少 %d 位,且不能是常见弱密码", minAuthPasswordSize)
 	case errors.Is(err, ErrUsernameTaken):
 		return "用户名已存在"
 	default:

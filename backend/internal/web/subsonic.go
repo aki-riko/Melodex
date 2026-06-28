@@ -17,6 +17,7 @@ package web
 
 import (
 	"crypto/md5"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -105,17 +106,17 @@ func verifySubsonicToken(cfg subsonicConfig, user, token, salt, plainPass string
 	if token != "" && salt != "" {
 		sum := md5.Sum([]byte(cfg.Password + salt))
 		expected := hex.EncodeToString(sum[:])
-		return strings.EqualFold(strings.TrimSpace(token), expected)
+		return subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(token))), []byte(expected)) == 1
 	}
 	// 明文方案(p):支持 enc:<hex> 形式。
 	if plainPass != "" {
 		if strings.HasPrefix(plainPass, "enc:") {
 			if decoded, err := hex.DecodeString(strings.TrimPrefix(plainPass, "enc:")); err == nil {
-				return string(decoded) == cfg.Password
+				return subtle.ConstantTimeCompare(decoded, []byte(cfg.Password)) == 1
 			}
 			return false
 		}
-		return plainPass == cfg.Password
+		return subtle.ConstantTimeCompare([]byte(plainPass), []byte(cfg.Password)) == 1
 	}
 	return false
 }

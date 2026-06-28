@@ -338,7 +338,7 @@ func userMgmtErrMsg(err error) string {
 	case err == ErrLastRootProtected:
 		return "系统至少保留一个管理员"
 	case err == ErrInvalidPassword:
-		return "密码至少需要 6 位"
+		return "密码至少 8 位,且不能是常见弱密码"
 	case err == ErrInvalidUsername:
 		return "用户名不合法"
 	case err == ErrUsernameTaken:
