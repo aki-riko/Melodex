@@ -29,8 +29,9 @@ const queryClient = new QueryClient({
 });
 
 const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Users'];
+// hash 形如 #myplaylist 或 #myplaylist/123(歌单 id);section 取第一段。
 const sectionFromHash = () => {
-  const h = (window.location.hash || '').replace(/^#/, '').toLowerCase();
+  const h = (window.location.hash || '').replace(/^#/, '').split('/')[0].toLowerCase();
   return VALID_SECTIONS.find((s) => s.toLowerCase() === h) || 'Home';
 };
 
@@ -55,10 +56,12 @@ function AppShell() {
     });
   }, []);
 
-  const navigate = (section) => {
+  const navigate = (section, subPath) => {
     setCurrentSection(section);
-    if (window.location.hash.replace(/^#/, '').toLowerCase() !== section.toLowerCase()) {
-      window.location.hash = section.toLowerCase();
+    // 目标 hash:有 subPath 则 #section/sub(如 #myplaylist/123),否则 #section
+    const targetHash = subPath != null ? `${section.toLowerCase()}/${subPath}` : section.toLowerCase();
+    if (window.location.hash.replace(/^#/, '') !== targetHash) {
+      window.location.hash = targetHash;
     }
     const scroller = document.getElementById('app-main');
     if (scroller) scroller.scrollTo({ top: 0, behavior: 'smooth' });

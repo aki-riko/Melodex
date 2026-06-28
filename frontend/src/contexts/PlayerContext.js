@@ -624,8 +624,9 @@ export const PlayerBar = () => {
       </div>
 
       {/* ===== 移动端:迷你条(封面+名+播放),点击展开全屏播放页 ===== */}
+      {nowPlaying && (
       <div className="md:hidden fixed left-0 right-0 bg-card border-t border-border z-40"
-        style={{ display: nowPlaying ? 'block' : 'none', bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
+        style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
         {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
         {/* 顶部细进度条 */}
         <div className="h-0.5 bg-secondary">
@@ -657,6 +658,7 @@ export const PlayerBar = () => {
           </button>
         </div>
       </div>
+      )}
 
       {/* ===== 移动端:全屏展开播放页(QQ音乐式) ===== */}
       {expanded && nowPlaying && (

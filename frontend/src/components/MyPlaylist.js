@@ -43,7 +43,7 @@ export default function MyPlaylist() {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(false);
   const { play, isPlaying } = usePlayer();
-  const { remove, refresh } = useCollections();
+  const { remove, refresh, collections } = useCollections();
 
   const load = useCallback(async (collectionId) => {
     setLoading(true);
@@ -57,6 +57,21 @@ export default function MyPlaylist() {
   useEffect(() => onOpenPlaylist((m) => {
     if (m && m.collectionId != null) { setMeta(m); load(m.collectionId); }
   }), [load]);
+
+  // 哈希路由:刷新/直达/分享 #myplaylist/<id> 时,从 hash 恢复要打开的歌单。
+  // 名称未知(hash 只带 id),载入后用占位名,详情接口/歌单数据足以渲染。
+  useEffect(() => {
+    const fromHash = () => {
+      const parts = (window.location.hash || '').replace(/^#/, '').split('/');
+      if (parts[0].toLowerCase() === 'myplaylist' && parts[1]) {
+        const id = parseInt(parts[1], 10);
+        if (!isNaN(id)) { setMeta((m) => (m && m.collectionId === id ? m : { collectionId: id, name: '' })); load(id); }
+      }
+    };
+    fromHash();
+    window.addEventListener('hashchange', fromHash);
+    return () => window.removeEventListener('hashchange', fromHash);
+  }, [load]);
 
   if (!meta) {
     return <p className="text-muted-foreground py-10 text-center">从左侧选择一个歌单</p>;
@@ -81,7 +96,7 @@ export default function MyPlaylist() {
         <PlaylistCover songs={songs} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">歌单</p>
-          <h1 className="text-3xl font-black truncate">{meta.name}</h1>
+          <h1 className="text-3xl font-black truncate">{meta.name || (collections.find((c) => c.id === meta.collectionId)?.name) || '歌单'}</h1>
           <p className="text-sm text-muted-foreground mt-1">{songs.length} 首</p>
           <div className="flex gap-2 mt-3">
             <button onClick={() => songs.length && play(songs[0], songs)}
