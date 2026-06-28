@@ -58,7 +58,7 @@ const UserManagement = () => {
   };
 
   const onResetPassword = async (u) => {
-    const pw = window.prompt(`为 ${u.username} 设置新密码(至少 6 位):`);
+    const pw = window.prompt(`为 ${u.username} 设置新密码(至少 8 位):`);
     if (!pw) return;
     try {
       await adminResetPassword(u.id, pw);
@@ -120,7 +120,7 @@ const UserManagement = () => {
             type="password"
             value={newUser.password}
             onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-            placeholder="密码(≥6 位)"
+            placeholder="密码(≥8 位)"
             className="px-3 py-2 border border-border rounded-md bg-card outline-none focus:border-primary"
           />
           <select

@@ -44,6 +44,7 @@ type User struct {
 	PasswordHash string    `gorm:"not null" json:"-"`
 	Role         string    `gorm:"not null;default:user" json:"role"`
 	Disabled     bool      `gorm:"not null;default:false" json:"disabled"`
+	SessionEpoch int       `gorm:"not null;default:0" json:"-"` // 改密码递增,使旧会话失效
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -100,8 +101,18 @@ func validateUsername(raw string) (string, error) {
 	return name, nil
 }
 
+// commonWeakPasswords 常见弱密码黑名单(小写比对),拒绝注册/设置。
+var commonWeakPasswords = map[string]bool{
+	"password": true, "12345678": true, "123456789": true, "1234567890": true,
+	"qwerty123": true, "password1": true, "abc12345": true, "11111111": true,
+	"00000000": true, "iloveyou": true, "admin123": true, "melodex1": true,
+}
+
 func hashPassword(password string) (string, error) {
 	if len(password) < minAuthPasswordSize {
+		return "", ErrInvalidPassword
+	}
+	if commonWeakPasswords[strings.ToLower(strings.TrimSpace(password))] {
 		return "", ErrInvalidPassword
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -218,7 +229,11 @@ func setUserPassword(id uint, password string) error {
 	if err != nil {
 		return err
 	}
-	res := db.Model(&User{}).Where("id = ?", id).Update("password_hash", hash)
+	// 改密码同时递增 session_epoch → 该用户所有已签发会话立即失效(登出所有设备)。
+	res := db.Model(&User{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"password_hash": hash,
+		"session_epoch": gorm.Expr("session_epoch + 1"),
+	})
 	if res.Error != nil {
 		return res.Error
 	}

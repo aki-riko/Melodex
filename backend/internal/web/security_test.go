@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,7 +32,43 @@ func TestDownloadCoverRejectsSSRF(t *testing.T) {
 	}
 }
 
-// 本地音频流:非归属用户 / 匿名访问应 404(归属隔离)。
+// 改密码后,旧会话(旧 epoch)应失效。
+func TestSessionRevokedOnPasswordChange(t *testing.T) {
+	setupUserTestDB(t)
+	u, err := createUser("alice", "alicepass1", RoleUser)
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	now := time.Now()
+	value, err := createUserSession(u, now)
+	if err != nil {
+		t.Fatalf("createUserSession: %v", err)
+	}
+
+	mkReq := func() *gin.Context {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.AddCookie(&http.Cookie{Name: authCookieName, Value: value})
+		c.Request = req
+		return c
+	}
+
+	// 改密前:旧 cookie 有效
+	if _, ok := authenticateRequest(mkReq(), now.Add(time.Minute)); !ok {
+		t.Fatal("session should be valid before password change")
+	}
+
+	// 改密码(epoch+1)
+	if err := setUserPassword(u.ID, "newpass99"); err != nil {
+		t.Fatalf("setUserPassword: %v", err)
+	}
+
+	// 改密后:旧 cookie 失效
+	if _, ok := authenticateRequest(mkReq(), now.Add(time.Minute)); ok {
+		t.Fatal("old session should be revoked after password change")
+	}
+}
+
 func TestLocalAudioStreamOwnership(t *testing.T) {
 	setupUserTestDB(t)
 	alice, _ := createUser("alice", "alicepass1", RoleUser)
