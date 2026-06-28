@@ -720,32 +720,12 @@ export const PlayerBar = () => {
               </div>
             ) : (
               <div className="fade-in turntable flex-shrink-0" style={{ width: 'min(78vw, 20rem)', height: 'min(78vw, 20rem)' }}>
-                {/* 唱臂(SVG):支点在右上,暂停抬起、播放落到唱片上 */}
-                <svg className={`tonearm ${isPaused ? 'up' : 'down'}`} viewBox="0 0 100 100" aria-hidden="true">
-                  <defs>
-                    <linearGradient id="armMetal" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0" stopColor="#f2f2f2" />
-                      <stop offset="0.5" stopColor="#c8c8c8" />
-                      <stop offset="1" stopColor="#9a9a9a" />
-                    </linearGradient>
-                    <radialGradient id="armPivot" cx="0.4" cy="0.4" r="0.7">
-                      <stop offset="0" stopColor="#fff" />
-                      <stop offset="1" stopColor="#b0b0b0" />
-                    </radialGradient>
-                  </defs>
-                  {/* 臂杆(从支点 88,16 伸向唱头 60,74) */}
-                  <line x1="86" y1="20" x2="60" y2="72" stroke="url(#armMetal)" strokeWidth="3.4" strokeLinecap="round" />
-                  {/* 配重端(支点上方小柱) */}
-                  <line x1="86" y1="20" x2="90" y2="9" stroke="url(#armMetal)" strokeWidth="3" strokeLinecap="round" />
-                  {/* 支点圆座 */}
-                  <circle cx="88" cy="16" r="7.5" fill="url(#armPivot)" stroke="#888" strokeWidth="0.8" />
-                  <circle cx="88" cy="16" r="2.6" fill="#777" />
-                  {/* 唱头(headshell) */}
-                  <g transform="rotate(28 60 74)">
-                    <rect x="55.5" y="70" width="9" height="11" rx="2" fill="url(#armMetal)" stroke="#888" strokeWidth="0.7" />
-                    <rect x="58.6" y="80" width="2.8" height="3" rx="1" fill="#555" />
-                  </g>
-                </svg>
+                {/* 唱臂:暂停时抬起,播放时落到唱片上 */}
+                <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
+                  <div className="tonearm__base" />
+                  <div className="tonearm__arm" />
+                  <div className="tonearm__head" />
+                </div>
                 {/* 黑胶唱片 */}
                 <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
                   {nowPlaying?.cover
