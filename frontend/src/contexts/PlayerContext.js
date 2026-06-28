@@ -257,26 +257,49 @@ const fmtTime = (s) => {
 
 const MODE_LABEL = { order: '顺序', repeat: '单曲', shuffle: '随机' };
 
-// 解析 LRC 文本为 [{t: 秒, text}],按时间升序;无时间戳行忽略。
+// 解析 LRC 为 [{t, end, text, words}],按时间升序。
+//   - 逐字 LRC(QQ:一行多个时间戳,每字一个)→ words=[{t, end, s}],可做卡拉OK填色
+//   - 行级 LRC(网易:一行仅一个时间戳)→ words=null,整行高亮
+// end = 下一行起始时间(用于算最后一字/整行的结束)。
 const parseLRC = (raw) => {
   if (!raw || typeof raw !== 'string') return [];
-  const lines = raw.split(/\r?\n/);
-  const out = [];
   const re = /\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
-  for (const line of lines) {
+  const toSec = (m) => parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseInt(m[3].padEnd(3, '0'), 10) / 1000 : 0);
+  const out = [];
+  for (const line of raw.split(/\r?\n/)) {
+    // 收集本行所有 (时间戳, 其后到下一个时间戳前的文本) 片段
     re.lastIndex = 0;
-    const text = line.replace(/\[[^\]]*\]/g, '').trim();
-    if (!text) continue;
-    // QQ 等逐字 LRC 一行内含多个时间戳(每字一个),只取首个作为该行起始时间,
-    // 否则整行会被重复 push 多次(同句刷屏)。
-    const m = re.exec(line);
-    if (!m) continue; // 无时间戳(如 [ti:]/[ar:] 元信息)跳过
-    const min = parseInt(m[1], 10);
-    const sec = parseInt(m[2], 10);
-    const ms = m[3] ? parseInt(m[3].padEnd(3, '0'), 10) : 0;
-    out.push({ t: min * 60 + sec + ms / 1000, text });
+    const segs = [];
+    let m, prev = null, prevEnd = 0;
+    while ((m = re.exec(line)) !== null) {
+      if (prev !== null) segs.push({ t: prev, s: line.slice(prevEnd, m.index) });
+      prev = toSec(m);
+      prevEnd = re.lastIndex;
+    }
+    if (prev !== null) segs.push({ t: prev, s: line.slice(prevEnd) });
+    if (segs.length === 0) continue; // 无时间戳:元信息行,跳过
+
+    const text = segs.map((x) => x.s).join('').replace(/\s+$/, '');
+    if (!text.trim()) continue;
+
+    // 真逐字 LRC(QQ)每字一个时间戳,过滤空段后仍有多个有效字段;
+    // 网易"行首+行尾两个时间戳"过滤空段后只剩 1 个有效字段 → 走整行高亮。
+    const words = segs.filter((x) => x.s.length > 0).map((x) => ({ t: x.t, s: x.s }));
+    if (words.length >= 2) {
+      out.push({ t: segs[0].t, text, words });
+    } else {
+      out.push({ t: segs[0].t, text, words: null });
+    }
   }
   out.sort((a, b) => a.t - b.t);
+  // 填充每行/每字的 end = 下一个起点
+  for (let i = 0; i < out.length; i++) {
+    out[i].end = i + 1 < out.length ? out[i + 1].t : out[i].t + 5;
+    if (out[i].words) {
+      const w = out[i].words;
+      for (let j = 0; j < w.length; j++) w[j].end = j + 1 < w.length ? w[j + 1].t : out[i].end;
+    }
+  }
   return out;
 };
 
@@ -289,6 +312,38 @@ const currentLyricIndex = (lines, cur) => {
     if (lines[mid].t <= cur) { ans = mid; lo = mid + 1; } else hi = mid - 1;
   }
   return ans;
+};
+
+// 卡拉OK式当前行:逐字按播放进度填色。已唱字全亮,正在唱的字按时间比例渐变填充,
+// 未唱字暗。无字级时间戳(words=null)则整行高亮。
+const KaraokeLine = ({ line, cur }) => {
+  if (!line.words) {
+    return <span className="text-primary font-semibold">{line.text}</span>;
+  }
+  return (
+    <span className="inline">
+      {line.words.map((w, i) => {
+        let ratio = 0;
+        if (cur >= w.end) ratio = 1;
+        else if (cur > w.t && w.end > w.t) ratio = (cur - w.t) / (w.end - w.t);
+        const pct = Math.max(0, Math.min(1, ratio)) * 100;
+        return (
+          <span
+            key={i}
+            style={{
+              backgroundImage: `linear-gradient(90deg, hsl(var(--primary)) ${pct}%, hsl(var(--muted-foreground)) ${pct}%)`,
+              WebkitBackgroundClip: 'text',
+              backgroundClip: 'text',
+              color: 'transparent',
+              fontWeight: 600,
+            }}
+          >
+            {w.s}
+          </span>
+        );
+      })}
+    </span>
+  );
 };
 
 // 常驻底部播放器条:封面/标题 + 上/播/下 + 进度条 + 播放模式
@@ -540,10 +595,10 @@ export const PlayerBar = () => {
                   lrc.map((line, i) => (
                     <p key={i}
                       ref={i === lyricIdx ? activeLyricRef : null}
-                      className={`py-1.5 px-2 transition-colors leading-relaxed ${
-                        i === lyricIdx ? 'text-primary font-semibold text-base' : 'text-muted-foreground text-sm'
+                      className={`py-1.5 px-2 leading-relaxed ${
+                        i === lyricIdx ? 'text-base' : 'text-muted-foreground text-sm'
                       }`}>
-                      {line.text}
+                      {i === lyricIdx ? <KaraokeLine line={line} cur={progress.cur} /> : line.text}
                     </p>
                   ))
                 )}
