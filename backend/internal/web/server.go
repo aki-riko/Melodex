@@ -500,6 +500,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	RegisterCollectionRoutes(userAPI)
 	RegisterLocalMusicRoutes(userAPI)
 	RegisterSearchHistoryRoutes(userAPI)
+	RegisterFavoriteRoutes(userAPI)
 	RegisterUpdateRoutes(api)
 
 	// Melodex 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。

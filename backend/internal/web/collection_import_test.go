@@ -85,11 +85,16 @@ func TestCollectionsEndpointDefaultsToManualCollections(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &collections); err != nil {
 		t.Fatalf("decode manual collections: %v", err)
 	}
-	if len(collections) != 1 {
-		t.Fatalf("manual collections len = %d, want 1", len(collections))
+	// 默认视图:自建 Manual + 自动创建的「我喜欢」(favorite),不含 imported。
+	names := map[string]bool{}
+	for _, c := range collections {
+		names[c.Name] = true
 	}
-	if collections[0].Name != manual.Name {
-		t.Fatalf("manual collections[0].Name = %q, want %q", collections[0].Name, manual.Name)
+	if !names["Manual"] || !names[favoriteCollectionName] {
+		t.Fatalf("default view should contain Manual + 我喜欢, got %v", names)
+	}
+	if names["Imported"] {
+		t.Fatalf("default view should not contain imported collection")
 	}
 
 	req = httptest.NewRequest(http.MethodGet, RoutePrefix+"/collections?include_imported=1", nil)
@@ -103,8 +108,9 @@ func TestCollectionsEndpointDefaultsToManualCollections(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &collections); err != nil {
 		t.Fatalf("decode all collections: %v", err)
 	}
-	if len(collections) != 2 {
-		t.Fatalf("all collections len = %d, want 2", len(collections))
+	// 全部:Manual + Imported + 我喜欢 = 3。
+	if len(collections) != 3 {
+		t.Fatalf("all collections len = %d, want 3", len(collections))
 	}
 }
 

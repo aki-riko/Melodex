@@ -207,6 +207,8 @@ func createUser(username, password, role string) (*User, error) {
 		}
 		return nil, err
 	}
+	// 每个用户默认有一个「我喜欢」歌单(失败不阻断注册,后续懒创建兜底)。
+	_, _ = ensureFavoriteCollection(u.ID)
 	return &u, nil
 }
 

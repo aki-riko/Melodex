@@ -24,6 +24,9 @@ const (
 
 	collectionKindManual   = "manual"
 	collectionKindImported = "imported"
+	collectionKindFavorite = "favorite"
+
+	favoriteCollectionName = "我喜欢"
 
 	collectionContentPlaylist = "playlist"
 	collectionContentAlbum    = "album"
@@ -664,7 +667,8 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 
 		query := db.Where("user_id = ?", uid).Order("id DESC")
 		if c.Query("include_imported") != "1" {
-			query = query.Where("kind = ? OR kind = '' OR kind IS NULL", collectionKindManual)
+			// 默认视图:自建(manual)+「我喜欢」(favorite),不含外部导入(imported)。
+			query = query.Where("kind = ? OR kind = ? OR kind = '' OR kind IS NULL", collectionKindManual, collectionKindFavorite)
 		}
 
 		if err := query.Find(&collections).Error; err != nil {
@@ -787,6 +791,10 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 		existing, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
 		if err != nil {
 			c.JSON(404, gin.H{"error": "歌单不存在"})
+			return
+		}
+		if existing.Kind == collectionKindFavorite {
+			c.JSON(400, gin.H{"error": "「我喜欢」歌单不可删除"})
 			return
 		}
 		if err := db.Where("user_id = ?", existing.UserID).Delete(&Collection{}, existing.ID).Error; err != nil {
