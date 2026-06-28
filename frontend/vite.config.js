@@ -28,6 +28,11 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/music/, /^\/videos/],
+        // 新部署后让新 SW 立即接管并清理旧预缓存,避免用户停留在旧 bundle
+        // (否则 autoUpdate 的新 SW 会等所有标签页关闭才激活,表现为"刷新了还是旧的")。
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             // 封面图等图片:缓存优先,加速二次加载
