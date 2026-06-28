@@ -89,3 +89,44 @@ html {
   box-shadow: 0 8px 16px rgba(0,0,0,0.4);
 }
 .media-card:hover .media-card__play { opacity: 1; transform: translateY(0); }
+
+/* ===== 移动端全屏播放页动画 ===== */
+/* 展开页从底部滑入 */
+@keyframes player-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.player-sheet-enter { animation: player-slide-up 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* 黑胶唱片旋转(网易云式),暂停时停转 */
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.vinyl-disc { animation: vinyl-spin 18s linear infinite; }
+.vinyl-disc.paused { animation-play-state: paused; }
+
+/* 封面 / 歌词 切换淡入 */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.fade-in { animation: fade-in 0.25s ease; }
+
+/* 黑胶外观:黑色胶片 + 中心封面 */
+.vinyl-wrap {
+  border-radius: 9999px;
+  background: radial-gradient(circle at center,
+    #111 0%, #111 30%, #1c1c1c 31%, #111 33%,
+    #1c1c1c 34%, #111 36%, #1c1c1c 37%, #0a0a0a 70%);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.vinyl-wrap img {
+  width: 62%; height: 62%;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+
+@keyframes player-slide-down {
+  from { transform: translateY(0); }
+  to   { transform: translateY(100%); }
+}
+.player-sheet-exit { animation: player-slide-down 0.26s cubic-bezier(0.4, 0, 1, 1) forwards; }

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Repeat1, Shuffle, ListOrdered, Volume2, Volume1, VolumeX, ListMusic, ChevronDown } from 'lucide-react';
-import { getStreamUrl, coverProxyUrl } from '../services/musicdl';
+import { getStreamUrl, coverProxyUrl, getLyric } from '../services/musicdl';
 import { useAuth } from './AuthContext';
 
 const PlayerContext = createContext(null);
@@ -257,6 +257,40 @@ const fmtTime = (s) => {
 
 const MODE_LABEL = { order: '顺序', repeat: '单曲', shuffle: '随机' };
 
+// 解析 LRC 文本为 [{t: 秒, text}],按时间升序;无时间戳行忽略。
+const parseLRC = (raw) => {
+  if (!raw || typeof raw !== 'string') return [];
+  const lines = raw.split(/\r?\n/);
+  const out = [];
+  const re = /\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+  for (const line of lines) {
+    re.lastIndex = 0;
+    const text = line.replace(/\[[^\]]*\]/g, '').trim();
+    let m;
+    const stamps = [];
+    while ((m = re.exec(line)) !== null) {
+      const min = parseInt(m[1], 10);
+      const sec = parseInt(m[2], 10);
+      const ms = m[3] ? parseInt(m[3].padEnd(3, '0'), 10) : 0;
+      stamps.push(min * 60 + sec + ms / 1000);
+    }
+    if (stamps.length && text) for (const t of stamps) out.push({ t, text });
+  }
+  out.sort((a, b) => a.t - b.t);
+  return out;
+};
+
+// 当前时间对应的歌词行索引(最后一个 t<=cur)。
+const currentLyricIndex = (lines, cur) => {
+  if (!lines.length) return -1;
+  let lo = 0, hi = lines.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid].t <= cur) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return ans;
+};
+
 // 常驻底部播放器条:封面/标题 + 上/播/下 + 进度条 + 播放模式
 export const PlayerBar = () => {
   const {
@@ -270,7 +304,37 @@ export const PlayerBar = () => {
 
   const [queueOpen, setQueueOpen] = useState(false);
   const [expanded, setExpanded] = useState(false); // 移动端:点击迷你条展开全屏播放页
+  const [showLyric, setShowLyric] = useState(false); // 展开页:封面(黑胶)↔ 歌词切换
+  const [closing, setClosing] = useState(false); // 展开页收起动画中
+  const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
+
+  // 收起:先播放下滑动画再卸载。
+  const collapseExpanded = useCallback(() => {
+    setClosing(true);
+    setTimeout(() => { setExpanded(false); setClosing(false); }, 260);
+  }, []);
+
+  // 展开且当前歌变化时拉取并解析歌词(仅在展开播放页用,省请求)。
+  useEffect(() => {
+    if (!expanded || !nowPlaying) return;
+    let cancelled = false;
+    setLrc([]);
+    getLyric(nowPlaying)
+      .then((text) => { if (!cancelled) setLrc(parseLRC(text)); })
+      .catch(() => { if (!cancelled) setLrc([]); });
+    return () => { cancelled = true; };
+  }, [expanded, curKey, nowPlaying]);
+
+  const lyricIdx = currentLyricIndex(lrc, progress.cur);
+
+  // 歌词自动滚动:当前行变化时滚到视图中央。
+  const activeLyricRef = useRef(null);
+  useEffect(() => {
+    if (showLyric && activeLyricRef.current) {
+      activeLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [lyricIdx, showLyric]);
 
   const modeIcon = mode === 'repeat'
     ? <Repeat1 size={18} />
@@ -422,11 +486,11 @@ export const PlayerBar = () => {
 
       {/* ===== 移动端:全屏展开播放页(QQ音乐式) ===== */}
       {expanded && nowPlaying && (
-        <div className="md:hidden fixed inset-0 z-[70] bg-background flex flex-col"
+        <div className={`md:hidden fixed inset-0 z-[70] bg-background flex flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
           {/* 顶部:收起 */}
           <div className="flex items-center justify-between px-4 py-3">
-            <button onClick={() => setExpanded(false)} className="text-muted-foreground" aria-label="收起">
+            <button onClick={collapseExpanded} className="text-muted-foreground" aria-label="收起">
               <ChevronDown size={28} />
             </button>
             <span className="text-xs uppercase tracking-wider text-muted-foreground">正在播放</span>
@@ -465,14 +529,36 @@ export const PlayerBar = () => {
               </div>
             </div>
           )}
-          {/* 大封面 */}
-          <div className="flex-grow flex items-center justify-center px-8 min-h-0">
-            {nowPlaying?.cover
-              ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-full max-w-xs aspect-square rounded-2xl object-cover shadow-2xl" />
-              : <div className="w-full max-w-xs aspect-square rounded-2xl bg-secondary flex items-center justify-center"><ListMusic size={64} className="text-muted-foreground" /></div>}
+          {/* 中部:黑胶唱片 ↔ 歌词(点击切换) */}
+          <div className="flex-grow flex items-center justify-center px-8 min-h-0 overflow-hidden"
+            onClick={() => setShowLyric((v) => !v)}>
+            {showLyric ? (
+              <div className="fade-in w-full h-full max-w-md overflow-y-auto app-scroll py-8 text-center" aria-label="歌词">
+                {lrc.length === 0 ? (
+                  <p className="text-muted-foreground mt-10">暂无歌词</p>
+                ) : (
+                  lrc.map((line, i) => (
+                    <p key={i}
+                      ref={i === lyricIdx ? activeLyricRef : null}
+                      className={`py-1.5 px-2 transition-colors leading-relaxed ${
+                        i === lyricIdx ? 'text-primary font-semibold text-base' : 'text-muted-foreground text-sm'
+                      }`}>
+                      {line.text}
+                    </p>
+                  ))
+                )}
+              </div>
+            ) : (
+              <div className={`fade-in vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full max-w-xs aspect-square`}>
+                {nowPlaying?.cover
+                  ? <img src={coverProxyUrl(nowPlaying)} alt="" />
+                  : <ListMusic size={64} className="text-muted-foreground" />}
+              </div>
+            )}
           </div>
+          <p className="text-center text-xs text-muted-foreground/60">{showLyric ? '点击显示封面' : '点击显示歌词'}</p>
           {/* 标题/歌手 */}
-          <div className="px-8 mt-4">
+          <div className="px-8 mt-3">
             <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
             <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${nowPlaying.source}` : ''}</p>
           </div>
