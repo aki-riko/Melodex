@@ -62,7 +62,7 @@ func (k *Kugou) Search(keyword string) ([]model.Song, error) {
 	params.Set("platform", "WebFilter")
 	params.Set("format", "json")
 	params.Set("page", "1")
-	params.Set("pagesize", "10")
+	params.Set("pagesize", "30")
 	params.Set("userid", "-1")
 	params.Set("clientver", "")
 	params.Set("tag", "em")

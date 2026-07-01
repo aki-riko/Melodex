@@ -21,7 +21,7 @@ func (m *Migu) Search(keyword string) ([]model.Song, error) {
 	params.Set("version", "5.0.1")
 	params.Set("text", keyword)
 	params.Set("pageNo", "1")
-	params.Set("pageSize", "10")
+	params.Set("pageSize", "30")
 	params.Set("searchSwitch", `{"song":1,"album":0,"singer":0,"tagSong":0,"mvSong":0,"songlist":0,"bestShow":1}`)
 
 	apiURL := "http://pd.musicapp.migu.cn/MIGUM2.0/v1.0/content/search_all.do?" + params.Encode()

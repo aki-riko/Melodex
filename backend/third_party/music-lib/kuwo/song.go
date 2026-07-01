@@ -30,7 +30,7 @@ func (k *Kuwo) Search(keyword string) ([]model.Song, error) {
 	params.Set("issubtitle", "1")
 	params.Set("show_copyright_off", "1")
 	params.Set("pn", "0")
-	params.Set("rn", "10")
+	params.Set("rn", "30")
 	params.Set("all", keyword)
 
 	apiURL := "http://www.kuwo.cn/search/searchMusicBykeyWord?" + params.Encode()

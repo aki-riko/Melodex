@@ -22,7 +22,7 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 	params.Set("w", keyword)
 	params.Set("format", "json")
 	params.Set("p", "1")
-	params.Set("n", "10")
+	params.Set("n", "30")
 	apiURL := "http://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp?" + params.Encode()
 
 	body, err := utils.Get(apiURL,

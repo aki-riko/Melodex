@@ -14,7 +14,7 @@ func Parse(link string) (*model.Song, error) { return defaultNetease.Parse(link)
 
 // Search searches songs.
 func (n *Netease) Search(keyword string) ([]model.Song, error) {
-	body, err := n.cloudSearch(keyword, 1, 10)
+	body, err := n.cloudSearch(keyword, 1, 30)
 	if err != nil {
 		return nil, err
 	}
