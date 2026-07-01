@@ -238,10 +238,22 @@ func TestOfficialBonusFlipsTranslationCover(t *testing.T) {
 }
 
 func TestOfficialBonus(t *testing.T) {
-	if officialBonus(model.Song{Extra: map[string]string{"has_lossless": "1"}}) != 600 {
-		t.Fatal("无损应+600")
+	// 真实码率主信号
+	if officialBonus(model.Song{Bitrate: 999}) != 600 {
+		t.Fatal("无损码率(≥800)应+600")
 	}
-	if officialBonus(model.Song{Extra: map[string]string{"has_lossless": "1", "is_paid": "1"}}) != 800 {
+	if officialBonus(model.Song{Bitrate: 320}) != 300 {
+		t.Fatal("高品码率(≥320)应+300")
+	}
+	if officialBonus(model.Song{Bitrate: 128}) != 0 {
+		t.Fatal("低码率应0")
+	}
+	// has_lossless 兜底:源声明无损但码率字段缺失(=0)仍按无损档
+	if officialBonus(model.Song{Extra: map[string]string{"has_lossless": "1"}}) != 600 {
+		t.Fatal("has_lossless兜底应+600")
+	}
+	// is_paid 叠加
+	if officialBonus(model.Song{Bitrate: 999, Extra: map[string]string{"is_paid": "1"}}) != 800 {
 		t.Fatal("无损+付费应+800")
 	}
 	if officialBonus(model.Song{}) != 0 {
@@ -253,11 +265,11 @@ func TestUpstreamRankScore(t *testing.T) {
 	mk := func(rank string) model.Song {
 		return model.Song{Extra: map[string]string{"_rank": rank}}
 	}
-	if upstreamRankScore(mk("0")) != 500 {
-		t.Fatal("上游第1名应=500")
+	if upstreamRankScore(mk("0")) != 600 {
+		t.Fatal("上游第1名应=600")
 	}
-	if upstreamRankScore(mk("1")) != 470 {
-		t.Fatal("第2名应=470")
+	if upstreamRankScore(mk("1")) != 575 {
+		t.Fatal("第2名应=575")
 	}
 	if upstreamRankScore(mk("100")) != 0 {
 		t.Fatal("极靠后应封底0")
@@ -307,6 +319,26 @@ func TestSortSongsByRelevanceWithUpstream(t *testing.T) {
 	sortSongsByRelevance(songs, q)
 	if songs[0].Name != "スピカテリブル" {
 		t.Fatalf("译名搜索应把上游第1的原名置顶, 实际首位 %s", songs[0].Name)
+	}
+}
+
+// 真实 bug 回归:搜"爱的回归线",原唱在咪咕(高码率 921、无 has_lossless 字段),
+// 翻唱在网易云(低码率 320 但有 has_lossless 字段)。过去 officialBonus 只认
+// has_lossless → 翻唱 +600、原唱 0 → 高码率原唱被低码率翻唱压沉。
+// 修复后用真实码率做信号,原唱(921→无损档+600)应排在翻唱(320→高品+300)前。
+func TestSortByRealBitrateNotLosslessField(t *testing.T) {
+	q := "爱的回归线"
+	orig := model.Song{ // 咪咕原唱:高码率,但源不产 has_lossless 字段
+		Name: "爱的回归线", Artist: "陈韵若、陈每文",
+		Extra: map[string]string{"_rank": "0"}, Bitrate: 921,
+	}
+	cover := model.Song{ // 网易云翻唱:低码率,但有 has_lossless 字段
+		Name: "爱的回归线", Artist: "Sasablue",
+		Extra: map[string]string{"_rank": "1", "has_lossless": "1"}, Bitrate: 320,
+	}
+	so, sc := combinedScore(orig, q), combinedScore(cover, q)
+	if so <= sc {
+		t.Fatalf("高码率原唱(%d)应高于低码率翻唱(%d)——不应因源缺 has_lossless 字段而沉底", so, sc)
 	}
 }
 

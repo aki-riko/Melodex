@@ -510,8 +510,9 @@ func relevanceScore(song model.Song, query string) int {
 }
 
 // upstreamRankScore 把上游源内的原始名次(Extra["_rank"])换算成分数:
-// 上游第1名=500,每靠后一名减 30,封底 0。译名/别名搜索时本地字符串匹配
-// 不到(relevanceScore=0),靠这个分把上游认为相关的结果顶上来。
+// 上游第1名=600,每靠后一名减 25,封底 0。上游自身的相关性排序最懂"哪个是原唱"
+// (原唱在各源搜索里通常名次靠前),故给名次较高权重;译名/别名搜索时本地字符串
+// 匹配不到(relevanceScore=0),也靠这个分把上游认为相关的结果顶上来。
 func upstreamRankScore(song model.Song) int {
 	if song.Extra == nil {
 		return 0
@@ -520,7 +521,7 @@ func upstreamRankScore(song model.Song) int {
 	if err != nil || rank < 0 {
 		return 0
 	}
-	s := 500 - rank*30
+	s := 600 - rank*25
 	if s < 0 {
 		return 0
 	}
@@ -553,40 +554,67 @@ func coverPenalty(song model.Song) int {
 	return 0
 }
 
-// officialBonus 正版/原唱信号加分(来自 music-lib Search 挖出的 Extra):
-//   - has_lossless(有无损授权)→ +600:原唱正版几乎都有无损,草根译名翻唱通常只有低质 mp3
-//   - is_paid(付费单曲)→ +200:付费上架 ≈ 正版
-// 这是无"原唱"元数据时最可靠的近似信号。
+// officialBonus 正版/音质信号加分。核心用**真实码率**做跨源统一信号,避免偏袒
+// 只有 QQ/网易云才产出的 has_lossless/is_paid 字段(咪咕/酷我/汽水等源不产这两个
+// 字段,过去恒得 0 分 → 高码率原唱被有 has_lossless 的低码率翻唱系统性压沉)。
+//   - 真实码率 ≥ 800(FLAC/无损档)→ +600
+//   - 真实码率 ≥ 320(高品档)   → +300
+//   - has_lossless=1(源声明无损,兜底:某些源码率字段缺失时仍认无损)→ 至少按 +600
+//   - is_paid=1(付费单曲 ≈ 正版)→ 额外 +200
+// bitrate 取 song.Bitrate(搜索结果已带回真实码率,非 0)。
 func officialBonus(song model.Song) int {
-	if song.Extra == nil {
-		return 0
-	}
 	bonus := 0
-	if song.Extra["has_lossless"] == "1" {
-		bonus += 600
+	switch {
+	case song.Bitrate >= 800:
+		bonus = 600
+	case song.Bitrate >= 320:
+		bonus = 300
 	}
-	if song.Extra["is_paid"] == "1" {
-		bonus += 200
+	if song.Extra != nil {
+		// 源声明无损但码率字段缺失(bonus 还没到无损档)时,兜底提到无损档。
+		if song.Extra["has_lossless"] == "1" && bonus < 600 {
+			bonus = 600
+		}
+		if song.Extra["is_paid"] == "1" {
+			bonus += 200
+		}
 	}
 	return bonus
 }
 
-// combinedScore 综合排序分 = 本地相关性 + 上游名次 + 正版信号 − 翻唱惩罚。
-//   - query 直接命中歌名(搜"晴天"):本地分高(1000)主导,正版信号(无损)再加固
-//   - query 是译名匹配不上(搜"珍珠星的距离"):本地分=0,靠上游名次 + 正版信号——
-//     原唱(有无损 +600)能跨过译名翻唱(本地名字精确匹配 1000 但无无损授权)
+// combinedScore 综合排序分 = 本地相关性 + 上游名次 + 正版/音质信号 − 翻唱惩罚。
+//   - query 直接命中歌名(搜"晴天"):本地分高(1000)主导,音质信号(无损)再加固
+//   - query 是译名匹配不上(搜"珍珠星的距离"):本地分=0,靠上游名次 + 音质信号——
+//     原唱(码率高/有无损 +600)能跨过译名翻唱
 //   - 翻唱/演奏版(歌名含 Cover/钢琴版等):重罚,排到原唱后
 //
-// 关键调参:无任何正版信号的"完全匹配"(疑似译名翻唱白嫖名字)本地分封顶到 600,
-// 不让它靠一个译名就稳占榜首;有正版信号的完全匹配不受限。
+// 关键调参:
+//   - 音质/正版信号(officialBonus)只对**相关结果**生效(本地命中歌名,或该源搜索
+//     第1名 rank==0),避免一首歌名完全无关但码率高的歌靠音质分白白盖过相关的原唱。
+//   - 无任何音质信号的"完全匹配"(疑似译名翻唱白嫖名字)本地分封顶到 600,
+//     不让它靠一个译名就稳占榜首;有音质信号的完全匹配不受限。
 func combinedScore(song model.Song, query string) int {
 	local := relevanceScore(song, query)
-	bonus := officialBonus(song)
-	// 完全匹配(1000)但毫无正版信号 → 疑似译名翻唱白嫖,本地分降到 600。
+	rank := upstreamRankScore(song)
+	// 相关判定:歌名沾边(local>0)或本源搜索置顶(rank==0)才给音质/正版加分。
+	relevant := local > 0 || isUpstreamTop(song)
+	bonus := 0
+	if relevant {
+		bonus = officialBonus(song)
+	}
+	// 完全匹配(1000)但毫无音质信号 → 疑似译名翻唱白嫖,本地分降到 600。
 	if local >= 1000 && bonus == 0 {
 		local = 600
 	}
-	return local + upstreamRankScore(song) + bonus - coverPenalty(song)
+	return local + rank + bonus - coverPenalty(song)
+}
+
+// isUpstreamTop 判断该歌是否为某上游源的搜索第1名(_rank==0)。
+func isUpstreamTop(song model.Song) bool {
+	if song.Extra == nil {
+		return false
+	}
+	return song.Extra["_rank"] == "0"
 }
 
 // sortSongsByRelevance 原地排序:综合分(本地相关+上游名次)降序,
