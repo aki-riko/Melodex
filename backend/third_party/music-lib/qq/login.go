@@ -424,12 +424,7 @@ func fetchQQConnectLoginCookies(uin, sigx string, baseCookies map[string]string)
 	if err != nil {
 		return nil, nil, err
 	}
-	pSkey := firstNonEmptyQQ(checkCookies["p_skey"], checkCookies["skey"])
-	if pSkey == "" {
-		return nil, nil, fmt.Errorf("qq connect check_sig missing p_skey/skey; cookies=%s", strings.Join(cookieNames(checkCookies), ","))
-	}
-
-	code, authCookies, err := fetchQQAuthorizeCode(checkCookies, pSkey)
+	code, authCookies, tokenName, err := fetchQQAuthorizeCode(checkCookies)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -445,6 +440,7 @@ func fetchQQConnectLoginCookies(uin, sigx string, baseCookies map[string]string)
 		checkCookies[k] = v
 	}
 	extra["login_type"] = "qq"
+	extra["authorize_token"] = tokenName
 	return normalizeQQMusicCookies(checkCookies), extra, nil
 }
 
@@ -504,7 +500,7 @@ func fetchQQCheckSigCookiesFromURL(initialURL string, baseCookies map[string]str
 		}
 		resp.Body.Close()
 
-		if firstNonEmptyQQ(cookies["p_skey"], cookies["skey"]) != "" {
+		if hasQQConnectAuthCookies(cookies) {
 			return cookies, nil
 		}
 		if location == "" || resp.StatusCode < 300 || resp.StatusCode >= 400 {
@@ -525,10 +521,67 @@ func fetchQQCheckSigCookiesFromURL(initialURL string, baseCookies map[string]str
 		currentURL = nextURL.String()
 	}
 
-	return nil, fmt.Errorf("qq connect check_sig did not return p_skey/skey; status=%d location=%s cookies=%s", lastStatus, safeLocation(lastLocation), strings.Join(cookieNames(cookies), ","))
+	return nil, fmt.Errorf("qq connect check_sig did not return auth cookies; status=%d location=%s cookies=%s", lastStatus, safeLocation(lastLocation), strings.Join(cookieNames(cookies), ","))
 }
 
-func fetchQQAuthorizeCode(cookies map[string]string, pSkey string) (string, map[string]string, error) {
+type qqAuthorizeTokenCandidate struct {
+	name  string
+	token string
+}
+
+func qqAuthorizeTokenCandidates(cookies map[string]string) []qqAuthorizeTokenCandidate {
+	seen := map[string]bool{}
+	candidates := []qqAuthorizeTokenCandidate{}
+	add := func(name, token string) {
+		name = strings.TrimSpace(name)
+		token = strings.TrimSpace(token)
+		key := name + "\x00" + token
+		if name == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		candidates = append(candidates, qqAuthorizeTokenCandidate{name: name, token: token})
+	}
+
+	add("p_skey", cookies["p_skey"])
+	add("skey", cookies["skey"])
+	add("superkey", cookies["superkey"])
+	add("supertoken", cookies["supertoken"])
+	add("pt_oauth_token", cookies["pt_oauth_token"])
+	add("default_5381", "")
+	return candidates
+}
+
+func hasQQConnectAuthCookies(cookies map[string]string) bool {
+	for _, candidate := range qqAuthorizeTokenCandidates(cookies) {
+		if candidate.name != "default_5381" && candidate.token != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func fetchQQAuthorizeCode(cookies map[string]string) (string, map[string]string, string, error) {
+	var lastErr error
+	tried := []string{}
+	for _, candidate := range qqAuthorizeTokenCandidates(cookies) {
+		if candidate.name != "default_5381" && candidate.token == "" {
+			continue
+		}
+		tried = append(tried, candidate.name)
+		code, authCookies, err := fetchQQAuthorizeCodeWithToken(cookies, candidate)
+		if err == nil {
+			return code, authCookies, candidate.name, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no usable token candidates")
+	}
+	return "", nil, "", fmt.Errorf("qq connect authorize failed; tried=%s; last=%v", strings.Join(tried, ","), lastErr)
+}
+
+func fetchQQAuthorizeCodeWithToken(cookies map[string]string, candidate qqAuthorizeTokenCandidate) (string, map[string]string, error) {
 	form := url.Values{}
 	form.Set("response_type", "code")
 	form.Set("client_id", "100497308")
@@ -540,7 +593,7 @@ func fetchQQAuthorizeCode(cookies map[string]string, pSkey string) (string, map[
 	form.Set("src", "1")
 	form.Set("update_auth", "1")
 	form.Set("openapi", "1010_1030")
-	form.Set("g_tk", strconv.Itoa(hash33WithSeed(pSkey, 5381)))
+	form.Set("g_tk", strconv.Itoa(hash33WithSeed(candidate.token, 5381)))
 	form.Set("auth_time", strconv.FormatInt(time.Now().Unix()*1000, 10))
 	form.Set("ui", strconv.FormatInt(time.Now().UnixNano(), 10))
 
@@ -562,7 +615,7 @@ func fetchQQAuthorizeCode(cookies map[string]string, pSkey string) (string, map[
 	authCookies := responseCookies(resp)
 	location := strings.TrimSpace(resp.Header.Get("Location"))
 	if location == "" {
-		return "", authCookies, fmt.Errorf("qq connect authorize missing redirect location")
+		return "", authCookies, fmt.Errorf("qq connect authorize missing redirect location; token=%s status=%d cookies=%s", candidate.name, resp.StatusCode, strings.Join(cookieNames(authCookies), ","))
 	}
 	parsed, err := url.Parse(location)
 	if err != nil {
@@ -570,7 +623,7 @@ func fetchQQAuthorizeCode(cookies map[string]string, pSkey string) (string, map[
 	}
 	code := strings.TrimSpace(parsed.Query().Get("code"))
 	if code == "" {
-		return "", authCookies, fmt.Errorf("qq connect authorize missing code")
+		return "", authCookies, fmt.Errorf("qq connect authorize missing code; token=%s status=%d location=%s cookies=%s", candidate.name, resp.StatusCode, safeLocation(location), strings.Join(cookieNames(authCookies), ","))
 	}
 	return code, authCookies, nil
 }
