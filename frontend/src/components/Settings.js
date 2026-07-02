@@ -42,7 +42,7 @@ const qrLoginNote = (source, result) => {
   if (!result || result.status !== 'success') return '';
   const extra = result.extra || {};
   if (source === 'qq') {
-    if (extra.credential_source === 'qq_connect_login') {
+    if (extra.credential_source === 'qq_connect_login' || extra.credential_source === 'qq_mobile_qr') {
       return '已换取 QQ 音乐强凭证,可用于 VIP/无损链路。';
     }
     if (extra.strong_login_error) {

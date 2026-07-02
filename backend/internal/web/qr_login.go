@@ -41,10 +41,12 @@ func qrLoginCookieString(result *model.QRLoginResult) string {
 }
 
 func qrLoginCookieSource(source string) string {
-	if source == "qq_wx" {
+	switch source {
+	case "qq_wx", "qq_mobile", "qq_connect":
 		return "qq"
+	default:
+		return source
 	}
-	return source
 }
 
 func RegisterQRLoginRoutes(api *gin.RouterGroup) {
