@@ -38,10 +38,31 @@ const STATUS_TEXT = {
   failed: '登录失败,请重试',
 };
 
+const qrLoginNote = (source, result) => {
+  if (!result || result.status !== 'success') return '';
+  const extra = result.extra || {};
+  if (source === 'qq') {
+    if (extra.credential_source === 'qq_connect_login') {
+      return '已换取 QQ 音乐强凭证,可用于 VIP/无损链路。';
+    }
+    if (extra.credential_source === 'redirect_cookie') {
+      return '扫码成功,但强凭证换取失败;这类 Cookie 可能只能拿普通音质。';
+    }
+    if (extra.strong_login_error) {
+      return `扫码成功,但强凭证换取失败:${extra.strong_login_error}`;
+    }
+  }
+  if (source === 'qq_wx') {
+    return '已保存 QQ 音乐微信登录凭证;能否拿无损以账号权限和 Cookie 实测为准。';
+  }
+  return '';
+};
+
 // 二维码登录卡片
 const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState('');
+  const [statusNote, setStatusNote] = useState('');
   const [showManual, setShowManual] = useState(false);
   const [manualCookie, setManualCookie] = useState('');
   const [manualMsg, setManualMsg] = useState('');
@@ -73,6 +94,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
   const startLogin = async () => {
     stopPoll();
     setStatus('');
+    setStatusNote('');
     try {
       const s = await createQRLogin(source);
       setSession(s);
@@ -81,6 +103,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
         try {
           const r = await checkQRLogin(source, s.key);
           setStatus(r.status);
+          setStatusNote(qrLoginNote(source, r));
           if (r.status === 'success') {
             stopPoll();
             onLoggedIn();
@@ -119,6 +142,9 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
           </div>
           <p className="text-sm font-medium text-muted-foreground mt-2">{STATUS_TEXT[status] || status}</p>
         </div>
+      )}
+      {statusNote && (
+        <p className="text-xs leading-relaxed text-muted-foreground bg-muted rounded-md p-2 mb-3">{statusNote}</p>
       )}
       <button
         onClick={startLogin}
@@ -266,4 +292,3 @@ const Settings = () => {
 };
 
 export default Settings;
-
