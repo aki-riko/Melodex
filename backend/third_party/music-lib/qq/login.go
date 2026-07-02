@@ -347,10 +347,13 @@ func parseQQQRCheck(raw string) (code, message, redirectURL, uin, sigx string) {
 	matches := re.FindAllStringSubmatch(raw, -1)
 	if len(matches) >= 5 {
 		redirectURL = matches[2][1]
-		if parsed, err := url.Parse(redirectURL); err == nil {
-			q := parsed.Query()
-			uin = strings.TrimSpace(q.Get("uin"))
-			sigx = strings.TrimSpace(q.Get("ptsigx"))
+		// Keep ptsigx byte-for-byte from the raw URL. url.Parse(...).Query()
+		// decodes '+' as a space, which breaks QQ check_sig for some tokens.
+		if m := regexp.MustCompile(`(?:\?|&)uin=([^&]+)&service`).FindStringSubmatch(redirectURL); len(m) > 1 {
+			uin = strings.TrimSpace(m[1])
+		}
+		if m := regexp.MustCompile(`(?:\?|&)ptsigx=([^&]+)&s_url`).FindStringSubmatch(redirectURL); len(m) > 1 {
+			sigx = strings.TrimSpace(m[1])
 		}
 		return matches[0][1], matches[4][1], redirectURL, uin, sigx
 	}
