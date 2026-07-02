@@ -121,6 +121,26 @@ func TestFetchQQCheckSigCookiesFollowsRedirects(t *testing.T) {
 	}
 }
 
+func TestFetchQQCheckSigCookiesUsesOriginalRedirectURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("ptsigx") != "SIGX+TOKEN" {
+			t.Fatalf("ptsigx = %q, want SIGX+TOKEN", r.URL.Query().Get("ptsigx"))
+		}
+		http.SetCookie(w, &http.Cookie{Name: "p_skey", Value: "PSKEY"})
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	redirectURL := server.URL + "/check_sig?ptsigx=SIGX%2BTOKEN&extra=1"
+	got, err := fetchQQCheckSigCookies("", "", redirectURL, map[string]string{"qrsig": "abc"})
+	if err != nil {
+		t.Fatalf("fetchQQCheckSigCookies returned error: %v", err)
+	}
+	if got["p_skey"] != "PSKEY" {
+		t.Fatalf("p_skey = %q, want PSKEY", got["p_skey"])
+	}
+}
+
 func TestFetchQQCheckSigCookiesAcceptsQQConnectFallbackCookies(t *testing.T) {
 	visitedJump := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

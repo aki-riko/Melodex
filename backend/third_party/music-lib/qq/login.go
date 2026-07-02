@@ -178,7 +178,7 @@ func (q *QQ) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 	}
 	strongSaved := false
 	if uin != "" && sigx != "" {
-		strongCookies, extra, err := fetchQQConnectLoginCookies(uin, sigx, cookies)
+		strongCookies, extra, err := fetchQQConnectLoginCookies(uin, sigx, redirectURL, cookies)
 		if err == nil {
 			for k, v := range strongCookies {
 				cookies[k] = v
@@ -419,8 +419,8 @@ func parseQQWXQRCheck(raw string) (code, wxCode string) {
 	return code, wxCode
 }
 
-func fetchQQConnectLoginCookies(uin, sigx string, baseCookies map[string]string) (map[string]string, map[string]string, error) {
-	checkCookies, err := fetchQQCheckSigCookies(uin, sigx, baseCookies)
+func fetchQQConnectLoginCookies(uin, sigx, redirectURL string, baseCookies map[string]string) (map[string]string, map[string]string, error) {
+	checkCookies, err := fetchQQCheckSigCookies(uin, sigx, redirectURL, baseCookies)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -444,7 +444,12 @@ func fetchQQConnectLoginCookies(uin, sigx string, baseCookies map[string]string)
 	return normalizeQQMusicCookies(checkCookies), extra, nil
 }
 
-func fetchQQCheckSigCookies(uin, sigx string, baseCookies map[string]string) (map[string]string, error) {
+func fetchQQCheckSigCookies(uin, sigx, redirectURL string, baseCookies map[string]string) (map[string]string, error) {
+	redirectURL = strings.TrimSpace(redirectURL)
+	if redirectURL != "" {
+		return fetchQQCheckSigCookiesFromURL(redirectURL, baseCookies)
+	}
+
 	params := url.Values{}
 	params.Set("uin", uin)
 	params.Set("pttype", "1")
