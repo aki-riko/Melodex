@@ -469,29 +469,63 @@ func fetchQQCheckSigCookies(uin, sigx string, baseCookies map[string]string) (ma
 	params.Set("pt_light", "0")
 	params.Set("pt_3rd_aid", "100497308")
 
+	return fetchQQCheckSigCookiesFromURL("https://ssl.ptlogin2.graph.qq.com/check_sig?"+params.Encode(), baseCookies)
+}
+
+func fetchQQCheckSigCookiesFromURL(initialURL string, baseCookies map[string]string) (map[string]string, error) {
 	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
-	req, err := http.NewRequest("GET", "https://ssl.ptlogin2.graph.qq.com/check_sig?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	req.Header.Set("Referer", "https://xui.ptlogin2.qq.com/")
-	if len(baseCookies) > 0 {
-		req.Header.Set("Cookie", joinCookieMap(baseCookies))
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 	cookies := cloneCookieMap(baseCookies)
-	for k, v := range responseCookies(resp) {
-		cookies[k] = v
+	currentURL := strings.TrimSpace(initialURL)
+	referer := "https://xui.ptlogin2.qq.com/"
+	lastStatus := 0
+	lastLocation := ""
+
+	for i := 0; i < 5 && currentURL != ""; i++ {
+		req, err := http.NewRequest("GET", currentURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		req.Header.Set("Referer", referer)
+		if len(cookies) > 0 {
+			req.Header.Set("Cookie", joinCookieMap(cookies))
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range responseCookies(resp) {
+			cookies[k] = v
+		}
+		lastStatus = resp.StatusCode
+		location := strings.TrimSpace(resp.Header.Get("Location"))
+		if location != "" {
+			lastLocation = location
+		}
+		resp.Body.Close()
+
+		if firstNonEmptyQQ(cookies["p_skey"], cookies["skey"]) != "" {
+			return cookies, nil
+		}
+		if location == "" || resp.StatusCode < 300 || resp.StatusCode >= 400 {
+			break
+		}
+		nextURL, err := url.Parse(location)
+		if err != nil {
+			return nil, err
+		}
+		if !nextURL.IsAbs() {
+			baseURL, err := url.Parse(currentURL)
+			if err != nil {
+				return nil, err
+			}
+			nextURL = baseURL.ResolveReference(nextURL)
+		}
+		referer = currentURL
+		currentURL = nextURL.String()
 	}
-	if firstNonEmptyQQ(cookies["p_skey"], cookies["skey"]) == "" {
-		return nil, fmt.Errorf("qq connect check_sig did not return p_skey/skey; status=%d location=%s cookies=%s", resp.StatusCode, safeLocation(resp.Header.Get("Location")), strings.Join(cookieNames(cookies), ","))
-	}
-	return cookies, nil
+
+	return nil, fmt.Errorf("qq connect check_sig did not return p_skey/skey; status=%d location=%s cookies=%s", lastStatus, safeLocation(lastLocation), strings.Join(cookieNames(cookies), ","))
 }
 
 func fetchQQAuthorizeCode(cookies map[string]string, pSkey string) (string, map[string]string, error) {

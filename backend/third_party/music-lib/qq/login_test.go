@@ -1,6 +1,8 @@
 package qq
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -88,6 +90,34 @@ func TestCookieNamesDoNotExposeValues(t *testing.T) {
 	}
 	if strings.Contains(got, "SECRET") || strings.Contains(got, "KEY") {
 		t.Fatalf("cookie names leaked values: %q", got)
+	}
+}
+
+func TestFetchQQCheckSigCookiesFollowsRedirects(t *testing.T) {
+	sawSessionCookie := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			sawSessionCookie = strings.Contains(r.Header.Get("Cookie"), "qrsig=abc")
+			http.Redirect(w, r, "/login_jump", http.StatusFound)
+		case "/login_jump":
+			http.SetCookie(w, &http.Cookie{Name: "p_skey", Value: "PSKEY"})
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	got, err := fetchQQCheckSigCookiesFromURL(server.URL+"/start", map[string]string{"qrsig": "abc"})
+	if err != nil {
+		t.Fatalf("fetchQQCheckSigCookiesFromURL returned error: %v", err)
+	}
+	if !sawSessionCookie {
+		t.Fatal("check_sig request did not include the QR session cookie")
+	}
+	if got["p_skey"] != "PSKEY" {
+		t.Fatalf("p_skey = %q, want PSKEY (cookies %#v)", got["p_skey"], got)
 	}
 }
 
