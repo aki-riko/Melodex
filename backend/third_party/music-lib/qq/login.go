@@ -424,9 +424,9 @@ func fetchQQConnectLoginCookies(uin, sigx string, baseCookies map[string]string)
 	if err != nil {
 		return nil, nil, err
 	}
-	pSkey := strings.TrimSpace(checkCookies["p_skey"])
+	pSkey := firstNonEmptyQQ(checkCookies["p_skey"], checkCookies["skey"])
 	if pSkey == "" {
-		return nil, nil, fmt.Errorf("qq connect check_sig missing p_skey")
+		return nil, nil, fmt.Errorf("qq connect check_sig missing p_skey/skey; cookies=%s", strings.Join(cookieNames(checkCookies), ","))
 	}
 
 	code, authCookies, err := fetchQQAuthorizeCode(checkCookies, pSkey)
@@ -488,8 +488,8 @@ func fetchQQCheckSigCookies(uin, sigx string, baseCookies map[string]string) (ma
 	for k, v := range responseCookies(resp) {
 		cookies[k] = v
 	}
-	if strings.TrimSpace(cookies["p_skey"]) == "" {
-		return nil, fmt.Errorf("qq connect check_sig did not return p_skey")
+	if firstNonEmptyQQ(cookies["p_skey"], cookies["skey"]) == "" {
+		return nil, fmt.Errorf("qq connect check_sig did not return p_skey/skey; status=%d location=%s cookies=%s", resp.StatusCode, safeLocation(resp.Header.Get("Location")), strings.Join(cookieNames(cookies), ","))
 	}
 	return cookies, nil
 }
@@ -922,6 +922,32 @@ func cloneCookieMap(cookies map[string]string) map[string]string {
 		}
 	}
 	return cloned
+}
+
+func cookieNames(cookies map[string]string) []string {
+	names := make([]string, 0, len(cookies))
+	for k, v := range cookies {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+			names = append(names, strings.TrimSpace(k))
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func safeLocation(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "-"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "(unparseable)"
+	}
+	if parsed.Host == "" {
+		return parsed.Path
+	}
+	return parsed.Scheme + "://" + parsed.Host + parsed.Path
 }
 
 func joinCookieMap(cookies map[string]string) string {
