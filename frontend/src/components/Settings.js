@@ -45,11 +45,11 @@ const qrLoginNote = (source, result) => {
     if (extra.credential_source === 'qq_connect_login') {
       return '已换取 QQ 音乐强凭证,可用于 VIP/无损链路。';
     }
-    if (extra.credential_source === 'redirect_cookie') {
-      return '扫码成功,但强凭证换取失败;这类 Cookie 可能只能拿普通音质。';
-    }
     if (extra.strong_login_error) {
       return `扫码成功,但强凭证换取失败:${extra.strong_login_error}`;
+    }
+    if (extra.credential_source === 'redirect_cookie') {
+      return '扫码成功,但强凭证换取失败;这类 Cookie 可能只能拿普通音质。';
     }
   }
   if (source === 'qq_wx') {

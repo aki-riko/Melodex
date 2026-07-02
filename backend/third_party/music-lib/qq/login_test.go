@@ -3,7 +3,7 @@ package qq
 import "testing"
 
 func TestParseQQQRCheckExtractsStrongLoginInputs(t *testing.T) {
-	raw := `ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?pttype=1&uin=12345678&service=ptqrlogin&nodirect=0&ptsigx=SIGX_TOKEN&s_url=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump&ptlang=2052&ptredirect=100&aid=716027609&daid=383&j_later=0&low_login_hour=0&regmaster=0&pt_login_type=3&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=100497308','0','登录成功！','nickname');`
+	raw := `ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?pttype=1&uin=12345678&service=ptqrlogin&nodirect=0&ptsigx=SIGX+TOKEN&s_url=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump&ptlang=2052&ptredirect=100&aid=716027609&daid=383&j_later=0&low_login_hour=0&regmaster=0&pt_login_type=3&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=100497308','0','登录成功！','nickname');`
 	code, message, redirectURL, uin, sigx := parseQQQRCheck(raw)
 	if code != "0" {
 		t.Fatalf("code = %q, want 0", code)
@@ -17,8 +17,8 @@ func TestParseQQQRCheckExtractsStrongLoginInputs(t *testing.T) {
 	if uin != "12345678" {
 		t.Fatalf("uin = %q, want 12345678", uin)
 	}
-	if sigx != "SIGX_TOKEN" {
-		t.Fatalf("sigx = %q, want SIGX_TOKEN", sigx)
+	if sigx != "SIGX+TOKEN" {
+		t.Fatalf("sigx = %q, want SIGX+TOKEN", sigx)
 	}
 }
 
