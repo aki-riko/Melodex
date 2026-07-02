@@ -157,7 +157,7 @@ func (q *QQ) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 		return nil, err
 	}
 	raw := string(body)
-	code, message, redirectURL := parseQQQRCheck(raw)
+	code, message, redirectURL, uin, sigx := parseQQQRCheck(raw)
 	result := &model.QRLoginResult{
 		Source:  "qq",
 		Key:     key,
@@ -172,12 +172,29 @@ func (q *QQ) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 	}
 
 	cookies := responseCookies(resp)
-	if redirectURL != "" {
+	strongSaved := false
+	if uin != "" && sigx != "" {
+		strongCookies, extra, err := fetchQQConnectLoginCookies(uin, sigx)
+		if err == nil {
+			for k, v := range strongCookies {
+				cookies[k] = v
+			}
+			for k, v := range extra {
+				result.Extra[k] = v
+			}
+			result.Extra["credential_source"] = "qq_connect_login"
+			strongSaved = true
+		} else {
+			result.Extra["strong_login_error"] = err.Error()
+		}
+	}
+	if !strongSaved && redirectURL != "" {
 		redirectCookies, err := fetchQQRedirectCookies(redirectURL, cookies)
 		if err == nil {
 			for k, v := range redirectCookies {
 				cookies[k] = v
 			}
+			result.Extra["credential_source"] = "redirect_cookie"
 		} else {
 			result.Extra["redirect_error"] = err.Error()
 		}
@@ -325,13 +342,19 @@ func mapQQQRStatus(code string) model.QRLoginStatus {
 	}
 }
 
-func parseQQQRCheck(raw string) (code, message, redirectURL string) {
+func parseQQQRCheck(raw string) (code, message, redirectURL, uin, sigx string) {
 	re := regexp.MustCompile(`'([^']*)'`)
 	matches := re.FindAllStringSubmatch(raw, -1)
 	if len(matches) >= 5 {
-		return matches[0][1], matches[4][1], matches[2][1]
+		redirectURL = matches[2][1]
+		if parsed, err := url.Parse(redirectURL); err == nil {
+			q := parsed.Query()
+			uin = strings.TrimSpace(q.Get("uin"))
+			sigx = strings.TrimSpace(q.Get("ptsigx"))
+		}
+		return matches[0][1], matches[4][1], redirectURL, uin, sigx
 	}
-	return "", raw, ""
+	return "", raw, "", "", ""
 }
 
 func mapQQWXQRStatus(code string) model.QRLoginStatus {
@@ -387,6 +410,211 @@ func parseQQWXQRCheck(raw string) (code, wxCode string) {
 		wxCode = strings.TrimSpace(matches[1])
 	}
 	return code, wxCode
+}
+
+func fetchQQConnectLoginCookies(uin, sigx string) (map[string]string, map[string]string, error) {
+	checkCookies, err := fetchQQCheckSigCookies(uin, sigx)
+	if err != nil {
+		return nil, nil, err
+	}
+	pSkey := strings.TrimSpace(checkCookies["p_skey"])
+	if pSkey == "" {
+		return nil, nil, fmt.Errorf("qq connect check_sig missing p_skey")
+	}
+
+	code, authCookies, err := fetchQQAuthorizeCode(checkCookies, pSkey)
+	if err != nil {
+		return nil, nil, err
+	}
+	for k, v := range authCookies {
+		checkCookies[k] = v
+	}
+
+	loginCookies, extra, err := fetchQQConnectLoginServerCookies(code)
+	if err != nil {
+		return nil, nil, err
+	}
+	for k, v := range loginCookies {
+		checkCookies[k] = v
+	}
+	extra["login_type"] = "qq"
+	return normalizeQQMusicCookies(checkCookies), extra, nil
+}
+
+func fetchQQCheckSigCookies(uin, sigx string) (map[string]string, error) {
+	params := url.Values{}
+	params.Set("uin", uin)
+	params.Set("pttype", "1")
+	params.Set("service", "ptqrlogin")
+	params.Set("nodirect", "0")
+	params.Set("ptsigx", sigx)
+	params.Set("s_url", "https://graph.qq.com/oauth2.0/login_jump")
+	params.Set("ptlang", "2052")
+	params.Set("ptredirect", "100")
+	params.Set("aid", "716027609")
+	params.Set("daid", "383")
+	params.Set("j_later", "0")
+	params.Set("low_login_hour", "0")
+	params.Set("regmaster", "0")
+	params.Set("pt_login_type", "3")
+	params.Set("pt_aid", "0")
+	params.Set("pt_aaid", "16")
+	params.Set("pt_light", "0")
+	params.Set("pt_3rd_aid", "100497308")
+
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
+	req, err := http.NewRequest("GET", "https://ssl.ptlogin2.graph.qq.com/check_sig?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Referer", "https://xui.ptlogin2.qq.com/")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	cookies := responseCookies(resp)
+	if strings.TrimSpace(cookies["p_skey"]) == "" {
+		return nil, fmt.Errorf("qq connect check_sig did not return p_skey")
+	}
+	return cookies, nil
+}
+
+func fetchQQAuthorizeCode(cookies map[string]string, pSkey string) (string, map[string]string, error) {
+	form := url.Values{}
+	form.Set("response_type", "code")
+	form.Set("client_id", "100497308")
+	form.Set("redirect_uri", "https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=https://y.qq.com/")
+	form.Set("scope", "get_user_info,get_app_friends")
+	form.Set("state", "state")
+	form.Set("switch", "")
+	form.Set("from_ptlogin", "1")
+	form.Set("src", "1")
+	form.Set("update_auth", "1")
+	form.Set("openapi", "1010_1030")
+	form.Set("g_tk", strconv.Itoa(hash33WithSeed(pSkey, 5381)))
+	form.Set("auth_time", strconv.FormatInt(time.Now().Unix()*1000, 10))
+	form.Set("ui", strconv.FormatInt(time.Now().UnixNano(), 10))
+
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
+	req, err := http.NewRequest("POST", "https://graph.qq.com/oauth2.0/authorize", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Referer", "https://graph.qq.com/oauth2.0/show?which=Login&display=pc")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", joinCookieMap(cookies))
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+
+	authCookies := responseCookies(resp)
+	location := strings.TrimSpace(resp.Header.Get("Location"))
+	if location == "" {
+		return "", authCookies, fmt.Errorf("qq connect authorize missing redirect location")
+	}
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return "", authCookies, err
+	}
+	code := strings.TrimSpace(parsed.Query().Get("code"))
+	if code == "" {
+		return "", authCookies, fmt.Errorf("qq connect authorize missing code")
+	}
+	return code, authCookies, nil
+}
+
+func fetchQQConnectLoginServerCookies(code string) (map[string]string, map[string]string, error) {
+	payload, err := json.Marshal(map[string]interface{}{
+		"comm": map[string]interface{}{
+			"tmeAppID":     "qqmusic",
+			"tmeLoginType": 2,
+			"g_tk":         5381,
+			"platform":     "yqq",
+			"ct":           24,
+			"cv":           0,
+		},
+		"req": map[string]interface{}{
+			"module": "QQConnectLogin.LoginServer",
+			"method": "QQLogin",
+			"param": map[string]string{
+				"code": code,
+			},
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	endpoints := []string{
+		"https://u.y.qq.com/cgi-bin/musicu.fcg",
+		"https://szu.y.qq.com/cgi-bin/musicu.fcg",
+		"https://shu.y.qq.com/cgi-bin/musicu.fcg",
+	}
+	var lastErr error
+	for _, apiURL := range endpoints {
+		req, err := http.NewRequest("POST", apiURL, strings.NewReader(string(payload)))
+		if err != nil {
+			return nil, nil, err
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		req.Header.Set("Referer", "https://y.qq.com/")
+		req.Header.Set("Origin", "https://y.qq.com")
+		req.Header.Set("Accept", "*/*")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		cookies := responseCookies(resp)
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("qq connect login http status %d", resp.StatusCode)
+			continue
+		}
+
+		var parsed struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Msg     string `json:"msg"`
+			Req     struct {
+				Code    int                    `json:"code"`
+				Message string                 `json:"message"`
+				Msg     string                 `json:"msg"`
+				Data    map[string]interface{} `json:"data"`
+			} `json:"req"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			lastErr = fmt.Errorf("qq connect login json parse error: %w", err)
+			continue
+		}
+		if parsed.Code != 0 || parsed.Req.Code != 0 {
+			msg := firstNonEmptyQQ(parsed.Req.Message, parsed.Req.Msg, parsed.Message, parsed.Msg)
+			lastErr = fmt.Errorf("qq connect login api error: %s (code %d, req code %d)", msg, parsed.Code, parsed.Req.Code)
+			continue
+		}
+
+		for k, v := range qqLoginDataCookies(parsed.Req.Data) {
+			if cookies[k] == "" {
+				cookies[k] = v
+			}
+		}
+		return cookies, map[string]string{"endpoint": apiURL}, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("qq connect login failed")
+	}
+	return nil, nil, lastErr
 }
 
 func fetchQQWXLoginCookies(wxCode string) (map[string]string, map[string]string, error) {
@@ -467,7 +695,7 @@ func fetchQQWXLoginCookies(wxCode string) (map[string]string, map[string]string,
 			continue
 		}
 
-		for k, v := range qqWXLoginDataCookies(parsed.Req.Data) {
+		for k, v := range qqLoginDataCookies(parsed.Req.Data) {
 			if cookies[k] == "" {
 				cookies[k] = v
 			}
@@ -483,7 +711,7 @@ func fetchQQWXLoginCookies(wxCode string) (map[string]string, map[string]string,
 	return nil, nil, lastErr
 }
 
-func qqWXLoginDataCookies(data map[string]interface{}) map[string]string {
+func qqLoginDataCookies(data map[string]interface{}) map[string]string {
 	result := map[string]string{}
 	value := func(keys ...string) string {
 		for _, key := range keys {
@@ -503,6 +731,7 @@ func qqWXLoginDataCookies(data map[string]interface{}) map[string]string {
 
 	if musicID := value("musicid", "musicId", "userid", "user_id", "uin"); musicID != "" {
 		result["musicid"] = musicID
+		result["qqmusic_uin"] = musicID
 	}
 	if musicKey := value("musickey", "music_key", "qqmusic_key", "qm_keyst", "strMusicKey"); musicKey != "" {
 		result["musickey"] = musicKey
@@ -524,7 +753,29 @@ func qqWXLoginDataCookies(data map[string]interface{}) map[string]string {
 		result["wxunionid"] = unionID
 	}
 	if accessToken := value("access_token", "accessToken", "wxaccess_token"); accessToken != "" {
+		result["access_token"] = accessToken
 		result["wxaccess_token"] = accessToken
+	}
+	if expiredAt := value("expired_at", "expiredAt", "expired_in", "expiredIn"); expiredAt != "" {
+		result["expired_at"] = expiredAt
+	}
+	if strMusicID := value("str_musicid", "strMusicid", "strMusicID"); strMusicID != "" {
+		result["str_musicid"] = strMusicID
+	}
+	if musickeyCreateTime := value("musickeyCreateTime", "musickey_create_time", "psrf_musickey_createtime"); musickeyCreateTime != "" {
+		result["musickeyCreateTime"] = musickeyCreateTime
+		result["psrf_musickey_createtime"] = musickeyCreateTime
+	}
+	if keyExpiresIn := value("keyExpiresIn", "key_expires_in"); keyExpiresIn != "" {
+		result["keyExpiresIn"] = keyExpiresIn
+	}
+	if encryptUin := value("encryptUin", "encrypt_uin", "euin"); encryptUin != "" {
+		result["encryptUin"] = encryptUin
+		result["euin"] = encryptUin
+	}
+	if loginType := value("loginType", "login_type", "tmeLoginType"); loginType != "" {
+		result["loginType"] = loginType
+		result["tmeLoginType"] = loginType
 	}
 	return result
 }
@@ -597,6 +848,14 @@ func normalizeQQMusicCookies(cookies map[string]string) map[string]string {
 
 func hash33(s string) int {
 	h := 0
+	for _, c := range s {
+		h += (h << 5) + int(c)
+	}
+	return h & 0x7fffffff
+}
+
+func hash33WithSeed(s string, seed int) int {
+	h := seed
 	for _, c := range s {
 		h += (h << 5) + int(c)
 	}
