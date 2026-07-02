@@ -44,7 +44,7 @@ export default function LocalMusic() {
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState('songs'); // 'songs' | 'albums'
   const [openAlbum, setOpenAlbum] = useState(null); // 专辑详情(album 对象)
-  const { data, isLoading } = useQuery(['local-music-page'], () => getLocalMusic({ limit: 500 }), { staleTime: 0 });
+  const { data, isLoading } = useQuery(['local-music-page'], () => getLocalMusic({ limit: 0 }), { staleTime: 0 });
 
   const tracks = useMemo(() => data?.tracks || [], [data]);
   const albums = useMemo(() => groupByAlbum(tracks), [tracks]);
