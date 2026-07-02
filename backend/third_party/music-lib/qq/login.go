@@ -76,7 +76,7 @@ func (q *QQ) CreateQRLogin() (*model.QRLoginSession, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	req.Header.Set("Referer", "https://y.qq.com/")
+	req.Header.Set("Referer", "https://xui.ptlogin2.qq.com/")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -97,6 +97,7 @@ func (q *QQ) CreateQRLogin() (*model.QRLoginSession, error) {
 
 	key := url.Values{}
 	key.Set("qrsig", qrsig)
+	key.Set("cookies", joinCookieMap(cookies))
 	return &model.QRLoginSession{
 		Source:    "qq",
 		Key:       key.Encode(),
@@ -117,28 +118,28 @@ func (q *QQ) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 	if qrsig == "" {
 		return nil, fmt.Errorf("qq qr login key missing qrsig")
 	}
+	sessionCookies := parseCookieString(values.Get("cookies"))
+	if sessionCookies["qrsig"] == "" {
+		sessionCookies["qrsig"] = qrsig
+	}
 
 	params := url.Values{}
 	params.Set("u1", "https://graph.qq.com/oauth2.0/login_jump")
 	params.Set("ptqrtoken", strconv.Itoa(hash33(qrsig)))
-	params.Set("ptredirect", "100")
+	params.Set("ptredirect", "0")
 	params.Set("h", "1")
 	params.Set("t", "1")
 	params.Set("g", "1")
 	params.Set("from_ui", "1")
 	params.Set("ptlang", "2052")
 	params.Set("action", fmt.Sprintf("0-0-%d", time.Now().UnixMilli()))
-	params.Set("js_ver", "21072115")
+	params.Set("js_ver", "20102616")
 	params.Set("js_type", "1")
-	params.Set("login_sig", "")
 	params.Set("pt_uistyle", "40")
 	params.Set("aid", "716027609")
 	params.Set("daid", "383")
 	params.Set("pt_3rd_aid", "100497308")
 	params.Set("has_onekey", "1")
-	params.Set("pttype", "1")
-	params.Set("service", "ptqrlogin")
-	params.Set("nodirect", "0")
 
 	req, err := http.NewRequest("GET", qqQRCheckAPI+"?"+params.Encode(), nil)
 	if err != nil {
@@ -146,7 +147,7 @@ func (q *QQ) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 	req.Header.Set("Referer", "https://xui.ptlogin2.qq.com/")
-	req.Header.Set("Cookie", "qrsig="+qrsig)
+	req.Header.Set("Cookie", joinCookieMap(sessionCookies))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -171,10 +172,13 @@ func (q *QQ) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 		return result, nil
 	}
 
-	cookies := responseCookies(resp)
+	cookies := cloneCookieMap(sessionCookies)
+	for k, v := range responseCookies(resp) {
+		cookies[k] = v
+	}
 	strongSaved := false
 	if uin != "" && sigx != "" {
-		strongCookies, extra, err := fetchQQConnectLoginCookies(uin, sigx)
+		strongCookies, extra, err := fetchQQConnectLoginCookies(uin, sigx, cookies)
 		if err == nil {
 			for k, v := range strongCookies {
 				cookies[k] = v
@@ -415,8 +419,8 @@ func parseQQWXQRCheck(raw string) (code, wxCode string) {
 	return code, wxCode
 }
 
-func fetchQQConnectLoginCookies(uin, sigx string) (map[string]string, map[string]string, error) {
-	checkCookies, err := fetchQQCheckSigCookies(uin, sigx)
+func fetchQQConnectLoginCookies(uin, sigx string, baseCookies map[string]string) (map[string]string, map[string]string, error) {
+	checkCookies, err := fetchQQCheckSigCookies(uin, sigx, baseCookies)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -444,7 +448,7 @@ func fetchQQConnectLoginCookies(uin, sigx string) (map[string]string, map[string
 	return normalizeQQMusicCookies(checkCookies), extra, nil
 }
 
-func fetchQQCheckSigCookies(uin, sigx string) (map[string]string, error) {
+func fetchQQCheckSigCookies(uin, sigx string, baseCookies map[string]string) (map[string]string, error) {
 	params := url.Values{}
 	params.Set("uin", uin)
 	params.Set("pttype", "1")
@@ -472,12 +476,18 @@ func fetchQQCheckSigCookies(uin, sigx string) (map[string]string, error) {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 	req.Header.Set("Referer", "https://xui.ptlogin2.qq.com/")
+	if len(baseCookies) > 0 {
+		req.Header.Set("Cookie", joinCookieMap(baseCookies))
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	cookies := responseCookies(resp)
+	cookies := cloneCookieMap(baseCookies)
+	for k, v := range responseCookies(resp) {
+		cookies[k] = v
+	}
 	if strings.TrimSpace(cookies["p_skey"]) == "" {
 		return nil, fmt.Errorf("qq connect check_sig did not return p_skey")
 	}
@@ -882,6 +892,36 @@ func normalizeQQLoginType(loginType string) string {
 	default:
 		return "qq"
 	}
+}
+
+func parseCookieString(cookie string) map[string]string {
+	result := map[string]string{}
+	for _, part := range strings.Split(cookie, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k != "" && v != "" {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+func cloneCookieMap(cookies map[string]string) map[string]string {
+	cloned := make(map[string]string, len(cookies))
+	for k, v := range cookies {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+			cloned[k] = v
+		}
+	}
+	return cloned
 }
 
 func joinCookieMap(cookies map[string]string) string {
