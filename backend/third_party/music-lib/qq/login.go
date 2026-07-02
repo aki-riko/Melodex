@@ -475,6 +475,7 @@ func fetchQQCheckSigCookiesFromURL(initialURL string, baseCookies map[string]str
 	referer := "https://xui.ptlogin2.qq.com/"
 	lastStatus := 0
 	lastLocation := ""
+	seenFallbackAuth := false
 
 	for i := 0; i < 5 && currentURL != ""; i++ {
 		req, err := http.NewRequest("GET", currentURL, nil)
@@ -500,8 +501,11 @@ func fetchQQCheckSigCookiesFromURL(initialURL string, baseCookies map[string]str
 		}
 		resp.Body.Close()
 
-		if hasQQConnectAuthCookies(cookies) {
+		if firstNonEmptyQQ(cookies["p_skey"], cookies["skey"]) != "" {
 			return cookies, nil
+		}
+		if hasQQConnectAuthCookies(cookies) {
+			seenFallbackAuth = true
 		}
 		if location == "" || resp.StatusCode < 300 || resp.StatusCode >= 400 {
 			break
@@ -521,6 +525,9 @@ func fetchQQCheckSigCookiesFromURL(initialURL string, baseCookies map[string]str
 		currentURL = nextURL.String()
 	}
 
+	if seenFallbackAuth || hasQQConnectAuthCookies(cookies) {
+		return cookies, nil
+	}
 	return nil, fmt.Errorf("qq connect check_sig did not return auth cookies; status=%d location=%s cookies=%s", lastStatus, safeLocation(lastLocation), strings.Join(cookieNames(cookies), ","))
 }
 
@@ -564,6 +571,7 @@ func hasQQConnectAuthCookies(cookies map[string]string) bool {
 func fetchQQAuthorizeCode(cookies map[string]string) (string, map[string]string, string, error) {
 	var lastErr error
 	tried := []string{}
+	failures := []string{}
 	for _, candidate := range qqAuthorizeTokenCandidates(cookies) {
 		if candidate.name != "default_5381" && candidate.token == "" {
 			continue
@@ -574,11 +582,12 @@ func fetchQQAuthorizeCode(cookies map[string]string) (string, map[string]string,
 			return code, authCookies, candidate.name, nil
 		}
 		lastErr = err
+		failures = append(failures, err.Error())
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no usable token candidates")
 	}
-	return "", nil, "", fmt.Errorf("qq connect authorize failed; tried=%s; last=%v", strings.Join(tried, ","), lastErr)
+	return "", nil, "", fmt.Errorf("qq connect authorize failed; tried=%s; failures=[%s]; last=%v", strings.Join(tried, ","), strings.Join(failures, " | "), lastErr)
 }
 
 func fetchQQAuthorizeCodeWithToken(cookies map[string]string, candidate qqAuthorizeTokenCandidate) (string, map[string]string, error) {
