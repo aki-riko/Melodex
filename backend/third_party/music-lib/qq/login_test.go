@@ -1,6 +1,9 @@
 package qq
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseQQQRCheckExtractsStrongLoginInputs(t *testing.T) {
 	raw := `ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?pttype=1&uin=12345678&service=ptqrlogin&nodirect=0&ptsigx=SIGX+TOKEN&s_url=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump&ptlang=2052&ptredirect=100&aid=716027609&daid=383&j_later=0&low_login_hour=0&regmaster=0&pt_login_type=3&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=100497308','0','登录成功！','nickname');`
@@ -75,5 +78,22 @@ func TestParseCookieString(t *testing.T) {
 	}
 	if _, ok := got["empty"]; ok {
 		t.Fatalf("empty cookie should be skipped: %#v", got)
+	}
+}
+
+func TestCookieNamesDoNotExposeValues(t *testing.T) {
+	got := strings.Join(cookieNames(map[string]string{"qrsig": "SECRET", "p_skey": "KEY"}), ",")
+	if got != "p_skey,qrsig" {
+		t.Fatalf("cookie names = %q", got)
+	}
+	if strings.Contains(got, "SECRET") || strings.Contains(got, "KEY") {
+		t.Fatalf("cookie names leaked values: %q", got)
+	}
+}
+
+func TestSafeLocationDropsQuery(t *testing.T) {
+	got := safeLocation("https://graph.qq.com/oauth2.0/login_jump?code=SECRET")
+	if got != "https://graph.qq.com/oauth2.0/login_jump" {
+		t.Fatalf("safeLocation = %q", got)
 	}
 }
