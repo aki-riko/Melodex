@@ -122,17 +122,29 @@ func TestFetchQQCheckSigCookiesFollowsRedirects(t *testing.T) {
 }
 
 func TestFetchQQCheckSigCookiesAcceptsQQConnectFallbackCookies(t *testing.T) {
+	visitedJump := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.SetCookie(w, &http.Cookie{Name: "pt_oauth_token", Value: "OAUTH"})
-		http.SetCookie(w, &http.Cookie{Name: "superkey", Value: "SUPERKEY"})
-		http.SetCookie(w, &http.Cookie{Name: "supertoken", Value: "SUPERTOKEN"})
-		w.WriteHeader(http.StatusOK)
+		switch r.URL.Path {
+		case "/start":
+			http.SetCookie(w, &http.Cookie{Name: "pt_oauth_token", Value: "OAUTH"})
+			http.SetCookie(w, &http.Cookie{Name: "superkey", Value: "SUPERKEY"})
+			http.Redirect(w, r, "/login_jump", http.StatusFound)
+		case "/login_jump":
+			visitedJump = true
+			http.SetCookie(w, &http.Cookie{Name: "supertoken", Value: "SUPERTOKEN"})
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer server.Close()
 
-	got, err := fetchQQCheckSigCookiesFromURL(server.URL, map[string]string{"qrsig": "abc"})
+	got, err := fetchQQCheckSigCookiesFromURL(server.URL+"/start", map[string]string{"qrsig": "abc"})
 	if err != nil {
 		t.Fatalf("fetchQQCheckSigCookiesFromURL returned error: %v", err)
+	}
+	if !visitedJump {
+		t.Fatal("fallback auth cookies should not stop the login_jump redirect")
 	}
 	if got["p_skey"] != "" || got["skey"] != "" {
 		t.Fatalf("test setup should not return p_skey/skey: %#v", got)
