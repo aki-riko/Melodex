@@ -1,6 +1,8 @@
 package qq
 
 import (
+	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,8 +13,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/eclipse/paho.golang/autopaho"
+	"github.com/eclipse/paho.golang/paho"
 	"github.com/guohuiyuan/music-lib/model"
 )
 
@@ -23,11 +28,34 @@ const (
 	qqWXQRCheckAPI   = "https://lp.open.weixin.qq.com/connect/l/qrconnect"
 	qqWXRedirectURI  = "https://y.qq.com/portal/wx_redirect.html?login_type=2&surl=https://y.qq.com/"
 	qqWXAppID        = "wx48db31d50e334801"
+	qqMobileQRAPI    = "https://u.y.qq.com/cgi-bin/musicu.fcg"
+	qqMobileMQTTURL  = "wss://mu.y.qq.com:443/ws/handshake"
+	qqMobileQRTTL    = 15 * time.Minute
+)
+
+type qqMobileQRState struct {
+	Status    model.QRLoginStatus
+	Message   string
+	Cookie    string
+	Cookies   map[string]string
+	Extra     map[string]string
+	ExpiresAt time.Time
+}
+
+var (
+	qqMobileQRMu      sync.Mutex
+	qqMobileQRPending = map[string]*qqMobileQRState{}
 )
 
 func CreateQRLogin() (*model.QRLoginSession, error) { return defaultQQ.CreateQRLogin() }
 
 func CheckQRLogin(key string) (*model.QRLoginResult, error) { return defaultQQ.CheckQRLogin(key) }
+
+func CreateMobileQRLogin() (*model.QRLoginSession, error) { return defaultQQ.CreateMobileQRLogin() }
+
+func CheckMobileQRLogin(key string) (*model.QRLoginResult, error) {
+	return defaultQQ.CheckMobileQRLogin(key)
+}
 
 func CreateWXQRLogin() (*model.QRLoginSession, error) { return defaultQQ.CreateWXQRLogin() }
 
@@ -43,6 +71,8 @@ func CheckQRLoginByType(loginType, key string) (*model.QRLoginResult, error) {
 
 func (q *QQ) CreateQRLoginByType(loginType string) (*model.QRLoginSession, error) {
 	switch normalizeQQLoginType(loginType) {
+	case "mobile":
+		return q.CreateMobileQRLogin()
 	case "wx":
 		return q.CreateWXQRLogin()
 	default:
@@ -52,6 +82,8 @@ func (q *QQ) CreateQRLoginByType(loginType string) (*model.QRLoginSession, error
 
 func (q *QQ) CheckQRLoginByType(loginType, key string) (*model.QRLoginResult, error) {
 	switch normalizeQQLoginType(loginType) {
+	case "mobile":
+		return q.CheckMobileQRLogin(key)
 	case "wx":
 		return q.CheckWXQRLogin(key)
 	default:
@@ -208,6 +240,89 @@ func (q *QQ) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 	q.cookie = result.Cookie
 	q.isVipCache = nil
 	return result, nil
+}
+
+func (q *QQ) CreateMobileQRLogin() (*model.QRLoginSession, error) {
+	cleanupQQMobileQRPending()
+	data, err := qqMobileCreateQRCode()
+	if err != nil {
+		return nil, err
+	}
+	qrcode := strings.TrimSpace(stringFromMap(data, "qrcode"))
+	qrcodeID := strings.TrimSpace(stringFromMap(data, "qrcodeID", "qrcode_id"))
+	if qrcode == "" || qrcodeID == "" {
+		return nil, fmt.Errorf("qq mobile qr missing qrcode/qrcodeID")
+	}
+	expiresIn := int64FromMap(data, "expiresIn", "expires_in")
+	if expiresIn <= 0 {
+		expiresIn = int64(qqMobileQRTTL / time.Second)
+	}
+
+	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	key := url.Values{}
+	key.Set("type", "mobile")
+	key.Set("qrcode_id", qrcodeID)
+	rememberQQMobileQR(qrcodeID, &qqMobileQRState{
+		Status:    model.QRLoginStatusWaiting,
+		Message:   "等待扫码中",
+		ExpiresAt: expiresAt,
+		Extra: map[string]string{
+			"login_type": "mobile",
+		},
+	})
+	go q.waitQQMobileQRLogin(qrcodeID, expiresAt)
+
+	return &model.QRLoginSession{
+		Source:    "qq",
+		Key:       key.Encode(),
+		ImageURL:  qrcode,
+		ExpiresAt: expiresAt.Unix(),
+		Extra: map[string]string{
+			"login_type": "mobile",
+			"qrcode_id":  qrcodeID,
+		},
+	}, nil
+}
+
+func (q *QQ) CheckMobileQRLogin(key string) (*model.QRLoginResult, error) {
+	values, err := url.ParseQuery(key)
+	if err != nil {
+		return nil, err
+	}
+	qrcodeID := strings.TrimSpace(values.Get("qrcode_id"))
+	if qrcodeID == "" {
+		return nil, fmt.Errorf("qq mobile qr login key missing qrcode_id")
+	}
+	state, ok := getQQMobileQR(qrcodeID)
+	if !ok {
+		return &model.QRLoginResult{
+			Source:  "qq",
+			Key:     key,
+			Status:  model.QRLoginStatusExpired,
+			Message: "二维码已过期,请刷新",
+			Extra: map[string]string{
+				"login_type": "mobile",
+			},
+		}, nil
+	}
+	if time.Now().After(state.ExpiresAt) && state.Status != model.QRLoginStatusSuccess {
+		state.Status = model.QRLoginStatusExpired
+		state.Message = "二维码已过期,请刷新"
+		updateQQMobileQR(qrcodeID, state)
+	}
+	if state.Status == model.QRLoginStatusSuccess {
+		q.cookie = state.Cookie
+		q.isVipCache = nil
+	}
+	return &model.QRLoginResult{
+		Source:  "qq",
+		Key:     key,
+		Status:  state.Status,
+		Message: state.Message,
+		Cookie:  state.Cookie,
+		Cookies: cloneCookieMap(state.Cookies),
+		Extra:   cloneCookieMap(state.Extra),
+	}, nil
 }
 
 func (q *QQ) CreateWXQRLogin() (*model.QRLoginSession, error) {
@@ -731,6 +846,278 @@ func fetchQQConnectLoginServerCookies(code string) (map[string]string, map[strin
 	return nil, nil, lastErr
 }
 
+func qqMobileCreateQRCode() (map[string]interface{}, error) {
+	return qqMobileMusicuRequest(
+		"music.login.LoginServer",
+		"CreateQRCode",
+		map[string]interface{}{
+			"tmeAppID": "qqmusic",
+			"ct":       11,
+			"cv":       14090008,
+		},
+		map[string]interface{}{
+			"ct": 23,
+			"cv": 0,
+		},
+	)
+}
+
+func (q *QQ) waitQQMobileQRLogin(qrcodeID string, expiresAt time.Time) {
+	ctx, cancel := context.WithDeadline(context.Background(), expiresAt)
+	defer cancel()
+
+	messages := make(chan *paho.Publish, 8)
+	brokerURL, err := url.Parse(qqMobileMQTTURL)
+	if err != nil {
+		failQQMobileQR(qrcodeID, err)
+		return
+	}
+	clientID := fmt.Sprintf("%d%d", time.Now().UnixMilli(), time.Now().Nanosecond()%9000+1000)
+	cfg := autopaho.ClientConfig{
+		ServerUrls:                    []*url.URL{brokerURL},
+		TlsCfg:                        &tls.Config{MinVersion: tls.VersionTLS12},
+		KeepAlive:                     45,
+		CleanStartOnInitialConnection: true,
+		ConnectTimeout:                20 * time.Second,
+		WebSocketCfg: &autopaho.WebSocketConfig{
+			Header: func(_ *url.URL, _ *tls.Config) http.Header {
+				return http.Header{
+					"Origin":     []string{"https://y.qq.com"},
+					"Referer":    []string{"https://y.qq.com/"},
+					"User-Agent": []string{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"},
+				}
+			},
+		},
+		ConnectPacketBuilder: func(connect *paho.Connect, _ *url.URL) (*paho.Connect, error) {
+			if connect.Properties == nil {
+				connect.Properties = &paho.ConnectProperties{}
+			}
+			connect.Properties.AuthMethod = "pass"
+			connect.Properties.User = paho.UserProperties{
+				{Key: "tmeAppID", Value: "qqmusic"},
+				{Key: "business", Value: "management"},
+				{Key: "hashTag", Value: qrcodeID},
+				{Key: "clientTag", Value: "management.user"},
+				{Key: "userID", Value: qrcodeID},
+			}
+			return connect, nil
+		},
+		ClientConfig: paho.ClientConfig{
+			ClientID: clientID,
+			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
+				func(pr paho.PublishReceived) (bool, error) {
+					if pr.Packet == nil {
+						return false, nil
+					}
+					select {
+					case messages <- pr.Packet:
+					default:
+					}
+					return true, nil
+				},
+			},
+		},
+	}
+	cm, err := autopaho.NewConnection(ctx, cfg)
+	if err != nil {
+		failQQMobileQR(qrcodeID, err)
+		return
+	}
+	defer cm.Disconnect(context.Background())
+	connectCtx, connectCancel := context.WithTimeout(ctx, 25*time.Second)
+	err = cm.AwaitConnection(connectCtx)
+	connectCancel()
+	if err != nil {
+		failQQMobileQR(qrcodeID, err)
+		return
+	}
+
+	topic := "management.qrcode_login/" + qrcodeID
+	subCtx, subCancel := context.WithTimeout(ctx, 20*time.Second)
+	_, err = cm.Subscribe(subCtx, &paho.Subscribe{
+		Subscriptions: []paho.SubscribeOptions{{Topic: topic, QoS: 0}},
+		Properties: &paho.SubscribeProperties{
+			User: paho.UserProperties{
+				{Key: "authorization", Value: "tmelogin"},
+				{Key: "pubsub", Value: "unicast"},
+			},
+		},
+	})
+	subCancel()
+	if err != nil {
+		failQQMobileQR(qrcodeID, err)
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			expireQQMobileQR(qrcodeID)
+			return
+		case packet := <-messages:
+			done := q.handleQQMobileQRMessage(qrcodeID, packet)
+			if done {
+				return
+			}
+		}
+	}
+}
+
+func (q *QQ) handleQQMobileQRMessage(qrcodeID string, packet *paho.Publish) bool {
+	messageType := ""
+	if packet != nil && packet.Properties != nil {
+		messageType = packet.Properties.User.Get("type")
+	}
+	switch messageType {
+	case "scanned":
+		markQQMobileQRScanned(qrcodeID)
+	case "canceled":
+		setQQMobileQRFailed(qrcodeID, "用户取消登录")
+		return true
+	case "timeout":
+		expireQQMobileQR(qrcodeID)
+		return true
+	case "loginFailed":
+		setQQMobileQRFailed(qrcodeID, "登录失败")
+		return true
+	case "cookies":
+		var payload map[string]interface{}
+		if err := json.Unmarshal(packet.Payload, &payload); err != nil {
+			setQQMobileQRFailed(qrcodeID, "登录消息解析失败")
+			return true
+		}
+		uin := nestedCookieValue(payload, "qqmusic_uin")
+		token := nestedCookieValue(payload, "qqmusic_key")
+		if uin == "" || token == "" {
+			setQQMobileQRFailed(qrcodeID, "登录消息缺少 qqmusic_uin/qqmusic_key")
+			return true
+		}
+		cookies, extra, err := qqMobileLoginWithQRCode(qrcodeID, uin, token)
+		if err != nil {
+			failQQMobileQR(qrcodeID, err)
+			return true
+		}
+		completeQQMobileQR(qrcodeID, cookies, extra)
+		q.cookie = joinCookieMap(cookies)
+		q.isVipCache = nil
+		return true
+	}
+	return false
+}
+
+func qqMobileLoginWithQRCode(qrcodeID, uin, token string) (map[string]string, map[string]string, error) {
+	musicIDValue := interface{}(uin)
+	if parsed, err := strconv.ParseInt(uin, 10, 64); err == nil {
+		musicIDValue = parsed
+	}
+	data, err := qqMobileMusicuRequest(
+		"music.login.LoginServer",
+		"Login",
+		map[string]interface{}{
+			"musicid":  musicIDValue,
+			"qrCodeID": qrcodeID,
+			"token":    token,
+		},
+		map[string]interface{}{
+			"tmeLoginType": 6,
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	credential, err := qqMobileCredentialData(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	cookies := qqLoginDataCookies(credential)
+	if len(cookies) == 0 || firstNonEmptyQQ(cookies["musickey"], cookies["qqmusic_key"], cookies["qm_keyst"]) == "" {
+		return nil, nil, fmt.Errorf("qq mobile login returned no musickey; keys=%s", strings.Join(mapKeys(credential), ","))
+	}
+	extra := map[string]string{
+		"login_type":        "mobile",
+		"credential_source": "qq_mobile_qr",
+	}
+	return normalizeQQMusicCookies(cookies), extra, nil
+}
+
+func qqMobileMusicuRequest(module, method string, param, comm map[string]interface{}) (map[string]interface{}, error) {
+	finalComm := qqMobileBaseComm()
+	for k, v := range comm {
+		finalComm[k] = v
+	}
+	payload := map[string]interface{}{
+		"comm": finalComm,
+		"req_0": map[string]interface{}{
+			"module": module,
+			"method": method,
+			"param":  param,
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", qqMobileQRAPI, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "QQMusic 14090008(android 10)")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("qq mobile musicu http status %d", resp.StatusCode)
+	}
+	var parsed struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Msg     string `json:"msg"`
+		Req0    struct {
+			Code    int                    `json:"code"`
+			Message string                 `json:"message"`
+			Msg     string                 `json:"msg"`
+			Data    map[string]interface{} `json:"data"`
+		} `json:"req_0"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, fmt.Errorf("qq mobile musicu json parse error: %w", err)
+	}
+	if parsed.Code != 0 || parsed.Req0.Code != 0 {
+		msg := firstNonEmptyQQ(parsed.Req0.Message, parsed.Req0.Msg, parsed.Message, parsed.Msg)
+		return nil, fmt.Errorf("qq mobile musicu api error: %s (code %d, req code %d)", msg, parsed.Code, parsed.Req0.Code)
+	}
+	return parsed.Req0.Data, nil
+}
+
+func qqMobileBaseComm() map[string]interface{} {
+	guid := "0123456789abcdef0123456789abcdef"
+	return map[string]interface{}{
+		"ct":             11,
+		"cv":             14090008,
+		"v":              14090008,
+		"chid":           "10003505",
+		"tmeAppID":       "qqmusic",
+		"QIMEI":          "",
+		"QIMEI36":        "",
+		"OpenUDID":       guid,
+		"udid":           guid,
+		"OpenUDID2":      guid,
+		"aid":            "0123456789abcdef",
+		"os_ver":         "10",
+		"phonetype":      "MI 6",
+		"devicelevel":    "29",
+		"newdevicelevel": "29",
+		"rom":            "xiaomi/iarim/sagit:10/eomam.200122.001/1234567:user/release-keys",
+	}
+}
+
 func fetchQQWXLoginCookies(wxCode string) (map[string]string, map[string]string, error) {
 	payload, err := json.Marshal(map[string]interface{}{
 		"comm": map[string]interface{}{
@@ -943,6 +1330,195 @@ func fetchQQRedirectCookies(redirectURL string, cookies map[string]string) (map[
 	return collected, nil
 }
 
+func rememberQQMobileQR(qrcodeID string, state *qqMobileQRState) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	qqMobileQRPending[qrcodeID] = state
+}
+
+func getQQMobileQR(qrcodeID string) (*qqMobileQRState, bool) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	state, ok := qqMobileQRPending[qrcodeID]
+	if !ok || state == nil {
+		return nil, false
+	}
+	cloned := &qqMobileQRState{
+		Status:    state.Status,
+		Message:   state.Message,
+		Cookie:    state.Cookie,
+		Cookies:   cloneCookieMap(state.Cookies),
+		Extra:     cloneCookieMap(state.Extra),
+		ExpiresAt: state.ExpiresAt,
+	}
+	return cloned, true
+}
+
+func updateQQMobileQR(qrcodeID string, state *qqMobileQRState) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	if _, ok := qqMobileQRPending[qrcodeID]; ok {
+		qqMobileQRPending[qrcodeID] = state
+	}
+}
+
+func markQQMobileQRScanned(qrcodeID string) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	if state := qqMobileQRPending[qrcodeID]; state != nil && state.Status == model.QRLoginStatusWaiting {
+		state.Status = model.QRLoginStatusScanned
+		state.Message = "已扫码,请在手机上确认"
+	}
+}
+
+func completeQQMobileQR(qrcodeID string, cookies map[string]string, extra map[string]string) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	if state := qqMobileQRPending[qrcodeID]; state != nil {
+		state.Status = model.QRLoginStatusSuccess
+		state.Message = "登录成功"
+		state.Cookies = normalizeQQMusicCookies(cookies)
+		state.Cookie = joinCookieMap(state.Cookies)
+		state.Extra = cloneCookieMap(extra)
+	}
+}
+
+func setQQMobileQRFailed(qrcodeID, message string) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	if state := qqMobileQRPending[qrcodeID]; state != nil && state.Status != model.QRLoginStatusSuccess {
+		state.Status = model.QRLoginStatusFailed
+		state.Message = strings.TrimSpace(message)
+		if state.Message == "" {
+			state.Message = "登录失败"
+		}
+	}
+}
+
+func failQQMobileQR(qrcodeID string, err error) {
+	if err == nil {
+		setQQMobileQRFailed(qrcodeID, "登录失败")
+		return
+	}
+	setQQMobileQRFailed(qrcodeID, err.Error())
+}
+
+func expireQQMobileQR(qrcodeID string) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	if state := qqMobileQRPending[qrcodeID]; state != nil && state.Status != model.QRLoginStatusSuccess {
+		state.Status = model.QRLoginStatusExpired
+		state.Message = "二维码已过期,请刷新"
+	}
+}
+
+func cleanupQQMobileQRPending() {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	now := time.Now()
+	for key, state := range qqMobileQRPending {
+		if state == nil || now.After(state.ExpiresAt.Add(2*time.Minute)) {
+			delete(qqMobileQRPending, key)
+		}
+	}
+}
+
+func qqMobileCredentialData(data map[string]interface{}) (map[string]interface{}, error) {
+	if data == nil {
+		return nil, fmt.Errorf("qq mobile login returned empty data")
+	}
+	if nested, ok := data["data"].(map[string]interface{}); ok {
+		if code, ok := numberAsInt64(data["code"]); ok && code != 0 {
+			return nil, fmt.Errorf("qq mobile login api error code %d", code)
+		}
+		return nested, nil
+	}
+	if _, ok := data["musickey"]; ok {
+		return data, nil
+	}
+	if _, ok := data["musicid"]; ok {
+		return data, nil
+	}
+	return data, nil
+}
+
+func nestedCookieValue(payload map[string]interface{}, name string) string {
+	cookies, _ := payload["cookies"].(map[string]interface{})
+	if cookies == nil {
+		return ""
+	}
+	item, _ := cookies[name].(map[string]interface{})
+	if item == nil {
+		return ""
+	}
+	return strings.TrimSpace(stringFromInterface(item["value"]))
+}
+
+func stringFromMap(data map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value := stringFromInterface(data[key]); strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func int64FromMap(data map[string]interface{}, keys ...string) int64 {
+	for _, key := range keys {
+		if value, ok := numberAsInt64(data[key]); ok {
+			return value
+		}
+	}
+	return 0
+}
+
+func stringFromInterface(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case float64:
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case json.Number:
+		return v.String()
+	default:
+		return ""
+	}
+}
+
+func numberAsInt64(value interface{}) (int64, bool) {
+	switch v := value.(type) {
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	case json.Number:
+		n, err := v.Int64()
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func mapKeys(data map[string]interface{}) []string {
+	keys := make([]string, 0, len(data))
+	for key, value := range data {
+		if strings.TrimSpace(key) != "" && value != nil {
+			keys = append(keys, strings.TrimSpace(key))
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func normalizeQQMusicCookies(cookies map[string]string) map[string]string {
 	result := make(map[string]string, len(cookies)+4)
 	for k, v := range cookies {
@@ -988,6 +1564,8 @@ func firstNonEmptyQQ(values ...string) string {
 func normalizeQQLoginType(loginType string) string {
 	loginType = strings.ToLower(strings.TrimSpace(loginType))
 	switch loginType {
+	case "mobile", "app", "qqmusic", "qq_music":
+		return "mobile"
 	case "wx", "wechat", "weixin":
 		return "wx"
 	default:

@@ -367,7 +367,11 @@ func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 	case "netease":
 		return netease.CreateQRLogin
 	case "qq":
+		return qq.CreateMobileQRLogin
+	case "qq_connect":
 		return qq.CreateQRLogin
+	case "qq_mobile":
+		return qq.CreateMobileQRLogin
 	case "qq_wx":
 		return qq.CreateWXQRLogin
 	case "kugou":
@@ -386,7 +390,11 @@ func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
 	case "netease":
 		return netease.CheckQRLogin
 	case "qq":
+		return qq.CheckMobileQRLogin
+	case "qq_connect":
 		return qq.CheckQRLogin
+	case "qq_mobile":
+		return qq.CheckMobileQRLogin
 	case "qq_wx":
 		return qq.CheckWXQRLogin
 	case "kugou":
