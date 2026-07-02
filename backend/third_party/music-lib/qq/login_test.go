@@ -121,6 +121,46 @@ func TestFetchQQCheckSigCookiesFollowsRedirects(t *testing.T) {
 	}
 }
 
+func TestFetchQQCheckSigCookiesAcceptsQQConnectFallbackCookies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "pt_oauth_token", Value: "OAUTH"})
+		http.SetCookie(w, &http.Cookie{Name: "superkey", Value: "SUPERKEY"})
+		http.SetCookie(w, &http.Cookie{Name: "supertoken", Value: "SUPERTOKEN"})
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	got, err := fetchQQCheckSigCookiesFromURL(server.URL, map[string]string{"qrsig": "abc"})
+	if err != nil {
+		t.Fatalf("fetchQQCheckSigCookiesFromURL returned error: %v", err)
+	}
+	if got["p_skey"] != "" || got["skey"] != "" {
+		t.Fatalf("test setup should not return p_skey/skey: %#v", got)
+	}
+	if got["superkey"] != "SUPERKEY" || got["pt_oauth_token"] != "OAUTH" {
+		t.Fatalf("fallback cookies not preserved: %#v", got)
+	}
+}
+
+func TestQQAuthorizeTokenCandidatesIncludeConnectFallbacks(t *testing.T) {
+	got := qqAuthorizeTokenCandidates(map[string]string{
+		"pt_oauth_token": "OAUTH",
+		"superkey":       "SUPERKEY",
+		"supertoken":     "SUPERTOKEN",
+	})
+	names := make([]string, 0, len(got))
+	for _, candidate := range got {
+		if candidate.token != "" || candidate.name == "default_5381" {
+			names = append(names, candidate.name)
+		}
+	}
+	joined := strings.Join(names, ",")
+	want := "superkey,supertoken,pt_oauth_token,default_5381"
+	if joined != want {
+		t.Fatalf("candidate names = %q, want %q", joined, want)
+	}
+}
+
 func TestSafeLocationDropsQuery(t *testing.T) {
 	got := safeLocation("https://graph.qq.com/oauth2.0/login_jump?code=SECRET")
 	if got != "https://graph.qq.com/oauth2.0/login_jump" {
