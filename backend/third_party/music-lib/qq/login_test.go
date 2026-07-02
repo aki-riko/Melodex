@@ -64,3 +64,16 @@ func TestQQLoginDataCookiesPreservesStrongCredentialFields(t *testing.T) {
 		}
 	}
 }
+
+func TestParseCookieString(t *testing.T) {
+	got := parseCookieString("qrsig=abc; pt_login_sig=def ; empty= ; invalid")
+	if got["qrsig"] != "abc" {
+		t.Fatalf("qrsig = %q, want abc", got["qrsig"])
+	}
+	if got["pt_login_sig"] != "def" {
+		t.Fatalf("pt_login_sig = %q, want def", got["pt_login_sig"])
+	}
+	if _, ok := got["empty"]; ok {
+		t.Fatalf("empty cookie should be skipped: %#v", got)
+	}
+}
