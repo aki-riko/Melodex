@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 func GetDownloadURL(s *model.Song) (string, error) { return defaultMigu.GetDownloadURL(s) }
@@ -95,6 +96,7 @@ func buildMiguListenSongURL(contentID, resourceType, formatType string) string {
 func (m *Migu) fetchListenSongLocation(contentID, resourceType, formatType string) (string, bool, error) {
 	apiURL := buildMiguListenSongURL(contentID, resourceType, formatType)
 	client := &http.Client{
+		Timeout: 8 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

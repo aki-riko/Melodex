@@ -16,12 +16,16 @@ import { useAuth } from '../contexts/AuthContext';
 const SOURCE_LABELS = {
   netease: '网易云音乐',
   qq: 'QQ音乐',
-  qq_wx: 'QQ音乐(微信)',
+  qq_wx: 'QQ音乐 · 微信入口',
   kugou: '酷狗音乐',
   kuwo: '酷我音乐',
   migu: '咪咕音乐',
   bilibili: '哔哩哔哩',
   soda: '汽水音乐',
+};
+
+const SOURCE_NOTES = {
+  qq_wx: '微信入口共用 QQ 音乐凭证;登录成功后会更新 QQ 音乐 Cookie。退出或手填 Cookie 请使用 QQ音乐卡片。',
 };
 
 // 各源手填 Cookie 的获取指引:网址 + 关键字段
@@ -79,13 +83,14 @@ const qrExtraFlag = (extra, key) => {
 
 // 二维码登录卡片
 const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
+  const manualSupported = source !== 'qq_wx';
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [sodaSMS, setSodaSMS] = useState(null);
   const [sodaSMSCode, setSodaSMSCode] = useState('');
   const [sodaSMSBusy, setSodaSMSBusy] = useState(false);
-  const [showManual, setShowManual] = useState(!qrSupported);
+  const [showManual, setShowManual] = useState(!qrSupported && manualSupported);
   const [manualCookie, setManualCookie] = useState('');
   const [manualMsg, setManualMsg] = useState('');
   const pollRef = useRef(null);
@@ -226,6 +231,9 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
           <span className="text-xs font-medium px-2 py-0.5 border border-border rounded-md bg-muted text-muted-foreground">未登录</span>
         )}
       </div>
+      {SOURCE_NOTES[source] && (
+        <p className="text-xs leading-relaxed text-muted-foreground bg-muted rounded-md p-2 mb-3">{SOURCE_NOTES[source]}</p>
+      )}
       {session && (session.image_url || session.url) && status !== 'success' && (
         <div className="flex flex-col items-center mb-3">
           <div className="bg-white border border-border rounded-md p-2">
@@ -299,13 +307,15 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
           {session ? '刷新二维码' : '扫码登录'}
         </button>
       )}
-      <button
-        onClick={() => setShowManual((v) => !v)}
-        className={`${qrSupported ? 'mt-2' : ''} w-full text-xs text-muted-foreground hover:text-primary transition-colors`}
-        title="扫码拿不到无损时,可手动粘贴完整 cookie"
-      >
-        {showManual ? (qrSupported ? '收起' : '收起 Cookie') : '手动填 Cookie(拿无损用)'}
-      </button>
+      {manualSupported && (
+        <button
+          onClick={() => setShowManual((v) => !v)}
+          className={`${qrSupported ? 'mt-2' : ''} w-full text-xs text-muted-foreground hover:text-primary transition-colors`}
+          title="扫码拿不到无损时,可手动粘贴完整 cookie"
+        >
+          {showManual ? (qrSupported ? '收起' : '收起 Cookie') : '手动填 Cookie(拿无损用)'}
+        </button>
+      )}
       {showManual && (
         <div className="mt-2">
           {COOKIE_HELP[source] && (
@@ -388,7 +398,7 @@ const Settings = () => {
               return (
               <div key={src}>
                 <QRLoginCard source={src} loggedIn={!!status[src]} onLoggedIn={handleLoggedIn} qrSupported={qrSupported} />
-                {status[src] && (
+                {status[src] && src !== 'qq_wx' && (
                   <button
                     onClick={() => handleLogout(src)}
                     className="w-full mt-2 px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm shadow-brutal-sm transition-colors hover:bg-secondary"
