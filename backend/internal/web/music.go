@@ -886,6 +886,8 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			if !streamPlayback {
 				setDownloadHeader(c, filename)
 			}
+			// 音频写出(慢速客户端拉全曲可能超 30s),解除全局 WriteTimeout。
+			clearWriteDeadline(c)
 			http.ServeContent(c.Writer, c.Request, filename, time.Now(), bytes.NewReader(finalData))
 			return
 		}
@@ -979,6 +981,8 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			setDownloadHeader(c, filename)
 		}
 		c.Status(resp.StatusCode)
+		// 下载/流播放时长不可预期(大文件/长音频),解除全局 WriteTimeout,防被 30s 掐断。
+		clearWriteDeadline(c)
 		io.Copy(c.Writer, resp.Body)
 	}
 	api.GET("/download", downloadHandler)

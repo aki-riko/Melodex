@@ -1415,6 +1415,8 @@ func serveLocalMusicDownload(c *gin.Context, id string, saveLocal bool) {
 
 	c.Header("Content-Type", localAudioMimeByExt(track.Ext))
 	setDownloadHeader(c, track.Filename)
+	// 本地音频文件(无损可达数十 MB,慢速客户端拉全曲可能超 30s),解除全局 WriteTimeout。
+	clearWriteDeadline(c)
 	http.ServeContent(c.Writer, c.Request, track.Filename, track.modTime, file)
 }
 
