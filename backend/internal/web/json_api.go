@@ -149,7 +149,10 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 
 	// 支持二维码登录的源(只读,公开)
 	api.GET("/qr_login/sources", func(c *gin.Context) {
-		c.JSON(200, gin.H{"sources": core.GetQRLoginSourceNames()})
+		c.JSON(200, gin.H{
+			"sources":        core.GetQRLoginSourceNames(),
+			"cookie_sources": core.GetCookieSourceNames(),
+		})
 	})
 
 	// 账号鉴权接口(登录/登出/注册/初始化/当前用户)。见 auth_api.go。
@@ -226,13 +229,17 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 		for src, v := range all {
 			status[src] = strings.TrimSpace(v) != ""
 		}
+		for _, src := range core.GetCookieSourceNames() {
+			cookieSource := qrLoginCookieSource(src)
+			status[src] = strings.TrimSpace(all[cookieSource]) != ""
+		}
 		c.JSON(200, gin.H{"logged_in": status})
 	})
 
 	// 清除某源 cookie(退出登录)。SetAll 对空值执行删除(见 core.CookieManager.SetAll)。
 	api.DELETE("/cookies/:source", func(c *gin.Context) {
 		source := strings.TrimSpace(c.Param("source"))
-		core.CM.SetAll(map[string]string{source: ""})
+		core.CM.SetAll(map[string]string{qrLoginCookieSource(source): ""})
 		core.CM.Save()
 		c.JSON(200, gin.H{"status": "ok"})
 	})
@@ -248,7 +255,7 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 			c.JSON(400, gin.H{"error": "cookie 不能为空"})
 			return
 		}
-		core.CM.SetAll(map[string]string{source: strings.TrimSpace(req.Cookie)})
+		core.CM.SetAll(map[string]string{qrLoginCookieSource(source): strings.TrimSpace(req.Cookie)})
 		core.CM.Save()
 		c.JSON(200, gin.H{"status": "ok"})
 	})

@@ -18,7 +18,10 @@ const SOURCE_LABELS = {
   qq: 'QQ音乐',
   qq_wx: 'QQ音乐(微信)',
   kugou: '酷狗音乐',
+  kuwo: '酷我音乐',
+  migu: '咪咕音乐',
   bilibili: '哔哩哔哩',
+  soda: '汽水音乐',
 };
 
 // 各源手填 Cookie 的获取指引:网址 + 关键字段
@@ -27,7 +30,10 @@ const COOKIE_HELP = {
   qq: { url: 'https://y.qq.com', key: 'qm_keyst' },
   qq_wx: { url: 'https://y.qq.com', key: 'qm_keyst' },
   kugou: { url: 'https://www.kugou.com', key: 'kg_mid / token' },
+  kuwo: { url: 'https://www.kuwo.cn', key: 'kw_token' },
+  migu: { url: 'https://music.migu.cn', key: 'migu / passport' },
   bilibili: { url: 'https://www.bilibili.com', key: 'SESSDATA' },
+  soda: { url: 'https://www.qishui.com', key: 'sessionid / passport' },
 };
 
 const STATUS_TEXT = {
@@ -66,12 +72,20 @@ const qrLoginNote = (source, result) => {
   return '';
 };
 
+const qrExtraFlag = (extra, key) => {
+  const value = String((extra || {})[key] || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
+};
+
 // 二维码登录卡片
-const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
+const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
-  const [showManual, setShowManual] = useState(false);
+  const [sodaSMS, setSodaSMS] = useState(null);
+  const [sodaSMSCode, setSodaSMSCode] = useState('');
+  const [sodaSMSBusy, setSodaSMSBusy] = useState(false);
+  const [showManual, setShowManual] = useState(!qrSupported);
   const [manualCookie, setManualCookie] = useState('');
   const [manualMsg, setManualMsg] = useState('');
   const pollRef = useRef(null);
@@ -99,10 +113,83 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
 
   useEffect(() => () => stopPoll(), []);
 
+  const rememberSodaSMS = (result) => {
+    const extra = result?.extra || {};
+    if (source !== 'soda' || !qrExtraFlag(extra, 'need_sms')) return false;
+    setSodaSMS({
+      encryptUID: String(extra.encrypt_uid || '').trim(),
+      verifyParams: String(extra.verify_params || '').trim(),
+      mobile: String(extra.mobile || '').trim(),
+      codeSent: qrExtraFlag(extra, 'need_sms_code'),
+      mode: qrExtraFlag(extra, 'need_user_sms') || String(extra.sms_mode || '').toLowerCase() === 'up' ? 'up' : '',
+      upSMSMobile: String(extra.up_sms_mobile || '').trim(),
+      upSMSContent: String(extra.up_sms_content || '').trim(),
+    });
+    return true;
+  };
+
+  const sodaActionKey = (action, code = '') => {
+    if (!session?.key || !sodaSMS?.encryptUID || !sodaSMS?.verifyParams) return '';
+    const parts = [session.key, action, sodaSMS.encryptUID, sodaSMS.verifyParams];
+    if (action === 'validate') parts.push(code);
+    return parts.join('|');
+  };
+
+  const handleSodaSMSResult = (result) => {
+    setStatus(result.status);
+    setStatusNote(result.message || qrLoginNote(source, result));
+    rememberSodaSMS(result);
+    if (result.status === 'success') {
+      setSodaSMS(null);
+      setSodaSMSCode('');
+      onLoggedIn();
+    }
+  };
+
+  const sendSodaSMS = async () => {
+    const key = sodaActionKey(sodaSMS?.mode === 'up' ? 'up_sms' : 'send_code');
+    if (!key) {
+      setStatusNote('缺少短信验证参数，请刷新二维码重试');
+      return;
+    }
+    setSodaSMSBusy(true);
+    try {
+      handleSodaSMSResult(await checkQRLogin(source, key));
+    } catch (e) {
+      setStatusNote(e?.message || '短信验证请求失败');
+    } finally {
+      setSodaSMSBusy(false);
+    }
+  };
+
+  const validateSodaSMS = async () => {
+    const code = sodaSMSCode.trim();
+    if (!code) {
+      setStatusNote('请输入验证码');
+      return;
+    }
+    const key = sodaActionKey('validate', code);
+    if (!key) {
+      setStatusNote('缺少短信验证参数，请刷新二维码重试');
+      return;
+    }
+    setSodaSMSBusy(true);
+    try {
+      handleSodaSMSResult(await checkQRLogin(source, key));
+    } catch (e) {
+      setStatusNote(e?.message || '验证码验证失败');
+    } finally {
+      setSodaSMSBusy(false);
+    }
+  };
+
   const startLogin = async () => {
+    if (!qrSupported) return;
     stopPoll();
     setStatus('');
     setStatusNote('');
+    setSodaSMS(null);
+    setSodaSMSCode('');
     try {
       const s = await createQRLogin(source);
       setSession(s);
@@ -115,6 +202,8 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
           if (r.status === 'success') {
             stopPoll();
             onLoggedIn();
+          } else if (rememberSodaSMS(r)) {
+            stopPoll();
           } else if (r.status === 'expired' || r.status === 'failed') {
             stopPoll();
           }
@@ -154,18 +243,68 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn }) => {
       {statusNote && (
         <p className="text-xs leading-relaxed text-muted-foreground bg-muted rounded-md p-2 mb-3">{statusNote}</p>
       )}
-      <button
-        onClick={startLogin}
-        className="w-full px-3 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm shadow-brutal-sm transition-colors hover:bg-[#106EBE]"
-      >
-        {session ? '刷新二维码' : '扫码登录'}
-      </button>
+      {sodaSMS && (
+        <div className="text-xs leading-relaxed text-muted-foreground bg-muted rounded-md p-2 mb-3">
+          {sodaSMS.mode === 'up' ? (
+            <>
+              <p>请按汽水要求发送短信。</p>
+              <p>收件号码: <span className="text-foreground">{sodaSMS.upSMSMobile || '按手机提示'}</span></p>
+              <p>短信内容: <span className="text-foreground">{sodaSMS.upSMSContent || '按手机提示'}</span></p>
+              <button
+                onClick={sendSodaSMS}
+                disabled={sodaSMSBusy}
+                className="mt-2 px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
+              >
+                {sodaSMSBusy ? '确认中...' : '我已发送'}
+              </button>
+            </>
+          ) : (
+            <>
+              <p>{sodaSMS.codeSent ? `验证码已发送${sodaSMS.mobile ? `至 ${sodaSMS.mobile}` : ''}` : `扫码成功${sodaSMS.mobile ? `,可发送验证码至 ${sodaSMS.mobile}` : ',需要短信验证'}`}</p>
+              {!sodaSMS.codeSent && (
+                <button
+                  onClick={sendSodaSMS}
+                  disabled={sodaSMSBusy}
+                  className="mt-2 px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
+                >
+                  {sodaSMSBusy ? '发送中...' : '发送验证码'}
+                </button>
+              )}
+              {sodaSMS.codeSent && (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    value={sodaSMSCode}
+                    onChange={(e) => setSodaSMSCode(e.target.value)}
+                    placeholder="验证码"
+                    className="min-w-0 flex-grow px-2 py-1 border border-border rounded-md bg-card text-xs outline-none focus:border-primary"
+                  />
+                  <button
+                    onClick={validateSodaSMS}
+                    disabled={sodaSMSBusy}
+                    className="px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
+                  >
+                    {sodaSMSBusy ? '验证中...' : '确认登录'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {qrSupported && (
+        <button
+          onClick={startLogin}
+          className="w-full px-3 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm shadow-brutal-sm transition-colors hover:bg-[#106EBE]"
+        >
+          {session ? '刷新二维码' : '扫码登录'}
+        </button>
+      )}
       <button
         onClick={() => setShowManual((v) => !v)}
-        className="w-full mt-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+        className={`${qrSupported ? 'mt-2' : ''} w-full text-xs text-muted-foreground hover:text-primary transition-colors`}
         title="扫码拿不到无损时,可手动粘贴完整 cookie"
       >
-        {showManual ? '收起' : '手动填 Cookie(拿无损用)'}
+        {showManual ? (qrSupported ? '收起' : '收起 Cookie') : '手动填 Cookie(拿无损用)'}
       </button>
       {showManual && (
         <div className="mt-2">
@@ -243,9 +382,12 @@ const Settings = () => {
             平台会员 Cookie 为全局共享(所有用户共用同一会员链路),仅管理员可配置。
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {sources.map((src) => (
+            {sources.map((entry) => {
+              const src = typeof entry === 'string' ? entry : entry.source;
+              const qrSupported = typeof entry === 'string' ? true : !!entry.qr;
+              return (
               <div key={src}>
-                <QRLoginCard source={src} loggedIn={!!status[src]} onLoggedIn={handleLoggedIn} />
+                <QRLoginCard source={src} loggedIn={!!status[src]} onLoggedIn={handleLoggedIn} qrSupported={qrSupported} />
                 {status[src] && (
                   <button
                     onClick={() => handleLogout(src)}
@@ -255,7 +397,8 @@ const Settings = () => {
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

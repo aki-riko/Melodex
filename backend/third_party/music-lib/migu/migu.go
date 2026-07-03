@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const miguFormatCandidateExtraKey = "format_candidates"
+
 const (
 	UserAgent   = "Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13B143 Safari/601.1"
 	Referer     = "http://music.migu.cn/"
@@ -519,6 +521,9 @@ func (m *Migu) convertItemToSongWithOption(item MiguSongItem, allowPaid bool) *m
 		"resource_type": bestFormat.ResourceType,
 		"format_type":   bestFormat.FormatType,
 	}
+	if candidateText := encodeMiguFormatCandidates(preferredMiguFormatCandidates(rateFormats)); candidateText != "" {
+		extra[miguFormatCandidateExtraKey] = candidateText
+	}
 	if item.CopyrightID != "" {
 		extra["copyright_id"] = item.CopyrightID
 	}
@@ -537,6 +542,102 @@ func (m *Migu) convertItemToSongWithOption(item MiguSongItem, allowPaid bool) *m
 		Link:     fmt.Sprintf("https://music.migu.cn/v3/music/song/%s", linkID),
 		Extra:    extra,
 	}
+}
+
+type miguFormatCandidate struct {
+	ResourceType string
+	FormatType   string
+	Size         int64
+}
+
+func preferredMiguFormatCandidates(rateFormats []miguRateFormat) []miguFormatCandidate {
+	candidates := make([]miguFormatCandidate, 0, len(rateFormats))
+	seen := map[string]struct{}{}
+	for _, item := range rateFormats {
+		resourceType := strings.TrimSpace(item.ResourceType)
+		formatType := strings.TrimSpace(item.FormatType)
+		if resourceType == "" || formatType == "" {
+			continue
+		}
+		key := resourceType + "|" + formatType
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		sizeStr := firstNonZeroString(item.AndroidSize, item.ASize, item.Size, item.ISize)
+		sizeVal, _ := strconv.ParseInt(sizeStr, 10, 64)
+		candidates = append(candidates, miguFormatCandidate{
+			ResourceType: resourceType,
+			FormatType:   formatType,
+			Size:         sizeVal,
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		ri := miguFormatRank(candidates[i].FormatType)
+		rj := miguFormatRank(candidates[j].FormatType)
+		if ri != rj {
+			return ri > rj
+		}
+		return candidates[i].Size > candidates[j].Size
+	})
+	return candidates
+}
+
+func miguFormatRank(formatType string) int {
+	switch strings.ToUpper(strings.TrimSpace(formatType)) {
+	case "ZQ", "ZQ24", "ZQ32", "HIRES", "HI-RES", "DOLBY", "ATMOS":
+		return 500
+	case "SQ":
+		return 400
+	case "HQ":
+		return 300
+	case "PQ":
+		return 200
+	case "LQ":
+		return 100
+	default:
+		return 0
+	}
+}
+
+func encodeMiguFormatCandidates(candidates []miguFormatCandidate) string {
+	parts := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		resourceType := strings.TrimSpace(c.ResourceType)
+		formatType := strings.TrimSpace(c.FormatType)
+		if resourceType == "" || formatType == "" {
+			continue
+		}
+		parts = append(parts, resourceType+"|"+formatType)
+	}
+	return strings.Join(parts, ",")
+}
+
+func decodeMiguFormatCandidates(raw string) []miguFormatCandidate {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var candidates []miguFormatCandidate
+	seen := map[string]struct{}{}
+	for _, part := range strings.Split(raw, ",") {
+		fields := strings.Split(strings.TrimSpace(part), "|")
+		if len(fields) != 2 {
+			continue
+		}
+		resourceType := strings.TrimSpace(fields[0])
+		formatType := strings.TrimSpace(fields[1])
+		if resourceType == "" || formatType == "" {
+			continue
+		}
+		key := resourceType + "|" + formatType
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		candidates = append(candidates, miguFormatCandidate{ResourceType: resourceType, FormatType: formatType})
+	}
+	return candidates
 }
 
 // GetLyrics 获取歌词
