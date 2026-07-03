@@ -96,11 +96,23 @@ func (n *Netease) CheckQRLogin(key string) (*model.QRLoginResult, error) {
 	}
 	if result.Status == model.QRLoginStatusSuccess {
 		cookie := strings.TrimSpace(resp.Cookie)
+		mergedCookies := cloneCookieMap(cookies)
+		if cookie != "" {
+			for k, v := range parseNeteaseCookieString(cookie) {
+				mergedCookies[k] = v
+			}
+		}
 		if cookie == "" {
-			cookie = joinCookieMap(cookies)
+			cookie = joinCookieMap(mergedCookies)
+		}
+		if mergedCookies["MUSIC_U"] != "" {
+			result.Extra["credential_source"] = "netease_qr_music_u"
+			result.Extra["credential_fields"] = strings.Join(cookieNames(mergedCookies), ",")
+		} else {
+			result.Extra["strong_login_error"] = fmt.Sprintf("netease qr login did not return MUSIC_U; cookies=%s", strings.Join(cookieNames(mergedCookies), ","))
 		}
 		result.Cookie = cookie
-		result.Cookies = cookies
+		result.Cookies = mergedCookies
 		n.cookie = cookie
 		n.isVipCache = nil
 	}
@@ -166,6 +178,55 @@ func responseCookies(resp *http.Response) map[string]string {
 		cookies[cookie.Name] = cookie.Value
 	}
 	return cookies
+}
+
+func parseNeteaseCookieString(cookie string) map[string]string {
+	result := map[string]string{}
+	attributeNames := map[string]bool{
+		"domain": true, "expires": true, "httponly": true, "max-age": true,
+		"path": true, "samesite": true, "secure": true,
+	}
+	for _, part := range strings.Split(cookie, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			if attributeNames[strings.ToLower(part)] {
+				continue
+			}
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" || attributeNames[strings.ToLower(k)] {
+			continue
+		}
+		result[k] = v
+	}
+	return result
+}
+
+func cloneCookieMap(cookies map[string]string) map[string]string {
+	cloned := make(map[string]string, len(cookies))
+	for k, v := range cookies {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+			cloned[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	return cloned
+}
+
+func cookieNames(cookies map[string]string) []string {
+	names := make([]string, 0, len(cookies))
+	for k, v := range cookies {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+			names = append(names, strings.TrimSpace(k))
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func joinCookieMap(cookies map[string]string) string {
