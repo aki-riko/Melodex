@@ -14,26 +14,27 @@ import (
 // RegisterJSONAPIRoutes 注册供 React 前端使用的纯 JSON 接口,挂在 /api/v1 下。
 // 与原有 /music/* 的 HTMX(HTML 片段)路由并存,互不影响。
 //
-// 安全模型:只读接口(搜索/歌单/专辑/歌词/推荐)公开,与原版一致;
-// 改写状态的敏感接口(扫码登录写 cookie、清除 cookie)挂到管理员鉴权之后,
-// 与原版 configAPI 同一套鉴权(opts.DisableAuth 时放行,用于本机桌面模式)。
+// 安全模型:健康检查与登录/setup/register 公开;搜索/歌单/专辑/推荐等读接口默认要求登录。
+// 改写状态的敏感接口(扫码登录写 cookie、清除 cookie)挂到管理员鉴权之后。
 func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	api := r.Group("/api/v1")
-
-	// 公开读接口(搜索等)挂非阻塞用户注入:登录用户的搜索可记入个人历史,
-	// 匿名用户照常可用。桌面模式注入本地用户。
-	if opts.DisableAuth {
-		api.Use(desktopUserMiddleware())
-	} else {
-		api.Use(attachUserOptional())
-	}
 
 	api.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{"app": "melodex", "status": "ok"})
 	})
 
+	// 账号鉴权接口(登录/登出/注册/初始化/当前用户)。见 auth_api.go。
+	registerAuthAPIRoutes(api, opts)
+
+	userSecure := api.Group("")
+	if opts.DisableAuth {
+		userSecure.Use(desktopUserMiddleware())
+	} else {
+		userSecure.Use(authRequired())
+	}
+
 	// 可用音乐源列表(前端 source 选择用)
-	api.GET("/sources", func(c *gin.Context) {
+	userSecure.GET("/sources", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"all":      core.GetAllSourceNames(),
 			"default":  core.GetDefaultSourceNames(),
@@ -43,10 +44,10 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	})
 
 	// 搜索会放大到所有上游音源,加 per-IP 限流(30 次/分钟)防滥用。
-	api.GET("/search", rateLimitMiddleware(searchRateLimiter), jsonSearchHandler)
+	userSecure.GET("/search", rateLimitMiddleware(searchRateLimiter), jsonSearchHandler)
 
 	// 歌单详情:返回歌曲列表
-	api.GET("/playlist", func(c *gin.Context) {
+	userSecure.GET("/playlist", func(c *gin.Context) {
 		id := c.Query("id")
 		src := c.Query("source")
 		if id == "" || src == "" {
@@ -70,7 +71,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	})
 
 	// 专辑详情:返回歌曲列表
-	api.GET("/album", func(c *gin.Context) {
+	userSecure.GET("/album", func(c *gin.Context) {
 		id := c.Query("id")
 		src := c.Query("source")
 		if id == "" || src == "" {
@@ -94,7 +95,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	})
 
 	// 每日推荐歌单:按源返回歌单列表
-	api.GET("/recommend", func(c *gin.Context) {
+	userSecure.GET("/recommend", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), core.GetRecommendSourceNames())
 		c.JSON(200, gin.H{"tabs": loadPlaylistTabsJSON(sources, func(src string) ([]model.Playlist, error) {
 			fn := core.GetRecommendFunc(src)
@@ -106,7 +107,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	})
 
 	// 歌单分类列表
-	api.GET("/playlist_categories", func(c *gin.Context) {
+	userSecure.GET("/playlist_categories", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), core.GetPlaylistCategorySourceNames())
 		result := []gin.H{}
 		for _, src := range sources {
@@ -125,7 +126,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	})
 
 	// 某分类下的歌单
-	api.GET("/category_playlists", func(c *gin.Context) {
+	userSecure.GET("/category_playlists", func(c *gin.Context) {
 		source := strings.TrimSpace(c.Query("source"))
 		categoryID := strings.TrimSpace(c.Query("category_id"))
 		fn := core.GetCategoryPlaylistsFunc(source)
@@ -147,16 +148,13 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		c.JSON(200, out)
 	})
 
-	// 支持二维码登录的源(只读,公开)
-	api.GET("/qr_login/sources", func(c *gin.Context) {
+	// 支持二维码登录的源(只读,登录后可见)
+	userSecure.GET("/qr_login/sources", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"sources":        core.GetQRLoginSourceNames(),
 			"cookie_sources": core.GetCookieSourceNames(),
 		})
 	})
-
-	// 账号鉴权接口(登录/登出/注册/初始化/当前用户)。见 auth_api.go。
-	registerAuthAPIRoutes(api, opts)
 
 	// Cookie 与二维码登录管理是管理员独占(平台会员 cookie 全局共享,见隔离决策)。
 	// DisableAuth(桌面/本机模式)时注入本地管理员用户放行。

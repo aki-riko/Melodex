@@ -77,12 +77,12 @@ go run ./cmd/music-dl web --port 8329
 
 ```bash
 cd frontend
-cp .env.example .env          # 按需填写 Last.fm/Spotify 密钥(发现页用);VITE_MUSICDL_API 指向后端
+cp .env.example .env          # 按需填写 Last.fm API key(发现页用);VITE_MUSICDL_API 指向后端
 npm install
 npm run dev                   # 开发服务器;打包用 npm run build(产物在 build/)
 ```
 
-发现页(Trending/Discover/Artists)依赖 Last.fm 与 Spotify 凭据,需在 `.env` 中配置 `VITE_LASTFM_API_KEY`、`VITE_SPOTIFY_CLIENT_ID`、`VITE_SPOTIFY_CLIENT_SECRET`;不配置不影响下载页(国内源)使用。
+发现页(Trending/Discover/Artists)可使用 Last.fm 数据,需在 `.env` 中配置 `VITE_LASTFM_API_KEY`;不配置不影响下载页(国内源)使用。Spotify Client Secret 不应放进浏览器端环境变量。
 
 ## 接口约定
 

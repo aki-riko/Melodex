@@ -290,6 +290,9 @@ func loginRedirectTarget(c *gin.Context) string {
 }
 
 func wantsHTML(c *gin.Context) bool {
+	if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+		return false
+	}
 	if c.GetHeader("X-Requested-With") == "XMLHttpRequest" {
 		return false
 	}
@@ -446,7 +449,6 @@ func desktopUserMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
 
 func renderAuthPage(c *gin.Context, mode string, errMsg string, username string) {
 	title := "登录 Melodex"

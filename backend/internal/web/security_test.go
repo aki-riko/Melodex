@@ -119,3 +119,59 @@ func TestLocalAudioStreamOwnership(t *testing.T) {
 		t.Fatalf("alice (owner) should access her file, got 404")
 	}
 }
+
+func TestJSONReadRoutesRequireLogin(t *testing.T) {
+	setupUserTestDB(t)
+	if _, err := createUser("root", "rootpass1", RoleAdmin); err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	RegisterJSONAPIRoutes(r, StartOptions{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?q=test", nil)
+	req.Header.Set("Accept", "application/json")
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous /api/v1/search status=%d, want 401, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestJSONReadRoutesAllowDesktopMode(t *testing.T) {
+	setupUserTestDB(t)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	RegisterJSONAPIRoutes(r, StartOptions{DisableAuth: true})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sources", nil)
+	req.Header.Set("Accept", "application/json")
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("desktop /api/v1/sources status=%d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMusicRoutesRequireLogin(t *testing.T) {
+	setupUserTestDB(t)
+	if _, err := createUser("root", "rootpass1", RoleAdmin); err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	group := r.Group(RoutePrefix)
+	group.Use(authRequired())
+	RegisterMusicRoutes(group)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/inspect?id=x&source=qq", nil)
+	req.Header.Set("Accept", "application/json")
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous /music/inspect status=%d, want 401, body=%s", rec.Code, rec.Body.String())
+	}
+}

@@ -23,6 +23,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -32,6 +33,8 @@ import (
 // subsonicAPIVersion 是 facade 对外宣称的 Subsonic 协议版本。
 // 报 1.16.1(最新),支持 token 认证(1.13.0+)。
 const subsonicAPIVersion = "1.16.1"
+
+var subsonicJSONPCallbackPattern = regexp.MustCompile(`^[A-Za-z_$][0-9A-Za-z_$]*(\.[A-Za-z_$][0-9A-Za-z_$]*)*$`)
 
 // subsonicConfig 是从环境变量解析出的 facade 配置(进程启动时读一次)。
 type subsonicConfig struct {
@@ -178,6 +181,10 @@ func respondSubsonic(c *gin.Context, resp *subsonicResponse) {
 		if callback == "" {
 			callback = "callback"
 		}
+		if !isValidSubsonicJSONPCallback(callback) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid jsonp callback"})
+			return
+		}
 		// 手动包裹 JSONP:callback({"subsonic-response": ...});
 		payload, err := json.Marshal(gin.H{"subsonic-response": resp})
 		if err != nil {
@@ -189,6 +196,10 @@ func respondSubsonic(c *gin.Context, resp *subsonicResponse) {
 	default:
 		c.XML(http.StatusOK, resp)
 	}
+}
+
+func isValidSubsonicJSONPCallback(callback string) bool {
+	return len(callback) <= 128 && subsonicJSONPCallbackPattern.MatchString(callback)
 }
 
 // respondSubsonicError 返回 status=failed + <error code message>。

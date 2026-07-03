@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -122,6 +123,33 @@ func TestSubsonicPingJSON(t *testing.T) {
 	}
 	if parsed.Response.Status != "ok" || parsed.Response.Version != "1.16.1" {
 		t.Fatalf("ping 响应异常: %+v", parsed.Response)
+	}
+}
+
+func TestSubsonicJSONPCallbackValidation(t *testing.T) {
+	r := newSubsonicTestRouter(t)
+	salt := "abcdef"
+	token := makeToken("sesame", salt)
+	base := "/rest/ping?u=kotori&t=" + token + "&s=" + salt + "&v=1.16.1&c=test&f=jsonp&callback="
+
+	req := httptest.NewRequest(http.MethodGet, base+url.QueryEscape("alert(1)//"), nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid jsonp callback status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "alert(1)") {
+		t.Fatalf("invalid callback should not be reflected, body=%s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, base+url.QueryEscape("foo.bar_1"), nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("valid jsonp callback status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.HasPrefix(rec.Body.String(), "foo.bar_1(") {
+		t.Fatalf("valid jsonp callback not used, body=%s", rec.Body.String())
 	}
 }
 

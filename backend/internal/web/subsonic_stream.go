@@ -116,7 +116,7 @@ func streamOnlineAndCache(c *gin.Context, song model.Song) {
 		respondSubsonicError(c, errSubsonicNotFound)
 		return
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := outboundStreamingHTTPClient.Do(req)
 	if err != nil {
 		log.Printf("[subsonic] stream 上游请求失败 %s-%s: %v", song.Name, song.Artist, err)
 		respondSubsonicError(c, errSubsonicNotFound)
