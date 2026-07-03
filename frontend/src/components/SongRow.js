@@ -3,6 +3,7 @@ import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music, Tras
 import { getStreamUrl, saveToServer, inspectQuality, coverProxyUrl } from '../services/musicdl';
 import { useCollections } from '../contexts/CollectionsContext';
 import { formatDuration } from '../utils/format';
+import { sourceLabel } from '../utils/sourceLabels';
 
 const fmtSec = (sec) => (sec ? formatDuration(sec * 1000) : '');
 const fmtSize = (bytes) => {
@@ -127,7 +128,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
       }
       return q && <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${q.cls}`}>{q.label}</span>;
     })()}
-    <span className="text-[11px] text-muted-foreground whitespace-nowrap uppercase hidden sm:inline">{song.source}</span>
+    <span className="text-[11px] text-muted-foreground whitespace-nowrap hidden sm:inline">{sourceLabel(song.source)}</span>
     {song.duration ? <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums hidden sm:inline">{fmtSec(song.duration)}</span> : null}
     {(effectiveReal?.size || song.size) ? (
       <span className="text-xs text-muted-foreground whitespace-nowrap hidden md:inline">{effectiveReal?.size || fmtSize(song.size)}</span>
