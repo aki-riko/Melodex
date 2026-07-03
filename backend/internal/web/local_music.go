@@ -30,10 +30,13 @@ import (
 )
 
 const (
-	localMusicSource       = "local"
-	legacyLocalMusicSource = "local-file"
-	localMusicScanCacheTTL = 10 * time.Second
+	localMusicSource               = "local"
+	legacyLocalMusicSource         = "local-file"
+	localMusicScanCacheTTL         = 10 * time.Second
+	localMusicMaxUploadBytes int64 = 200 * 1024 * 1024
 )
+
+var localMusicMaxUploadRequestBytes int64 = localMusicMaxUploadBytes + 1024*1024
 
 var localMusicDownloadDirProvider = func() string {
 	return core.GetWebSettings().DownloadDir
@@ -164,14 +167,18 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 	api.POST("/local_music/cover", localMusicCoverHandler)
 
 	api.POST("/local_music/upload", func(c *gin.Context) {
+		limitRequestBody(c, localMusicMaxUploadRequestBytes)
 		file, err := c.FormFile("file")
 		if err != nil {
+			if isRequestBodyTooLarge(err) {
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "文件过大,单个上传上限 200MB"})
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要上传的音乐文件"})
 			return
 		}
 		// 单文件大小上限,防塞满磁盘(无损单曲一般 <100MB)。
-		const maxUploadBytes = 200 * 1024 * 1024
-		if file.Size > maxUploadBytes {
+		if file.Size > localMusicMaxUploadBytes {
 			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "文件过大,单个上传上限 200MB"})
 			return
 		}

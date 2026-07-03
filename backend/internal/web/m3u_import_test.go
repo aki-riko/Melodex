@@ -1,6 +1,11 @@
 package web
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestParseM3UPrefersFilename(t *testing.T) {
 	// 真实场景:EXTINF 只有歌名,文件名才含歌手 → 应优先用文件名做搜索词
@@ -19,6 +24,27 @@ func TestParseM3UPrefersFilename(t *testing.T) {
 	}
 	if entries[1].Title != "张紫豪 - 可不可以" {
 		t.Fatalf("第2条应用文件名, 实际 %q", entries[1].Title)
+	}
+}
+
+func TestM3UImportRejectsOversizedBodyBeforeJSONParse(t *testing.T) {
+	initCollectionDBForTest(t)
+
+	oldLimit := maxM3UImportBodyBytes
+	maxM3UImportBodyBytes = 64
+	t.Cleanup(func() {
+		maxM3UImportBodyBytes = oldLimit
+	})
+
+	router := newCollectionTestRouter()
+	body := `{"name":"huge","content":"` + strings.Repeat("x", 256) + `"}`
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/collections/import_m3u", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized m3u import status = %d, want 413, body=%s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -13,7 +13,7 @@ const FAQ_DATA = {
     },
     {
       question: '发现页用到了哪些数据源?',
-      answer: '发现页整合了 Spotify 和 Last.fm 的 API 数据,展示榜单与艺人信息(需在 .env 配置对应密钥)。',
+      answer: '发现页可整合 Last.fm 数据展示榜单与艺人信息。Spotify 私密凭据不会放在浏览器端配置里。',
     },
     {
       question: '可以把歌曲做成视频吗?',

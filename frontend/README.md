@@ -1,79 +1,20 @@
-<div align="center">
-  <h1>Tunescout 💿</h1>
-</div>
+# Melodex Frontend
 
-![](.github/banner.png)
+React 18 + Vite 前端,默认同源调用 Melodex 后端。开发期可用 `VITE_MUSICDL_API` 指向本地后端。
 
-Melodex is a React application that surfaces trending music and artist insights by combining data from Last.fm and Spotify. Users can explore top charts, drill into rich track and artist detail, and sample music directly through Spotify embeds.
-
-## Features
-
-- Browse the current Last.fm top tracks and artists with rich metadata
-- On-demand detail modals with Spotify previews, tags, and listener statistics
-- Artist pagination and keyboard-accessible interactions throughout
-- Discover page that searches Spotify for tracks and albums
-- Responsive layout styled with Tailwind CSS
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+ (LTS recommended)
-- npm 9+ (ships with recent Node releases)
-- Spotify Developer credentials (Client ID and Client Secret)
-- Last.fm API key
-
-### Installation
-
-```bash
-npm install
-cp .env.example .env
-# populate the environment variables in .env
-```
-
-### Environment variables
+## 环境变量
 
 | Variable | Description |
 | --- | --- |
-| `REACT_APP_LASTFM_API_KEY` | Last.fm API key used for chart, track, and artist requests |
-| `REACT_APP_SPOTIFY_CLIENT_ID` | Spotify client ID for the Client Credentials flow |
-| `REACT_APP_SPOTIFY_CLIENT_SECRET` | Spotify client secret for the Client Credentials flow |
-| `REACT_APP_BASENAME` *(optional)* | Base path when hosting under a subdirectory (e.g. `/tunescout`) |
+| `VITE_LASTFM_API_KEY` | 可选。发现页 Last.fm 数据源使用 |
+| `VITE_MUSICDL_API` | 可选。后端地址,同源部署可留空 |
 
-None of the credentials are bundled in the repo—make sure to keep your `.env` file out of version control (the included `.gitignore` already handles this).
+不要在前端环境变量里放 Spotify Client Secret。浏览器 bundle 对用户可见,需要 Spotify 私密凭据的功能必须放到后端代理实现。
 
-### Available scripts
+## Scripts
 
 ```bash
-npm start       # start the development server
-npm run build   # create an optimized production build
-npm test        # launch the test runner
+npm install
+npm run dev
+npm run build
 ```
-
-### Project structure
-
-```
-src/
-  components/        # Feature components and UI composition
-  services/          # API clients for Spotify and Last.fm
-  utils/             # Reusable formatting helpers
-```
-
-The data layer has been refactored so API credentials live in environment variables and network calls are performed lazily—details for tracks and artists are only fetched when the user opens a modal, greatly reducing startup load.
-
-## Data sources
-
-- **Last.fm** – powering charts, listener counts, and tagging
-- **Spotify** – providing detailed metadata and embeddable previews
-
-Both APIs enforce rate limits. The application caches Spotify tokens in-memory and avoids redundant requests whenever possible, but you should still keep network usage in mind if you're planning high-traffic deployments.
-
-## Deployment
-
-The project ships with `predeploy`, `deploy-normal`, and `deploy-snapshot` scripts that build the app and publish to GitHub Pages. Ensure your environment variables are configured in the build environment before running a deployment.
-
-## Contributing & maintenance tips
-
-- Keep build artifacts (e.g., `build/`, `snapshot-build/`) out of version control—`.gitignore` already excludes them.
-- Run `npm run build` locally before deploying to catch compilation errors.
-- When modifying data access code, favor the shared utilities in `src/services` to keep error handling consistent.

@@ -437,6 +437,39 @@ func TestUploadLocalMusicAddToCollectionAndDownload(t *testing.T) {
 	}
 }
 
+func TestUploadLocalMusicRejectsOversizedBodyBeforeMultipartParse(t *testing.T) {
+	initCollectionDBForTest(t)
+
+	oldLimit := localMusicMaxUploadRequestBytes
+	localMusicMaxUploadRequestBytes = 128
+	t.Cleanup(func() {
+		localMusicMaxUploadRequestBytes = oldLimit
+	})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "too-large.mp3")
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte("x"), 512)); err != nil {
+		t.Fatalf("write multipart file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	router := newLocalMusicTestRouter()
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/local_music/upload", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized upload status = %d, want 413, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDeleteLocalMusicRequiresRemovingCollectionReferencesFirst(t *testing.T) {
 	initCollectionDBForTest(t)
 

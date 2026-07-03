@@ -865,13 +865,17 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 				c.String(502, "Soda request error")
 				return
 			}
-			resp, err := (&http.Client{}).Do(req)
+			resp, err := outboundStreamingHTTPClient.Do(req)
 			if err != nil {
 				c.String(502, "Soda stream error")
 				return
 			}
 			defer resp.Body.Close()
-			encryptedData, _ := io.ReadAll(resp.Body)
+			encryptedData, readErr := readLimitedBody(resp.Body, maxBufferedAudioBytes)
+			if readErr != nil {
+				c.String(502, "Soda response too large")
+				return
+			}
 			finalData, err := soda.DecryptAudio(encryptedData, info.PlayAuth)
 			if err != nil {
 				c.String(500, "Decrypt failed")
@@ -935,8 +939,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := outboundStreamingHTTPClient.Do(req)
 		if err != nil {
 			c.String(502, "Upstream stream error")
 			return

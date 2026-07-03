@@ -8,12 +8,17 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm/clause"
 )
+
+const maxM3UEntries = 1000
+
+var maxM3UImportBodyBytes int64 = 8 * 1024 * 1024
 
 // m3uEntry 解析出的一条歌:标题(搜索用)+ 拆出的歌手/歌名。
 type m3uEntry struct {
@@ -109,11 +114,20 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 			c.JSON(401, gin.H{"error": "请先登录"})
 			return
 		}
+		limitRequestBody(c, maxM3UImportBodyBytes)
 		var req struct {
 			Name    string `json:"name"`
 			Content string `json:"content"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			if isRequestBodyTooLarge(err) {
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "m3u 文件过大,请拆分后再导入"})
+				return
+			}
+			c.JSON(400, gin.H{"error": "参数错误,缺少 content"})
+			return
+		}
+		if strings.TrimSpace(req.Content) == "" {
 			c.JSON(400, gin.H{"error": "参数错误,缺少 content"})
 			return
 		}
@@ -128,7 +142,6 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 			return
 		}
 		// 条目数上限:每条都触发一次全源搜索,限制放大式资源消耗。
-		const maxM3UEntries = 1000
 		if len(entries) > maxM3UEntries {
 			c.JSON(400, gin.H{"error": fmt.Sprintf("歌单条目过多(%d),单次导入上限 %d 条", len(entries), maxM3UEntries)})
 			return

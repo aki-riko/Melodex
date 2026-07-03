@@ -409,7 +409,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	r := gin.Default()
 	// 可信代理:env MUSIC_DL_TRUSTED_PROXIES(逗号分隔 CIDR/IP)配置后,仅这些来源的
 	// X-Forwarded-For 被 ClientIP() 采信,防客户端伪造 XFF 绕过限流/登录锁。
-	// 未配置则交给 gin 默认(信任全部)——自托管无代理时无影响,有代理务必配置。
+	// 未配置时显式不信任任何代理头;有反代部署时请配置真实反代网段。
 	if tp := strings.TrimSpace(os.Getenv("MUSIC_DL_TRUSTED_PROXIES")); tp != "" {
 		var proxies []string
 		for _, p := range strings.Split(tp, ",") {
@@ -420,6 +420,8 @@ func StartWithOptions(port string, opts StartOptions) {
 		if err := r.SetTrustedProxies(proxies); err != nil {
 			fmt.Fprintf(os.Stderr, "SetTrustedProxies failed: %v\n", err)
 		}
+	} else if err := r.SetTrustedProxies(nil); err != nil {
+		fmt.Fprintf(os.Stderr, "SetTrustedProxies failed: %v\n", err)
 	}
 	r.Use(corsMiddleware())
 	r.Use(securityHeadersMiddleware())
@@ -532,13 +534,12 @@ func StartWithOptions(port string, opts StartOptions) {
 		c.JSON(200, effectiveSettingsForUser(uid))
 	})
 
-	// 公开读路由(搜索/播放/歌词/inspect)上挂可选用户注入:不强制登录,
-	// 但下载(save_local 写 NAS)能拿到当前用户以登记归属。save_local 的写权限
-	// 仍由 handler 内 requireUserForWrite 强制要求登录。
+	// 旧 /music JSON/播放/下载接口默认要求登录;桌面模式仍注入本地用户免登录。
+	musicAPI := api.Group("")
 	if !opts.DisableAuth {
-		api.Use(attachUserOptional())
+		musicAPI.Use(authRequired())
 	}
-	RegisterMusicRoutes(api)
+	RegisterMusicRoutes(musicAPI)
 	RegisterQRLoginRoutes(configAPI)
 	// 歌单/收藏/本地库按 user_id 隔离 → 必须登录(userAPI)。
 	RegisterCollectionRoutes(userAPI)
@@ -546,7 +547,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	RegisterSearchHistoryRoutes(userAPI)
 	RegisterPlayHistoryRoutes(userAPI)
 	RegisterFavoriteRoutes(userAPI)
-	RegisterUpdateRoutes(api)
+	RegisterUpdateRoutes(userAPI)
 
 	// Melodex 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。
 	// 敏感接口(登录/cookie)复用同一套管理员鉴权。
@@ -579,7 +580,15 @@ func StartWithOptions(port string, opts StartOptions) {
 	if opts.ShouldOpenBrowser {
 		go func() { time.Sleep(500 * time.Millisecond); core.OpenBrowser(urlStr) }()
 	}
-	if err := http.Serve(listener, r); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	server := &http.Server{
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+		// WriteTimeout intentionally stays unset: audio endpoints can stream for longer than a fixed response window.
+	}
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "Web server stopped with error: %v\n", err)
 	}
 }
