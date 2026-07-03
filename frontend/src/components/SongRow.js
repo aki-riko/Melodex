@@ -11,6 +11,8 @@ const fmtSize = (bytes) => {
   return mb >= 1 ? `${mb.toFixed(1)}MB` : `${(bytes / 1024).toFixed(0)}KB`;
 };
 
+const parseBitrateNum = (bitrate) => parseInt(String(bitrate || '').replace(/[^0-9]/g, ''), 10) || 0;
+
 // 封面缩略图:走 cover_proxy(防盗链/混合内容/磁盘缓存);无封面或加载失败显音符占位。
 const CoverThumb = ({ song, size = 40 }) => {
   const [failed, setFailed] = useState(false);
@@ -64,7 +66,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
     setChecking(true);
     try {
       const r = await inspectQuality(song);
-      if (r.valid) setReal({ size: r.size, bitrate: r.bitrate });
+      if (r.valid) setReal({ size: r.size, bitrate: r.bitrate, bitrateNum: parseBitrateNum(r.bitrate) });
       else setReal({ size: '—', bitrate: '不可用' });
     } catch {
       setReal({ size: '—', bitrate: '失败' });
