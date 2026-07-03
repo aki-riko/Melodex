@@ -2,6 +2,7 @@ package netease
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +75,28 @@ func TestParseWithPlaylistLinkRegression(t *testing.T) {
 	}
 	if song != nil {
 		t.Fatalf("Parse(%q) returned unexpected song: %#v", regressionPlaylistLink, song)
+	}
+}
+
+func TestParseNeteaseCookieStringKeepsMusicU(t *testing.T) {
+	got := parseNeteaseCookieString("MUSIC_U=SECRET; __csrf=CSRF; Path=/; HttpOnly; NMTID=NMT")
+	if got["MUSIC_U"] != "SECRET" {
+		t.Fatalf("MUSIC_U = %q, want SECRET", got["MUSIC_U"])
+	}
+	if got["__csrf"] != "CSRF" {
+		t.Fatalf("__csrf = %q, want CSRF", got["__csrf"])
+	}
+	if _, ok := got["Path"]; ok {
+		t.Fatalf("cookie attributes should be skipped: %#v", got)
+	}
+}
+
+func TestNeteaseCookieNamesDoNotExposeValues(t *testing.T) {
+	got := strings.Join(cookieNames(map[string]string{"MUSIC_U": "SECRET", "__csrf": "CSRF"}), ",")
+	if got != "MUSIC_U,__csrf" {
+		t.Fatalf("cookie names = %q", got)
+	}
+	if strings.Contains(got, "SECRET") || strings.Contains(got, "CSRF") {
+		t.Fatalf("cookie names leaked values: %q", got)
 	}
 }

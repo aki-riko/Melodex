@@ -55,6 +55,14 @@ const qrLoginNote = (source, result) => {
   if (source === 'qq_wx') {
     return '已保存 QQ 音乐微信登录凭证;能否拿无损以账号权限和 Cookie 实测为准。';
   }
+  if (source === 'netease') {
+    if (extra.credential_source === 'netease_qr_music_u') {
+      return '已换取网易云 MUSIC_U 强凭证,可用于会员/无损链路。';
+    }
+    if (extra.strong_login_error) {
+      return `扫码成功,但网易云强凭证确认失败:${extra.strong_login_error}`;
+    }
+  }
   return '';
 };
 
