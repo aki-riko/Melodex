@@ -12,17 +12,7 @@ import {
   deleteLocalMusic,
 } from '../services/musicdl';
 import { useAuth } from '../contexts/AuthContext';
-
-const SOURCE_LABELS = {
-  netease: '网易云音乐',
-  qq: 'QQ音乐',
-  qq_wx: 'QQ音乐 · 微信入口',
-  kugou: '酷狗音乐',
-  kuwo: '酷我音乐',
-  migu: '咪咕音乐',
-  bilibili: '哔哩哔哩',
-  soda: '汽水音乐',
-};
+import { sourceLabel } from '../utils/sourceLabels';
 
 const SOURCE_NOTES = {
   qq_wx: '微信入口共用 QQ 音乐凭证;登录成功后会更新 QQ 音乐 Cookie。退出或手填 Cookie 请使用 QQ音乐卡片。',
@@ -224,7 +214,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
   return (
     <div className="bg-card border border-border rounded-lg shadow-brutal-sm p-4">
       <div className="flex justify-between items-center mb-3">
-        <span className="font-semibold">{SOURCE_LABELS[source] || source}</span>
+        <span className="font-semibold">{sourceLabel(source)}</span>
         {loggedIn ? (
           <span className="text-xs font-medium px-2 py-0.5 border border-border rounded-md bg-success text-success-foreground">已登录</span>
         ) : (
@@ -330,7 +320,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
           <textarea
             value={manualCookie}
             onChange={(e) => setManualCookie(e.target.value)}
-            placeholder={`粘贴 ${SOURCE_LABELS[source] || source} 网页版登录后的完整 Cookie…`}
+            placeholder={`粘贴 ${sourceLabel(source)} 网页版登录后的完整 Cookie…`}
             rows={3}
             className="w-full px-2 py-1.5 border border-border rounded-md bg-card text-xs outline-none focus:border-primary"
           />

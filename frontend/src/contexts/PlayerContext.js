@@ -2,10 +2,12 @@ import React, { createContext, useContext, useRef, useState, useCallback, useEff
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory } from '../services/musicdl';
 import { useAuth } from './AuthContext';
+import { sourceLabel } from '../utils/sourceLabels';
 
 const PlayerContext = createContext(null);
 
 const songKey = (s) => `${s.source}-${s.id}`;
+const songSourceText = (song) => (song?.source ? sourceLabel(song.source) : '');
 
 // 播放模式:order 顺序 / repeat 单曲循环 / shuffle 随机
 // 播放模式:shuffle 随机 / order 顺序(放完停) / repeat 单曲循环 / loop 列表循环(放完从头)
@@ -579,7 +581,7 @@ export const PlayerBar = () => {
               <div className="min-w-0">
                 <p className="truncate font-semibold text-sm group-hover:text-primary transition-colors">{nowPlaying?.name}</p>
                 <p className="text-muted-foreground text-xs truncate">
-                  {nowPlaying ? `${nowPlaying.artist} · ${nowPlaying.source}` : ''}
+                  {nowPlaying ? `${nowPlaying.artist} · ${songSourceText(nowPlaying)}` : ''}
                 </p>
               </div>
             </button>
@@ -653,7 +655,7 @@ export const PlayerBar = () => {
                               </span>
                               <div className="min-w-0">
                                 <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
-                                <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${s.source}` : ''}</p>
+                                <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${songSourceText(s)}` : ''}</p>
                               </div>
                             </button>
                           );
@@ -740,7 +742,7 @@ export const PlayerBar = () => {
                       <span className={`w-5 text-right text-xs tabular-nums flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`}>{active ? '▶' : i + 1}</span>
                       <div className="min-w-0">
                         <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${s.source}` : ''}</p>
+                        <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${songSourceText(s)}` : ''}</p>
                       </div>
                     </button>
                   );
@@ -790,7 +792,7 @@ export const PlayerBar = () => {
           <div className="px-8 mt-3 flex items-center gap-3">
             <div className="min-w-0 flex-grow">
               <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
-              <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${nowPlaying.source}` : ''}</p>
+              <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
             </div>
             <button onClick={onToggleFavorite} className="flex-shrink-0 p-1" aria-label="收藏">
               <Heart size={28} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
@@ -872,7 +874,7 @@ export const PlayerBar = () => {
               </div>
               <div className="mt-8 text-center max-w-full px-4">
                 <p className="text-2xl font-bold truncate">{nowPlaying?.name}</p>
-                <p className="text-muted-foreground truncate mt-2">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${nowPlaying.source}` : ''}</p>
+                <p className="text-muted-foreground truncate mt-2">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
               </div>
             </div>
 
