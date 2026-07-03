@@ -28,6 +28,8 @@ var downloadInFlight sync.Map
 
 // subsonicStream 处理 stream/download 端点。
 func subsonicStream(c *gin.Context) {
+	// 音频流(本地文件 / 在线反代)时长不可预期,解除全局 WriteTimeout,防被 30s 掐断。
+	clearWriteDeadline(c)
 	id := strings.TrimSpace(c.Query("id"))
 	if id == "" {
 		respondSubsonicError(c, errSubsonicMissingParam)

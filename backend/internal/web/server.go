@@ -584,9 +584,11 @@ func StartWithOptions(port string, opts StartOptions) {
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      serverWriteTimeout,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
-		// WriteTimeout intentionally stays unset: audio endpoints can stream for longer than a fixed response window.
+		// WriteTimeout 覆盖普通接口防 Slow Read;音频流式接口(music.go / subsonic_stream.go)
+		// 在写响应前调用 clearWriteDeadline 解除本限制(流时长不可预期)。
 	}
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "Web server stopped with error: %v\n", err)

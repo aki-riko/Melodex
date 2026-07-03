@@ -1,10 +1,15 @@
 package web
 
 import (
+	"bufio"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,5 +178,77 @@ func TestMusicRoutesRequireLogin(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous /music/inspect status=%d, want 401, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// clearWriteDeadline 对不支持 SetWriteDeadline 的 writer(httptest.Recorder)
+// 必须静默降级,不 panic —— 保证非真实连接路径(单测)不受影响。
+func TestClearWriteDeadlineGracefulOnUnsupportedWriter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
+
+	// 不应 panic。
+	clearWriteDeadline(c)
+
+	// nil context / nil writer 也不应 panic。
+	clearWriteDeadline(nil)
+	clearWriteDeadline(&gin.Context{})
+}
+
+// 真实连接端到端:普通接口受 server.WriteTimeout 约束(慢写被截断),
+// 音频流接口调 clearWriteDeadline 后不受约束(慢写仍成功送达)。
+func TestWriteTimeoutHonoredExceptForStreamEndpoints(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	// 普通接口:写前 sleep 超过 WriteTimeout。
+	r.GET("/normal", func(c *gin.Context) {
+		time.Sleep(400 * time.Millisecond)
+		c.String(http.StatusOK, "NORMAL_OK")
+	})
+	// 流接口:解除写截止后再 sleep,应能送达。
+	r.GET("/stream", func(c *gin.Context) {
+		clearWriteDeadline(c)
+		time.Sleep(400 * time.Millisecond)
+		c.String(http.StatusOK, "STREAM_OK")
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &http.Server{Handler: r, WriteTimeout: 150 * time.Millisecond}
+	go srv.Serve(ln)
+	t.Cleanup(func() { _ = srv.Close() })
+	addr := ln.Addr().String()
+
+	get := func(path string) (string, error) {
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err != nil {
+			return "", err
+		}
+		defer conn.Close()
+		fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", path)
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		body, _ := io.ReadAll(bufio.NewReader(conn))
+		return string(body), nil
+	}
+
+	// 普通接口:WriteTimeout 到期,连接被服务端关闭 → 拿不到完整 body。
+	normalResp, err := get("/normal")
+	if err != nil {
+		t.Fatalf("normal request: %v", err)
+	}
+	if strings.Contains(normalResp, "NORMAL_OK") {
+		t.Fatalf("normal endpoint should be cut by WriteTimeout, but got full body: %q", normalResp)
+	}
+
+	// 流接口:clearWriteDeadline 解除限制 → 慢写仍送达完整 body。
+	streamResp, err := get("/stream")
+	if err != nil {
+		t.Fatalf("stream request: %v", err)
+	}
+	if !strings.Contains(streamResp, "STREAM_OK") {
+		t.Fatalf("stream endpoint should bypass WriteTimeout, but body missing marker: %q", streamResp)
 	}
 }
