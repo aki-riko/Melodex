@@ -70,6 +70,16 @@ func TestQQLoginDataCookiesPreservesStrongCredentialFields(t *testing.T) {
 	}
 }
 
+func TestQQCredentialFromCookieUsesStrongFields(t *testing.T) {
+	uin, key := qqCredentialFromCookie("qqmusic_uin=12345678; qm_keyst=KEY; qqmusic_key=ALT")
+	if uin != "12345678" {
+		t.Fatalf("uin = %q, want 12345678", uin)
+	}
+	if key != "ALT" {
+		t.Fatalf("key = %q, want ALT", key)
+	}
+}
+
 func TestParseCookieString(t *testing.T) {
 	got := parseCookieString("qrsig=abc; pt_login_sig=def ; empty= ; invalid")
 	if got["qrsig"] != "abc" {

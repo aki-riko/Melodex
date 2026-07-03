@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/guohuiyuan/music-lib/model"
 )
 
 const regressionPlaylistLink = "https://music.163.com/#/playlist?id=7507256008"
@@ -98,5 +100,15 @@ func TestNeteaseCookieNamesDoNotExposeValues(t *testing.T) {
 	}
 	if strings.Contains(got, "SECRET") || strings.Contains(got, "CSRF") {
 		t.Fatalf("cookie names leaked values: %q", got)
+	}
+}
+
+func TestPreferredDownloadLevelsDoNotLockToStandard(t *testing.T) {
+	got := preferredDownloadLevels(&model.Song{Extra: map[string]string{"level": "standard"}})
+	if len(got) == 0 || got[0] != "jymaster" {
+		t.Fatalf("levels = %#v, want high quality candidates first", got)
+	}
+	if got[len(got)-1] != "standard" {
+		t.Fatalf("levels = %#v, want standard fallback last", got)
 	}
 }

@@ -26,21 +26,18 @@ func (n *Netease) GetDownloadURL(s *model.Song) (string, error) {
 	levels := preferredDownloadLevels(s)
 
 	if n.cookie != "" {
-		isVip, _ := n.IsVipAccount()
-		if isVip {
-			if cached, ok := n.getCachedDownloadURL(songID, strings.Join(levels, ",")); ok {
-				if cached.ext != "" {
-					s.Ext = cached.ext
-				}
-				return cached.url, nil
+		if cached, ok := n.getCachedDownloadURL(songID, strings.Join(levels, ",")); ok {
+			if cached.ext != "" {
+				s.Ext = cached.ext
 			}
+			return cached.url, nil
+		}
 
-			for _, level := range levels {
-				if url, ext, err := n.getEAPIDownloadURL(songID, level); err == nil && url != "" {
-					s.Ext = ext
-					n.setCachedDownloadURL(songID, strings.Join(levels, ","), url, s.Ext)
-					return url, nil
-				}
+		for _, level := range levels {
+			if url, ext, err := n.getEAPIDownloadURL(songID, level); err == nil && url != "" {
+				s.Ext = ext
+				n.setCachedDownloadURL(songID, strings.Join(levels, ","), url, s.Ext)
+				return url, nil
 			}
 		}
 	}
