@@ -592,17 +592,24 @@ func (n *Netease) setCachedDownloadURL(songID string, levels string, url string,
 }
 
 func preferredDownloadLevels(s *model.Song) []string {
+	defaults := []string{"jymaster", "sky", "jyeffect", "hires", "lossless", "exhigh", "standard"}
 	if s != nil && s.Extra != nil {
 		level := strings.ToLower(strings.TrimSpace(s.Extra["netease_level"]))
 		if level == "" {
 			level = strings.ToLower(strings.TrimSpace(s.Extra["level"]))
 		}
 		switch level {
-		case "standard", "exhigh", "lossless", "hires":
-			return []string{level}
+		case "jymaster", "sky", "jyeffect", "hires", "lossless", "exhigh":
+			levels := []string{level}
+			for _, candidate := range defaults {
+				if candidate != level {
+					levels = append(levels, candidate)
+				}
+			}
+			return levels
 		}
 	}
-	return []string{"lossless", "hires", "exhigh"}
+	return defaults
 }
 
 // getEAPIDownloadURL fetches a high-quality download URL via eapi.

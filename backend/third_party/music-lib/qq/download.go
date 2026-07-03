@@ -26,12 +26,18 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	guid := fmt.Sprintf("%d", r.Int63n(9000000000)+1000000000)
+	uin, musicKey := qqCredentialFromCookie(q.cookie)
 
 	// Request qualities from best to worst and use the first successful one.
 	var prefixes []string
 	var exts []string
 
-	isVip, _ := q.IsVipAccount()
+	isVip := false
+	if musicKey != "" {
+		isVip = true
+	} else {
+		isVip, _ = q.IsVipAccount()
+	}
 	if isVip {
 		prefixes = []string{"AI00", "Q001", "Q000", "F000", "O801", "M800", "M500"} // Master, Atmos5.1, Atmos2.0, FLAC, 640k, 320k, 128k
 		exts = []string{"flac", "flac", "flac", "flac", "ogg", "mp3", "mp3"}
@@ -61,7 +67,7 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 			"notice":      0,
 			"platform":    "yqq.json",
 			"needNewCode": 1,
-			"uin":         0,
+			"uin":         uin,
 		},
 		"req_1": map[string]interface{}{
 			"module": "music.vkey.GetVkey",
@@ -70,12 +76,17 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 				"guid":      guid,
 				"songmid":   songmids,
 				"songtype":  songtypes,
-				"uin":       "0",
+				"uin":       uin,
 				"loginflag": 1,
 				"platform":  "20",
 				"filename":  filenames,
 			},
 		},
+	}
+	if musicKey != "" {
+		reqData["comm"].(map[string]interface{})["g_tk"] = hash33WithSeed(musicKey, 5381)
+		reqData["comm"].(map[string]interface{})["qq"] = uin
+		reqData["comm"].(map[string]interface{})["authst"] = musicKey
 	}
 
 	jsonData, _ := json.Marshal(reqData)
@@ -118,4 +129,14 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 	}
 
 	return "", errors.New("no valid download url found or vip required")
+}
+
+func qqCredentialFromCookie(cookie string) (uin string, musicKey string) {
+	cookies := parseCookieString(cookie)
+	uin = firstNonEmptyQQ(cookies["str_musicid"], cookies["qqmusic_uin"], cookies["musicid"], cookies["uin"])
+	musicKey = firstNonEmptyQQ(cookies["musickey"], cookies["qqmusic_key"], cookies["qm_keyst"])
+	if uin == "" {
+		uin = "0"
+	}
+	return uin, musicKey
 }
