@@ -14,3 +14,12 @@ func TestKuwoPreferredDownloadQualitiesHighToLow(t *testing.T) {
 		}
 	}
 }
+
+func TestFirstReachableKuwoAudioURLSkipsBadCandidates(t *testing.T) {
+	got := firstReachableKuwoAudioURL([]string{"", "bad-flac", "good-320"}, func(rawURL string) bool {
+		return rawURL == "good-320"
+	})
+	if got != "good-320" {
+		t.Fatalf("reachable url = %q, want good-320", got)
+	}
+}

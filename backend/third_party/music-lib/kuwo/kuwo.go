@@ -10,6 +10,7 @@ import (
 	"html"
 	"io"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -562,7 +563,9 @@ func (k *Kuwo) fetchAudioURL(rid string) (string, error) {
 			continue
 		}
 		if resp.Data.URL != "" {
-			return resp.Data.URL, nil
+			if firstReachableKuwoAudioURL([]string{resp.Data.URL}, probeKuwoAudioURL) != "" {
+				return resp.Data.URL, nil
+			}
 		}
 	}
 
@@ -598,6 +601,42 @@ func (k *Kuwo) fetchAudioURL(rid string) (string, error) {
 
 func kuwoPreferredDownloadQualities() []string {
 	return []string{"2000kflac", "flac", "320kmp3", "128kmp3"}
+}
+
+var probeKuwoAudioURL = kuwoAudioURLReachable
+
+func firstReachableKuwoAudioURL(urls []string, probe func(string) bool) string {
+	if probe == nil {
+		probe = kuwoAudioURLReachable
+	}
+	for _, rawURL := range urls {
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
+			continue
+		}
+		if probe(rawURL) {
+			return rawURL
+		}
+	}
+	return ""
+}
+
+func kuwoAudioURLReachable(rawURL string) bool {
+	req, err := http.NewRequest(http.MethodGet, strings.TrimSpace(rawURL), nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("Referer", "https://www.kuwo.cn/")
+	req.Header.Set("Range", "bytes=0-1")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
 }
 
 func (k *Kuwo) fetchNewLyrics(rid string) (string, error) {
