@@ -528,10 +528,9 @@ func (k *Kuwo) fetchFullSongInfo(rid string) (*model.Song, error) {
 
 // fetchAudioURL 内部核心：仅获取下载链接
 func (k *Kuwo) fetchAudioURL(rid string) (string, error) {
-	qualities := []string{"128kmp3", "320kmp3", "flac", "2000kflac"}
 	randomID := fmt.Sprintf("C_APK_guanwang_%d%d", time.Now().UnixNano(), rand.Intn(1000000))
 
-	for _, br := range qualities {
+	for _, br := range kuwoPreferredDownloadQualities() {
 		params := url.Values{}
 		params.Set("f", "web")
 		params.Set("source", "kwplayercar_ar_6.0.0.9_B_jiakong_vh.apk")
@@ -595,6 +594,10 @@ func (k *Kuwo) fetchAudioURL(rid string) (string, error) {
 	}
 
 	return "", errors.New("download url not found (copyright restricted)")
+}
+
+func kuwoPreferredDownloadQualities() []string {
+	return []string{"2000kflac", "flac", "320kmp3", "128kmp3"}
 }
 
 func (k *Kuwo) fetchNewLyrics(rid string) (string, error) {

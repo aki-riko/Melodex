@@ -354,7 +354,16 @@ export const adminSetRegistration = async (allow) =>
 
 export const getQRSources = async () => {
   const { data } = await client.get('/api/v1/qr_login/sources');
-  return data.sources || [];
+  const qrSources = data.sources || [];
+  const cookieSources = data.cookie_sources || qrSources;
+  const seen = new Set();
+  return [...cookieSources, ...qrSources]
+    .filter((source) => {
+      if (seen.has(source)) return false;
+      seen.add(source);
+      return true;
+    })
+    .map((source) => ({ source, qr: qrSources.includes(source) }));
 };
 
 // 创建二维码登录会话 → { source, key, url, image_url }
