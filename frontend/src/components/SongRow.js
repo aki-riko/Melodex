@@ -341,6 +341,7 @@ const SongRow = ({
           {showPlayingBars && <PlayingCoverBars />}
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={handleCoverAction}
             className={`absolute inset-0 z-10 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
               showPausedCoverPlayButton
