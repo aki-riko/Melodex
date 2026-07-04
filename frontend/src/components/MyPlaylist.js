@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, Check, Download, HardDriveDownload, Play, RotateCw, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { AlertCircle, Check, Download, Ellipsis, HardDriveDownload, Play, RotateCw, Trash2 } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -48,6 +48,8 @@ export default function MyPlaylist() {
   const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
   const [bulkCache, setBulkCache] = useState({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
   const [notice, setNotice] = useState('');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef(null);
   const { play, isPlaying } = usePlayer();
   const { user, offline } = useAuth();
   const { remove, collections } = useCollections();
@@ -93,6 +95,22 @@ export default function MyPlaylist() {
     return () => window.removeEventListener('hashchange', fromHash);
   }, [load]);
 
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (moreRef.current && !moreRef.current.contains(event.target)) setMoreOpen(false);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreOpen]);
+
   if (!meta) {
     return <p className="text-muted-foreground py-10 text-center">从左侧选择一个歌单</p>;
   }
@@ -111,6 +129,7 @@ export default function MyPlaylist() {
 
   const handleDeleteCollection = async () => {
     if (!canDeleteCollection) return;
+    setMoreOpen(false);
     if (!window.confirm(`删除歌单「${currentName}」?`)) return;
     setNotice('');
     try {
@@ -187,6 +206,8 @@ export default function MyPlaylist() {
   const BulkCacheIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
   const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle';
   const collectionLabel = collectionKind === 'favorite' ? '我喜欢' : '歌单';
+  const rowRemoveTitle = collectionKind === 'favorite' ? '取消喜欢' : '从歌单移除';
+  const rowRemoveHint = collectionKind === 'favorite' ? '只从我喜欢里移除' : '只从当前歌单移除';
 
   return (
     <div>
@@ -225,11 +246,29 @@ export default function MyPlaylist() {
               {bulkCacheLabel}
             </button>
             {canDeleteCollection && (
-              <button onClick={handleDeleteCollection}
-                className="flex items-center gap-2 min-h-10 px-4 py-2 rounded-full text-muted-foreground hover:text-destructive transition-colors"
-                title="删除歌单">
-                <Trash2 size={18} />删除歌单
-              </button>
+              <div ref={moreRef} className="relative">
+                <button onClick={() => setMoreOpen((open) => !open)}
+                  className="flex min-h-10 items-center gap-2 rounded-full px-4 py-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  title="更多操作"
+                  aria-label="更多操作"
+                  aria-expanded={moreOpen}>
+                  <Ellipsis size={18} />更多
+                </button>
+                {moreOpen && (
+                  <div className="absolute right-0 top-full z-40 mt-2 w-48 overflow-hidden rounded-md border border-border bg-card shadow-xl">
+                    <button
+                      onClick={handleDeleteCollection}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                    >
+                      <Trash2 size={16} className="flex-shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block font-medium">删除歌单</span>
+                        <span className="block truncate text-xs text-muted-foreground">不会删除 NAS 文件</span>
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -284,7 +323,7 @@ export default function MyPlaylist() {
         {songs.map((song, i) => (
           <SongRow key={songIdentityKey(song)} song={song} index={i}
             isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
-            onRemove={handleRemove} />
+            onRemove={handleRemove} removeTitle={rowRemoveTitle} removeHint={rowRemoveHint} />
         ))}
       </div>
     </div>
