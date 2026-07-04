@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Check, Download, Play, RotateCw, Trash2 } from 'lucide-react';
+import { Check, Download, HardDriveDownload, Play, RotateCw, Trash2 } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
 import { coverProxyUrl, saveToServer } from '../services/musicdl';
+import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 
 // 歌单详情头图:用歌单内歌曲封面拼图(Spotify 风格)。
 //   - 取前 4 首"有封面"的歌:1 张铺满 / 2-3 张仍用首张铺满(半拼不好看) / ≥4 张 2x2 马赛克
@@ -43,8 +45,11 @@ export default function MyPlaylist() {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
+  const [bulkCache, setBulkCache] = useState({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
   const { play, isPlaying } = usePlayer();
+  const { user, offline } = useAuth();
   const { remove, refresh, collections } = useCollections();
+  const userId = user?.id || 0;
   const currentCollection = collections.find((c) => c.id === meta?.collectionId);
   const currentName = meta?.name || currentCollection?.name || '歌单';
   const collectionKind = meta?.kind || currentCollection?.kind;
@@ -53,6 +58,7 @@ export default function MyPlaylist() {
   const load = useCallback(async (collectionId) => {
     setLoading(true);
     setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
+    setBulkCache({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
     try {
       const data = await getCollectionSongs(collectionId);
       const list = Array.isArray(data) ? data : (data?.songs || []);
@@ -119,6 +125,32 @@ export default function MyPlaylist() {
     setBulkDownload({ phase: fail ? 'fail' : 'done', done, fail, total });
   };
 
+  const handleCacheAll = async () => {
+    if (!songs.length || offline || bulkCache.phase === 'running') return;
+
+    const total = songs.length;
+    let done = 0;
+    let fail = 0;
+    let skipped = 0;
+    setBulkCache({ phase: 'running', done, fail, skipped, total });
+
+    for (const song of songs) {
+      try {
+        if (!canCacheSong(song) || (await isSongCached(song, userId))) {
+          skipped += 1;
+        } else {
+          await cacheSong(song, { userId });
+          done += 1;
+        }
+      } catch {
+        fail += 1;
+      }
+      setBulkCache({ phase: 'running', done, fail, skipped, total });
+    }
+
+    setBulkCache({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
+  };
+
   const bulkDownloadLabel = (() => {
     if (bulkDownload.phase === 'running') return `下载中 ${bulkDownload.done + bulkDownload.fail}/${bulkDownload.total}`;
     if (bulkDownload.phase === 'done') return `已下载 ${bulkDownload.done}/${bulkDownload.total}`;
@@ -126,6 +158,13 @@ export default function MyPlaylist() {
     return '全部下载到 NAS';
   })();
   const BulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
+  const bulkCacheLabel = (() => {
+    if (bulkCache.phase === 'running') return `缓存中 ${bulkCache.done + bulkCache.fail + bulkCache.skipped}/${bulkCache.total}`;
+    if (bulkCache.phase === 'done') return `已缓存 ${bulkCache.done + bulkCache.skipped}/${bulkCache.total}`;
+    if (bulkCache.phase === 'fail') return `失败 ${bulkCache.fail} 首`;
+    return '全部缓存到本机';
+  })();
+  const BulkCacheIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
 
   return (
     <div>
@@ -151,6 +190,17 @@ export default function MyPlaylist() {
               title="把当前歌单全部下载到服务器(NAS)">
               <BulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {bulkDownloadLabel}
+            </button>
+            <button onClick={handleCacheAll}
+              disabled={!songs.length || offline || bulkCache.phase === 'running'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+                bulkCache.phase === 'done' ? 'bg-primary/10 text-primary'
+                : bulkCache.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                : 'bg-secondary text-foreground hover:bg-secondary/80'
+              }`}
+              title={offline ? '离线状态无法缓存新歌曲' : '把当前歌单全部缓存到当前浏览器/PWA'}>
+              <BulkCacheIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
+              {bulkCacheLabel}
             </button>
             {canDeleteCollection && (
               <button onClick={handleDeleteCollection}
