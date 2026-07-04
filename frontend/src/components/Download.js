@@ -12,6 +12,7 @@ import { X } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useLiveCheck } from '../hooks/useLiveCheck';
+import { songIdentityKey } from '../utils/songIdentity';
 
 const TABS = [
   { key: 'search', label: '歌曲搜索' },
@@ -72,14 +73,13 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
   };
   const clearSort = () => setSortKeys([]);
 
-  const songKey = (s) => `${s.source}-${s.id}`;
   // 只保留已验活为 ok 的(验活中/未验先不显示,死链永久隐藏)
-  const liveSongs = allSongs.filter((s) => status[songKey(s)]?.state === 'ok');
+  const liveSongs = allSongs.filter((s) => status[songIdentityKey(s)]?.state === 'ok');
 
   // 各排序维度的取值
   const fieldValue = (s, origIdx, field) => {
     if (field === 'size') return s.size || 0;
-    if (field === 'quality') return status[songKey(s)]?.bitrateNum || 0;
+    if (field === 'quality') return status[songIdentityKey(s)]?.bitrateNum || 0;
     // 相关性:信任后端综合排序(上游名次+翻唱降权+原唱信号,前端看不到这些),
     // 用返回序的相反数(origIdx 越小越靠前)。不再前端重算 relevanceScore。
     if (field === 'relevance') return -origIdx;
@@ -97,8 +97,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       // 排序键全相等(如同名"炽心"相关性同分)时,隐式按真实音质降序——
       // 正版通常有无损会靠前;音质相同再回退原序。
       if (!sortKeys.some((k) => k.field === 'quality')) {
-        const qa = status[songKey(a.s)]?.bitrateNum || 0;
-        const qb = status[songKey(b.s)]?.bitrateNum || 0;
+        const qa = status[songIdentityKey(a.s)]?.bitrateNum || 0;
+        const qb = status[songIdentityKey(b.s)]?.bitrateNum || 0;
         if (qa !== qb) return qb - qa;
       }
       return a.i - b.i;
@@ -204,7 +204,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
             isPlaying={isPlaying(song)}
             onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
-            liveInfo={status[songKey(song)]}
+            liveInfo={status[songIdentityKey(song)]}
           />
         ))}
       </div>

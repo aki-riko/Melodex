@@ -150,8 +150,8 @@ export default function OfflineMusic() {
   };
 
   const handleDelete = async (record) => {
-    await deleteCachedRecord(record.key, userId);
-    setRecords((rows) => rows.filter((row) => row.key !== record.key));
+    const deleted = await deleteCachedRecord(record.key, userId);
+    if (deleted) setRecords((rows) => rows.filter((row) => row.key !== record.key));
     setEstimate(await getStorageEstimate());
   };
 
