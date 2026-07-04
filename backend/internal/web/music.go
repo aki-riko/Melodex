@@ -669,71 +669,9 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		var urlStr string
-		var err error
-
-		if src == "soda" {
-			cookie := core.CM.Get("soda")
-			sodaInst := soda.New(cookie)
-			info, sErr := sodaInst.GetDownloadInfo(&model.Song{ID: id, Source: src})
-			if sErr != nil {
-				c.JSON(200, gin.H{"valid": false})
-				return
-			}
-			urlStr = info.URL
-		} else {
-			fn := core.GetDownloadFunc(src)
-			if fn == nil {
-				c.JSON(200, gin.H{"valid": false})
-				return
-			}
-			urlStr, err = fn(&model.Song{ID: id, Source: src, Extra: extra})
-			if err != nil || urlStr == "" {
-				c.JSON(200, gin.H{"valid": false})
-				return
-			}
-		}
-
-		req, reqErr := core.BuildSourceRequest("GET", urlStr, src, "bytes=0-1")
-		if reqErr != nil {
-			c.JSON(200, gin.H{"valid": false})
-			return
-		}
-
-		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Do(req)
-
-		valid := false
-		var size int64 = 0
-
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == 200 || resp.StatusCode == 206 {
-				valid = true
-				cr := resp.Header.Get("Content-Range")
-				if parts := strings.Split(cr, "/"); len(parts) == 2 {
-					size, _ = strconv.ParseInt(parts[1], 10, 64)
-				} else {
-					size = resp.ContentLength
-				}
-			}
-		}
-
-		bitrate := "-"
-		if valid && size > 0 {
-			dur, _ := strconv.Atoi(durStr)
-			if dur > 0 {
-				kbps := int((size * 8) / int64(dur) / 1000)
-				bitrate = fmt.Sprintf("%d kbps", kbps)
-			}
-		}
-
-		c.JSON(200, gin.H{
-			"valid":   valid,
-			"url":     urlStr,
-			"size":    core.FormatSize(size),
-			"bitrate": bitrate,
-		})
+		duration, _ := strconv.Atoi(durStr)
+		result := inspectSongQualityCached(model.Song{ID: id, Source: src, Duration: duration, Extra: extra}, duration)
+		c.JSON(200, qualityResultPayload(result))
 	})
 
 	api.GET("/switch_source", func(c *gin.Context) {

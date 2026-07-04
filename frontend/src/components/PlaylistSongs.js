@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useQuery } from 'react-query';
 import { Check, Download, HardDriveDownload, ListPlus, Music, Play, RotateCw } from 'lucide-react';
 import { getPlaylistDetail, getLyric, saveToServer } from '../services/musicdl';
-import SongRow from './SongRow';
+import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -232,7 +232,8 @@ const PlaylistSongs = ({ meta, onBack }) => {
           )}
         </div>
       )}
-      <div className="space-y-2">
+      <SongListHeader />
+      <div className="space-y-0.5">
         {songs.map((song, idx) => (
           <SongRow
             key={`${song.source}-${song.id}-${idx}`}

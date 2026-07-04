@@ -4,6 +4,8 @@ frontend/build/
 frontend/snapshot-build/
 frontend/.env
 frontend/.env.local
+.env
+.env.local
 
 # Go / backend
 backend/music-dl

@@ -54,13 +54,13 @@ Melodex/
 一体化镜像:React 前端 + Go 后端 + ffmpeg 打包进单个容器,前后端同源,开箱即用。
 
 ```bash
-docker compose up -d --build      # 构建并启动
-docker compose up -d --build      # 构建并启动
+cp .env.example .env              # 首次部署:填写 POSTGRES_PASSWORD
+docker compose up -d --build      # 构建并启动应用 + PostgreSQL
 # 访问 http://<主机>:8329
 ```
 
 镜像三阶段构建(Node 构建前端 → Go 编译并 `go:embed` 嵌入前端产物 → Alpine + ffmpeg 运行)。
-数据(下载的音乐、cookie、生成的视频、settings.db)持久化在 `./data`。videogen 所需的 ffmpeg 已在镜像内,无需额外安装。
+PostgreSQL 使用当前稳定线 `postgres:18.4-alpine`;数据库数据持久化在 Compose volume `postgres_data`,下载的音乐与旧 SQLite 迁移源仍挂载在 `./data`。首次启用 Postgres 时,后端会从 `./data/settings.db` 迁移配置、账号、歌单、播放历史、搜索缓存等旧数据。
 
 > 对外暴露前请阅读下方「安全说明」:搜索/下载等匿名可用,扫码登录等敏感操作需先在 `/music/setup` 初始化管理员。
 

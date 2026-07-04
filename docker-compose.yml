@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:18.4-alpine
+    container_name: melodex-postgres
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_DB: ${POSTGRES_DB:-melodex}
+      POSTGRES_USER: ${POSTGRES_USER:-melodex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   melodex:
     build:
       context: .
@@ -8,14 +25,23 @@ services:
     restart: unless-stopped
     ports:
       - "8329:8329"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       # 持久化:下载的音乐、cookie、生成的视频、settings.db 等都在 data 下
       - ./data:/home/appuser/data
     environment:
-      - TZ=Asia/Shanghai
+      TZ: Asia/Shanghai
+      MUSIC_DL_DATABASE_DRIVER: postgres
+      MUSIC_DL_DATABASE_DSN: host=postgres user=${POSTGRES_USER:-melodex} password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env} dbname=${POSTGRES_DB:-melodex} port=5432 sslmode=disable TimeZone=Asia/Shanghai
+      MUSIC_DL_LEGACY_SQLITE_DB: /home/appuser/data/settings.db
       # Subsonic API facade(默认关):配齐下面三项才启用,音流/substreamer 等
       # 标准 Subsonic 客户端即可连本服务搜全网/在线听/听过自动入库。
       # 凭据为客户端登录用的用户名与密码(强密码),禁止用默认值对外暴露。
-      # - MUSIC_DL_SUBSONIC_ENABLED=1
-      # - MUSIC_DL_SUBSONIC_USER=changeme
-      # - MUSIC_DL_SUBSONIC_PASS=please-set-a-strong-password
+      # MUSIC_DL_SUBSONIC_ENABLED: "1"
+      # MUSIC_DL_SUBSONIC_USER: changeme
+      # MUSIC_DL_SUBSONIC_PASS: please-set-a-strong-password
+
+volumes:
+  postgres_data:

@@ -63,6 +63,12 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		if songs == nil {
 			songs = []model.Song{}
 		}
+		for i := range songs {
+			if strings.TrimSpace(songs[i].Source) == "" {
+				songs[i].Source = src
+			}
+		}
+		warmQualityCache(songs, 6)
 		out := gin.H{"songs": songs, "type": "playlist", "source": src, "link": core.GetOriginalLink(src, id, "playlist")}
 		if err != nil {
 			out["error"] = fmt.Sprintf("获取歌单失败: %v", err)
@@ -87,6 +93,12 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		if songs == nil {
 			songs = []model.Song{}
 		}
+		for i := range songs {
+			if strings.TrimSpace(songs[i].Source) == "" {
+				songs[i].Source = src
+			}
+		}
+		warmQualityCache(songs, 6)
 		out := gin.H{"songs": songs, "type": "album", "source": src, "link": core.GetOriginalLink(src, id, "album")}
 		if err != nil {
 			out["error"] = fmt.Sprintf("获取专辑失败: %v", err)
@@ -302,6 +314,9 @@ func jsonSearchHandler(c *gin.Context) {
 		resp.Playlists = playlists
 		resp.Type = finalType
 		resp.Error = errMsg
+		if resp.Type == "song" && len(resp.Songs) > 0 {
+			warmQualityCache(resp.Songs, 6)
+		}
 		if errMsg != "" {
 			c.JSON(200, resp)
 			return
@@ -311,6 +326,9 @@ func jsonSearchHandler(c *gin.Context) {
 		cacheKey := searchCacheKey(searchType, keyword, exactArtist, sources)
 		if cached, ok := getCachedSearch(cacheKey); ok {
 			recordSearchHistory(currentUserID(c), keyword, cached.Type)
+			if cached.Type == "song" && len(cached.Songs) > 0 {
+				warmQualityCache(cached.Songs, 6)
+			}
 			c.JSON(200, cached)
 			return
 		}
@@ -331,6 +349,9 @@ func jsonSearchHandler(c *gin.Context) {
 		// 写缓存(排序/过滤后的最终结果)+ 记搜索历史。
 		putCachedSearch(cacheKey, resp)
 		recordSearchHistory(currentUserID(c), keyword, resp.Type)
+		if resp.Type == "song" && len(resp.Songs) > 0 {
+			warmQualityCache(resp.Songs, 6)
+		}
 		c.JSON(200, resp)
 		return
 	}

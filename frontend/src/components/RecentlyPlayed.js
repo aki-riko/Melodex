@@ -1,7 +1,7 @@
 import React from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { Play, Clock, Trash2 } from 'lucide-react';
-import SongRow from './SongRow';
+import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { getPlayHistory, clearPlayHistory } from '../services/musicdl';
@@ -68,6 +68,7 @@ export default function RecentlyPlayed() {
       {!isLoading && songs.length === 0 && (
         <p className="text-muted-foreground">还没有播放记录,去搜索或歌单里播放歌曲吧。</p>
       )}
+      <SongListHeader />
       <div className="space-y-0.5">
         {songs.map((song, i) => (
           <SongRow key={`${song.source}-${song.id}`} song={song} index={i}

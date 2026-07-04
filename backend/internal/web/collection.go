@@ -181,22 +181,23 @@ func (c Collection) playlistCard() model.Playlist {
 }
 
 func InitDB() {
-	dbPath := filepath.Clean(core.ConfigDBPath())
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-		panic("Failed to create SQLite directory: " + err.Error())
-	}
-
 	var err error
-	db, err = gorm.Open(sqlite.Open(dbPath+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"), &gorm.Config{})
+	db, err = core.OpenAppDatabase()
 	if err != nil {
-		panic("Failed to connect to SQLite: " + err.Error())
+		panic("Failed to connect to database: " + err.Error())
 	}
 
-	if err := db.AutoMigrate(&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &searchHistoryRow{}, &playHistoryRow{}); err != nil {
+	if err := db.AutoMigrate(&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &searchHistoryRow{}, &playHistoryRow{}, &qualityCacheRow{}); err != nil {
 		panic("Failed to migrate database: " + err.Error())
 	}
 
-	if err := migrateLegacyFavorites(dbPath); err != nil {
+	legacyUnifiedPath := filepath.Clean(core.LegacySQLiteDBPath())
+	if core.IsPostgresDB(db) {
+		if err := migrateLegacySQLiteWebData(); err != nil {
+			panic("Failed to migrate legacy SQLite database: " + err.Error())
+		}
+	}
+	if err := migrateLegacyFavorites(legacyUnifiedPath); err != nil {
 		panic("Failed to migrate legacy favorites database: " + err.Error())
 	}
 	if err := backfillCollectionDefaults(); err != nil {
@@ -223,13 +224,42 @@ func ensureFavoriteUniqueIndex() error {
 		var extraIDs []uint
 		db.Raw(`SELECT id FROM collections WHERE kind = ? AND user_id = ? AND id <> ?`, collectionKindFavorite, d.UserID, d.MinID).Scan(&extraIDs)
 		for _, eid := range extraIDs {
-			// 歌曲改挂到主 favorite(冲突则丢弃,主歌单已有同曲)
-			db.Exec(`UPDATE OR IGNORE saved_songs SET collection_id = ? WHERE collection_id = ?`, d.MinID, eid)
-			db.Where("collection_id = ?", eid).Delete(&SavedSong{})
-			db.Delete(&Collection{}, eid)
+			if err := mergeFavoriteCollectionSongs(d.MinID, eid); err != nil {
+				return err
+			}
 		}
 	}
 	return db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_fav_user ON collections(user_id) WHERE kind = 'favorite'`).Error
+}
+
+func mergeFavoriteCollectionSongs(targetID, duplicateID uint) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var songs []SavedSong
+		if err := tx.Where("collection_id = ?", duplicateID).Find(&songs).Error; err != nil {
+			return err
+		}
+		for _, song := range songs {
+			var existing int64
+			if err := tx.Model(&SavedSong{}).
+				Where("collection_id = ? AND song_id = ? AND source = ?", targetID, song.SongID, song.Source).
+				Count(&existing).Error; err != nil {
+				return err
+			}
+			if existing > 0 {
+				if err := tx.Delete(&SavedSong{}, song.ID).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			if err := tx.Model(&SavedSong{}).Where("id = ?", song.ID).Update("collection_id", targetID).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("collection_id = ?", duplicateID).Delete(&SavedSong{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&Collection{}, duplicateID).Error
+	})
 }
 
 func CloseDB() {
@@ -596,6 +626,7 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 		if err != nil {
 			return nil, err
 		}
+		warmQualityCache(songs, 6)
 		resp := make([]gin.H, 0, len(songs))
 		for _, song := range songs {
 			resp = append(resp, gin.H{
@@ -621,8 +652,15 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 	}
 
 	resp := make([]gin.H, 0, len(savedSongs))
+	warmSongs := make([]model.Song, 0, len(savedSongs))
 	for _, s := range savedSongs {
 		extraMap := decodeSongExtraMap(s.Extra)
+		warmSongs = append(warmSongs, model.Song{
+			ID:       s.SongID,
+			Source:   s.Source,
+			Duration: s.Duration,
+			Extra:    extraMap,
+		})
 		resp = append(resp, gin.H{
 			"db_id":         s.ID,
 			"collection_id": s.CollectionID,
@@ -639,6 +677,7 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 			"added_at":      s.AddedAt,
 		})
 	}
+	warmQualityCache(warmSongs, 6)
 	return resp, nil
 }
 

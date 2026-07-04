@@ -1,7 +1,7 @@
 import React, { useRef, useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { Play, Download, Upload, RotateCw, Disc3, ChevronLeft } from 'lucide-react';
-import SongRow from './SongRow';
+import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { getLocalMusic, deleteLocalMusic, uploadLocalMusic, coverProxyUrl } from '../services/musicdl';
@@ -97,6 +97,7 @@ export default function LocalMusic() {
             </button>
           </div>
         </div>
+        <SongListHeader />
         <div className="space-y-0.5">
           {songs.map((song, i) => (
             <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
@@ -161,13 +162,16 @@ export default function LocalMusic() {
       )}
 
       {view === 'songs' && (
-        <div className="space-y-0.5">
-          {tracks.map((song, i) => (
-            <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
-              isPlaying={isPlaying(song)} onPlay={(s) => play(s, tracks)}
-              onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
-          ))}
-        </div>
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5">
+            {tracks.map((song, i) => (
+              <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
+                isPlaying={isPlaying(song)} onPlay={(s) => play(s, tracks)}
+                onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
+            ))}
+          </div>
+        </>
       )}
 
       {view === 'albums' && tracks.length > 0 && (

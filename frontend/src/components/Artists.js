@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from 'react-query';
 import { searchMusic, getLyric } from '../services/musicdl';
-import SongRow from './SongRow';
+import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 
 // 艺人:国内源没有"艺人榜"接口,改为按歌手名搜索其歌曲。
@@ -57,7 +57,8 @@ const Artists = () => {
       {state.isLoading && <p className="text-muted-foreground font-medium">搜索中…</p>}
       {query && !state.isLoading && songs.length === 0 && <p className="text-muted-foreground">没有找到该歌手的歌曲。</p>}
 
-      <div className="space-y-2">
+      <SongListHeader />
+      <div className="space-y-0.5">
         {songs.map((song, idx) => (
           <SongRow
             key={`${song.source}-${song.id}-${idx}`}

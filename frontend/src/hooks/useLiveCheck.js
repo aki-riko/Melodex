@@ -38,8 +38,9 @@ export function useLiveCheck(rawSongs, { enabled = true, concurrency = 6 } = {})
         try {
           const r = await inspectQuality(song);
           if (r && r.valid) {
-            const brNum = parseInt(String(r.bitrate).replace(/[^0-9]/g, ''), 10) || 0;
-            result = { state: 'ok', size: r.size, bitrate: r.bitrate, bitrateNum: brNum };
+            const brNum = Number(r.bitrate_num || r.bitrateNum) || parseInt(String(r.bitrate).replace(/[^0-9]/g, ''), 10) || 0;
+            const sizeBytes = Number(r.size_bytes || r.sizeBytes) || 0;
+            result = { state: 'ok', size: r.size, sizeBytes, bitrate: r.bitrate, bitrateNum: brNum, cached: !!r.cached };
           }
         } catch {
           /* 网络错误按死链处理 */
