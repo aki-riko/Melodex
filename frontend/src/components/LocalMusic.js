@@ -35,7 +35,7 @@ function AlbumCover({ songs }) {
   );
 }
 
-// 本地和下载页:本地音乐库(下载到 NAS + 上传,按 user_id 归属过滤)。
+// NAS 曲库页:下载到服务器的音乐 + 上传文件,按 user_id 归属过滤。
 // 支持「歌曲 / 专辑」两种视图;可播放/上传/删除。后端接口 /music/local_music。
 export default function LocalMusic() {
   const { play, isPlaying } = usePlayer();
@@ -111,8 +111,8 @@ export default function LocalMusic() {
           <Download size={48} className="text-muted-foreground" />
         </div>
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">本地音乐库</p>
-          <h1 className="text-3xl font-black truncate">本地和下载</h1>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">服务器音乐库</p>
+          <h1 className="text-3xl font-black truncate">NAS 曲库</h1>
           <p className="text-sm text-muted-foreground mt-1">{tracks.length} 首 · {albums.length} 张专辑</p>
           <div className="flex flex-wrap gap-2 mt-3">
             <button onClick={() => tracks.length && play(tracks[0], tracks)}
@@ -153,7 +153,7 @@ export default function LocalMusic() {
       </p>
       {isLoading && <p className="text-muted-foreground">加载中…</p>}
       {!isLoading && tracks.length === 0 && (
-        <p className="text-muted-foreground">本地音乐库为空。在搜索页下载歌曲、或在此上传文件后会出现在这里。</p>
+        <p className="text-muted-foreground">NAS 曲库为空。在搜索页下载歌曲、或在此上传文件后会出现在这里。</p>
       )}
 
       {view === 'songs' && (
