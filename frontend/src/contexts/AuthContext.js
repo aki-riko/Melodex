@@ -89,6 +89,13 @@ export const AuthProvider = ({ children }) => {
     return () => window.removeEventListener('melodex:unauthorized', onUnauthorized);
   }, [refresh]);
 
+  // 离线冷启动后,网络恢复时主动重新校验 /me,让 UI 回到在线权限态。
+  useEffect(() => {
+    const onOnline = () => { refresh(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [refresh]);
+
   const login = useCallback(async (username, password) => {
     const res = await apiLogin(username, password);
     await refresh();
