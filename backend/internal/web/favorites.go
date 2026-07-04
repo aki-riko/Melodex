@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -94,6 +93,8 @@ func RegisterFavoriteRoutes(api *gin.RouterGroup) {
 			Source   string      `json:"source"`
 			Name     string      `json:"name"`
 			Artist   string      `json:"artist"`
+			Album    string      `json:"album"`
+			AlbumID  string      `json:"album_id"`
 			Cover    string      `json:"cover"`
 			Duration int         `json:"duration"`
 			Extra    interface{} `json:"extra"`
@@ -123,12 +124,7 @@ func RegisterFavoriteRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		extraStr := ""
-		if req.Extra != nil {
-			if b, err := json.Marshal(req.Extra); err == nil {
-				extraStr = string(b)
-			}
-		}
+		extraStr := encodeSongExtraWithMetadata(req.Extra, req.Album, req.AlbumID)
 		song := SavedSong{
 			CollectionID: fav.ID,
 			SongID:       req.SongID,

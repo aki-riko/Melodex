@@ -76,3 +76,20 @@ func TestPlayHistoryPrune(t *testing.T) {
 		t.Fatalf("oldest row should be pruned, still present")
 	}
 }
+
+func TestEncodeSongExtraWithMetadataAddsAlbumFields(t *testing.T) {
+	raw := encodeSongExtraWithMetadata(map[string]interface{}{"link": "https://example.test/song"}, "测试专辑", "album-1")
+	extra := decodeSongExtraMap(raw)
+	if extraMapValue(extra, "link") != "https://example.test/song" {
+		t.Fatalf("link should be preserved, got %#v", extra)
+	}
+	if extraMapValue(extra, "album") != "测试专辑" || extraMapValue(extra, "album_id") != "album-1" {
+		t.Fatalf("album metadata missing, got %#v", extra)
+	}
+
+	raw = encodeSongExtraWithMetadata(map[string]interface{}{"album": "已有专辑"}, "新专辑", "")
+	extra = decodeSongExtraMap(raw)
+	if extraMapValue(extra, "album") != "已有专辑" {
+		t.Fatalf("existing album should win, got %#v", extra)
+	}
+}

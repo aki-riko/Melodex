@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -132,6 +131,8 @@ func RegisterPlayHistoryRoutes(api *gin.RouterGroup) {
 			Source   string      `json:"source"`
 			Name     string      `json:"name"`
 			Artist   string      `json:"artist"`
+			Album    string      `json:"album"`
+			AlbumID  string      `json:"album_id"`
 			Cover    string      `json:"cover"`
 			Duration int         `json:"duration"`
 			Extra    interface{} `json:"extra"`
@@ -140,12 +141,7 @@ func RegisterPlayHistoryRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误,缺少 id 或 source"})
 			return
 		}
-		extraStr := ""
-		if req.Extra != nil {
-			if b, err := json.Marshal(req.Extra); err == nil {
-				extraStr = string(b)
-			}
-		}
+		extraStr := encodeSongExtraWithMetadata(req.Extra, req.Album, req.AlbumID)
 		recordPlayHistory(uid, req.SongID, req.Source, req.Name, req.Artist, req.Cover, req.Duration, extraStr)
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})

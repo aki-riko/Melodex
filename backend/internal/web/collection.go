@@ -559,6 +559,65 @@ func extraMapValue(extra map[string]string, key string) string {
 	return strings.TrimSpace(extra[key])
 }
 
+func encodeSongExtraWithMetadata(extra interface{}, album, albumID string) string {
+	extraMap := make(map[string]interface{})
+
+	switch v := extra.(type) {
+	case nil:
+	case map[string]interface{}:
+		for key, value := range v {
+			extraMap[key] = value
+		}
+	case map[string]string:
+		for key, value := range v {
+			extraMap[key] = value
+		}
+	case string:
+		raw := strings.TrimSpace(v)
+		if raw != "" && raw != "{}" && raw != "null" {
+			var decoded map[string]interface{}
+			if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
+				for key, value := range decoded {
+					extraMap[key] = value
+				}
+			}
+		}
+	default:
+		if b, err := json.Marshal(v); err == nil {
+			var decoded map[string]interface{}
+			if err := json.Unmarshal(b, &decoded); err == nil {
+				for key, value := range decoded {
+					extraMap[key] = value
+				}
+			}
+		}
+	}
+
+	album = strings.TrimSpace(album)
+	albumID = strings.TrimSpace(albumID)
+	isEmpty := func(key string) bool {
+		value, ok := extraMap[key]
+		if !ok || value == nil {
+			return true
+		}
+		return strings.TrimSpace(fmt.Sprint(value)) == ""
+	}
+	if album != "" && isEmpty("album") {
+		extraMap["album"] = album
+	}
+	if albumID != "" && isEmpty("album_id") {
+		extraMap["album_id"] = albumID
+	}
+	if len(extraMap) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(extraMap)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 func decodeSongExtraObject(raw string) interface{} {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
