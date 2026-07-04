@@ -75,7 +75,7 @@ const SearchStatusPanel = ({ stage, progress, available, total }) => {
 };
 
 // 歌曲搜索面板
-const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onShowLyric, isPlaying }) => {
+const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
   const feedback = useFeedback();
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
@@ -297,6 +297,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
+            isPaused={isPaused}
             onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
             liveInfo={status[songIdentityKey(song)]}
@@ -381,7 +382,7 @@ const BulkStatusCard = ({ title, state, cache }) => {
 };
 
 // 歌单详情面板
-const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlaying }) => {
+const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlaying, isPaused }) => {
   const songs = state.data?.songs || [];
   const { user, offline } = useAuth();
   const { create, addSong } = useCollections();
@@ -545,6 +546,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
+            isPaused={isPaused}
             onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
           />
@@ -555,7 +557,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
 };
 
 const Download = ({ downloadRequest }) => {
-  const { play, isPlaying } = usePlayer();
+  const { play, isPlaying, isPaused } = usePlayer();
   const [tab, setTab] = useState('search');
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
@@ -666,6 +668,7 @@ const Download = ({ downloadRequest }) => {
           onPlay={handlePlay}
           onShowLyric={handleShowLyric}
           isPlaying={isPlaying}
+          isPaused={isPaused}
         />
       )}
 
@@ -681,6 +684,7 @@ const Download = ({ downloadRequest }) => {
           onPlay={handlePlay}
           onShowLyric={handleShowLyric}
           isPlaying={isPlaying}
+          isPaused={isPaused}
         />
       )}
 
