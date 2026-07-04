@@ -6,7 +6,6 @@ package web
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -183,11 +182,7 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 				Artist:       best.Artist,
 				Cover:        best.Cover,
 				Duration:     best.Duration,
-			}
-			if best.Extra != nil {
-				if b, err := json.Marshal(best.Extra); err == nil {
-					saved.Extra = string(b)
-				}
+				Extra:        encodeSongExtraWithMetadata(best.Extra, best.Album, best.AlbumID),
 			}
 			if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&saved).Error; err == nil {
 				matched++

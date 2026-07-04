@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { songWritePayload } from '../utils/songFields';
 
 // 自建歌单 API 封装(后端 /music/collections,SQLite 存 NAS,全设备共享)。
 const API_BASE = import.meta.env.VITE_MUSICDL_API || '';
@@ -43,15 +44,7 @@ export const getCollectionSongs = async (id) => {
 
 // 加歌到歌单
 export const addSongToCollection = async (id, song) => {
-  const { data } = await client.post(`${BASE}/${encodeURIComponent(id)}/songs`, {
-    id: song.id,
-    source: song.source,
-    name: song.name,
-    artist: song.artist,
-    cover: song.cover,
-    duration: song.duration,
-    extra: song.extra,
-  });
+  const { data } = await client.post(`${BASE}/${encodeURIComponent(id)}/songs`, songWritePayload(song));
   return data;
 };
 
