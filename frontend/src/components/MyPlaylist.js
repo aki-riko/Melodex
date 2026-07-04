@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertCircle, Check, Download, Ellipsis, HardDriveDownload, Play, RotateCw, Trash2 } from 'lucide-react';
-import SongRow from './SongRow';
+import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -329,6 +329,7 @@ export default function MyPlaylist() {
           </button>
         </div>
       )}
+      <SongListHeader />
       <div className="space-y-0.5">
         {songs.map((song, i) => (
           <SongRow key={songIdentityKey(song)} song={song} index={i}

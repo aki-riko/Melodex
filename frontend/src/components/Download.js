@@ -22,7 +22,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import SongRow from './SongRow';
+import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -139,7 +139,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
   // 各排序维度的取值
   const fieldValue = (s, field) => {
     const live = status[songIdentityKey(s)];
-    if (field === 'size') return live?.size || s.size || 0;
+    if (field === 'size') return live?.sizeBytes || s.size || 0;
     if (field === 'quality') return live?.bitrateNum || 0;
     // 相关性:信任后端综合排序(上游名次+翻唱降权+原唱信号,前端看不到这些),
     // 用返回序的相反数(origIdx 越小越靠前)。不再前端重算 relevanceScore。
@@ -289,7 +289,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
           ))}
         </div>
       )}
-      <div className="space-y-2 pb-32">
+      <SongListHeader />
+      <div className="space-y-0.5 pb-32">
         {songs.map((song, idx) => (
           <SongRow
             key={songIdentityKey(song)}
@@ -536,7 +537,8 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
           <BulkStatusCard title="加入我的歌单" state={bulkCopy} />
         </div>
       )}
-      <div className="space-y-2">
+      <SongListHeader />
+      <div className="space-y-0.5">
         {songs.map((song, idx) => (
           <SongRow
             key={`${song.source}-${song.id}-${idx}`}

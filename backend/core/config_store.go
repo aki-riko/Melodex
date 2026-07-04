@@ -110,13 +110,7 @@ func legacyCookieFilePath() string {
 
 func ensureConfigDB() error {
 	configInit.Do(func() {
-		dbPath := filepath.Clean(ConfigDBPath())
-		if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-			configInitErr = err
-			return
-		}
-
-		db, err := gorm.Open(sqlite.Open(dbPath+"?_pragma=busy_timeout(5000)"), &gorm.Config{})
+		db, err := OpenAppDatabase()
 		if err != nil {
 			configInitErr = err
 			return
@@ -128,10 +122,84 @@ func ensureConfigDB() error {
 		}
 
 		configDB = db
+		if IsPostgresDB(configDB) {
+			if err := migrateLegacyConfigSQLite(); err != nil {
+				configInitErr = err
+				return
+			}
+		}
 		configInitErr = migrateLegacyCookies()
 	})
 
 	return configInitErr
+}
+
+func migrateLegacyConfigSQLite() error {
+	legacyPath := LegacySQLiteDBPath()
+	if legacyPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(legacyPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	legacyDB, err := gorm.Open(sqlite.Open(legacyPath+"?_pragma=busy_timeout(5000)"), &gorm.Config{})
+	if err != nil {
+		return err
+	}
+	sqlDB, err := legacyDB.DB()
+	if err == nil {
+		defer sqlDB.Close()
+	}
+
+	if err := copyConfigRowsFromSQLite(legacyDB); err != nil {
+		return err
+	}
+	return copyCookieRowsFromSQLite(legacyDB)
+}
+
+func copyConfigRowsFromSQLite(legacyDB *gorm.DB) error {
+	var existing int64
+	if err := configDB.Model(&configKV{}).Count(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+	var rows []configKV
+	if err := legacyDB.Find(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return configDB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&rows).Error
+}
+
+func copyCookieRowsFromSQLite(legacyDB *gorm.DB) error {
+	var existing int64
+	if err := configDB.Model(&cookieEntry{}).Count(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+	var rows []cookieEntry
+	if err := legacyDB.Find(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return configDB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "source"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&rows).Error
 }
 
 func migrateLegacyCookies() error {
