@@ -46,7 +46,8 @@ export default function MyPlaylist() {
   const { remove, refresh, collections } = useCollections();
   const currentCollection = collections.find((c) => c.id === meta?.collectionId);
   const currentName = meta?.name || currentCollection?.name || '歌单';
-  const canDeleteCollection = (meta?.kind || currentCollection?.kind) !== 'favorite';
+  const collectionKind = meta?.kind || currentCollection?.kind;
+  const canDeleteCollection = Boolean(collectionKind) && collectionKind !== 'favorite';
 
   const load = useCallback(async (collectionId) => {
     setLoading(true);
