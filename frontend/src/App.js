@@ -31,20 +31,25 @@ const queryClient = new QueryClient({
 
 const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Users'];
 // hash 形如 #myplaylist 或 #myplaylist/123(歌单 id);section 取第一段。
-const sectionFromHash = () => {
-  const h = (window.location.hash || '').replace(/^#/, '').split('/')[0].toLowerCase();
-  return VALID_SECTIONS.find((s) => s.toLowerCase() === h) || 'Home';
+const routeFromHash = () => {
+  const parts = (window.location.hash || '').replace(/^#/, '').split('/');
+  const h = (parts[0] || '').toLowerCase();
+  return {
+    section: VALID_SECTIONS.find((s) => s.toLowerCase() === h) || 'Home',
+    subPath: parts[1] || null,
+  };
 };
 
 // AppShell:已登录后的主应用布局。
 function AppShell() {
   const { isAdmin } = useAuth();
-  const [currentSection, setCurrentSection] = useState(sectionFromHash);
+  const [route, setRoute] = useState(routeFromHash);
+  const { section: currentSection, subPath: currentSubPath } = route;
   const [downloadRequest, setDownloadRequest] = useState(null);
 
   // hash 变化同步当前页(浏览器前进后退/分享)
   useEffect(() => {
-    const onHash = () => setCurrentSection(sectionFromHash());
+    const onHash = () => setRoute(routeFromHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -58,7 +63,7 @@ function AppShell() {
   }, []);
 
   const navigate = (section, subPath) => {
-    setCurrentSection(section);
+    setRoute({ section, subPath: subPath != null ? String(subPath) : null });
     // 目标 hash:有 subPath 则 #section/sub(如 #myplaylist/123),否则 #section
     const targetHash = subPath != null ? `${section.toLowerCase()}/${subPath}` : section.toLowerCase();
     if (window.location.hash.replace(/^#/, '') !== targetHash) {
@@ -70,12 +75,13 @@ function AppShell() {
 
   // 非管理员访问用户管理页 → 回首页(防直接改 hash 进入)。
   const section = currentSection === 'Users' && !isAdmin ? 'Home' : currentSection;
+  const activeSubPath = section === 'MyPlaylist' ? currentSubPath : null;
 
   return (
     <>
       {/* app-shell:左侧固定栏 + 右侧(顶栏+滚动主区);底部播放条与移动 Tab 固定 */}
       <div className="flex h-screen overflow-hidden bg-background text-foreground">
-        <Sidebar currentSection={section} onNavigate={navigate} />
+        <Sidebar currentSection={section} currentSubPath={activeSubPath} onNavigate={navigate} />
         <div className="flex-grow flex flex-col min-w-0">
           <TopBar currentSection={section} onNavigate={navigate} />
           <main
@@ -98,7 +104,7 @@ function AppShell() {
         </div>
       </div>
       <PlayerBar />
-      <MobileTabBar currentSection={section} onNavigate={navigate} />
+      <MobileTabBar currentSection={section} currentSubPath={activeSubPath} onNavigate={navigate} />
       <AddToPlaylistModal />
     </>
   );
