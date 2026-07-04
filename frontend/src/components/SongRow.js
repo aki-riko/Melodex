@@ -345,7 +345,7 @@ const SongRow = ({
             className={`absolute inset-0 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
               showPausedCoverPlayButton
                 ? 'pointer-events-auto opacity-100'
-                : 'pointer-events-auto opacity-0 hover:opacity-100 focus:opacity-100 group-hover:opacity-100'
+                : 'pointer-events-auto opacity-0 hover:opacity-100 focus:opacity-100'
             }`}
             title={coverActionLabel}
             aria-label={coverActionLabel}
