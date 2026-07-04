@@ -1,4 +1,5 @@
 import { coverProxyUrl, getDownloadUrl } from './musicdl';
+import { normalizeSongIdentity, songExtraHash, songIdentityKey } from '../utils/songIdentity';
 
 const DB_NAME = 'melodex-offline-audio';
 const DB_VERSION = 1;
@@ -10,42 +11,17 @@ const nowISO = () => new Date().toISOString();
 const userKey = (userId) => String(userId || 0);
 const textValue = (value) => (value == null ? '' : String(value));
 
-const stableStringify = (value) => {
-  if (value == null) return '';
-  if (typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const keys = Object.keys(value).sort();
-  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
-};
-
-const hashText = (text) => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-};
-
 export const normalizeOfflineSong = (song) => {
-  let extra = song?.extra ?? song?.Extra ?? null;
-  if (typeof extra === 'string') {
-    const raw = extra.trim();
-    if (!raw || raw === '{}' || raw === 'null') {
-      extra = null;
-    } else {
-      try { extra = JSON.parse(raw); } catch { extra = raw; }
-    }
-  }
+  const identity = normalizeSongIdentity(song);
   return {
-    id: textValue(song?.id ?? song?.ID),
-    source: textValue(song?.source ?? song?.Source),
+    id: identity.id,
+    source: identity.source,
     name: textValue(song?.name ?? song?.Name),
     artist: textValue(song?.artist ?? song?.Artist),
     album: textValue(song?.album ?? song?.Album),
     cover: textValue(song?.cover ?? song?.Cover),
     duration: Number(song?.duration ?? song?.Duration ?? 0) || 0,
-    extra,
+    extra: identity.extra,
   };
 };
 
@@ -54,12 +30,9 @@ export const canCacheSong = (song) => {
   return !!s.id && !!s.source && s.source !== 'local';
 };
 
-export const offlineExtraHash = (song) => hashText(stableStringify(normalizeOfflineSong(song).extra));
+export const offlineExtraHash = songExtraHash;
 
-export const offlineSongKey = (song, userId) => {
-  const s = normalizeOfflineSong(song);
-  return `${userKey(userId)}:${s.source}:${s.id}:${offlineExtraHash(song)}`;
-};
+export const offlineSongKey = (song, userId) => `${userKey(userId)}:${songIdentityKey(song)}`;
 
 const emitChanged = (detail) => {
   if (typeof window === 'undefined') return;
@@ -190,8 +163,21 @@ export const cacheSong = async (song, { userId = 0, onProgress, signal } = {}) =
   const key = offlineSongKey(song, userId);
   const existing = await getRecordByKey(key);
   if (existing?.blob) {
-    onProgress?.({ phase: 'done', received: existing.size || existing.blob.size || 0, total: existing.size || existing.blob.size || 0, percent: 100 });
-    return existing;
+    let record = existing;
+    if (!existing.coverBlob && normalized.cover) {
+      try {
+        const cover = await fetchCoverBlob(song, signal);
+        if (cover?.blob) {
+          record = { ...existing, coverBlob: cover.blob, coverMime: cover.mime || '' };
+          await putRecord(record);
+          emitChanged({ action: 'cache', key, userId: record.userId });
+        }
+      } catch (err) {
+        console.warn('补齐离线封面失败', err);
+      }
+    }
+    onProgress?.({ phase: 'done', received: record.size || record.blob.size || 0, total: record.size || record.blob.size || 0, percent: 100 });
+    return record;
   }
 
   onProgress?.({ phase: 'preparing', received: 0, total: 0, percent: null });
@@ -261,6 +247,8 @@ export const deleteCachedSong = async (song, userId = 0) => {
 };
 
 export const deleteCachedRecord = async (key, userId = 0) => {
+  const record = await getRecordByKey(key);
+  if (!record || record.userId !== userKey(userId)) return false;
   await deleteRecordByKey(key);
   emitChanged({ action: 'delete', key, userId: userKey(userId) });
   return true;

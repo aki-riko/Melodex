@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { inspectQuality } from '../services/musicdl';
-
-const songKey = (s) => `${s.source}-${s.id}`;
+import { songIdentityKey } from '../utils/songIdentity';
 
 // 并发验活:对一批歌曲限并发探测真实可用性,返回每首的状态与进度。
 // 状态:undefined=未验, 'pending'=验中, 'ok'=可用(带 size/bitrate), 'dead'=死链
@@ -11,7 +10,7 @@ export function useLiveCheck(rawSongs, { enabled = true, concurrency = 6 } = {})
   const runIdRef = useRef(0);
 
   // 用稳定签名判断 songs 是否真的换了(避免排序导致重复验活)
-  const sig = rawSongs.map(songKey).join(',');
+  const sig = rawSongs.map(songIdentityKey).join(',');
 
   useEffect(() => {
     if (!enabled || rawSongs.length === 0) {
@@ -33,7 +32,7 @@ export function useLiveCheck(rawSongs, { enabled = true, concurrency = 6 } = {})
         const i = idx++;
         if (i >= list.length) return;
         const song = list[i];
-        const key = songKey(song);
+        const key = songIdentityKey(song);
         setStatus((prev) => ({ ...prev, [key]: { state: 'pending' } }));
         let result = { state: 'dead' };
         try {

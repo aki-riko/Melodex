@@ -8,6 +8,7 @@ import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
 import { coverProxyUrl, saveToServer } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
+import { songIdentityKey } from '../utils/songIdentity';
 
 // 歌单详情头图:用歌单内歌曲封面拼图(Spotify 风格)。
 //   - 取前 4 首"有封面"的歌:1 张铺满 / 2-3 张仍用首张铺满(半拼不好看) / ≥4 张 2x2 马赛克
@@ -224,7 +225,7 @@ export default function MyPlaylist() {
       )}
       <div className="space-y-0.5">
         {songs.map((song, i) => (
-          <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
+          <SongRow key={songIdentityKey(song)} song={song} index={i}
             isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
             onRemove={handleRemove} />
         ))}

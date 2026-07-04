@@ -4,10 +4,10 @@ import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorit
 import { getCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
+import { songIdentityKey } from '../utils/songIdentity';
 
 const PlayerContext = createContext(null);
 
-const songKey = (s) => `${s.source}-${s.id}`;
 const songSourceText = (song) => (song?.source ? sourceLabel(song.source) : '');
 
 // 播放模式:order 顺序 / repeat 单曲循环 / shuffle 随机
@@ -209,7 +209,8 @@ export const PlayerProvider = ({ children }) => {
   const pickNext = useCallback((cur, forward = true, auto = false) => {
     const list = queueRef.current;
     if (!list.length) return null;
-    const idx = list.findIndex((s) => songKey(s) === songKey(cur));
+    const curKey = songIdentityKey(cur);
+    const idx = list.findIndex((s) => songIdentityKey(s) === curKey);
     if (modeRef.current === 'shuffle' && list.length > 1) {
       let r = idx;
       while (r === idx) r = Math.floor(Math.random() * list.length);
@@ -286,10 +287,11 @@ export const PlayerProvider = ({ children }) => {
   const handleError = useCallback(() => {
     const cur = nowPlaying;
     if (!cur) return;
-    triedRef.current.add(songKey(cur));
+    const curKey = songIdentityKey(cur);
+    triedRef.current.add(curKey);
     const list = queueRef.current;
-    const idx = list.findIndex((s) => songKey(s) === songKey(cur));
-    const nxt = list.slice(idx + 1).find((s) => !triedRef.current.has(songKey(s)));
+    const idx = list.findIndex((s) => songIdentityKey(s) === curKey);
+    const nxt = list.slice(idx + 1).find((s) => !triedRef.current.has(songIdentityKey(s)));
     if (nxt) {
       setNotice(`「${cur.name}」该源无法播放,已自动切换…`);
       startPlay(nxt);
@@ -350,7 +352,7 @@ export const PlayerProvider = ({ children }) => {
       volume, setVolume, muted, toggleMute,
       cachedCoverUrl: cachedCover.url,
       queue, playFromQueue,
-      isPlaying: (s) => nowPlaying && nowPlaying.id === s.id && nowPlaying.source === s.source,
+      isPlaying: (s) => nowPlaying && songIdentityKey(nowPlaying) === songIdentityKey(s),
       next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
       handleTimeUpdate, handleLoadedMetadata, savePlayback,
       cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
