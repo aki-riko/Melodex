@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { X, Plus, Check } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { saveToServer } from '../services/musicdl';
 
 // 加歌弹窗:SongRow 点"+"设置 addTarget 后弹出,选歌单加入或新建歌单。
 // 加入歌单的同时,后台静默下载该歌到 NAS(不验活、不阻塞 UI)。
 export default function AddToPlaylistModal() {
   const { collections, addTarget, setAddTarget, addSong, create } = useCollections();
+  const { offline } = useAuth();
   const [newName, setNewName] = useState('');
   const [done, setDone] = useState(null); // 刚加入的歌单 id(显示✓)
   const [busy, setBusy] = useState(false);
@@ -17,10 +19,12 @@ export default function AddToPlaylistModal() {
 
   // 后台下载到 NAS:失败不打断(下载链路自有重试入口),不弹验活。
   const autoDownload = (song) => {
+    if (offline) return;
     saveToServer(song).catch(() => { /* 静默,用户可在歌单行手动重试下载 */ });
   };
 
   const addTo = async (id) => {
+    if (offline) return;
     setBusy(true);
     try { await addSong(id, addTarget); autoDownload(addTarget); setDone(id); setTimeout(close, 700); }
     catch { /* 静默 */ } finally { setBusy(false); }
@@ -28,6 +32,7 @@ export default function AddToPlaylistModal() {
 
   const createAndAdd = async (e) => {
     e.preventDefault();
+    if (offline) return;
     const name = newName.trim();
     if (!name) return;
     setBusy(true);
@@ -48,11 +53,14 @@ export default function AddToPlaylistModal() {
           <button onClick={close} className="text-muted-foreground hover:text-foreground" aria-label="关闭"><X size={20} /></button>
         </div>
         <div className="overflow-y-auto app-scroll flex-grow">
-          {collections.length === 0 && (
+          {offline && (
+            <p className="px-4 py-3 text-sm text-muted-foreground">离线状态无法修改歌单</p>
+          )}
+          {!offline && collections.length === 0 && (
             <p className="px-4 py-3 text-sm text-muted-foreground">还没有歌单,下面新建一个吧</p>
           )}
           {collections.map((c) => (
-            <button key={c.id} onClick={() => addTo(c.id)} disabled={busy}
+            <button key={c.id} onClick={() => addTo(c.id)} disabled={offline || busy}
               className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-secondary transition-colors text-left">
               <span className="truncate">{c.name}</span>
               {done === c.id && <Check size={16} className="text-primary flex-shrink-0" />}
@@ -60,9 +68,9 @@ export default function AddToPlaylistModal() {
           ))}
         </div>
         <form onSubmit={createAndAdd} className="flex gap-2 px-4 py-3 border-t border-border">
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新建歌单名…"
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} disabled={offline} placeholder="新建歌单名…"
             className="flex-grow bg-secondary rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
-          <button type="submit" disabled={busy || !newName.trim()}
+          <button type="submit" disabled={offline || busy || !newName.trim()}
             className="flex items-center gap-1 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
             <Plus size={16} />新建
           </button>

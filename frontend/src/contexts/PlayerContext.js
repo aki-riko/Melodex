@@ -64,7 +64,7 @@ export const PlayerProvider = ({ children }) => {
 
   const loadAudioForSong = useCallback(async (song, { autoplay = true } = {}) => {
     const seq = ++playSeqRef.current;
-    let src = getStreamUrl(song);
+    let src = '';
     let objectUrl = '';
 
     try {
@@ -75,7 +75,7 @@ export const PlayerProvider = ({ children }) => {
         touchCachedSong(song, userId).catch(() => {});
       }
     } catch {
-      // IndexedDB 不可用或读取失败时退回在线流,不打断播放主链路。
+      // IndexedDB 不可用或读取失败时,在线模式退回流播放;离线模式保持本机缓存边界。
     }
 
     const audio = audioRef.current;
@@ -88,11 +88,20 @@ export const PlayerProvider = ({ children }) => {
       return;
     }
 
+    if (!src && !offline) src = getStreamUrl(song);
+
     revokeObjectUrl();
+    if (!src) {
+      audio.removeAttribute('src');
+      audio.load();
+      setIsPaused(true);
+      setNotice(`「${song.name}」还没有缓存到本机,离线模式无法播放。`);
+      return;
+    }
     audio.src = src;
     objectUrlRef.current = objectUrl;
     if (autoplay) audio.play().catch(() => {});
-  }, [revokeObjectUrl, userId]);
+  }, [offline, revokeObjectUrl, userId]);
 
   useEffect(() => () => {
     playSeqRef.current += 1;
@@ -276,8 +285,8 @@ export const PlayerProvider = ({ children }) => {
         title: nowPlaying.name || '',
         artist: nowPlaying.artist || '',
         album: nowPlaying.album || '',
-        // 走 cover_proxy:OS 媒体面板才能加载封面(网易 http 封面/防盗链直链常失败)
-        artwork: nowPlaying.cover
+        // 离线模式不请求 cover_proxy;在线时走代理解决混合内容和防盗链。
+        artwork: !offline && nowPlaying.cover
           ? [96, 192, 300, 512].map((s) => ({ src: coverProxyUrl(nowPlaying), sizes: `${s}x${s}`, type: 'image/jpeg' }))
           : [],
       });
@@ -293,7 +302,7 @@ export const PlayerProvider = ({ children }) => {
       navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
       navigator.mediaSession.setActionHandler('seekbackward', (d) => seek(Math.max(0, (audioRef.current?.currentTime || 0) - (d.seekOffset || 10))));
     } catch { /* 部分浏览器不支持 seek 动作 */ }
-  }, [nowPlaying, togglePlay, prev, next, seek]);
+  }, [offline, nowPlaying, togglePlay, prev, next, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {
@@ -506,18 +515,20 @@ export const PlayerBar = () => {
   const [closing, setClosing] = useState(false); // 展开页收起动画中
   const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
+  const { offline } = useAuth();
+  const coverUrl = !offline && nowPlaying?.cover ? coverProxyUrl(nowPlaying) : '';
 
   // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
   const [favorited, setFavorited] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    if (!nowPlaying) { setFavorited(false); return; }
+    if (!nowPlaying || offline) { setFavorited(false); return; }
     getFavoriteStatus(nowPlaying).then((f) => { if (!cancelled) setFavorited(f); });
     return () => { cancelled = true; };
-  }, [curKey, nowPlaying]);
+  }, [curKey, nowPlaying, offline]);
 
   const onToggleFavorite = async () => {
-    if (!nowPlaying) return;
+    if (!nowPlaying || offline) return;
     const prev = favorited;
     setFavorited(!prev); // 乐观更新
     try {
@@ -563,14 +574,17 @@ export const PlayerBar = () => {
 
   // 展开且当前歌变化时拉取并解析歌词(仅在展开播放页用,省请求)。
   useEffect(() => {
-    if (!expanded || !nowPlaying) return;
+    if (!expanded || !nowPlaying || offline) {
+      setLrc([]);
+      return;
+    }
     let cancelled = false;
     setLrc([]);
     getLyric(nowPlaying)
       .then((text) => { if (!cancelled) setLrc(parseLRC(text)); })
       .catch(() => { if (!cancelled) setLrc([]); });
     return () => { cancelled = true; };
-  }, [expanded, curKey, nowPlaying]);
+  }, [expanded, curKey, nowPlaying, offline]);
 
   const lyricIdx = currentLyricIndex(lrc, progress.cur);
 
@@ -613,8 +627,8 @@ export const PlayerBar = () => {
             <button onClick={openExpanded}
               className="flex items-center gap-3 min-w-0 text-left group" style={{ width: '26%' }}
               title="展开播放页" aria-label="展开播放页">
-              {nowPlaying?.cover
-                ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow transition-transform group-hover:scale-105" />
+              {coverUrl
+                ? <img src={coverUrl} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow transition-transform group-hover:scale-105" />
                 : <div className="w-12 h-12 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={20} className="text-muted-foreground" /></div>}
               <div className="min-w-0">
                 <p className="truncate font-semibold text-sm group-hover:text-primary transition-colors">{nowPlaying?.name}</p>
@@ -719,8 +733,8 @@ export const PlayerBar = () => {
         </div>
         <div className="flex items-center gap-2 px-3 py-2">
           <button className="flex items-center gap-3 min-w-0 flex-grow text-left" onClick={openExpanded} aria-label="展开播放页">
-            {nowPlaying?.cover
-              ? <img src={coverProxyUrl(nowPlaying)} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
+            {coverUrl
+              ? <img src={coverUrl} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
               : <div className="w-11 h-11 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></div>}
             <div className="min-w-0">
               <Marquee text={nowPlaying?.name || ''} className="font-semibold text-sm" />
@@ -728,7 +742,7 @@ export const PlayerBar = () => {
             </div>
           </button>
           {/* 收藏 */}
-          <button onClick={onToggleFavorite} className="flex-shrink-0 p-1" aria-label="收藏">
+          <button onClick={onToggleFavorite} disabled={offline} className="flex-shrink-0 p-1 disabled:opacity-50" aria-label="收藏">
             <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
           </button>
           {/* 播放/暂停 */}
@@ -817,8 +831,8 @@ export const PlayerBar = () => {
                 </div>
                 {/* 黑胶唱片 */}
                 <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
-                  {nowPlaying?.cover
-                    ? <img src={coverProxyUrl(nowPlaying)} alt=""
+                  {coverUrl
+                    ? <img src={coverUrl} alt=""
                         onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     : <ListMusic size={64} className="text-muted-foreground" />}
                 </div>
@@ -832,7 +846,7 @@ export const PlayerBar = () => {
               <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
               <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
             </div>
-            <button onClick={onToggleFavorite} className="flex-shrink-0 p-1" aria-label="收藏">
+            <button onClick={onToggleFavorite} disabled={offline} className="flex-shrink-0 p-1 disabled:opacity-50" aria-label="收藏">
               <Heart size={28} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
             </button>
           </div>
@@ -878,9 +892,9 @@ export const PlayerBar = () => {
       {expanded && nowPlaying && (
         <div className={`hidden md:flex fixed inset-0 z-[70] flex-col player-cover-bg ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}>
           {/* 背景:封面大图模糊铺底 + 暗色遮罩 */}
-          {nowPlaying?.cover && (
+          {coverUrl && (
             <div className="absolute inset-0 -z-10 bg-cover bg-center"
-              style={{ backgroundImage: `url(${coverProxyUrl(nowPlaying)})`, filter: 'blur(60px) brightness(0.35)', transform: 'scale(1.2)' }} />
+              style={{ backgroundImage: `url(${coverUrl})`, filter: 'blur(60px) brightness(0.35)', transform: 'scale(1.2)' }} />
           )}
           <div className="absolute inset-0 -z-10 bg-background/70" />
 
@@ -905,8 +919,8 @@ export const PlayerBar = () => {
                   <div className="tonearm__head" />
                 </div>
                 <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
-                  {nowPlaying?.cover
-                    ? <img src={coverProxyUrl(nowPlaying)} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                  {coverUrl
+                    ? <img src={coverUrl} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     : <ListMusic size={72} className="text-muted-foreground" />}
                 </div>
               </div>
@@ -944,7 +958,7 @@ export const PlayerBar = () => {
               <span className="text-xs text-muted-foreground tabular-nums w-10">{fmtTime(progress.dur)}</span>
             </div>
             <div className="flex items-center justify-center gap-8">
-              <button onClick={onToggleFavorite} className="p-1" aria-label="收藏" title="收藏">
+              <button onClick={onToggleFavorite} disabled={offline} className="p-1 disabled:opacity-50" aria-label="收藏" title={offline ? '离线状态无法同步收藏' : '收藏'}>
                 <Heart size={24} className={favorited ? 'text-primary' : 'text-muted-foreground hover:text-foreground transition-colors'} fill={favorited ? 'currentColor' : 'none'} />
               </button>
               <button onClick={cycleMode}

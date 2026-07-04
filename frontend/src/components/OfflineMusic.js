@@ -37,9 +37,9 @@ const toSong = (record) => ({
   extra: record.extra,
 });
 
-function OfflineCover({ song }) {
+function OfflineCover({ song, offline }) {
   const [failed, setFailed] = useState(false);
-  const url = coverProxyUrl(song);
+  const url = !offline ? coverProxyUrl(song) : '';
   return (
     <div className="w-11 h-11 rounded bg-muted overflow-hidden flex items-center justify-center flex-shrink-0">
       {url && !failed ? (
@@ -51,7 +51,7 @@ function OfflineCover({ song }) {
   );
 }
 
-function OfflineRow({ record, index, active, onPlay, onDelete }) {
+function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
   const song = toSong(record);
   return (
     <div className={`group flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
@@ -60,7 +60,7 @@ function OfflineRow({ record, index, active, onPlay, onDelete }) {
       <span className={`w-6 text-right text-sm tabular-nums ${active ? 'text-primary' : 'text-muted-foreground'}`}>
         {index + 1}
       </span>
-      <OfflineCover song={song} />
+      <OfflineCover song={song} offline={offline} />
       <button onClick={() => onPlay(record)} className="min-w-0 flex-grow text-left">
         <p className={`font-medium truncate ${active ? 'text-primary' : ''}`}>{record.name || '未知歌曲'}</p>
         <p className="text-sm text-muted-foreground truncate">
@@ -222,6 +222,7 @@ export default function OfflineMusic() {
               record={record}
               index={i}
               active={!!isPlaying(song)}
+              offline={offline}
               onPlay={handlePlay}
               onDelete={handleDelete}
             />

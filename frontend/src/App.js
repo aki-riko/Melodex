@@ -75,8 +75,9 @@ function AppShell() {
     if (scroller) scroller.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 离线模式只开放本机缓存页,避免首页/搜索/歌单页自动请求后端。
   // 非管理员访问用户管理页 → 回首页(防直接改 hash 进入)。
-  const section = currentSection === 'Users' && !isAdmin ? 'Home' : currentSection;
+  const section = offline ? 'Offline' : (currentSection === 'Users' && !isAdmin ? 'Home' : currentSection);
   const activeSubPath = section === 'MyPlaylist' ? currentSubPath : null;
 
   return (

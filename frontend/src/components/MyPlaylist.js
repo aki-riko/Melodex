@@ -53,18 +53,23 @@ export default function MyPlaylist() {
   const currentCollection = collections.find((c) => c.id === meta?.collectionId);
   const currentName = meta?.name || currentCollection?.name || '歌单';
   const collectionKind = meta?.kind || currentCollection?.kind;
-  const canDeleteCollection = Boolean(collectionKind) && collectionKind !== 'favorite';
+  const canDeleteCollection = !offline && Boolean(collectionKind) && collectionKind !== 'favorite';
 
   const load = useCallback(async (collectionId) => {
     setLoading(true);
     setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
     setBulkCache({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+    if (offline) {
+      setSongs([]);
+      setLoading(false);
+      return;
+    }
     try {
       const data = await getCollectionSongs(collectionId);
       const list = Array.isArray(data) ? data : (data?.songs || []);
       setSongs(list);
     } catch { setSongs([]); } finally { setLoading(false); }
-  }, []);
+  }, [offline]);
 
   useEffect(() => onOpenPlaylist((m) => {
     if (m && m.collectionId != null) { setMeta(m); load(m.collectionId); }
@@ -90,6 +95,7 @@ export default function MyPlaylist() {
   }
 
   const handleRemove = async (song) => {
+    if (offline) return;
     try {
       await removeSongFromCollection(meta.collectionId, song);
       setSongs((s) => s.filter((x) => !(x.id === song.id && x.source === song.source)));
@@ -104,7 +110,7 @@ export default function MyPlaylist() {
   };
 
   const handleDownloadAll = async () => {
-    if (!songs.length || bulkDownload.phase === 'running') return;
+    if (!songs.length || offline || bulkDownload.phase === 'running') return;
 
     const total = songs.length;
     let done = 0;
@@ -181,13 +187,13 @@ export default function MyPlaylist() {
               <Play size={18} fill="currentColor" />播放全部
             </button>
             <button onClick={handleDownloadAll}
-              disabled={!songs.length || bulkDownload.phase === 'running'}
+              disabled={!songs.length || offline || bulkDownload.phase === 'running'}
               className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
                 bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title="把当前歌单全部下载到服务器(NAS)">
+              title={offline ? '离线状态无法下载到 NAS' : '把当前歌单全部下载到服务器(NAS)'}>
               <BulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {bulkDownloadLabel}
             </button>
