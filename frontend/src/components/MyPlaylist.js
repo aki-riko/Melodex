@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Check, Download, HardDriveDownload, Play, RotateCw, Trash2 } from 'lucide-react';
+import { AlertCircle, Check, Download, HardDriveDownload, Play, RotateCw, Trash2 } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -47,9 +47,10 @@ export default function MyPlaylist() {
   const [loading, setLoading] = useState(false);
   const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
   const [bulkCache, setBulkCache] = useState({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+  const [notice, setNotice] = useState('');
   const { play, isPlaying } = usePlayer();
   const { user, offline } = useAuth();
-  const { remove, refresh, collections } = useCollections();
+  const { remove, collections } = useCollections();
   const userId = user?.id || 0;
   const currentCollection = collections.find((c) => c.id === meta?.collectionId);
   const currentName = meta?.name || currentCollection?.name || '歌单';
@@ -58,6 +59,7 @@ export default function MyPlaylist() {
 
   const load = useCallback(async (collectionId) => {
     setLoading(true);
+    setNotice('');
     setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
     setBulkCache({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
     if (offline) {
@@ -97,22 +99,32 @@ export default function MyPlaylist() {
 
   const handleRemove = async (song) => {
     if (offline) return;
+    setNotice('');
     try {
       await removeSongFromCollection(meta.collectionId, song);
-      setSongs((s) => s.filter((x) => !(x.id === song.id && x.source === song.source)));
-    } catch { /* 静默 */ }
+      const targetKey = songIdentityKey(song);
+      setSongs((s) => s.filter((x) => songIdentityKey(x) !== targetKey));
+    } catch {
+      setNotice('移除失败,请稍后重试');
+    }
   };
 
   const handleDeleteCollection = async () => {
     if (!canDeleteCollection) return;
     if (!window.confirm(`删除歌单「${currentName}」?`)) return;
-    await remove(meta.collectionId);
-    setMeta(null); setSongs([]);
+    setNotice('');
+    try {
+      await remove(meta.collectionId);
+      setMeta(null); setSongs([]);
+    } catch {
+      setNotice('删除歌单失败,请稍后重试');
+    }
   };
 
   const handleDownloadAll = async () => {
     if (!songs.length || offline || bulkDownload.phase === 'running') return;
 
+    setNotice('');
     const total = songs.length;
     let done = 0;
     let fail = 0;
@@ -135,6 +147,7 @@ export default function MyPlaylist() {
   const handleCacheAll = async () => {
     if (!songs.length || offline || bulkCache.phase === 'running') return;
 
+    setNotice('');
     const total = songs.length;
     let done = 0;
     let fail = 0;
@@ -159,26 +172,28 @@ export default function MyPlaylist() {
   };
 
   const bulkDownloadLabel = (() => {
-    if (bulkDownload.phase === 'running') return `下载中 ${bulkDownload.done + bulkDownload.fail}/${bulkDownload.total}`;
-    if (bulkDownload.phase === 'done') return `已下载 ${bulkDownload.done}/${bulkDownload.total}`;
-    if (bulkDownload.phase === 'fail') return `失败 ${bulkDownload.fail} 首`;
+    if (bulkDownload.phase === 'running') return '下载到 NAS';
+    if (bulkDownload.phase === 'done') return '已下载到 NAS';
+    if (bulkDownload.phase === 'fail') return '重试下载到 NAS';
     return '全部下载到 NAS';
   })();
   const BulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
   const bulkCacheLabel = (() => {
-    if (bulkCache.phase === 'running') return `缓存中 ${bulkCache.done + bulkCache.fail + bulkCache.skipped}/${bulkCache.total}`;
-    if (bulkCache.phase === 'done') return `已缓存 ${bulkCache.done + bulkCache.skipped}/${bulkCache.total}`;
-    if (bulkCache.phase === 'fail') return `失败 ${bulkCache.fail} 首`;
+    if (bulkCache.phase === 'running') return '缓存到本机';
+    if (bulkCache.phase === 'done') return '已缓存到本机';
+    if (bulkCache.phase === 'fail') return '重试缓存到本机';
     return '全部缓存到本机';
   })();
   const BulkCacheIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
+  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle';
+  const collectionLabel = collectionKind === 'favorite' ? '我喜欢' : '歌单';
 
   return (
     <div>
-      <div className="flex items-end gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
         <PlaylistCover songs={songs} />
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">歌单</p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">{collectionLabel}</p>
           <h1 className="text-3xl font-black truncate">{currentName}</h1>
           <p className="text-sm text-muted-foreground mt-1">{songs.length} 首</p>
           <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -189,7 +204,7 @@ export default function MyPlaylist() {
             </button>
             <button onClick={handleDownloadAll}
               disabled={!songs.length || offline || bulkDownload.phase === 'running'}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+              className={`flex items-center gap-2 min-h-10 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
                 bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -200,7 +215,7 @@ export default function MyPlaylist() {
             </button>
             <button onClick={handleCacheAll}
               disabled={!songs.length || offline || bulkCache.phase === 'running'}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+              className={`flex items-center gap-2 min-h-10 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
                 bulkCache.phase === 'done' ? 'bg-primary/10 text-primary'
                 : bulkCache.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -211,17 +226,59 @@ export default function MyPlaylist() {
             </button>
             {canDeleteCollection && (
               <button onClick={handleDeleteCollection}
-                className="flex items-center gap-2 px-4 py-2 rounded-full text-muted-foreground hover:text-destructive transition-colors"
+                className="flex items-center gap-2 min-h-10 px-4 py-2 rounded-full text-muted-foreground hover:text-destructive transition-colors"
                 title="删除歌单">
-                <Trash2 size={18} />
+                <Trash2 size={18} />删除歌单
               </button>
             )}
           </div>
         </div>
       </div>
+      {notice && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <AlertCircle size={16} />
+          <span>{notice}</span>
+        </div>
+      )}
+      {hasBulkStatus && (
+        <div className="mb-4 grid gap-2 sm:grid-cols-2">
+          {bulkDownload.phase !== 'idle' && (
+            <div className={`rounded-md border px-3 py-2 text-sm ${
+              bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
+            }`}>
+              <p className="font-medium text-foreground">NAS 下载</p>
+              <p>
+                已完成 {bulkDownload.done}/{bulkDownload.total}
+                {bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}
+              </p>
+            </div>
+          )}
+          {bulkCache.phase !== 'idle' && (
+            <div className={`rounded-md border px-3 py-2 text-sm ${
+              bulkCache.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
+            }`}>
+              <p className="font-medium text-foreground">本机缓存</p>
+              <p>
+                新增 {bulkCache.done}
+                {bulkCache.skipped ? ` · 已有 ${bulkCache.skipped}` : ''}
+                {bulkCache.total ? ` · 共 ${bulkCache.total}` : ''}
+                {bulkCache.fail ? ` · 失败 ${bulkCache.fail}` : ''}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
       {loading && <p className="text-muted-foreground">加载中…</p>}
       {!loading && songs.length === 0 && (
-        <p className="text-muted-foreground">这个歌单还没有歌,去搜索里点曲目的 + 加进来吧。</p>
+        <div className="rounded-md border border-border bg-card/70 px-4 py-5 text-muted-foreground">
+          <p>这个歌单还没有歌。</p>
+          <button
+            onClick={() => { window.location.hash = 'download'; }}
+            className="mt-3 rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary/80 transition-colors"
+          >
+            去找歌
+          </button>
+        </div>
       )}
       <div className="space-y-0.5">
         {songs.map((song, i) => (

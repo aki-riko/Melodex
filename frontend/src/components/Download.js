@@ -55,48 +55,37 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     } catch { /* 忽略 */ }
   };
   const historyItems = history.data || [];
-  // 多级排序:数组顺序即优先级(先点=主键,后点=辅键)。每项 {field, order}
-  // field: relevance(相关) / quality(音质,用验活真实码率) / size(大小)
-  const [sortKeys, setSortKeys] = useState([{ field: 'relevance', order: 'desc' }]);
-
-  const DEFAULT_ORDER = { relevance: 'desc', quality: 'desc', size: 'desc' };
-
-  const toggleSort = (field) => {
-    setSortKeys((keys) => {
-      const idx = keys.findIndex((k) => k.field === field);
-      if (idx === -1) return [...keys, { field, order: DEFAULT_ORDER[field] }];
-      // 已存在:切升降序
-      const next = keys.slice();
-      next[idx] = { field, order: next[idx].order === 'asc' ? 'desc' : 'asc' };
-      return next;
-    });
+  const [sortMode, setSortMode] = useState('recommended');
+  const SORT_PRESETS = {
+    recommended: { field: 'relevance', order: 'desc', label: '推荐排序' },
+    quality: { field: 'quality', order: 'desc', label: '高音质优先' },
+    compact: { field: 'size', order: 'asc', label: '文件更小' },
   };
-  const clearSort = () => setSortKeys([]);
 
   // 只保留已验活为 ok 的(验活中/未验先不显示,死链永久隐藏)
   const liveSongs = allSongs.filter((s) => status[songIdentityKey(s)]?.state === 'ok');
 
   // 各排序维度的取值
   const fieldValue = (s, origIdx, field) => {
-    if (field === 'size') return s.size || 0;
-    if (field === 'quality') return status[songIdentityKey(s)]?.bitrateNum || 0;
+    const live = status[songIdentityKey(s)];
+    if (field === 'size') return live?.size || s.size || 0;
+    if (field === 'quality') return live?.bitrateNum || 0;
     // 相关性:信任后端综合排序(上游名次+翻唱降权+原唱信号,前端看不到这些),
     // 用返回序的相反数(origIdx 越小越靠前)。不再前端重算 relevanceScore。
     if (field === 'relevance') return -origIdx;
     return origIdx;
   };
 
-  // 多级排序:依次比较 sortKeys,前面的优先;无排序键则保持相关原序
+  // 默认给用户三种稳定排序:推荐 / 高音质 / 文件更小。
   const songs = liveSongs
     .map((s, i) => ({ s, i }))
     .sort((a, b) => {
-      for (const { field, order } of sortKeys) {
-        const cmp = fieldValue(a.s, a.i, field) - fieldValue(b.s, b.i, field);
-        if (cmp !== 0) return order === 'asc' ? cmp : -cmp;
-      }
+      const preset = SORT_PRESETS[sortMode] || SORT_PRESETS.recommended;
+      const cmp = fieldValue(a.s, a.i, preset.field) - fieldValue(b.s, b.i, preset.field);
+      if (cmp !== 0) return preset.order === 'asc' ? cmp : -cmp;
       // 排序键全相等(如同名"炽心"相关性同分)时,隐式按真实音质降序——
       // 正版通常有无损会靠前;音质相同再回退原序。
-      if (!sortKeys.some((k) => k.field === 'quality')) {
+      if (preset.field !== 'quality') {
         const qa = status[songIdentityKey(a.s)]?.bitrateNum || 0;
         const qb = status[songIdentityKey(b.s)]?.bitrateNum || 0;
         if (qa !== qb) return qb - qa;
@@ -105,17 +94,9 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     })
     .map((x) => x.s);
 
-  const FIELD_LABEL = { relevance: '相关', quality: '音质', size: '大小' };
-  const keyInfo = (field) => {
-    const idx = sortKeys.findIndex((k) => k.field === field);
-    if (idx === -1) return { active: false, badge: '' };
-    const k = sortKeys[idx];
-    const seq = sortKeys.length > 1 ? `${idx + 1} ` : '';
-    return { active: true, badge: `${seq}${k.order === 'asc' ? '↑' : '↓'}` };
-  };
-  const sortBtnCls = (field) =>
+  const sortBtnCls = (mode) =>
     `px-3 py-1.5 border rounded-md text-sm font-medium transition-colors ${
-      keyInfo(field).active ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
+      sortMode === mode ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
     }`;
 
   const checking = progress.total > 0 && progress.done < progress.total;
@@ -166,16 +147,16 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
         </div>
       )}
       {state.data?.error && <p className="text-destructive font-medium mb-4">{state.data.error}</p>}
-      {state.isLoading && <p className="text-muted-foreground font-medium mb-4">搜索中…</p>}
+      {state.isLoading && <p className="text-muted-foreground font-medium mb-4">正在搜索…</p>}
       {state.isError && <p className="text-destructive font-medium">搜索失败:{String(state.error?.message || state.error)}</p>}
       {/* 验活进度 */}
       {!state.isLoading && checking && (
         <p className="text-primary font-medium mb-4">
-          正在验活并过滤无法播放的结果… {progress.done}/{progress.total}
+          正在筛掉不可播放的结果… {progress.done}/{progress.total}
         </p>
       )}
       {query && !state.isLoading && !checking && progress.total > 0 && songs.length === 0 && (
-        <p className="text-muted-foreground">没有可用的结果(均无法播放或版权受限)。</p>
+        <p className="text-muted-foreground">没有可播放的结果,可能都不可用或受版权限制。</p>
       )}
       {query && !state.isLoading && progress.total === 0 && !state.data?.error && (
         <p className="text-muted-foreground">没有找到结果。</p>
@@ -183,22 +164,18 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       {songs.length > 0 && (
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <span className="text-sm text-muted-foreground">排序:</span>
-          <button onClick={() => toggleSort('relevance')} className={sortBtnCls('relevance')}>相关 {keyInfo('relevance').badge}</button>
-          <button onClick={() => toggleSort('quality')} className={sortBtnCls('quality')}>音质 {keyInfo('quality').badge}</button>
-          <button onClick={() => toggleSort('size')} className={sortBtnCls('size')}>大小 {keyInfo('size').badge}</button>
-          {sortKeys.length > 0 && (
-            <button onClick={clearSort} className="px-3 py-1.5 border border-border rounded-md text-sm font-medium bg-card hover:bg-secondary transition-colors">清除</button>
-          )}
+          {Object.entries(SORT_PRESETS).map(([mode, preset]) => (
+            <button key={mode} onClick={() => setSortMode(mode)} className={sortBtnCls(mode)}>
+              {preset.label}
+            </button>
+          ))}
           <span className="text-sm text-muted-foreground ml-2">共 {songs.length} 首可用</span>
         </div>
-      )}
-      {sortKeys.length > 1 && (
-        <p className="text-xs text-muted-foreground mb-3">多级排序:按编号优先级依次排序(① 为主)。</p>
       )}
       <div className="space-y-2 pb-32">
         {songs.map((song, idx) => (
           <SongRow
-            key={`${song.source}-${song.id}-${idx}`}
+            key={songIdentityKey(song)}
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
@@ -295,7 +272,7 @@ const Download = ({ downloadRequest }) => {
   const [lyric, setLyric] = useState(null); // {song, text}
 
   // 来自发现页「在国内源下载」的预填搜索词:切到搜索 Tab 并自动搜索。
-  // 依赖 nonce,保证重复点同一首歌也能再次触发。
+  // 依赖 ts,保证重复点同一首歌也能再次触发。
   useEffect(() => {
     const kw = downloadRequest?.keyword;
     if (kw) {
@@ -305,7 +282,7 @@ const Download = ({ downloadRequest }) => {
       setQuery(kw);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [downloadRequest?.nonce]);
+  }, [downloadRequest?.ts]);
 
   // 歌曲搜索
   const search = useQuery(

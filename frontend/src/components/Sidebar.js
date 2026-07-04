@@ -11,28 +11,33 @@ const GROUPS = [
     title: '发现',
     items: [
       { key: 'Home', label: '首页', icon: Home, primary: true },
+      { key: 'Artists', label: '艺人', icon: Library },
     ],
   },
   {
-    title: '音乐',
+    title: '找歌',
     items: [
       { key: 'Download', label: '搜索下载', icon: Search, primary: true, mobileLabel: '搜索' },
-      { key: 'Artists', label: '艺人', icon: Library },
-      { key: 'Settings', label: '设置', icon: Settings, primary: true },
-      { key: 'FAQ', label: '帮助', icon: HelpCircle },
     ],
   },
   {
-    title: '音乐库',
+    title: '曲库',
     items: [
+      { key: 'Local', label: 'NAS 曲库', icon: Download, primary: true, mobileLabel: '曲库' },
+      { key: 'Offline', label: '离线音乐', icon: HardDriveDownload, primary: true, mobileLabel: '离线' },
       { key: 'Recent', label: '最近播放', icon: Clock },
-      { key: 'Local', label: '本地和下载', icon: Download },
-      { key: 'Offline', label: '离线音乐', icon: HardDriveDownload },
+    ],
+  },
+  {
+    title: '更多',
+    items: [
+      { key: 'Settings', label: '设置', icon: Settings },
+      { key: 'FAQ', label: '帮助', icon: HelpCircle },
     ],
   },
 ];
 
-// 移动端底部 Tab 取 primary 标记项 + 首页/搜索/设置
+// 移动端底部 Tab 取高频音乐任务：首页 / 搜索 / 曲库 / 离线,设置收进「更多」。
 const MOBILE_TABS = GROUPS.flatMap((g) => g.items).filter((i) => i.primary);
 
 // 桌面左侧固定栏
@@ -69,8 +74,8 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
                 </a>
               );
             })}
-            {/* 管理员专属:用户管理入口,放在「音乐」组末尾 */}
-            {g.title === '音乐' && isAdmin && (
+            {/* 管理员专属:用户管理入口,放在「更多」组末尾 */}
+            {g.title === '更多' && isAdmin && (
               <a
                 href="#users"
                 onClick={(e) => { e.preventDefault(); onNavigate('Users'); }}
@@ -245,9 +250,8 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
   // 「更多」抽屉里展示的次级导航(非 primary 的桌面项)。
   const moreNav = [
     { key: 'Recent', label: '最近播放', icon: Clock },
-    { key: 'Local', label: '本地和下载', icon: Download },
-    { key: 'Offline', label: '离线音乐', icon: HardDriveDownload },
     { key: 'Artists', label: '艺人', icon: Library },
+    { key: 'Settings', label: '设置', icon: Settings },
     { key: 'FAQ', label: '帮助', icon: HelpCircle },
   ];
 
