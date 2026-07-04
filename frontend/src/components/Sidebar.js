@@ -233,8 +233,8 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
   );
 }
 
-// 移动端底部 Tab 栏:主项(首页/搜索/设置)+「更多」抽屉(桌面侧栏在手机上没有,
-// 此前歌单/艺人/帮助/账号/登出/用户管理在手机端全丢失,这里用抽屉补回)。
+// 移动端底部 Tab 栏:主项(首页/搜索/曲库/离线)+「更多」抽屉。
+// 次级入口、歌单、账号、登出、用户管理统一放进抽屉。
 export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const { user, isAdmin, logout, desktop } = useAuth();

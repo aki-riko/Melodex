@@ -7,11 +7,25 @@ import {
   getLyric,
   getSearchHistory,
   clearSearchHistory,
+  saveToServer,
 } from '../services/musicdl';
-import { X } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  Download as DownloadIcon,
+  Filter,
+  HardDriveDownload,
+  Music,
+  Play,
+  RotateCw,
+  Search,
+  X,
+} from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useLiveCheck } from '../hooks/useLiveCheck';
+import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
 
 const TABS = [
@@ -21,6 +35,41 @@ const TABS = [
 
 // 搜索结果相关性排序已下沉到后端(/api/v1/search 综合排序:上游名次+翻唱降权+
 // 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
+
+const SearchStatusPanel = ({ stage, progress, available, total }) => {
+  if (!stage) return null;
+  const pct = progress?.total ? Math.round((progress.done / progress.total) * 100) : 0;
+  const Icon = stage.icon;
+  return (
+    <div className={`mb-4 rounded-md border px-4 py-3 ${
+      stage.tone === 'error'
+        ? 'border-destructive/40 bg-destructive/10 text-destructive'
+        : stage.tone === 'success'
+          ? 'border-primary/30 bg-primary/10 text-primary'
+          : 'border-border bg-card/70 text-muted-foreground'
+    }`}>
+      <div className="flex items-start gap-3">
+        <Icon size={18} className={`mt-0.5 flex-shrink-0 ${stage.pulse ? 'animate-pulse' : ''}`} />
+        <div className="min-w-0 flex-grow">
+          <p className="font-medium text-foreground">{stage.title}</p>
+          <p className="mt-0.5 text-sm">{stage.detail}</p>
+          {progress?.total > 0 && (
+            <div className="mt-3">
+              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <p className="mt-1 text-xs">
+                已检查 {progress.done}/{progress.total}
+                {available != null ? ` · 当前可播放 ${available}` : ''}
+                {total != null ? ` · 原始结果 ${total}` : ''}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // 歌曲搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onShowLyric, isPlaying }) => {
@@ -37,43 +86,51 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     if (query) history.refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
+  const [historyNotice, setHistoryNotice] = useState('');
 
   const onChipSearch = (kw) => {
     if (runSearch) runSearch(kw);
   };
   const onChipDelete = async (kw, e) => {
     e.stopPropagation();
+    setHistoryNotice('');
     try {
       await clearSearchHistory(kw);
       history.refetch();
-    } catch { /* 忽略 */ }
+    } catch {
+      setHistoryNotice('搜索历史删除失败,稍后再试');
+    }
   };
   const onClearAll = async () => {
+    setHistoryNotice('');
     try {
       await clearSearchHistory();
       history.refetch();
-    } catch { /* 忽略 */ }
+    } catch {
+      setHistoryNotice('搜索历史清空失败,稍后再试');
+    }
   };
   const historyItems = history.data || [];
   const [sortMode, setSortMode] = useState('recommended');
   const SORT_PRESETS = {
-    recommended: { field: 'relevance', order: 'desc', label: '推荐排序' },
-    quality: { field: 'quality', order: 'desc', label: '高音质优先' },
-    compact: { field: 'size', order: 'asc', label: '文件更小' },
+    recommended: { field: 'relevance', order: 'desc', label: '推荐排序', hint: '优先匹配原唱和来源顺序' },
+    quality: { field: 'quality', order: 'desc', label: '高音质优先', hint: '按真实码率靠前' },
+    compact: { field: 'size', order: 'asc', label: '文件更小', hint: '适合省空间和流量' },
   };
 
   // 只保留已验活为 ok 的(验活中/未验先不显示,死链永久隐藏)
   const liveSongs = allSongs.filter((s) => status[songIdentityKey(s)]?.state === 'ok');
+  const originalIndex = new Map(allSongs.map((s, i) => [songIdentityKey(s), i]));
 
   // 各排序维度的取值
-  const fieldValue = (s, origIdx, field) => {
+  const fieldValue = (s, field) => {
     const live = status[songIdentityKey(s)];
     if (field === 'size') return live?.size || s.size || 0;
     if (field === 'quality') return live?.bitrateNum || 0;
     // 相关性:信任后端综合排序(上游名次+翻唱降权+原唱信号,前端看不到这些),
     // 用返回序的相反数(origIdx 越小越靠前)。不再前端重算 relevanceScore。
-    if (field === 'relevance') return -origIdx;
-    return origIdx;
+    if (field === 'relevance') return -(originalIndex.get(songIdentityKey(s)) ?? 0);
+    return originalIndex.get(songIdentityKey(s)) ?? 0;
   };
 
   // 默认给用户三种稳定排序:推荐 / 高音质 / 文件更小。
@@ -81,7 +138,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     .map((s, i) => ({ s, i }))
     .sort((a, b) => {
       const preset = SORT_PRESETS[sortMode] || SORT_PRESETS.recommended;
-      const cmp = fieldValue(a.s, a.i, preset.field) - fieldValue(b.s, b.i, preset.field);
+      const cmp = fieldValue(a.s, preset.field) - fieldValue(b.s, preset.field);
       if (cmp !== 0) return preset.order === 'asc' ? cmp : -cmp;
       // 排序键全相等(如同名"炽心"相关性同分)时,隐式按真实音质降序——
       // 正版通常有无损会靠前;音质相同再回退原序。
@@ -95,11 +152,69 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     .map((x) => x.s);
 
   const sortBtnCls = (mode) =>
-    `px-3 py-1.5 border rounded-md text-sm font-medium transition-colors ${
+    `rounded-md border px-3 py-2 text-left transition-colors ${
       sortMode === mode ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
     }`;
 
   const checking = progress.total > 0 && progress.done < progress.total;
+  const searchStage = (() => {
+    if (!query && !state.isLoading) return null;
+    if (state.isLoading) {
+      return {
+        title: `正在搜索「${query}」`,
+        detail: '正在从多个音乐源拉取候选结果。',
+        icon: Search,
+        pulse: true,
+      };
+    }
+    if (state.isError) {
+      return {
+        title: '搜索失败',
+        detail: String(state.error?.message || state.error || '请稍后再试'),
+        icon: AlertCircle,
+        tone: 'error',
+      };
+    }
+    if (state.data?.error) {
+      return {
+        title: '搜索返回错误',
+        detail: state.data.error,
+        icon: AlertCircle,
+        tone: 'error',
+      };
+    }
+    if (checking) {
+      return {
+        title: '正在筛选可播放结果',
+        detail: '候选歌曲会逐首检查,不可播放或受限结果会被自动隐藏。',
+        icon: Filter,
+        pulse: true,
+      };
+    }
+    if (progress.total > 0 && songs.length > 0) {
+      return {
+        title: '已筛出可播放歌曲',
+        detail: `当前有 ${songs.length} 首可以直接播放或保存。`,
+        icon: Check,
+        tone: 'success',
+      };
+    }
+    if (progress.total > 0 && songs.length === 0) {
+      return {
+        title: '没有可播放的结果',
+        detail: '这些结果可能暂时不可用,也可能受版权或会员权限限制。',
+        icon: AlertCircle,
+      };
+    }
+    if (query && progress.total === 0) {
+      return {
+        title: '没有找到结果',
+        detail: '可以换成“歌手 歌名”,或粘贴歌曲/歌单链接再试。',
+        icon: Search,
+      };
+    }
+    return null;
+  })();
 
   return (
     <div>
@@ -109,9 +224,9 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           placeholder="输入歌名 / 歌手,或粘贴链接…"
-          className="flex-grow px-4 py-3 border border-border rounded-md bg-card font-medium shadow-brutal-sm focus:shadow-brutal outline-none transition-shadow"
+          className="flex-grow rounded-md border border-border bg-card px-4 py-3 font-medium outline-none transition-colors focus:border-primary"
         />
-        <button type="submit" className="px-6 py-3 border border-border rounded-md bg-primary text-primary-foreground font-semibold shadow-brutal-sm transition-colors hover:bg-[#106EBE]">
+        <button type="submit" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:brightness-110">
           搜索
         </button>
       </form>
@@ -146,30 +261,18 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
           </div>
         </div>
       )}
-      {state.data?.error && <p className="text-destructive font-medium mb-4">{state.data.error}</p>}
-      {state.isLoading && <p className="text-muted-foreground font-medium mb-4">正在搜索…</p>}
-      {state.isError && <p className="text-destructive font-medium">搜索失败:{String(state.error?.message || state.error)}</p>}
-      {/* 验活进度 */}
-      {!state.isLoading && checking && (
-        <p className="text-primary font-medium mb-4">
-          正在筛掉不可播放的结果… {progress.done}/{progress.total}
-        </p>
+      {historyNotice && (
+        <p className="mb-4 text-sm text-destructive">{historyNotice}</p>
       )}
-      {query && !state.isLoading && !checking && progress.total > 0 && songs.length === 0 && (
-        <p className="text-muted-foreground">没有可播放的结果,可能都不可用或受版权限制。</p>
-      )}
-      {query && !state.isLoading && progress.total === 0 && !state.data?.error && (
-        <p className="text-muted-foreground">没有找到结果。</p>
-      )}
+      <SearchStatusPanel stage={searchStage} progress={progress} available={songs.length} total={allSongs.length} />
       {songs.length > 0 && (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <span className="text-sm text-muted-foreground">排序:</span>
+        <div className="mb-4 flex flex-wrap items-stretch gap-2">
           {Object.entries(SORT_PRESETS).map(([mode, preset]) => (
             <button key={mode} onClick={() => setSortMode(mode)} className={sortBtnCls(mode)}>
-              {preset.label}
+              <span className="block text-sm font-semibold">{preset.label}</span>
+              <span className={`block text-xs ${sortMode === mode ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{preset.hint}</span>
             </button>
           ))}
-          <span className="text-sm text-muted-foreground ml-2">共 {songs.length} 首可用</span>
         </div>
       )}
       <div className="space-y-2 pb-32">
@@ -192,7 +295,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
 // 歌词弹窗
 const LyricModal = ({ lyric, onClose }) => (
   <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-    <div className="bg-card border border-border rounded-lg shadow-brutal-lg max-w-lg w-full max-h-[70vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+    <div className="bg-card border border-border rounded-lg shadow-xl max-w-lg w-full max-h-[70vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
       <div className="flex justify-between items-start mb-4">
         <div>
           <h3 className="text-xl font-semibold">{lyric.song.name}</h3>
@@ -220,10 +323,10 @@ const DiscoverPane = ({ state, onOpen }) => {
             {(tab.playlists || []).map((pl) => (
               <div
                 key={`${pl.source}-${pl.id}`}
-                className="cursor-pointer group border border-border bg-card shadow-brutal-sm transition-all p-2"
+                className="cursor-pointer group rounded-md border border-border bg-card p-2 transition-colors hover:bg-secondary"
                 onClick={() => onOpen({ id: pl.id, source: pl.source, name: pl.name })}
               >
-                <div className="aspect-square overflow-hidden border border-border bg-muted">
+                <div className="aspect-square overflow-hidden rounded bg-muted">
                   {pl.cover && (
                     <img src={pl.cover} alt={pl.name} loading="lazy" className="w-full h-full object-cover" />
                   )}
@@ -238,15 +341,141 @@ const DiscoverPane = ({ state, onOpen }) => {
   );
 };
 
+const playlistBulkLabel = (state, idleLabel, runningLabel, doneLabel, retryLabel) => {
+  if (state.phase === 'running') return runningLabel;
+  if (state.phase === 'done') return doneLabel;
+  if (state.phase === 'fail') return retryLabel;
+  return idleLabel;
+};
+
+const BulkStatusCard = ({ title, state, cache }) => {
+  if (state.phase === 'idle') return null;
+  return (
+    <div className={`rounded-md border px-3 py-2 text-sm ${
+      state.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
+    }`}>
+      <p className="font-medium text-foreground">{title}</p>
+      <p>
+        {cache ? `新增 ${state.done}` : `已完成 ${state.done}/${state.total}`}
+        {cache && state.skipped ? ` · 已有 ${state.skipped}` : ''}
+        {cache && state.total ? ` · 共 ${state.total}` : ''}
+        {state.fail ? ` · 失败 ${state.fail}` : ''}
+      </p>
+    </div>
+  );
+};
+
 // 歌单详情面板
 const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlaying }) => {
   const songs = state.data?.songs || [];
+  const { user, offline } = useAuth();
+  const userId = user?.id || 0;
+  const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
+  const [bulkCache, setBulkCache] = useState({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+
+  useEffect(() => {
+    setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
+    setBulkCache({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+  }, [meta.id, meta.source]);
+
+  const handleDownloadAll = async () => {
+    if (!songs.length || offline || bulkDownload.phase === 'running') return;
+    const total = songs.length;
+    let done = 0;
+    let fail = 0;
+    setBulkDownload({ phase: 'running', done, fail, total });
+    for (const song of songs) {
+      try {
+        const result = await saveToServer(song);
+        if (result?.saved) done += 1;
+        else fail += 1;
+      } catch {
+        fail += 1;
+      }
+      setBulkDownload({ phase: 'running', done, fail, total });
+    }
+    setBulkDownload({ phase: fail ? 'fail' : 'done', done, fail, total });
+  };
+
+  const handleCacheAll = async () => {
+    if (!songs.length || offline || bulkCache.phase === 'running') return;
+    const total = songs.length;
+    let done = 0;
+    let fail = 0;
+    let skipped = 0;
+    setBulkCache({ phase: 'running', done, fail, skipped, total });
+    for (const song of songs) {
+      try {
+        if (!canCacheSong(song) || (await isSongCached(song, userId))) {
+          skipped += 1;
+        } else {
+          await cacheSong(song, { userId });
+          done += 1;
+        }
+      } catch {
+        fail += 1;
+      }
+      setBulkCache({ phase: 'running', done, fail, skipped, total });
+    }
+    setBulkCache({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
+  };
+
+  const downloadLabel = playlistBulkLabel(bulkDownload, '下载到 NAS', '下载到 NAS', '已下载到 NAS', '重试下载到 NAS');
+  const cacheLabel = playlistBulkLabel(bulkCache, '缓存到本机', '缓存到本机', '已缓存到本机', '重试缓存到本机');
+  const DownloadBulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : DownloadIcon;
+  const CacheBulkIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
+  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle';
+
   return (
     <div className="pb-32">
-      <button onClick={onBack} className="mb-4 px-3 py-1.5 border border-border bg-card font-bold text-sm shadow-brutal-sm transition-all">← 返回推荐歌单</button>
-      <h3 className="text-2xl font-bold mb-4">{meta.name}</h3>
+      <button onClick={onBack} className="mb-4 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/80">← 返回推荐歌单</button>
+      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end">
+        <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center rounded-lg bg-secondary">
+          <Music size={42} className="text-muted-foreground" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">推荐歌单</p>
+          <h3 className="truncate text-3xl font-black">{meta.name}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{songs.length} 首</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button onClick={() => songs.length && onPlay(songs[0], songs)}
+              disabled={!songs.length}
+              className="flex min-h-10 items-center gap-2 rounded-full bg-primary px-5 py-2 font-semibold text-primary-foreground disabled:opacity-50">
+              <Play size={18} fill="currentColor" />播放全部
+            </button>
+            <button onClick={handleDownloadAll}
+              disabled={!songs.length || offline || bulkDownload.phase === 'running'}
+              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
+                bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
+                : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                : 'bg-secondary text-foreground hover:bg-secondary/80'
+              }`}
+              title={offline ? '离线状态无法下载到 NAS' : '把这张推荐歌单下载到服务器曲库'}>
+              <DownloadBulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
+              {downloadLabel}
+            </button>
+            <button onClick={handleCacheAll}
+              disabled={!songs.length || offline || bulkCache.phase === 'running'}
+              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
+                bulkCache.phase === 'done' ? 'bg-primary/10 text-primary'
+                : bulkCache.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                : 'bg-secondary text-foreground hover:bg-secondary/80'
+              }`}
+              title={offline ? '离线状态无法缓存新歌曲' : '把这张推荐歌单缓存到当前浏览器/PWA'}>
+              <CacheBulkIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
+              {cacheLabel}
+            </button>
+          </div>
+        </div>
+      </div>
       {state.isLoading && <p className="text-muted-foreground font-bold">加载歌单…</p>}
       {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
+      {hasBulkStatus && (
+        <div className="mb-4 grid gap-2 sm:grid-cols-2">
+          <BulkStatusCard title="NAS 下载" state={bulkDownload} />
+          <BulkStatusCard title="本机缓存" state={bulkCache} cache />
+        </div>
+      )}
       <div className="space-y-2">
         {songs.map((song, idx) => (
           <SongRow
@@ -326,7 +555,7 @@ const Download = ({ downloadRequest }) => {
     setQuery(k);
   };
 
-  const handlePlay = (song) => play(song);
+  const handlePlay = (song, list) => play(song, list);
 
   const handleShowLyric = async (song) => {
     setLyric({ song, text: '加载中…' });
@@ -353,10 +582,10 @@ const Download = ({ downloadRequest }) => {
               setTab(t.key);
               setOpenPlaylist(null);
             }}
-            className={`px-4 py-2 border border-border font-bold transition-all ${
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
               tab === t.key
-                ? 'bg-primary text-primary-foreground shadow-brutal-sm'
-                : 'bg-card shadow-brutal-sm'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
             }`}
           >
             {t.label}

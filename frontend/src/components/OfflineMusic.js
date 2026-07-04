@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, HardDriveDownload, Music, Play, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertCircle, Check, HardDriveDownload, Music, Play, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 import {
   deleteAllCachedSongs,
@@ -114,12 +114,14 @@ export default function OfflineMusic() {
   const [estimate, setEstimate] = useState({ usage: 0, quota: 0, persisted: false });
   const [loading, setLoading] = useState(false);
   const [persisting, setPersisting] = useState(false);
+  const [notice, setNotice] = useState('');
 
   const songs = useMemo(() => records.map(toSong), [records]);
   const totalSize = useMemo(() => records.reduce((sum, row) => sum + (row.size || 0), 0), [records]);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setNotice('');
     try {
       const [rows, storage] = await Promise.all([
         listCachedSongs(userId),
@@ -129,6 +131,7 @@ export default function OfflineMusic() {
       setEstimate(storage);
     } catch {
       setRecords([]);
+      setNotice('离线缓存读取失败,请刷新后重试');
     } finally {
       setLoading(false);
     }
@@ -150,24 +153,38 @@ export default function OfflineMusic() {
   };
 
   const handleDelete = async (record) => {
-    const deleted = await deleteCachedRecord(record.key, userId);
-    if (deleted) setRecords((rows) => rows.filter((row) => row.key !== record.key));
-    setEstimate(await getStorageEstimate());
+    setNotice('');
+    try {
+      const deleted = await deleteCachedRecord(record.key, userId);
+      if (deleted) setRecords((rows) => rows.filter((row) => row.key !== record.key));
+      setEstimate(await getStorageEstimate());
+    } catch {
+      setNotice('删除本机缓存失败,请稍后重试');
+    }
   };
 
   const handleClear = async () => {
     if (!records.length) return;
     if (!window.confirm('清空当前账号的全部本机缓存?')) return;
-    await deleteAllCachedSongs(userId);
-    setRecords([]);
-    setEstimate(await getStorageEstimate());
+    setNotice('');
+    try {
+      await deleteAllCachedSongs(userId);
+      setRecords([]);
+      setEstimate(await getStorageEstimate());
+    } catch {
+      setNotice('清空本机缓存失败,请稍后重试');
+    }
   };
 
   const handlePersist = async () => {
     setPersisting(true);
+    setNotice('');
     try {
-      await requestPersistentStorage();
+      const ok = await requestPersistentStorage();
       setEstimate(await getStorageEstimate());
+      if (!ok) setNotice('浏览器没有授予持久保存权限,缓存仍可使用,但空间紧张时可能被回收');
+    } catch {
+      setNotice('请求持久保存失败,当前浏览器可能不支持');
     } finally {
       setPersisting(false);
     }
@@ -176,6 +193,9 @@ export default function OfflineMusic() {
   const usageLabel = estimate.quota
     ? `${fmtBytes(estimate.usage)} / ${fmtBytes(estimate.quota)}`
     : fmtBytes(estimate.usage);
+  const persistText = estimate.persisted
+    ? '浏览器已尽量保留本站缓存'
+    : '尚未获得持久保存权限,系统空间紧张时可能回收';
 
   return (
     <div>
@@ -221,13 +241,38 @@ export default function OfflineMusic() {
 
       {offline && (
         <div className="mb-4 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
-          离线模式
+          离线模式:只显示本机已缓存歌曲,不会请求 NAS 或音乐源。
+        </div>
+      )}
+
+      <div className="mb-4 grid gap-2 md:grid-cols-3">
+        <div className="rounded-md border border-border bg-card/70 px-3 py-2">
+          <p className="text-sm font-medium text-foreground">本机缓存</p>
+          <p className="mt-1 text-xs text-muted-foreground">只保存在当前浏览器/PWA,不会进入 NAS 曲库。</p>
+        </div>
+        <div className="rounded-md border border-border bg-card/70 px-3 py-2">
+          <p className="text-sm font-medium text-foreground">占用空间</p>
+          <p className="mt-1 text-xs text-muted-foreground">{records.length} 首音频 {fmtBytes(totalSize)},站点共 {usageLabel}。</p>
+        </div>
+        <div className={`rounded-md border px-3 py-2 ${estimate.persisted ? 'border-primary/30 bg-primary/10' : 'border-border bg-card/70'}`}>
+          <p className="text-sm font-medium text-foreground">保存状态</p>
+          <p className="mt-1 text-xs text-muted-foreground">{persistText}</p>
+        </div>
+      </div>
+
+      {notice && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <AlertCircle size={16} />
+          <span>{notice}</span>
         </div>
       )}
 
       {loading && <p className="text-muted-foreground">加载中…</p>}
       {!loading && records.length === 0 && (
-        <p className="text-muted-foreground">还没有本机缓存。在搜索结果或歌单里点硬盘按钮后会出现在这里。</p>
+        <div className="rounded-md border border-border bg-card/70 px-4 py-5 text-muted-foreground">
+          <p>还没有本机缓存。</p>
+          <p className="mt-1 text-sm">在歌曲行的「保存」菜单里选择「缓存到本机」后,离线也能播放。</p>
+        </div>
       )}
 
       <div className="space-y-0.5">
