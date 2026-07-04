@@ -15,6 +15,7 @@ import {
   Download as DownloadIcon,
   Filter,
   HardDriveDownload,
+  ListPlus,
   Music,
   Play,
   RotateCw,
@@ -24,6 +25,8 @@ import {
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useCollections } from '../contexts/CollectionsContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { useLiveCheck } from '../hooks/useLiveCheck';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
@@ -74,6 +77,7 @@ const SearchStatusPanel = ({ stage, progress, available, total }) => {
 // 歌曲搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onShowLyric, isPlaying }) => {
   const allSongs = state.data?.songs || [];
+  const feedback = useFeedback();
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
   const { status, progress } = useLiveCheck(allSongs);
 
@@ -99,15 +103,25 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       history.refetch();
     } catch {
       setHistoryNotice('搜索历史删除失败,稍后再试');
+      feedback.error('搜索历史删除失败,稍后再试');
     }
   };
   const onClearAll = async () => {
     setHistoryNotice('');
+    const ok = await feedback.confirm({
+      title: '清空最近搜索?',
+      body: '只清空当前账号的搜索记录,不会影响歌单或曲库。',
+      confirmLabel: '清空',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await clearSearchHistory();
       history.refetch();
+      feedback.success('最近搜索已清空');
     } catch {
       setHistoryNotice('搜索历史清空失败,稍后再试');
+      feedback.error('搜索历史清空失败,稍后再试');
     }
   };
   const historyItems = history.data || [];
@@ -369,13 +383,17 @@ const BulkStatusCard = ({ title, state, cache }) => {
 const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlaying }) => {
   const songs = state.data?.songs || [];
   const { user, offline } = useAuth();
+  const { create, addSong } = useCollections();
+  const feedback = useFeedback();
   const userId = user?.id || 0;
   const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
   const [bulkCache, setBulkCache] = useState({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+  const [bulkCopy, setBulkCopy] = useState({ phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null });
 
   useEffect(() => {
     setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
     setBulkCache({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+    setBulkCopy({ phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null });
   }, [meta.id, meta.source]);
 
   const handleDownloadAll = async () => {
@@ -420,11 +438,41 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
     setBulkCache({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
   };
 
+  const handleCopyToMine = async () => {
+    if (!songs.length || offline || bulkCopy.phase === 'running') return;
+    const total = songs.length;
+    let done = 0;
+    let fail = 0;
+    setBulkCopy({ phase: 'running', done, fail, total, collectionId: null });
+    try {
+      const collection = await create(meta.name || '推荐歌单');
+      const collectionId = collection?.id;
+      if (collectionId == null) throw new Error('collection id missing');
+      for (const song of songs) {
+        try {
+          await addSong(collectionId, song);
+          done += 1;
+        } catch {
+          fail += 1;
+        }
+        setBulkCopy({ phase: 'running', done, fail, total, collectionId });
+      }
+      setBulkCopy({ phase: fail ? 'fail' : 'done', done, fail, total, collectionId });
+      if (fail) feedback.error(`已创建歌单,但 ${fail} 首加入失败`);
+      else feedback.success('已加入我的歌单');
+    } catch {
+      setBulkCopy({ phase: 'fail', done, fail: total || 1, total, collectionId: null });
+      feedback.error('加入我的歌单失败,请稍后重试');
+    }
+  };
+
   const downloadLabel = playlistBulkLabel(bulkDownload, '下载到 NAS', '下载到 NAS', '已下载到 NAS', '重试下载到 NAS');
   const cacheLabel = playlistBulkLabel(bulkCache, '缓存到本机', '缓存到本机', '已缓存到本机', '重试缓存到本机');
+  const copyLabel = playlistBulkLabel(bulkCopy, '加入我的歌单', '加入我的歌单', '已加入我的歌单', '重试加入歌单');
   const DownloadBulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : DownloadIcon;
   const CacheBulkIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
-  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle';
+  const CopyBulkIcon = bulkCopy.phase === 'done' ? Check : bulkCopy.phase === 'fail' ? RotateCw : ListPlus;
+  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle' || bulkCopy.phase !== 'idle';
 
   return (
     <div className="pb-32">
@@ -465,6 +513,17 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
               <CacheBulkIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
               {cacheLabel}
             </button>
+            <button onClick={handleCopyToMine}
+              disabled={!songs.length || offline || bulkCopy.phase === 'running' || bulkCopy.phase === 'done'}
+              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
+                bulkCopy.phase === 'done' ? 'bg-primary/10 text-primary'
+                : bulkCopy.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                : 'bg-secondary text-foreground hover:bg-secondary/80'
+              }`}
+              title={offline ? '离线状态无法修改歌单' : '复制为我的自建歌单'}>
+              <CopyBulkIcon size={18} className={bulkCopy.phase === 'running' ? 'animate-pulse' : ''} />
+              {copyLabel}
+            </button>
           </div>
         </div>
       </div>
@@ -474,6 +533,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onShowLyric, isPlayin
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
           <BulkStatusCard title="NAS 下载" state={bulkDownload} />
           <BulkStatusCard title="本机缓存" state={bulkCache} cache />
+          <BulkStatusCard title="加入我的歌单" state={bulkCopy} />
         </div>
       )}
       <div className="space-y-2">

@@ -212,7 +212,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg shadow-brutal-sm p-4">
+    <div className="bg-card border border-border rounded-lg p-4">
       <div className="flex justify-between items-center mb-3">
         <span className="font-semibold">{sourceLabel(source)}</span>
         {loggedIn ? (
@@ -292,7 +292,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
       {qrSupported && (
         <button
           onClick={startLogin}
-          className="w-full px-3 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm shadow-brutal-sm transition-colors hover:bg-[#106EBE]"
+          className="w-full px-3 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm transition-colors hover:bg-[#106EBE]"
         >
           {session ? '刷新二维码' : '扫码登录'}
         </button>
@@ -391,7 +391,7 @@ const Settings = () => {
                 {status[src] && src !== 'qq_wx' && (
                   <button
                     onClick={() => handleLogout(src)}
-                    className="w-full mt-2 px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm shadow-brutal-sm transition-colors hover:bg-secondary"
+                    className="w-full mt-2 px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm transition-colors hover:bg-secondary"
                   >
                     退出登录
                   </button>
@@ -408,7 +408,7 @@ const Settings = () => {
           <h3 className="text-xl font-semibold">本地音乐库</h3>
           <button
             onClick={() => localMusic.refetch()}
-            className="px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm shadow-brutal-sm transition-colors hover:bg-secondary"
+            className="px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm transition-colors hover:bg-secondary"
           >
             刷新
           </button>
@@ -423,14 +423,14 @@ const Settings = () => {
         )}
         <div className="space-y-2">
           {tracks.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 p-3 border border-border rounded-md bg-card shadow-brutal-sm">
+            <div key={t.id} className="flex items-center gap-3 p-3 border border-border rounded-md bg-card">
               <div className="flex-grow min-w-0">
                 <p className="font-semibold truncate">{t.name}</p>
                 <p className="text-sm text-muted-foreground truncate">{t.artist}{t.album ? ` · ${t.album}` : ''}</p>
               </div>
               <button
                 onClick={() => handleDeleteLocal(t.id)}
-                className="px-3 py-1.5 border border-border rounded-md bg-destructive text-destructive-foreground font-semibold text-sm shadow-brutal-sm transition-colors hover:brightness-[0.97]"
+                className="px-3 py-1.5 border border-border rounded-md bg-destructive text-destructive-foreground font-semibold text-sm transition-colors hover:brightness-[0.97]"
               >
                 删除
               </button>

@@ -5,7 +5,7 @@ const Footer = () => {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border border-border shadow-brutal-sm">
+    <div className="border border-border">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}

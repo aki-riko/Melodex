@@ -53,7 +53,7 @@ const AuthGate = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
-      <div className="w-full max-w-sm bg-card border border-border rounded-lg shadow-brutal p-6">
+      <div className="w-full max-w-sm bg-card border border-border rounded-lg p-6">
         <h1 className="text-2xl font-semibold mb-1">{titles[effectiveMode]}</h1>
         <p className="text-sm text-muted-foreground mb-5">
           {effectiveMode === 'setup'
@@ -101,7 +101,7 @@ const AuthGate = () => {
           <button
             type="submit"
             disabled={busy}
-            className="w-full px-3 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold shadow-brutal-sm transition-colors hover:bg-[#106EBE] disabled:opacity-60"
+            className="w-full px-3 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold transition-colors hover:bg-[#106EBE] disabled:opacity-60"
           >
             {busy ? '处理中…' : buttons[effectiveMode]}
           </button>

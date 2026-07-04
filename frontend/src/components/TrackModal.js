@@ -115,7 +115,7 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
     >
       <div
         ref={modalRef}
-        className={`bg-card p-8 shadow-brutal border border-border w-full max-w-4xl relative transition-all duration-300 ease-in-out ${
+        className={`bg-card p-8 border border-border w-full max-w-4xl relative transition-all duration-300 ease-in-out ${
           isVisible ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
         } overflow-y-auto max-h-[90vh]`}
       >
@@ -139,7 +139,7 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
                 requestDownloadSearch(`${track.name} ${track.artist}`);
                 onClose();
               }}
-              className="mb-6 inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground border border-border font-bold shadow-brutal-sm transition-all"
+              className="mb-6 inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground border border-border font-bold transition-all"
               title="跳转到下载页,从国内源搜索这首歌"
             >
               ↓ 在国内源下载这首歌
@@ -227,7 +227,7 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
             {error && <p className="text-destructive text-sm mt-1">{error}</p>}
             <button
               type="submit"
-              className="mt-2 bg-primary text-primary-foreground px-5 py-2 rounded-full border border-border font-bold shadow-brutal-sm transition-all"
+              className="mt-2 bg-primary text-primary-foreground px-5 py-2 rounded-full border border-border font-bold transition-all"
             >
               发表评论
             </button>

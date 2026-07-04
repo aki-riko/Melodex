@@ -11,6 +11,7 @@ import {
 } from '../services/offlineAudio';
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { formatDuration } from '../utils/format';
 import { sourceLabel } from '../utils/sourceLabels';
 
@@ -109,6 +110,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
 export default function OfflineMusic() {
   const { user, offline } = useAuth();
   const { play, isPlaying } = usePlayer();
+  const feedback = useFeedback();
   const userId = user?.id || 0;
   const [records, setRecords] = useState([]);
   const [estimate, setEstimate] = useState({ usage: 0, quota: 0, persisted: false });
@@ -165,14 +167,22 @@ export default function OfflineMusic() {
 
   const handleClear = async () => {
     if (!records.length) return;
-    if (!window.confirm('清空当前账号的全部本机缓存?')) return;
+    const ok = await feedback.confirm({
+      title: '清空本机缓存?',
+      body: '只清空当前账号在此浏览器/PWA 的离线缓存,不会删除 NAS 曲库。',
+      confirmLabel: '清空缓存',
+      danger: true,
+    });
+    if (!ok) return;
     setNotice('');
     try {
       await deleteAllCachedSongs(userId);
       setRecords([]);
       setEstimate(await getStorageEstimate());
+      feedback.success('本机缓存已清空');
     } catch {
       setNotice('清空本机缓存失败,请稍后重试');
+      feedback.error('清空本机缓存失败,请稍后重试');
     }
   };
 

@@ -102,7 +102,7 @@ function Hero({ onLinkClick }) {
           <p className="text-xl mb-6">Melodex 替你在全网搜罗,帮你发现新音乐。</p>
           <a
             href="#trending"
-            className="discover-music-btn bg-primary text-primary-foreground px-8 py-3 rounded-md font-semibold shadow-brutal-sm transition-colors hover:bg-[#106EBE]"
+            className="discover-music-btn bg-primary text-primary-foreground px-8 py-3 rounded-md font-semibold transition-colors hover:bg-[#106EBE]"
             onClick={(e) => {
               e.preventDefault();
               onLinkClick('Trending');

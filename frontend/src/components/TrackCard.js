@@ -5,7 +5,7 @@ const TrackCard = ({ track, index, onClick }) => {
   return (
     <div
       key={track.id}
-      className="bg-card border border-border shadow-brutal-sm overflow-hidden cursor-pointer transition-all"
+      className="bg-card border border-border overflow-hidden cursor-pointer transition-all"
       onClick={() => onClick(track)}
     >
       {track.image && (

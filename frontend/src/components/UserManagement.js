@@ -10,11 +10,13 @@ import {
   adminSetRegistration,
 } from '../services/musicdl';
 import { useAuth } from '../contexts/AuthContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 
 const ROLE_LABEL = { admin: '管理员', user: '普通用户' };
 
 const UserManagement = () => {
   const { user: me } = useAuth();
+  const feedback = useFeedback();
   const usersQuery = useQuery(['admin-users'], adminListUsers, {
     retry: (count, err) => err?.name !== 'AuthRequiredError' && count < 2,
   });
@@ -26,8 +28,8 @@ const UserManagement = () => {
   const allowRegistration = !!usersQuery.data?.allowRegistration;
 
   const refresh = () => usersQuery.refetch();
-  const flash = (m) => { setMsg(m); setErr(''); setTimeout(() => setMsg(''), 2000); };
-  const fail = (e) => setErr(e?.response?.data?.error || '操作失败');
+  const flash = (m) => { setMsg(m); setErr(''); feedback.success(m); setTimeout(() => setMsg(''), 2000); };
+  const fail = (e) => { const message = e?.response?.data?.error || '操作失败'; setErr(message); feedback.error(message); };
 
   const onCreate = async (e) => {
     e.preventDefault();
@@ -58,8 +60,20 @@ const UserManagement = () => {
   };
 
   const onResetPassword = async (u) => {
-    const pw = window.prompt(`为 ${u.username} 设置新密码(至少 8 位):`);
+    const pw = await feedback.prompt({
+      title: `为 ${u.username} 设置新密码`,
+      body: '修改后该用户的旧会话会失效。',
+      label: '新密码',
+      inputType: 'password',
+      placeholder: '至少 8 位',
+      confirmLabel: '重置密码',
+    });
     if (!pw) return;
+    if (pw.length < 8) {
+      setErr('密码至少 8 位');
+      feedback.error('密码至少 8 位');
+      return;
+    }
     try {
       await adminResetPassword(u.id, pw);
       flash('密码已重置');
@@ -67,7 +81,13 @@ const UserManagement = () => {
   };
 
   const onDelete = async (u) => {
-    if (!window.confirm(`删除用户 ${u.username}?其歌单与下载归属将一并删除,此操作不可恢复。`)) return;
+    const ok = await feedback.confirm({
+      title: `删除用户 ${u.username}?`,
+      body: '其歌单与下载归属将一并删除,此操作不可恢复。',
+      confirmLabel: '删除用户',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await adminDeleteUser(u.id);
       flash('已删除');
@@ -92,7 +112,7 @@ const UserManagement = () => {
         <p className={`mb-4 text-sm font-medium ${err ? 'text-destructive' : 'text-success'}`}>{err || msg}</p>
       )}
 
-      <section className="mb-8 p-4 border border-border rounded-lg bg-card shadow-brutal-sm">
+      <section className="mb-8 p-4 border border-border rounded-lg bg-card">
         <div className="flex items-center justify-between">
           <div>
             <p className="font-semibold">开放注册</p>
@@ -100,7 +120,7 @@ const UserManagement = () => {
           </div>
           <button
             onClick={onToggleRegistration}
-            className={`px-3 py-1.5 border border-border rounded-md font-semibold text-sm shadow-brutal-sm transition-colors ${allowRegistration ? 'bg-success text-success-foreground' : 'bg-muted text-muted-foreground'}`}
+            className={`px-3 py-1.5 border border-border rounded-md font-semibold text-sm transition-colors ${allowRegistration ? 'bg-success text-success-foreground' : 'bg-muted text-muted-foreground'}`}
           >
             {allowRegistration ? '已开放' : '已关闭'}
           </button>
@@ -131,7 +151,7 @@ const UserManagement = () => {
             <option value="user">普通用户</option>
             <option value="admin">管理员</option>
           </select>
-          <button type="submit" className="px-4 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm shadow-brutal-sm hover:bg-[#106EBE] transition-colors">
+          <button type="submit" className="px-4 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:brightness-95 transition-colors">
             创建
           </button>
         </form>
@@ -142,7 +162,7 @@ const UserManagement = () => {
         {usersQuery.isLoading && <p className="text-muted-foreground">加载中…</p>}
         <div className="space-y-2">
           {users.map((u) => (
-            <div key={u.id} className="flex flex-wrap items-center gap-2 p-3 border border-border rounded-md bg-card shadow-brutal-sm">
+            <div key={u.id} className="flex flex-wrap items-center gap-2 p-3 border border-border rounded-md bg-card">
               <div className="flex-grow min-w-0">
                 <p className="font-semibold truncate">
                   {u.username}

@@ -1,19 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery } from 'react-query';
-import { Check, Download, HardDriveDownload, Music, Play, RotateCw } from 'lucide-react';
+import { Check, Download, HardDriveDownload, ListPlus, Music, Play, RotateCw } from 'lucide-react';
 import { getPlaylistDetail, getLyric, saveToServer } from '../services/musicdl';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useCollections } from '../contexts/CollectionsContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 
 // 歌单歌曲列表(点开某歌单后)
 const PlaylistSongs = ({ meta, onBack }) => {
   const { play, isPlaying } = usePlayer();
   const { user, offline } = useAuth();
+  const { create, addSong } = useCollections();
+  const feedback = useFeedback();
   const [lyric, setLyric] = useState(null);
   const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
   const [bulkCache, setBulkCache] = useState({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+  const [bulkCopy, setBulkCopy] = useState({ phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null });
   const userId = user?.id || 0;
   const state = useQuery(
     ['pl-detail', meta.id, meta.source],
@@ -35,6 +40,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
   useEffect(() => {
     setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
     setBulkCache({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
+    setBulkCopy({ phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null });
   }, [meta.id, meta.source]);
 
   const handleDownloadAll = async () => {
@@ -79,6 +85,34 @@ const PlaylistSongs = ({ meta, onBack }) => {
     setBulkCache({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
   };
 
+  const handleCopyToMine = async () => {
+    if (!songs.length || offline || bulkCopy.phase === 'running') return;
+    const total = songs.length;
+    let done = 0;
+    let fail = 0;
+    setBulkCopy({ phase: 'running', done, fail, total, collectionId: null });
+    try {
+      const collection = await create(meta.name || '推荐歌单');
+      const collectionId = collection?.id;
+      if (collectionId == null) throw new Error('collection id missing');
+      for (const song of songs) {
+        try {
+          await addSong(collectionId, song);
+          done += 1;
+        } catch {
+          fail += 1;
+        }
+        setBulkCopy({ phase: 'running', done, fail, total, collectionId });
+      }
+      setBulkCopy({ phase: fail ? 'fail' : 'done', done, fail, total, collectionId });
+      if (fail) feedback.error(`已创建歌单,但 ${fail} 首加入失败`);
+      else feedback.success('已加入我的歌单');
+    } catch {
+      setBulkCopy({ phase: 'fail', done, fail: total || 1, total, collectionId: null });
+      feedback.error('加入我的歌单失败,请稍后重试');
+    }
+  };
+
   const downloadLabel = bulkDownload.phase === 'done'
     ? '已下载到 NAS'
     : bulkDownload.phase === 'fail'
@@ -89,9 +123,15 @@ const PlaylistSongs = ({ meta, onBack }) => {
     : bulkCache.phase === 'fail'
       ? '重试缓存到本机'
       : '缓存到本机';
+  const copyLabel = bulkCopy.phase === 'done'
+    ? '已加入我的歌单'
+    : bulkCopy.phase === 'fail'
+      ? '重试加入歌单'
+      : '加入我的歌单';
   const DownloadIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
   const CacheIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
-  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle';
+  const CopyIcon = bulkCopy.phase === 'done' ? Check : bulkCopy.phase === 'fail' ? RotateCw : ListPlus;
+  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle' || bulkCopy.phase !== 'idle';
 
   return (
     <div className="pb-32">
@@ -137,6 +177,17 @@ const PlaylistSongs = ({ meta, onBack }) => {
               <CacheIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
               {cacheLabel}
             </button>
+            <button onClick={handleCopyToMine}
+              disabled={!songs.length || offline || bulkCopy.phase === 'running' || bulkCopy.phase === 'done'}
+              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
+                bulkCopy.phase === 'done' ? 'bg-primary/10 text-primary'
+                : bulkCopy.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                : 'bg-secondary text-foreground hover:bg-secondary/80'
+              }`}
+              title={offline ? '离线状态无法修改歌单' : '复制为我的自建歌单'}>
+              <CopyIcon size={18} className={bulkCopy.phase === 'running' ? 'animate-pulse' : ''} />
+              {copyLabel}
+            </button>
           </div>
         </div>
       </div>
@@ -165,6 +216,17 @@ const PlaylistSongs = ({ meta, onBack }) => {
                 {bulkCache.skipped ? ` · 已有 ${bulkCache.skipped}` : ''}
                 {bulkCache.total ? ` · 共 ${bulkCache.total}` : ''}
                 {bulkCache.fail ? ` · 失败 ${bulkCache.fail}` : ''}
+              </p>
+            </div>
+          )}
+          {bulkCopy.phase !== 'idle' && (
+            <div className={`rounded-md border px-3 py-2 text-sm ${
+              bulkCopy.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
+            }`}>
+              <p className="font-medium text-foreground">加入我的歌单</p>
+              <p>
+                已加入 {bulkCopy.done}/{bulkCopy.total}
+                {bulkCopy.fail ? ` · 失败 ${bulkCopy.fail}` : ''}
               </p>
             </div>
           )}

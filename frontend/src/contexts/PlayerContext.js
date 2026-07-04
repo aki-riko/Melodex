@@ -768,17 +768,17 @@ export const PlayerBar = () => {
             </div>
           </button>
           {/* 收藏 */}
-          <button onClick={onToggleFavorite} disabled={offline} className="flex-shrink-0 p-1 disabled:opacity-50" aria-label="收藏">
+          <button onClick={onToggleFavorite} disabled={offline} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="收藏">
             <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
           </button>
           {/* 播放/暂停 */}
           <button onClick={togglePlay}
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground flex-shrink-0"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground flex-shrink-0"
             aria-label="播放/暂停">
             {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
           </button>
           {/* 播放列表 */}
-          <button onClick={() => { openExpanded(); setQueueOpen(true); }} className="text-muted-foreground flex-shrink-0 p-1" aria-label="播放列表">
+          <button onClick={() => { openExpanded(); setQueueOpen(true); }} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground" aria-label="播放列表">
             <ListMusic size={22} />
           </button>
         </div>
@@ -791,7 +791,7 @@ export const PlayerBar = () => {
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
           {/* 顶部:收起 */}
           <div className="flex items-center justify-between px-4 py-3">
-            <button onClick={collapseExpanded} className="text-muted-foreground" aria-label="收起">
+            <button onClick={collapseExpanded} className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="收起">
               <ChevronDown size={28} />
             </button>
             <span className="text-xs uppercase tracking-wider text-muted-foreground">正在播放</span>
@@ -804,7 +804,7 @@ export const PlayerBar = () => {
               style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="font-semibold">播放队列 · {queue.length} 首</span>
-                <button onClick={() => setQueueOpen(false)} className="text-muted-foreground" aria-label="关闭队列">
+                <button onClick={() => setQueueOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="关闭队列">
                   <ChevronDown size={26} />
                 </button>
               </div>
@@ -816,7 +816,7 @@ export const PlayerBar = () => {
                   const active = k === curKey;
                   return (
                     <button key={`${k}-${i}`} onClick={() => { playFromQueue(s); setQueueOpen(false); }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${active ? 'bg-secondary' : ''}`}>
+                      className={`flex min-h-12 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${active ? 'bg-secondary' : ''}`}>
                       <span className={`w-5 text-right text-xs tabular-nums flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`}>{active ? '▶' : i + 1}</span>
                       <div className="min-w-0">
                         <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
@@ -872,7 +872,7 @@ export const PlayerBar = () => {
               <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
               <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
             </div>
-            <button onClick={onToggleFavorite} disabled={offline} className="flex-shrink-0 p-1 disabled:opacity-50" aria-label="收藏">
+            <button onClick={onToggleFavorite} disabled={offline} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="收藏">
               <Heart size={28} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
             </button>
           </div>
@@ -891,11 +891,11 @@ export const PlayerBar = () => {
           {/* 控制按钮 */}
           <div className="flex items-center justify-between px-10 mt-6">
             <button onClick={cycleMode}
-              className={`${mode === 'order' ? 'text-muted-foreground' : 'text-primary'}`}
+              className={`flex h-12 w-12 items-center justify-center rounded-full ${mode === 'order' ? 'text-muted-foreground' : 'text-primary'}`}
               title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
               {modeIcon}
             </button>
-            <button onClick={prev} className="text-foreground" aria-label="上一首">
+            <button onClick={prev} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="上一首">
               <SkipBack size={32} fill="currentColor" />
             </button>
             <button onClick={togglePlay}
@@ -903,11 +903,11 @@ export const PlayerBar = () => {
               aria-label="播放/暂停">
               {isPaused ? <Play size={30} fill="currentColor" /> : <Pause size={30} fill="currentColor" />}
             </button>
-            <button onClick={next} className="text-foreground" aria-label="下一首">
+            <button onClick={next} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="下一首">
               <SkipForward size={32} fill="currentColor" />
             </button>
             <button onClick={() => setQueueOpen((o) => !o)}
-              className={queueOpen ? 'text-primary' : 'text-muted-foreground'} aria-label="播放列表">
+              className={`flex h-12 w-12 items-center justify-center rounded-full ${queueOpen ? 'text-primary' : 'text-muted-foreground'}`} aria-label="播放列表">
               <ListMusic size={26} />
             </button>
           </div>

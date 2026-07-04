@@ -3,7 +3,7 @@ import { formatNumber } from '../utils/format';
 
 const TrackTable = ({ tracks, onClick }) => {
   return (
-    <div className="bg-card border border-border shadow-brutal-sm overflow-hidden h-full flex flex-col">
+    <div className="bg-card border border-border overflow-hidden h-full flex flex-col">
       <table className="w-full">
         <thead className="bg-muted text-foreground">
           <tr>

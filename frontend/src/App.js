@@ -17,9 +17,9 @@ import { onDownloadSearch } from './services/downloadBus';
 import { PlayerProvider, PlayerBar } from './contexts/PlayerContext';
 import { CollectionsProvider } from './contexts/CollectionsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { FeedbackProvider } from './contexts/FeedbackContext';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import FAQ from './components/FAQ';
-import 'react-toastify/dist/ReactToastify.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,7 +96,7 @@ function AppShell() {
           <main
             id="app-main"
             className="flex-grow overflow-y-auto app-scroll"
-            style={{ paddingBottom: '7rem' }}
+            style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom))' }}
           >
             <div className="container mx-auto px-4 md:px-6 py-6 max-w-6xl">
               {(section === 'Home' || section === 'Trending') && <Trending />}
@@ -146,7 +146,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <AuthedApp />
+        <FeedbackProvider>
+          <AuthedApp />
+        </FeedbackProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

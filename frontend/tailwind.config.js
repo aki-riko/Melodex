@@ -48,13 +48,8 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)',
       },
       boxShadow: {
-        // Fluent Design 柔和层次阴影(沿用 brutal* 类名,组件无需大改,视觉转柔和)
-        brutal: '0 4px 8px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.08)',
-        'brutal-sm': '0 1.6px 3.6px rgba(0,0,0,0.10), 0 0.3px 0.9px rgba(0,0,0,0.07)',
-        'brutal-lg': '0 8px 16px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08)',
-        // Fluent 语义别名
-        fluent: '0 1.6px 3.6px rgba(0,0,0,0.10), 0 0.3px 0.9px rgba(0,0,0,0.07)',
-        'fluent-lg': '0 8px 16px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08)',
+        subtle: '0 8px 24px rgba(0,0,0,0.18)',
+        elevated: '0 16px 40px rgba(0,0,0,0.28)',
       },
       animation: {
         'spin-slow': 'spin 20s linear infinite',
