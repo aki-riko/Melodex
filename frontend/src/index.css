@@ -101,6 +101,12 @@ html {
   display: flex;
   align-items: center;
   justify-content: center;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+.song-row-cover-action:hover .song-row-playing-cover,
+.song-row-cover-action:focus-within .song-row-playing-cover {
+  opacity: 0;
 }
 .song-row-equalizer {
   height: 20px;
