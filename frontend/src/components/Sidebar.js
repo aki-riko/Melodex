@@ -121,7 +121,7 @@ function PlaylistNav({ onNavigate }) {
   const btnRef = React.useRef(null);
 
   const openNew = (c, nm) => {
-    if (c && c.id != null) { onNavigate('MyPlaylist', c.id); requestOpenPlaylist({ collectionId: c.id, name: nm }); }
+    if (c && c.id != null) { onNavigate('MyPlaylist', c.id); requestOpenPlaylist({ collectionId: c.id, name: nm || c.name, kind: c.kind }); }
   };
 
   const submit = async (e) => {
@@ -204,7 +204,7 @@ function PlaylistNav({ onNavigate }) {
       {collections.map((c) => (
         <button
           key={c.id}
-          onClick={() => { onNavigate('MyPlaylist', c.id); requestOpenPlaylist({ collectionId: c.id, name: c.name }); }}
+          onClick={() => { onNavigate('MyPlaylist', c.id); requestOpenPlaylist({ collectionId: c.id, name: c.name, kind: c.kind }); }}
           className="w-full flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors text-left"
           title={c.name}
         >
@@ -291,7 +291,7 @@ export function MobileTabBar({ currentSection, onNavigate }) {
               ) : (
                 collections.map((c) => (
                   <button key={c.id}
-                    onClick={() => go('MyPlaylist', () => requestOpenPlaylist({ collectionId: c.id, name: c.name }), c.id)}
+                    onClick={() => go('MyPlaylist', () => requestOpenPlaylist({ collectionId: c.id, name: c.name, kind: c.kind }), c.id)}
                     className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors text-left">
                     <Music size={16} className="flex-shrink-0" />
                     <span className="truncate">{c.name}</span>

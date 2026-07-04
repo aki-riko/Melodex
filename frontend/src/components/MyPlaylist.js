@@ -44,6 +44,9 @@ export default function MyPlaylist() {
   const [loading, setLoading] = useState(false);
   const { play, isPlaying } = usePlayer();
   const { remove, refresh, collections } = useCollections();
+  const currentCollection = collections.find((c) => c.id === meta?.collectionId);
+  const currentName = meta?.name || currentCollection?.name || '歌单';
+  const canDeleteCollection = (meta?.kind || currentCollection?.kind) !== 'favorite';
 
   const load = useCallback(async (collectionId) => {
     setLoading(true);
@@ -85,7 +88,8 @@ export default function MyPlaylist() {
   };
 
   const handleDeleteCollection = async () => {
-    if (!window.confirm(`删除歌单「${meta.name}」?`)) return;
+    if (!canDeleteCollection) return;
+    if (!window.confirm(`删除歌单「${currentName}」?`)) return;
     await remove(meta.collectionId);
     setMeta(null); setSongs([]);
   };
@@ -96,7 +100,7 @@ export default function MyPlaylist() {
         <PlaylistCover songs={songs} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">歌单</p>
-          <h1 className="text-3xl font-black truncate">{meta.name || (collections.find((c) => c.id === meta.collectionId)?.name) || '歌单'}</h1>
+          <h1 className="text-3xl font-black truncate">{currentName}</h1>
           <p className="text-sm text-muted-foreground mt-1">{songs.length} 首</p>
           <div className="flex gap-2 mt-3">
             <button onClick={() => songs.length && play(songs[0], songs)}
@@ -104,11 +108,13 @@ export default function MyPlaylist() {
               className="flex items-center gap-2 px-5 py-2 rounded-full bg-primary text-primary-foreground font-semibold disabled:opacity-50">
               <Play size={18} fill="currentColor" />播放全部
             </button>
-            <button onClick={handleDeleteCollection}
-              className="flex items-center gap-2 px-4 py-2 rounded-full text-muted-foreground hover:text-destructive transition-colors"
-              title="删除歌单">
-              <Trash2 size={18} />
-            </button>
+            {canDeleteCollection && (
+              <button onClick={handleDeleteCollection}
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-muted-foreground hover:text-destructive transition-colors"
+                title="删除歌单">
+                <Trash2 size={18} />
+              </button>
+            )}
           </div>
         </div>
       </div>
