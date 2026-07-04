@@ -183,6 +183,9 @@ func resolveAlbum(row songRow, targetIDs map[string]struct{}, cache map[string][
 			return meta, true
 		}
 	}
+	if meta, ok := resolveAlbumByParse(row, targetIDs); ok {
+		return meta, true
+	}
 	return albumMeta{}, false
 }
 
@@ -192,21 +195,75 @@ func findMatch(songs []model.Song, targetIDs map[string]struct{}) (albumMeta, bo
 			if _, ok := targetIDs[id]; !ok {
 				continue
 			}
-			album := strings.TrimSpace(song.Album)
-			if album == "" {
-				album = firstExtra(song.Extra, "album", "albumName", "albumname", "album_name")
-			}
-			if album == "" {
-				return albumMeta{}, false
-			}
-			albumID := strings.TrimSpace(song.AlbumID)
-			if albumID == "" {
-				albumID = firstExtra(song.Extra, "album_id", "albumMid", "album_mid", "albummid")
-			}
-			return albumMeta{Album: album, AlbumID: albumID}, true
+			return albumFromSong(song)
 		}
 	}
 	return albumMeta{}, false
+}
+
+func resolveAlbumByParse(row songRow, targetIDs map[string]struct{}) (albumMeta, bool) {
+	parse := core.GetParseFunc(row.Source)
+	if parse == nil {
+		return albumMeta{}, false
+	}
+	for _, link := range parseLinks(row.Source, targetIDs) {
+		song, err := parse(link)
+		if err != nil || song == nil {
+			continue
+		}
+		if !hasAnyID(candidateIDs(*song), targetIDs) {
+			continue
+		}
+		if meta, ok := albumFromSong(*song); ok {
+			return meta, true
+		}
+	}
+	return albumMeta{}, false
+}
+
+func parseLinks(source string, targetIDs map[string]struct{}) []string {
+	links := []string{}
+	seen := map[string]struct{}{}
+	add := func(link string) {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			return
+		}
+		if _, ok := seen[link]; ok {
+			return
+		}
+		seen[link] = struct{}{}
+		links = append(links, link)
+	}
+	for id := range targetIDs {
+		switch source {
+		case "qq":
+			add("https://y.qq.com/n/ryqq/songDetail/" + id)
+			if isDigitsOnly(id) {
+				add("https://y.qq.com/n/ryqq/player?songid=" + id)
+			}
+		case "netease":
+			if isDigitsOnly(id) {
+				add("https://music.163.com/#/song?id=" + id)
+			}
+		}
+	}
+	return links
+}
+
+func albumFromSong(song model.Song) (albumMeta, bool) {
+	album := strings.TrimSpace(song.Album)
+	if album == "" {
+		album = firstExtra(song.Extra, "album", "albumName", "albumname", "album_name")
+	}
+	if album == "" {
+		return albumMeta{}, false
+	}
+	albumID := strings.TrimSpace(song.AlbumID)
+	if albumID == "" {
+		albumID = firstExtra(song.Extra, "album_id", "albumMid", "album_mid", "albummid")
+	}
+	return albumMeta{Album: album, AlbumID: albumID}, true
 }
 
 func candidateIDs(song model.Song) []string {
@@ -227,6 +284,27 @@ func candidateIDs(song model.Song) []string {
 		}
 	}
 	return ids
+}
+
+func hasAnyID(candidates []string, targetIDs map[string]struct{}) bool {
+	for _, id := range candidates {
+		if _, ok := targetIDs[id]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func isDigitsOnly(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func firstExtra(extra map[string]string, keys ...string) string {
