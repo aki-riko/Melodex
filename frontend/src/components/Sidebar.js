@@ -113,6 +113,7 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
 // 侧栏自建歌单列表:列我的歌单 + 新建/导入,点击 → 切到歌单页打开
 function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
   const { collections, create, refresh } = useCollections();
+  const { offline } = useAuth();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -128,6 +129,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (offline) return;
     const n = name.trim();
     if (!n) return;
     const c = await create(n);
@@ -139,7 +141,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
   const onFile = async (e) => {
     const f = e.target.files && e.target.files[0];
     e.target.value = ''; // 允许重复选同一文件
-    if (!f) return;
+    if (!f || offline) return;
     setImporting(true);
     try {
       const content = await f.text();
@@ -162,12 +164,14 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
         <button
           ref={btnRef}
           onClick={() => {
+            if (offline) return;
             const r = btnRef.current?.getBoundingClientRect();
             if (r) setMenuPos({ top: r.bottom + 4, left: r.right - 144 });
             setMenuOpen((v) => !v);
           }}
-          className="text-muted-foreground hover:text-foreground"
-          title="新建 / 导入"
+          disabled={offline}
+          className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+          title={offline ? '离线状态无法新建或导入歌单' : '新建 / 导入'}
         >
           <Plus size={16} />
         </button>

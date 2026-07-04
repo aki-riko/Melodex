@@ -95,6 +95,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
 
   const handleInspect = async (e) => {
     e.stopPropagation();
+    if (offline) return;
     setChecking(true);
     try {
       const r = await inspectQuality(song);
@@ -109,6 +110,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
 
   const handleDownload = async (e) => {
     e.stopPropagation();
+    if (offline) return;
     setDlState('saving');
     try {
       const r = await saveToServer(song);
@@ -120,7 +122,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
 
   const handleCache = async (e) => {
     e.stopPropagation();
-    if (!cacheable || cacheState === 'saving' || cacheState === 'done') return;
+    if (offline || !cacheable || cacheState === 'saving' || cacheState === 'done') return;
     setCacheState('saving');
     try {
       await cacheSong(song, { userId });
@@ -177,14 +179,15 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
       <span className="text-xs text-muted-foreground whitespace-nowrap hidden md:inline">{effectiveReal?.size || fmtSize(song.size)}</span>
     ) : null}
     {/* 操作按钮:图标化,hover 显现 */}
-    <button onClick={handleInspect} disabled={checking}
+    <button onClick={handleInspect} disabled={offline || checking}
       className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-      title="验真实音质与大小">
+      title={offline ? '离线状态无法验音质' : '验真实音质与大小'}>
       <Gauge size={16} className={checking ? 'animate-pulse' : ''} />
     </button>
-    <button onClick={(e) => { e.stopPropagation(); setAddTarget(song); }}
-      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
-      title="加入歌单">
+    <button onClick={(e) => { e.stopPropagation(); if (!offline) setAddTarget(song); }}
+      disabled={offline}
+      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+      title={offline ? '离线状态无法加入歌单' : '加入歌单'}>
       <ListPlus size={16} />
     </button>
     {onShowLyric && (
@@ -209,13 +212,13 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
           : <HardDriveDownload size={16} />}
       </button>
     )}
-    <button onClick={handleDownload} disabled={dlState === 'saving' || dlState === 'done'}
-      className={`p-1.5 transition-colors ${
+    <button onClick={handleDownload} disabled={offline || dlState === 'saving' || dlState === 'done'}
+      className={`p-1.5 transition-colors disabled:opacity-50 ${
         dlState === 'done' ? 'text-primary'
         : dlState === 'fail' ? 'text-destructive'
         : 'text-muted-foreground hover:text-foreground'
       }`}
-      title="下载到服务器(NAS)">
+      title={offline ? '离线状态无法下载到 NAS' : '下载到服务器(NAS)'}>
       {dlState === 'saving' ? <Download size={16} className="animate-pulse" />
         : dlState === 'done' ? <Check size={16} />
         : dlState === 'fail' ? <RotateCw size={16} />
