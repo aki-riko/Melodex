@@ -1,5 +1,6 @@
 import { coverProxyUrl, getDownloadUrl } from './musicdl';
 import { normalizeSongIdentity, songExtraHash, songIdentityKey } from '../utils/songIdentity';
+import { normalizeSong } from '../utils/songFields';
 
 const DB_NAME = 'melodex-offline-audio';
 const DB_VERSION = 1;
@@ -12,15 +13,16 @@ const userKey = (userId) => String(userId || 0);
 const textValue = (value) => (value == null ? '' : String(value));
 
 export const normalizeOfflineSong = (song) => {
-  const identity = normalizeSongIdentity(song);
+  const normalized = normalizeSong(song);
+  const identity = normalizeSongIdentity(normalized);
   return {
     id: identity.id,
     source: identity.source,
-    name: textValue(song?.name ?? song?.Name),
-    artist: textValue(song?.artist ?? song?.Artist),
-    album: textValue(song?.album ?? song?.Album),
-    cover: textValue(song?.cover ?? song?.Cover),
-    duration: Number(song?.duration ?? song?.Duration ?? 0) || 0,
+    name: textValue(normalized.name),
+    artist: textValue(normalized.artist),
+    album: textValue(normalized.album),
+    cover: textValue(normalized.cover),
+    duration: Number(normalized.duration || 0) || 0,
     extra: identity.extra,
   };
 };

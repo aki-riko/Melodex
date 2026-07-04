@@ -28,7 +28,7 @@ func TestFavoriteToggleAndStatus(t *testing.T) {
 	alice, _ := createUser("alice", "alicepass1", RoleUser)
 	r := newFavoriteTestRouter(alice.ID)
 
-	body := `{"id":"s1","source":"qq","name":"测试歌","artist":"歌手","cover":"c","duration":200}`
+	body := `{"id":"s1","source":"qq","name":"测试歌","artist":"歌手","album":"测试专辑","album_id":"album-1","cover":"c","duration":200}`
 
 	// 初始未收藏
 	rec := doJSON(r, http.MethodGet, RoutePrefix+"/favorites/status?source=qq&id=s1", nil, nil)
@@ -63,6 +63,14 @@ func TestFavoriteToggleAndStatus(t *testing.T) {
 	db.Model(&SavedSong{}).Where("collection_id = ?", fav.ID).Count(&n)
 	if n != 1 {
 		t.Fatalf("favorite should have 1 song, got %d", n)
+	}
+	var saved SavedSong
+	if err := db.Where("collection_id = ?", fav.ID).First(&saved).Error; err != nil {
+		t.Fatalf("load favorite song: %v", err)
+	}
+	extra := decodeSongExtraMap(saved.Extra)
+	if extraMapValue(extra, "album") != "测试专辑" || extraMapValue(extra, "album_id") != "album-1" {
+		t.Fatalf("favorite extra album = %#v, want album metadata", extra)
 	}
 
 	// toggle again → 取消

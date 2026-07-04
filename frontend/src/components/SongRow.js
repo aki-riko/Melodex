@@ -1,11 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Play, Download, FileText, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload, Ellipsis } from 'lucide-react';
-import { getStreamUrl, saveToServer, coverProxyUrl } from '../services/musicdl';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Play, Download, FileText, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload, Ellipsis, Heart } from 'lucide-react';
+import { getStreamUrl, saveToServer, coverProxyUrl, getFavoriteStatus, toggleFavorite } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CHANGED } from '../services/offlineAudio';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatDuration } from '../utils/format';
 import { sourceLabel } from '../utils/sourceLabels';
+import { normalizeSong } from '../utils/songFields';
+import { songIdentityKey } from '../utils/songIdentity';
 
 const fmtSec = (sec) => (sec ? formatDuration(sec * 1000) : '—');
 const fmtSize = (bytes) => {
@@ -66,6 +68,27 @@ const statusBadge = (label, cls = 'bg-muted text-muted-foreground') => (
   </span>
 );
 
+const favoriteStatusCache = new Map();
+
+const ActionButton = ({ icon: Icon, title, onClick, disabled, active, danger, busy }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+      danger
+        ? 'text-destructive hover:bg-destructive/10'
+        : active
+          ? 'bg-primary/10 text-primary hover:bg-primary/15'
+          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+    }`}
+    title={title}
+    aria-label={title}
+  >
+    <Icon size={17} fill={active ? 'currentColor' : 'none'} className={busy ? 'animate-pulse' : ''} />
+  </button>
+);
+
 const MenuItem = ({ icon: Icon, label, hint, onClick, disabled, danger, busy }) => (
   <button
     type="button"
@@ -93,9 +116,10 @@ const MenuPanel = ({ children }) => (
 );
 
 export const SongListHeader = ({ className = '' }) => (
-  <div className={`hidden md:grid grid-cols-[2rem_minmax(0,1.7fr)_minmax(8rem,1fr)_4.5rem_2.25rem] items-center gap-3 px-3 pb-2 text-xs font-semibold text-muted-foreground ${className}`}>
+  <div className={`hidden md:grid grid-cols-[2rem_minmax(0,1.55fr)_8.75rem_minmax(8rem,0.85fr)_4.5rem_2.25rem] items-center gap-3 px-3 pb-2 text-xs font-semibold text-muted-foreground ${className}`}>
     <span className="text-right">#</span>
     <span>歌名 / 歌手</span>
+    <span />
     <span>专辑</span>
     <span className="text-right">时长</span>
     <span />
@@ -113,16 +137,21 @@ const SongRow = ({
   removeTitle = '从歌单移除',
   removeHint = '只从当前歌单移除',
 }) => {
-  const q = realQualityOf(liveInfo, song);
+  const rowSong = useMemo(() => normalizeSong(song), [song]);
+  const q = realQualityOf(liveInfo, rowSong);
   const { setAddTarget } = useCollections();
   const { user, offline } = useAuth();
   const userId = user?.id || 0;
   const [dlState, setDlState] = useState('');
   const [cacheState, setCacheState] = useState('');
+  const [favorited, setFavorited] = useState(false);
+  const [favBusy, setFavBusy] = useState(false);
   const [openMenu, setOpenMenu] = useState(false);
   const menuRef = useRef(null);
-  const cacheable = canCacheSong(song);
-  const sizeLabel = liveInfo?.size || fmtSize(song.size);
+  const cacheable = canCacheSong(rowSong);
+  const sizeLabel = liveInfo?.size || fmtSize(rowSong.size);
+  const rowKey = songIdentityKey(rowSong);
+  const albumTitle = rowSong.album || '—';
 
   useEffect(() => {
     if (!openMenu) return undefined;
@@ -146,11 +175,14 @@ const SongRow = ({
       return undefined;
     }
     let cancelled = false;
-    const key = offlineSongKey(song, userId);
+    const key = offlineSongKey(rowSong, userId);
     const refresh = () => {
-      isSongCached(song, userId)
+      isSongCached(rowSong, userId)
         .then((ok) => { if (!cancelled) setCacheState((s) => (s === 'saving' ? s : (ok ? 'done' : ''))); })
-        .catch(() => { if (!cancelled) setCacheState((s) => (s === 'saving' ? s : '')); });
+        .catch((err) => {
+          console.warn('读取本机缓存状态失败', err);
+          if (!cancelled) setCacheState((s) => (s === 'saving' ? s : ''));
+        });
     };
     refresh();
     const onChanged = (event) => {
@@ -163,7 +195,32 @@ const SongRow = ({
       cancelled = true;
       window.removeEventListener(OFFLINE_AUDIO_CHANGED, onChanged);
     };
-  }, [cacheable, song, userId]);
+  }, [cacheable, rowSong, userId]);
+
+  useEffect(() => {
+    if (offline || !rowSong.id || !rowSong.source) {
+      setFavorited(false);
+      return undefined;
+    }
+    const cached = favoriteStatusCache.get(rowKey);
+    if (cached != null) {
+      setFavorited(cached);
+      return undefined;
+    }
+    let cancelled = false;
+    getFavoriteStatus(rowSong)
+      .then((ok) => {
+        favoriteStatusCache.set(rowKey, ok);
+        if (!cancelled) setFavorited(ok);
+      })
+      .catch((err) => {
+        console.warn('读取收藏状态失败', err);
+        if (!cancelled) setFavorited(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [offline, rowKey, rowSong]);
 
   const closeMenu = () => setOpenMenu(false);
 
@@ -172,9 +229,10 @@ const SongRow = ({
     if (offline) return;
     setDlState('saving');
     try {
-      const r = await saveToServer(song);
+      const r = await saveToServer(rowSong);
       setDlState(r && r.saved ? 'done' : 'fail');
-    } catch {
+    } catch (err) {
+      console.warn('下载到 NAS 失败', err);
       setDlState('fail');
     }
   };
@@ -184,10 +242,36 @@ const SongRow = ({
     if (offline || !cacheable || cacheState === 'saving' || cacheState === 'done') return;
     setCacheState('saving');
     try {
-      await cacheSong(song, { userId });
+      await cacheSong(rowSong, { userId });
       setCacheState('done');
-    } catch {
+    } catch (err) {
+      console.warn('缓存到本机失败', err);
       setCacheState('fail');
+    }
+  };
+
+  const handleFavorite = async (e) => {
+    e.stopPropagation();
+    if (offline || favBusy || !rowSong.id || !rowSong.source) return;
+    const prev = favorited;
+    setFavBusy(true);
+    setFavorited(!prev);
+    favoriteStatusCache.set(rowKey, !prev);
+    try {
+      const next = await toggleFavorite(rowSong);
+      setFavorited(next);
+      favoriteStatusCache.set(rowKey, next);
+      if (next && rowSong.source !== 'local') {
+        saveToServer(rowSong)
+          .then((r) => { if (r?.saved) setDlState('done'); })
+          .catch((err) => console.warn('收藏后下载到 NAS 失败', err));
+      }
+    } catch (err) {
+      console.warn('切换收藏失败', err);
+      setFavorited(prev);
+      favoriteStatusCache.set(rowKey, prev);
+    } finally {
+      setFavBusy(false);
     }
   };
 
@@ -195,7 +279,7 @@ const SongRow = ({
     e.stopPropagation();
     if (offline) return;
     closeMenu();
-    setAddTarget(song);
+    setAddTarget(rowSong);
   };
 
   const runMenuAction = (fn) => (e) => {
@@ -205,38 +289,42 @@ const SongRow = ({
   };
 
   const isCoarse = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-  const handleRowClick = () => { if (isCoarse) onPlay(song); };
-  const handleRowDouble = () => { if (!isCoarse) onPlay(song); };
+  const handleRowClick = () => { if (isCoarse) onPlay(rowSong); };
+  const handleRowDouble = () => { if (!isCoarse) onPlay(rowSong); };
   const playFromMenu = (e) => {
     e.stopPropagation();
     closeMenu();
-    onPlay(song);
+    onPlay(rowSong);
+  };
+  const playFromButton = (e) => {
+    e.stopPropagation();
+    onPlay(rowSong);
   };
 
   return (
     <div
       onClick={handleRowClick}
       onDoubleClick={handleRowDouble}
-      className={`group grid grid-cols-[1.75rem_minmax(0,1fr)_2.25rem] md:grid-cols-[2rem_minmax(0,1.7fr)_minmax(8rem,1fr)_4.5rem_2.25rem] items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer select-none ${
+      className={`group grid grid-cols-[minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_minmax(0,1.55fr)_8.75rem_minmax(8rem,0.85fr)_4.5rem_2.25rem] items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer select-none ${
         isPlaying ? 'bg-secondary' : 'hover:bg-secondary/60'
       }`}
     >
-      <div className={`h-8 flex items-center justify-end text-sm tabular-nums ${isPlaying ? 'text-primary' : 'text-muted-foreground'}`}>
+      <div className={`hidden md:flex h-8 items-center justify-end text-sm tabular-nums ${isPlaying ? 'text-primary' : 'text-muted-foreground'}`}>
         <span className="group-hover:hidden">{index + 1}</span>
         <Play size={16} fill="currentColor" className="hidden group-hover:block" />
       </div>
 
       <div className="min-w-0 flex items-center gap-3">
-        <CoverThumb song={song} />
+        <CoverThumb song={rowSong} />
         <div className="min-w-0">
           <p className={`font-medium truncate ${isPlaying ? 'text-primary' : 'text-foreground'}`}>
-            {song.name || '未知歌曲'}
+            {rowSong.name || '未知歌曲'}
           </p>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-            <span className="truncate max-w-[14rem]">{song.artist || '未知歌手'}</span>
-            {song.is_vip && statusBadge('VIP', 'bg-primary text-primary-foreground')}
+            <span className="truncate max-w-[14rem]">{rowSong.artist || '未知歌手'}</span>
+            {rowSong.is_vip && statusBadge('VIP', 'bg-primary text-primary-foreground')}
             {q && statusBadge(q.label, q.cls)}
-            <span className="text-[11px] whitespace-nowrap">{sourceLabel(song.source)}</span>
+            <span className="text-[11px] whitespace-nowrap">{sourceLabel(rowSong.source)}</span>
             {sizeLabel && <span className="text-[11px] whitespace-nowrap">{sizeLabel}</span>}
             {cacheState === 'done' && statusBadge('本机', 'bg-primary/10 text-primary')}
             {dlState === 'done' && statusBadge('NAS', 'bg-primary/10 text-primary')}
@@ -245,15 +333,51 @@ const SongRow = ({
         </div>
       </div>
 
+      <div className="hidden md:flex items-center gap-1">
+        <ActionButton
+          icon={Heart}
+          title={offline ? '离线状态无法同步收藏' : (favorited ? '取消收藏' : '收藏')}
+          onClick={handleFavorite}
+          disabled={offline || favBusy}
+          active={favorited}
+          busy={favBusy}
+        />
+        <ActionButton
+          icon={dlState === 'done' ? Check : dlState === 'fail' ? RotateCw : Download}
+          title={dlState === 'done' ? '已下载到 NAS' : dlState === 'fail' ? '重试下载到 NAS' : '下载到 NAS'}
+          onClick={handleDownload}
+          disabled={offline || dlState === 'saving' || dlState === 'done'}
+          active={dlState === 'done'}
+          danger={dlState === 'fail'}
+          busy={dlState === 'saving'}
+        />
+        <ActionButton
+          icon={ListPlus}
+          title={offline ? '离线状态无法加入歌单' : '加入歌单'}
+          onClick={handleAddToPlaylist}
+          disabled={offline}
+        />
+      </div>
+
       <div className="hidden md:block min-w-0 text-sm text-muted-foreground truncate">
-        {song.album || '—'}
+        {albumTitle}
       </div>
 
       <div className="hidden md:block text-right text-sm tabular-nums text-muted-foreground">
-        {fmtSec(song.duration)}
+        {fmtSec(rowSong.duration)}
       </div>
 
-      <div ref={menuRef} className="relative flex items-center justify-end">
+      <button
+        type="button"
+        onClick={playFromButton}
+        className="md:hidden flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm"
+        title="播放"
+        aria-label="播放"
+      >
+        <Play size={18} fill="currentColor" />
+      </button>
+
+      <div ref={menuRef} className="relative hidden md:flex items-center justify-end">
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setOpenMenu((v) => !v); }}
@@ -269,13 +393,6 @@ const SongRow = ({
         {openMenu && (
           <MenuPanel>
             <MenuItem icon={Play} label="播放" hint="立即播放这首歌" onClick={playFromMenu} />
-            <MenuItem
-              icon={ListPlus}
-              label="加入歌单"
-              hint={offline ? '离线状态不可用' : '整理到我的歌单'}
-              onClick={handleAddToPlaylist}
-              disabled={offline}
-            />
             {cacheable && (
               <MenuItem
                 icon={cacheState === 'done' ? Check : cacheState === 'fail' ? RotateCw : HardDriveDownload}
@@ -287,15 +404,6 @@ const SongRow = ({
                 danger={cacheState === 'fail'}
               />
             )}
-            <MenuItem
-              icon={dlState === 'done' ? Check : dlState === 'fail' ? RotateCw : Download}
-              label={dlState === 'done' ? '已下载到 NAS' : dlState === 'fail' ? '重试下载到 NAS' : '下载到 NAS'}
-              hint="进入服务器曲库长期保存"
-              onClick={runMenuAction(handleDownload)}
-              disabled={offline || dlState === 'saving' || dlState === 'done'}
-              busy={dlState === 'saving'}
-              danger={dlState === 'fail'}
-            />
             {onShowLyric && (
               <MenuItem
                 icon={FileText}
@@ -304,7 +412,7 @@ const SongRow = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   closeMenu();
-                  onShowLyric(song);
+                  onShowLyric(rowSong);
                 }}
               />
             )}
@@ -316,7 +424,7 @@ const SongRow = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   closeMenu();
-                  onRemove(song);
+                  onRemove(rowSong);
                 }}
                 danger
               />

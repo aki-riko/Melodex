@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { normalizeSong, normalizeSongs, songWritePayload } from '../utils/songFields';
 
 // 后端基址:开发期由 .env 的 VITE_MUSICDL_API 指定(见 .env.development.local 指向本地后端);
 // 生产/同源部署(如 Docker 内后端托管前端)留空 → axios 走相对路径,自动用当前 origin。
@@ -12,6 +13,10 @@ const client = axios.create({
   // 注意:跨域携带 credentials 时后端 CORS 不能用通配 Origin(见后端 corsMiddleware 说明)。
   withCredentials: true,
 });
+
+const withSongs = (data, key = 'songs') => (
+  data && Array.isArray(data[key]) ? { ...data, [key]: normalizeSongs(data[key]) } : data
+);
 
 // 全局 401 拦截:会话过期/失效时派发事件,由 AuthProvider 监听并切回登录页。
 // 排除鉴权自身接口(/auth/*、/me),避免登录失败时误触发(它们自行处理 401)。
@@ -37,7 +42,7 @@ export const searchMusic = async (keyword, { type = 'song', sources = [], exactA
   sources.forEach((s) => params.append('sources', s));
 
   const { data } = await client.get(`/api/v1/search?${params.toString()}`);
-  return data; // { songs, playlists, type, keyword, sources, error }
+  return withSongs(data); // { songs, playlists, type, keyword, sources, error }
 };
 
 // 获取可用音乐源
@@ -74,16 +79,17 @@ export const getCategoryPlaylists = async (source, categoryId) => {
 // 歌单详情(歌曲列表)
 export const getPlaylistDetail = async (id, source) => {
   const { data } = await client.get(`/api/v1/playlist?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
-  return data; // { songs, type, source, link, error }
+  return withSongs(data); // { songs, type, source, link, error }
 };
 
 // 验音质:对真实下载源发探测请求,拿真实大小与码率(沿用 /music/inspect)
 export const inspectQuality = async (song) => {
+  const s = normalizeSong(song);
   const params = new URLSearchParams();
-  params.set('id', song.id);
-  params.set('source', song.source);
-  if (song.duration) params.set('duration', song.duration);
-  if (song.extra) params.set('extra', JSON.stringify(song.extra));
+  params.set('id', s.id);
+  params.set('source', s.source);
+  if (s.duration) params.set('duration', s.duration);
+  if (s.extra) params.set('extra', typeof s.extra === 'string' ? s.extra : JSON.stringify(s.extra));
   const { data } = await client.get(`/music/inspect?${params.toString()}`);
   return data; // { valid, url, size, bitrate }
 };
@@ -91,16 +97,17 @@ export const inspectQuality = async (song) => {
 // 专辑详情(歌曲列表)
 export const getAlbumDetail = async (id, source) => {
   const { data } = await client.get(`/api/v1/album?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
-  return data; // { songs, type, source, link, error }
+  return withSongs(data); // { songs, type, source, link, error }
 };
 
 // 歌词(纯文本 LRC,沿用 /music/lyric)
 export const getLyric = async (song) => {
+  const s = normalizeSong(song);
   const params = new URLSearchParams();
-  params.set('id', song.id);
-  params.set('source', song.source);
-  params.set('name', song.name || '');
-  params.set('artist', song.artist || '');
+  params.set('id', s.id);
+  params.set('source', s.source);
+  params.set('name', s.name || '');
+  params.set('artist', s.artist || '');
   const { data } = await client.get(`/music/lyric?${params.toString()}`, { responseType: 'text' });
   return data;
 };
@@ -108,15 +115,16 @@ export const getLyric = async (song) => {
 // 构造下载/播放链接(沿用 go-music-dl 现有的干净 /music/download 接口)。
 // stream=1 用于在线播放(<audio src>);否则触发下载(可选 embed 写入元数据)。
 const buildDownloadParams = (song, extra = {}) => {
+  const s = normalizeSong(song);
   const params = new URLSearchParams();
-  params.set('id', song.id);
-  params.set('source', song.source);
-  params.set('name', song.name || '');
-  params.set('artist', song.artist || '');
-  if (song.album) params.set('album', song.album);
-  if (song.cover) params.set('cover', song.cover);
-  if (song.extra) {
-    const extraValue = typeof song.extra === 'string' ? song.extra : JSON.stringify(song.extra);
+  params.set('id', s.id);
+  params.set('source', s.source);
+  params.set('name', s.name || '');
+  params.set('artist', s.artist || '');
+  if (s.album) params.set('album', s.album);
+  if (s.cover) params.set('cover', s.cover);
+  if (s.extra) {
+    const extraValue = typeof s.extra === 'string' ? s.extra : JSON.stringify(s.extra);
     if (extraValue && extraValue !== '{}' && extraValue !== 'null') params.set('extra', extraValue);
   }
   Object.entries(extra).forEach(([k, v]) => params.set(k, v));
@@ -148,11 +156,12 @@ export const apiBase = API_BASE;
 // 例外:本地音乐封面是站内相对路径(/music/local_music/cover?id=...),直接用原路径,
 // 不能套 cover_proxy——cover_proxy 的 isPublicHTTPURL 会拒绝站内/相对 URL(SSRF 防护)返 403。
 export const coverProxyUrl = (song) => {
-  const url = (song && (song.cover || song.Cover)) || '';
+  const s = normalizeSong(song);
+  const url = s.cover || '';
   if (!url) return '';
   // 站内相对路径(本地音乐封面)直接返回,拼上 API_BASE 即可。
   if (url.startsWith('/')) return `${API_BASE}${url}`;
-  const src = (song && (song.source || song.Source)) || '';
+  const src = s.source || '';
   return `${API_BASE}/music/cover_proxy?url=${encodeURIComponent(url)}${src ? `&source=${encodeURIComponent(src)}` : ''}`;
 };
 
@@ -254,23 +263,22 @@ export const clearSearchHistory = async (keyword) => {
 
 // ===== 播放历史(最近播放,按用户隔离,仅登录,封顶 500 条) =====
 
-// 记一次播放(播放器开始播放时 fire-and-forget 调用)。失败静默。
+// 记一次播放(播放器开始播放时 fire-and-forget 调用)。失败不打断播放。
 export const recordPlayHistory = async (song) => {
-  if (!song || !song.id || !song.source) return;
+  const payload = songWritePayload(song);
+  if (!payload.id || !payload.source) return;
   try {
-    await client.post('/music/play_history', {
-      id: song.id, source: song.source, name: song.name || '',
-      artist: song.artist || '', cover: song.cover || '',
-      duration: song.duration || 0, extra: song.extra,
-    }, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-  } catch { /* 未登录/出错静默,不打断播放 */ }
+    await client.post('/music/play_history', payload, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  } catch (err) {
+    console.warn('记录播放历史失败', err);
+  }
 };
 
 // 取最近播放列表(按 played_at 降序)。
 export const getPlayHistory = async () => {
   try {
     const { data } = await client.get('/music/play_history');
-    return data.history || [];
+    return normalizeSongs(data.history || []);
   } catch {
     return [];
   }
@@ -290,9 +298,10 @@ export const clearPlayHistory = async (song) => {
 
 // 查某歌是否已收藏 → bool
 export const getFavoriteStatus = async (song) => {
+  const s = normalizeSong(song);
   try {
     const { data } = await client.get(
-      `/music/favorites/status?source=${encodeURIComponent(song.source)}&id=${encodeURIComponent(song.id)}`,
+      `/music/favorites/status?source=${encodeURIComponent(s.source)}&id=${encodeURIComponent(s.id)}`,
     );
     return !!data.favorited;
   } catch {
@@ -302,11 +311,7 @@ export const getFavoriteStatus = async (song) => {
 
 // 切换收藏(有则取消/无则加)→ 返回切换后的 bool
 export const toggleFavorite = async (song) => {
-  const { data } = await client.post('/music/favorites/toggle', {
-    id: song.id, source: song.source, name: song.name || '',
-    artist: song.artist || '', cover: song.cover || '', duration: song.duration || 0,
-    extra: song.extra,
-  }, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  const { data } = await client.post('/music/favorites/toggle', songWritePayload(song), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
   return !!data.favorited;
 };
 
@@ -412,7 +417,7 @@ export const getLocalMusic = async ({ offset = 0, limit = 100, refresh = false }
   params.set('limit', limit);
   if (refresh) params.set('refresh', '1');
   const { data } = await client.get(`/music/local_music?${params.toString()}`);
-  return data; // { download_dir, exists, tracks, total, has_more, ... }
+  return withSongs(data, 'tracks'); // { download_dir, exists, tracks, total, has_more, ... }
 };
 
 // 删除本地音乐
