@@ -37,9 +37,26 @@ const toSong = (record) => ({
   extra: record.extra,
 });
 
-function OfflineCover({ song, offline }) {
+function OfflineCover({ record, offline }) {
   const [failed, setFailed] = useState(false);
-  const url = !offline ? coverProxyUrl(song) : '';
+  const [blobUrl, setBlobUrl] = useState('');
+  const song = toSong(record);
+
+  useEffect(() => {
+    if (!record.coverBlob) {
+      setBlobUrl('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(record.coverBlob);
+    setBlobUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [record.coverBlob]);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [blobUrl, record.cover]);
+
+  const url = blobUrl || (!offline ? coverProxyUrl(song) : '');
   return (
     <div className="w-11 h-11 rounded bg-muted overflow-hidden flex items-center justify-center flex-shrink-0">
       {url && !failed ? (
@@ -60,7 +77,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
       <span className={`w-6 text-right text-sm tabular-nums ${active ? 'text-primary' : 'text-muted-foreground'}`}>
         {index + 1}
       </span>
-      <OfflineCover song={song} offline={offline} />
+      <OfflineCover record={record} offline={offline} />
       <button onClick={() => onPlay(record)} className="min-w-0 flex-grow text-left">
         <p className={`font-medium truncate ${active ? 'text-primary' : ''}`}>{record.name || '未知歌曲'}</p>
         <p className="text-sm text-muted-foreground truncate">

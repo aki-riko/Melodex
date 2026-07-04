@@ -43,6 +43,7 @@ export const PlayerProvider = ({ children }) => {
   const [volume, setVolumeState] = useState(loadVolume);
   const [muted, setMuted] = useState(false);
   const [queue, setQueue] = useState([]); // 当前播放队列(state 副本,供队列面板渲染)
+  const [cachedCover, setCachedCover] = useState({ url: '', mime: '' });
   const audioRef = useRef(null);
   const queueRef = useRef([]); // 当前播放队列(ref,供 next/prev 等回调读取免闭包陈旧)
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
@@ -54,6 +55,7 @@ export const PlayerProvider = ({ children }) => {
   const resumeRef = useRef(null);   // 待恢复的进度秒数(audio 加载完成后 seek 到这里)
   const restoredRef = useRef(false); // 防重复恢复
   const objectUrlRef = useRef('');
+  const coverObjectUrlRef = useRef('');
   const playSeqRef = useRef(0);
 
   const revokeObjectUrl = useCallback(() => {
@@ -62,16 +64,28 @@ export const PlayerProvider = ({ children }) => {
     objectUrlRef.current = '';
   }, []);
 
+  const revokeCoverObjectUrl = useCallback(() => {
+    if (!coverObjectUrlRef.current) return;
+    URL.revokeObjectURL(coverObjectUrlRef.current);
+    coverObjectUrlRef.current = '';
+  }, []);
+
   const loadAudioForSong = useCallback(async (song, { autoplay = true } = {}) => {
     const seq = ++playSeqRef.current;
     let src = '';
     let objectUrl = '';
+    let coverUrl = '';
+    let coverMime = '';
 
     try {
       const cached = await getCachedSong(song, userId);
       if (cached?.blob) {
         objectUrl = URL.createObjectURL(cached.blob);
         src = objectUrl;
+        if (cached.coverBlob) {
+          coverUrl = URL.createObjectURL(cached.coverBlob);
+          coverMime = cached.coverMime || cached.coverBlob.type || 'image/jpeg';
+        }
         touchCachedSong(song, userId).catch(() => {});
       }
     } catch {
@@ -81,16 +95,20 @@ export const PlayerProvider = ({ children }) => {
     const audio = audioRef.current;
     if (!audio) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (coverUrl) URL.revokeObjectURL(coverUrl);
       return;
     }
     if (seq !== playSeqRef.current) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (coverUrl) URL.revokeObjectURL(coverUrl);
       return;
     }
 
     if (!src && !offline) src = getStreamUrl(song);
 
     revokeObjectUrl();
+    revokeCoverObjectUrl();
+    setCachedCover({ url: '', mime: '' });
     if (!src) {
       audio.removeAttribute('src');
       audio.load();
@@ -100,13 +118,16 @@ export const PlayerProvider = ({ children }) => {
     }
     audio.src = src;
     objectUrlRef.current = objectUrl;
+    coverObjectUrlRef.current = coverUrl;
+    setCachedCover({ url: coverUrl, mime: coverMime });
     if (autoplay) audio.play().catch(() => {});
-  }, [offline, revokeObjectUrl, userId]);
+  }, [offline, revokeCoverObjectUrl, revokeObjectUrl, userId]);
 
   useEffect(() => () => {
     playSeqRef.current += 1;
     revokeObjectUrl();
-  }, [revokeObjectUrl]);
+    revokeCoverObjectUrl();
+  }, [revokeCoverObjectUrl, revokeObjectUrl]);
 
   // 音量/静音应用到 audio 元素,并持久化音量。
   useEffect(() => {
@@ -281,13 +302,14 @@ export const PlayerProvider = ({ children }) => {
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     if (nowPlaying) {
+      const artworkSrc = cachedCover.url || (!offline && nowPlaying.cover ? coverProxyUrl(nowPlaying) : '');
       navigator.mediaSession.metadata = new window.MediaMetadata({
         title: nowPlaying.name || '',
         artist: nowPlaying.artist || '',
         album: nowPlaying.album || '',
         // 离线模式不请求 cover_proxy;在线时走代理解决混合内容和防盗链。
-        artwork: !offline && nowPlaying.cover
-          ? [96, 192, 300, 512].map((s) => ({ src: coverProxyUrl(nowPlaying), sizes: `${s}x${s}`, type: 'image/jpeg' }))
+        artwork: artworkSrc
+          ? [96, 192, 300, 512].map((s) => ({ src: artworkSrc, sizes: `${s}x${s}`, type: cachedCover.mime || 'image/jpeg' }))
           : [],
       });
     }
@@ -302,7 +324,7 @@ export const PlayerProvider = ({ children }) => {
       navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
       navigator.mediaSession.setActionHandler('seekbackward', (d) => seek(Math.max(0, (audioRef.current?.currentTime || 0) - (d.seekOffset || 10))));
     } catch { /* 部分浏览器不支持 seek 动作 */ }
-  }, [offline, nowPlaying, togglePlay, prev, next, seek]);
+  }, [cachedCover, offline, nowPlaying, togglePlay, prev, next, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {
@@ -326,6 +348,7 @@ export const PlayerProvider = ({ children }) => {
     <PlayerContext.Provider value={{
       nowPlaying, play, audioRef, notice, isPaused, progress, mode, setMode,
       volume, setVolume, muted, toggleMute,
+      cachedCoverUrl: cachedCover.url,
       queue, playFromQueue,
       isPlaying: (s) => nowPlaying && nowPlaying.id === s.id && nowPlaying.source === s.source,
       next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
@@ -506,6 +529,7 @@ export const PlayerBar = () => {
     setIsPaused, setProgress, cycleMode,
     volume, setVolume, muted, toggleMute,
     queue, playFromQueue,
+    cachedCoverUrl,
     handleTimeUpdate, handleLoadedMetadata, savePlayback,
   } = usePlayer();
 
@@ -516,7 +540,7 @@ export const PlayerBar = () => {
   const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
   const { offline } = useAuth();
-  const coverUrl = !offline && nowPlaying?.cover ? coverProxyUrl(nowPlaying) : '';
+  const coverUrl = cachedCoverUrl || (!offline && nowPlaying?.cover ? coverProxyUrl(nowPlaying) : '');
 
   // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
   const [favorited, setFavorited] = useState(false);
