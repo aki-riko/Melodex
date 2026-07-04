@@ -9,7 +9,7 @@ import { getPlayHistory, clearPlayHistory } from '../services/musicdl';
 // 最近播放页:列出按用户隔离的播放历史(后端 played_at 降序,封顶 500)。
 // 播放任意一首会以整张历史为队列;支持清空 / 删单条。
 export default function RecentlyPlayed() {
-  const { play, isPlaying, isPaused } = usePlayer();
+  const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const feedback = useFeedback();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery(['play-history'], getPlayHistory, { staleTime: 0 });
@@ -74,6 +74,7 @@ export default function RecentlyPlayed() {
           <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
             isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
             isPaused={isPaused}
+            onTogglePlayback={togglePlay}
             onRemove={handleRemove} removeTitle="从最近播放移除" removeHint="只删除这条播放记录" />
         ))}
       </div>

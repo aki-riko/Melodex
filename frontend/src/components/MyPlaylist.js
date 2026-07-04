@@ -51,7 +51,7 @@ export default function MyPlaylist() {
   const [notice, setNotice] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
-  const { play, isPlaying, isPaused } = usePlayer();
+  const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const { user, offline } = useAuth();
   const feedback = useFeedback();
   const { remove, collections } = useCollections();
@@ -335,6 +335,7 @@ export default function MyPlaylist() {
           <SongRow key={songIdentityKey(song)} song={song} index={i}
             isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
             isPaused={isPaused}
+            onTogglePlayback={togglePlay}
             onRemove={handleRemove} removeTitle={rowRemoveTitle} removeHint={rowRemoveHint} />
         ))}
       </div>
