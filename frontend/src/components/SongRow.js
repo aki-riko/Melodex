@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload, Save, Ellipsis } from 'lucide-react';
 import { getStreamUrl, saveToServer, inspectQuality, coverProxyUrl } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CHANGED } from '../services/offlineAudio';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -53,9 +53,51 @@ const qualityOf = (song) => {
   return null;
 };
 
+const statusBadge = (label, cls = 'bg-muted text-muted-foreground') => (
+  <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${cls}`}>
+    {label}
+  </span>
+);
+
+const MenuItem = ({ icon: Icon, label, hint, onClick, disabled, danger, busy }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className={`w-full flex items-center gap-3 px-3 py-2 text-left text-sm transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
+      danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground hover:bg-secondary'
+    }`}
+  >
+    <Icon size={16} className={`flex-shrink-0 ${busy ? 'animate-pulse' : ''}`} />
+    <span className="min-w-0">
+      <span className="block font-medium truncate">{label}</span>
+      {hint && <span className="block text-xs text-muted-foreground truncate">{hint}</span>}
+    </span>
+  </button>
+);
+
+const MenuPanel = ({ children }) => (
+  <div
+    className="absolute right-0 top-full z-40 mt-2 w-56 overflow-hidden rounded-md border border-border bg-card shadow-xl"
+    onClick={(e) => e.stopPropagation()}
+  >
+    {children}
+  </div>
+);
+
 // 单首歌曲行:歌曲搜索结果与歌单/专辑详情共用。
-// onRemove 不为空时在行尾显示删除按钮(歌单详情用),并被包进同一高亮长条内。
-const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemove, removeTitle = '从歌单移除' }) => {
+// onRemove 不为空时在「更多」菜单里显示危险动作。
+const SongRow = ({
+  song,
+  index,
+  isPlaying,
+  onPlay,
+  onShowLyric,
+  liveInfo,
+  onRemove,
+  removeTitle = '从歌单移除',
+  removeHint = '只从当前歌单移除',
+}) => {
   const q = qualityOf(song);
   const { setAddTarget } = useCollections();
   const { user, offline } = useAuth();
@@ -64,9 +106,27 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
   const [checking, setChecking] = useState(false);
   const [dlState, setDlState] = useState(''); // '' | 'saving' | 'done' | 'fail'
   const [cacheState, setCacheState] = useState(''); // '' | 'saving' | 'done' | 'fail'
+  const [openMenu, setOpenMenu] = useState(null); // null | 'save' | 'more'
+  const menuRef = useRef(null);
   const cacheable = canCacheSong(song);
   // 自动验活已拿到真实大小/码率时直接用(liveInfo),手动验音质(real)优先
   const effectiveReal = real || (liveInfo && liveInfo.state === 'ok' ? { size: liveInfo.size, bitrate: liveInfo.bitrate, bitrateNum: liveInfo.bitrateNum } : null);
+
+  useEffect(() => {
+    if (!openMenu) return undefined;
+    const onPointerDown = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) setOpenMenu(null);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpenMenu(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openMenu]);
 
   useEffect(() => {
     if (!cacheable) {
@@ -132,11 +192,40 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
     }
   };
 
+  const toggleMenu = (menu, e) => {
+    e.stopPropagation();
+    setOpenMenu((current) => (current === menu ? null : menu));
+  };
+
+  const closeMenu = () => setOpenMenu(null);
+
+  const handleAddToPlaylist = (e) => {
+    e.stopPropagation();
+    if (offline) return;
+    closeMenu();
+    setAddTarget(song);
+  };
+
+  const runMenuAction = (fn) => (e) => {
+    e.stopPropagation();
+    closeMenu();
+    fn(e);
+  };
+
   // 行播放:手机(coarse 指针)单击整行播放;电脑(精确指针)双击整行播放。
   // 行内按钮均 stopPropagation,点按钮不触发行播放。
   const isCoarse = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   const handleRowClick = () => { if (isCoarse) onPlay(song); };
   const handleRowDouble = () => { if (!isCoarse) onPlay(song); };
+  const saveBusy = dlState === 'saving' || cacheState === 'saving';
+  const saveDone = dlState === 'done' || cacheState === 'done';
+  const saveFail = dlState === 'fail' || cacheState === 'fail';
+  const SaveIcon = saveBusy ? RotateCw : saveDone ? Check : saveFail ? RotateCw : Save;
+  const saveButtonCls = saveFail
+    ? 'text-destructive bg-destructive/10 hover:bg-destructive/20'
+    : saveDone
+      ? 'text-primary bg-primary/10 hover:bg-primary/20'
+      : 'text-muted-foreground hover:text-foreground hover:bg-secondary';
 
   return (
   <div
@@ -178,64 +267,107 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
     {(effectiveReal?.size || song.size) ? (
       <span className="text-xs text-muted-foreground whitespace-nowrap hidden md:inline">{effectiveReal?.size || fmtSize(song.size)}</span>
     ) : null}
-    {/* 操作按钮:图标化,hover 显现 */}
-    <button onClick={handleInspect} disabled={offline || checking}
-      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-      title={offline ? '离线状态无法验音质' : '验真实音质与大小'}>
-      <Gauge size={16} className={checking ? 'animate-pulse' : ''} />
-    </button>
-    <button onClick={(e) => { e.stopPropagation(); if (!offline) setAddTarget(song); }}
-      disabled={offline}
-      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-      title={offline ? '离线状态无法加入歌单' : '加入歌单'}>
-      <ListPlus size={16} />
-    </button>
-    {onShowLyric && (
-      <button onClick={(e) => { e.stopPropagation(); onShowLyric(song); }}
-        className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
-        title="查看歌词">
-        <FileText size={16} />
+    {cacheState === 'done' && statusBadge('本机', 'bg-primary/10 text-primary')}
+    {dlState === 'done' && statusBadge('NAS', 'bg-primary/10 text-primary')}
+    {(cacheState === 'fail' || dlState === 'fail') && statusBadge('失败', 'bg-destructive/10 text-destructive')}
+    <div ref={menuRef} className="relative flex items-center gap-1 flex-shrink-0">
+      <button
+        type="button"
+        onClick={(e) => toggleMenu('save', e)}
+        className={`flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full px-2.5 transition-colors ${saveButtonCls}`}
+        title="保存"
+        aria-label="保存"
+        aria-expanded={openMenu === 'save'}
+      >
+        <SaveIcon size={16} className={saveBusy ? 'animate-pulse' : ''} />
+        <span className="hidden sm:inline text-sm font-medium">保存</span>
       </button>
-    )}
-    {cacheable && (
-      <button onClick={handleCache} disabled={offline || cacheState === 'saving' || cacheState === 'done'}
-        className={`p-1.5 transition-colors disabled:opacity-60 ${
-          cacheState === 'done' ? 'text-primary'
-          : cacheState === 'fail' ? 'text-destructive'
-          : 'text-muted-foreground hover:text-foreground'
+      {openMenu === 'save' && (
+        <MenuPanel>
+          <MenuItem
+            icon={ListPlus}
+            label="加入歌单"
+            hint={offline ? '离线状态不可用' : '整理到我的歌单'}
+            onClick={handleAddToPlaylist}
+            disabled={offline}
+          />
+          {cacheable && (
+            <MenuItem
+              icon={cacheState === 'done' ? Check : cacheState === 'fail' ? RotateCw : HardDriveDownload}
+              label={cacheState === 'done' ? '已缓存到本机' : cacheState === 'fail' ? '重试缓存到本机' : '缓存到本机'}
+              hint="当前浏览器/PWA 离线播放"
+              onClick={runMenuAction(handleCache)}
+              disabled={offline || cacheState === 'saving' || cacheState === 'done'}
+              busy={cacheState === 'saving'}
+              danger={cacheState === 'fail'}
+            />
+          )}
+          <MenuItem
+            icon={dlState === 'done' ? Check : dlState === 'fail' ? RotateCw : Download}
+            label={dlState === 'done' ? '已下载到 NAS' : dlState === 'fail' ? '重试下载到 NAS' : '下载到 NAS'}
+            hint="进入服务器曲库长期保存"
+            onClick={runMenuAction(handleDownload)}
+            disabled={offline || dlState === 'saving' || dlState === 'done'}
+            busy={dlState === 'saving'}
+            danger={dlState === 'fail'}
+          />
+        </MenuPanel>
+      )}
+      <button
+        type="button"
+        onClick={(e) => toggleMenu('more', e)}
+        className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+          openMenu === 'more' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
         }`}
-        title={offline ? '离线状态无法缓存新歌曲' : cacheState === 'done' ? '已缓存到本机'
-          : cacheState === 'fail' ? '缓存失败,点击重试' : '缓存到本机(PWA离线播放)'}>
-        {cacheState === 'saving' ? <HardDriveDownload size={16} className="animate-pulse" />
-          : cacheState === 'done' ? <Check size={16} />
-          : cacheState === 'fail' ? <RotateCw size={16} />
-          : <HardDriveDownload size={16} />}
+        title="更多操作"
+        aria-label="更多操作"
+        aria-expanded={openMenu === 'more'}
+      >
+        <Ellipsis size={18} className={checking ? 'animate-pulse' : ''} />
       </button>
-    )}
-    <button onClick={handleDownload} disabled={offline || dlState === 'saving' || dlState === 'done'}
-      className={`p-1.5 transition-colors disabled:opacity-50 ${
-        dlState === 'done' ? 'text-primary'
-        : dlState === 'fail' ? 'text-destructive'
-        : 'text-muted-foreground hover:text-foreground'
-      }`}
-      title={offline ? '离线状态无法下载到 NAS' : '下载到服务器(NAS)'}>
-      {dlState === 'saving' ? <Download size={16} className="animate-pulse" />
-        : dlState === 'done' ? <Check size={16} />
-        : dlState === 'fail' ? <RotateCw size={16} />
-        : <Download size={16} />}
-    </button>
+      {openMenu === 'more' && (
+        <MenuPanel>
+          <MenuItem
+            icon={Gauge}
+            label={checking ? '正在检查音质' : '检查真实音质'}
+            hint={offline ? '离线状态不可用' : '刷新码率和大小'}
+            onClick={runMenuAction(handleInspect)}
+            disabled={offline || checking}
+            busy={checking}
+          />
+          {onShowLyric && (
+            <MenuItem
+              icon={FileText}
+              label="查看歌词"
+              hint="打开 LRC 文本"
+              onClick={(e) => {
+                e.stopPropagation();
+                closeMenu();
+                onShowLyric(song);
+              }}
+            />
+          )}
+          {onRemove && (
+            <MenuItem
+              icon={Trash2}
+              label={removeTitle}
+              hint={removeHint}
+              onClick={(e) => {
+                e.stopPropagation();
+                closeMenu();
+                onRemove(song);
+              }}
+              danger
+            />
+          )}
+        </MenuPanel>
+      )}
+    </div>
     <button onClick={(e) => { e.stopPropagation(); onPlay(song); }}
       className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
       title="在线播放" aria-label="播放">
       <Play size={16} fill="currentColor" />
     </button>
-    {onRemove && (
-      <button onClick={(e) => { e.stopPropagation(); onRemove(song); }}
-        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-        title={removeTitle}>
-        <Trash2 size={16} />
-      </button>
-    )}
   </div>
   );
 };

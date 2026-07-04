@@ -59,7 +59,7 @@ export default function RecentlyPlayed() {
         {songs.map((song, i) => (
           <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
             isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
-            onRemove={handleRemove} />
+            onRemove={handleRemove} removeTitle="从最近播放移除" removeHint="只删除这条播放记录" />
         ))}
       </div>
     </div>
