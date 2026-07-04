@@ -6,6 +6,17 @@ const Footer = () => {
     <div className="bg-card rounded-lg p-5 mt-4 text-sm text-muted-foreground">
       <p className="text-foreground/90">© 2024 Melodex · 仅供学习与技术交流</p>
       <p className="mt-1">音乐发现与多源下载二合一。</p>
+      <p className="mt-2">
+        GitHub:{' '}
+        <a
+          href="https://github.com/aki-riko/Melodex"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-primary"
+        >
+          github.com/aki-riko/Melodex
+        </a>
+      </p>
       <p className="mt-3 text-xs opacity-70">
         基于开源项目{' '}
         <a href="https://github.com/guohuiyuan/go-music-dl" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">go-music-dl</a>
