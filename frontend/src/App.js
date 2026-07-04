@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
+import { WifiOff } from 'lucide-react';
 import { Sidebar, MobileTabBar } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Trending from './components/Trending';
@@ -9,6 +10,7 @@ import Settings from './components/Settings';
 import MyPlaylist from './components/MyPlaylist';
 import RecentlyPlayed from './components/RecentlyPlayed';
 import LocalMusic from './components/LocalMusic';
+import OfflineMusic from './components/OfflineMusic';
 import UserManagement from './components/UserManagement';
 import AuthGate from './components/AuthGate';
 import { onDownloadSearch } from './services/downloadBus';
@@ -29,7 +31,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Users'];
+const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Offline', 'Users'];
 // hash 形如 #myplaylist 或 #myplaylist/123(歌单 id);section 取第一段。
 const routeFromHash = () => {
   const parts = (window.location.hash || '').replace(/^#/, '').split('/');
@@ -42,7 +44,7 @@ const routeFromHash = () => {
 
 // AppShell:已登录后的主应用布局。
 function AppShell() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, offline } = useAuth();
   const [route, setRoute] = useState(routeFromHash);
   const { section: currentSection, subPath: currentSubPath } = route;
   const [downloadRequest, setDownloadRequest] = useState(null);
@@ -84,6 +86,12 @@ function AppShell() {
         <Sidebar currentSection={section} currentSubPath={activeSubPath} onNavigate={navigate} />
         <div className="flex-grow flex flex-col min-w-0">
           <TopBar currentSection={section} onNavigate={navigate} />
+          {offline && (
+            <div className="flex items-center gap-2 border-b border-primary/30 bg-primary/10 px-4 md:px-6 py-2 text-sm text-primary">
+              <WifiOff size={16} />
+              <span>离线模式:只播放本机缓存</span>
+            </div>
+          )}
           <main
             id="app-main"
             className="flex-grow overflow-y-auto app-scroll"
@@ -97,6 +105,7 @@ function AppShell() {
               {section === 'MyPlaylist' && <MyPlaylist />}
               {section === 'Recent' && <RecentlyPlayed />}
               {section === 'Local' && <LocalMusic />}
+              {section === 'Offline' && <OfflineMusic />}
               {section === 'Users' && isAdmin && <UserManagement />}
               {section === 'FAQ' && <FAQ />}
             </div>

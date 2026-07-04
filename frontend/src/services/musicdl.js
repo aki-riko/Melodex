@@ -115,6 +115,10 @@ const buildDownloadParams = (song, extra = {}) => {
   params.set('artist', song.artist || '');
   if (song.album) params.set('album', song.album);
   if (song.cover) params.set('cover', song.cover);
+  if (song.extra) {
+    const extraValue = typeof song.extra === 'string' ? song.extra : JSON.stringify(song.extra);
+    if (extraValue && extraValue !== '{}' && extraValue !== 'null') params.set('extra', extraValue);
+  }
   Object.entries(extra).forEach(([k, v]) => params.set(k, v));
   return params.toString();
 };

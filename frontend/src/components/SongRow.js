@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music, Trash2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Play, Download, FileText, Gauge, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload } from 'lucide-react';
 import { getStreamUrl, saveToServer, inspectQuality, coverProxyUrl } from '../services/musicdl';
+import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CHANGED } from '../services/offlineAudio';
 import { useCollections } from '../contexts/CollectionsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { formatDuration } from '../utils/format';
 import { sourceLabel } from '../utils/sourceLabels';
 
@@ -53,14 +55,43 @@ const qualityOf = (song) => {
 
 // 单首歌曲行:歌曲搜索结果与歌单/专辑详情共用。
 // onRemove 不为空时在行尾显示删除按钮(歌单详情用),并被包进同一高亮长条内。
-const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemove }) => {
+const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemove, removeTitle = '从歌单移除' }) => {
   const q = qualityOf(song);
   const { setAddTarget } = useCollections();
+  const { user, offline } = useAuth();
+  const userId = user?.id || 0;
   const [real, setReal] = useState(null); // 手动验音质结果 {size, bitrate}
   const [checking, setChecking] = useState(false);
   const [dlState, setDlState] = useState(''); // '' | 'saving' | 'done' | 'fail'
+  const [cacheState, setCacheState] = useState(''); // '' | 'saving' | 'done' | 'fail'
+  const cacheable = canCacheSong(song);
   // 自动验活已拿到真实大小/码率时直接用(liveInfo),手动验音质(real)优先
   const effectiveReal = real || (liveInfo && liveInfo.state === 'ok' ? { size: liveInfo.size, bitrate: liveInfo.bitrate, bitrateNum: liveInfo.bitrateNum } : null);
+
+  useEffect(() => {
+    if (!cacheable) {
+      setCacheState('');
+      return undefined;
+    }
+    let cancelled = false;
+    const key = offlineSongKey(song, userId);
+    const refresh = () => {
+      isSongCached(song, userId)
+        .then((ok) => { if (!cancelled) setCacheState((s) => (s === 'saving' ? s : (ok ? 'done' : ''))); })
+        .catch(() => { if (!cancelled) setCacheState((s) => (s === 'saving' ? s : '')); });
+    };
+    refresh();
+    const onChanged = (event) => {
+      const detail = event.detail || {};
+      if (detail.userId !== String(userId)) return;
+      if (detail.action === 'clear' || detail.key === key) refresh();
+    };
+    window.addEventListener(OFFLINE_AUDIO_CHANGED, onChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(OFFLINE_AUDIO_CHANGED, onChanged);
+    };
+  }, [cacheable, song, userId]);
 
   const handleInspect = async (e) => {
     e.stopPropagation();
@@ -84,6 +115,18 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
       setDlState(r && r.saved ? 'done' : 'fail');
     } catch {
       setDlState('fail');
+    }
+  };
+
+  const handleCache = async (e) => {
+    e.stopPropagation();
+    if (!cacheable || cacheState === 'saving' || cacheState === 'done') return;
+    setCacheState('saving');
+    try {
+      await cacheSong(song, { userId });
+      setCacheState('done');
+    } catch {
+      setCacheState('fail');
     }
   };
 
@@ -151,6 +194,21 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
         <FileText size={16} />
       </button>
     )}
+    {cacheable && (
+      <button onClick={handleCache} disabled={offline || cacheState === 'saving' || cacheState === 'done'}
+        className={`p-1.5 transition-colors disabled:opacity-60 ${
+          cacheState === 'done' ? 'text-primary'
+          : cacheState === 'fail' ? 'text-destructive'
+          : 'text-muted-foreground hover:text-foreground'
+        }`}
+        title={offline ? '离线状态无法缓存新歌曲' : cacheState === 'done' ? '已缓存到本机'
+          : cacheState === 'fail' ? '缓存失败,点击重试' : '缓存到本机(PWA离线播放)'}>
+        {cacheState === 'saving' ? <HardDriveDownload size={16} className="animate-pulse" />
+          : cacheState === 'done' ? <Check size={16} />
+          : cacheState === 'fail' ? <RotateCw size={16} />
+          : <HardDriveDownload size={16} />}
+      </button>
+    )}
     <button onClick={handleDownload} disabled={dlState === 'saving' || dlState === 'done'}
       className={`p-1.5 transition-colors ${
         dlState === 'done' ? 'text-primary'
@@ -171,7 +229,7 @@ const SongRow = ({ song, index, isPlaying, onPlay, onShowLyric, liveInfo, onRemo
     {onRemove && (
       <button onClick={(e) => { e.stopPropagation(); onRemove(song); }}
         className="p-1.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-        title="从歌单移除">
+        title={removeTitle}>
         <Trash2 size={16} />
       </button>
     )}

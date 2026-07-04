@@ -2,6 +2,26 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { getMe, login as apiLogin, logout as apiLogout, setupAdmin, register as apiRegister } from '../services/musicdl';
 
 const AuthContext = createContext(null);
+const LAST_USER_KEY = 'melodex_last_known_user';
+
+const loadLastKnown = () => {
+  try {
+    const raw = localStorage.getItem(LAST_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveLastKnown = (snapshot) => {
+  try {
+    localStorage.setItem(LAST_USER_KEY, JSON.stringify(snapshot));
+  } catch { /* 本地存储不可用时不影响在线登录 */ }
+};
+
+const clearLastKnown = () => {
+  try { localStorage.removeItem(LAST_USER_KEY); } catch { /* ignore */ }
+};
 
 // AuthProvider 在应用启动时拉取 /api/v1/me 判断登录态,向下提供当前用户与登录/登出操作。
 // 未登录 → 渲染登录/初始化页;登录后 → 渲染主应用(见 App.js)。
@@ -13,22 +33,48 @@ export const AuthProvider = ({ children }) => {
     setupRequired: false,
     allowRegistration: false,
     desktop: false,
+    offline: false,
   });
 
   const refresh = useCallback(async () => {
     try {
       const me = await getMe();
-      setState({
+      const nextState = {
         loading: false,
         authenticated: !!me.authenticated,
         user: me.user || null,
         setupRequired: !!me.setupRequired,
         allowRegistration: !!me.allowRegistration,
         desktop: !!me.desktop,
-      });
+        offline: false,
+      };
+      if (nextState.authenticated && nextState.user) {
+        saveLastKnown({
+          user: nextState.user,
+          desktop: nextState.desktop,
+          savedAt: new Date().toISOString(),
+        });
+      } else {
+        clearLastKnown();
+      }
+      setState(nextState);
     } catch (e) {
-      // 网络错误等:标记未登录但不阻塞展示(允许重试)。
-      setState((s) => ({ ...s, loading: false, authenticated: false }));
+      // 网络错误:使用最近登录用户进入离线模式,只允许本机缓存播放。
+      // 明确的 HTTP 错误不能降级,避免把过期/无效会话伪装成登录态。
+      const cached = !e?.response ? loadLastKnown() : null;
+      if (cached?.user?.id) {
+        setState({
+          loading: false,
+          authenticated: true,
+          user: cached.user,
+          setupRequired: false,
+          allowRegistration: false,
+          desktop: !!cached.desktop,
+          offline: true,
+        });
+        return;
+      }
+      setState((s) => ({ ...s, loading: false, authenticated: false, user: null, offline: false }));
     }
   }, []);
 
@@ -65,11 +111,12 @@ export const AuthProvider = ({ children }) => {
     try {
       await apiLogout();
     } finally {
+      clearLastKnown();
       await refresh();
     }
   }, [refresh]);
 
-  const isAdmin = state.user?.role === 'admin';
+  const isAdmin = !state.offline && state.user?.role === 'admin';
 
   return (
     <AuthContext.Provider value={{ ...state, isAdmin, refresh, login, setup, register, logout }}>

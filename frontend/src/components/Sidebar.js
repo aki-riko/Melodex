@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu, Clock, Download } from 'lucide-react';
+import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu, Clock, Download, HardDriveDownload } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { importM3U } from '../services/collections';
@@ -27,6 +27,7 @@ const GROUPS = [
     items: [
       { key: 'Recent', label: '最近播放', icon: Clock },
       { key: 'Local', label: '本地和下载', icon: Download },
+      { key: 'Offline', label: '离线音乐', icon: HardDriveDownload },
     ],
   },
 ];
@@ -241,6 +242,7 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
   const moreNav = [
     { key: 'Recent', label: '最近播放', icon: Clock },
     { key: 'Local', label: '本地和下载', icon: Download },
+    { key: 'Offline', label: '离线音乐', icon: HardDriveDownload },
     { key: 'Artists', label: '艺人', icon: Library },
     { key: 'FAQ', label: '帮助', icon: HelpCircle },
   ];

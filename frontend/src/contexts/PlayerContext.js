@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory } from '../services/musicdl';
+import { getCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
 
@@ -48,10 +49,55 @@ export const PlayerProvider = ({ children }) => {
   const modeRef = useRef(loadMode());
   useEffect(() => { modeRef.current = mode; localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
-  const { user } = useAuth();
+  const { user, offline } = useAuth();
   const userId = user?.id || 0;
   const resumeRef = useRef(null);   // 待恢复的进度秒数(audio 加载完成后 seek 到这里)
   const restoredRef = useRef(false); // 防重复恢复
+  const objectUrlRef = useRef('');
+  const playSeqRef = useRef(0);
+
+  const revokeObjectUrl = useCallback(() => {
+    if (!objectUrlRef.current) return;
+    URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = '';
+  }, []);
+
+  const loadAudioForSong = useCallback(async (song, { autoplay = true } = {}) => {
+    const seq = ++playSeqRef.current;
+    let src = getStreamUrl(song);
+    let objectUrl = '';
+
+    try {
+      const cached = await getCachedSong(song, userId);
+      if (cached?.blob) {
+        objectUrl = URL.createObjectURL(cached.blob);
+        src = objectUrl;
+        touchCachedSong(song, userId).catch(() => {});
+      }
+    } catch {
+      // IndexedDB 不可用或读取失败时退回在线流,不打断播放主链路。
+    }
+
+    const audio = audioRef.current;
+    if (!audio) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      return;
+    }
+    if (seq !== playSeqRef.current) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      return;
+    }
+
+    revokeObjectUrl();
+    audio.src = src;
+    objectUrlRef.current = objectUrl;
+    if (autoplay) audio.play().catch(() => {});
+  }, [revokeObjectUrl, userId]);
+
+  useEffect(() => () => {
+    playSeqRef.current += 1;
+    revokeObjectUrl();
+  }, [revokeObjectUrl]);
 
   // 音量/静音应用到 audio 元素,并持久化音量。
   useEffect(() => {
@@ -86,12 +132,9 @@ export const PlayerProvider = ({ children }) => {
       resumeRef.current = saved.cur > 0 ? saved.cur : null;
       setNowPlaying(saved.song);
       // 预载音频(paused 状态),onLoadedMetadata 会 seek 到 resumeRef
-      setTimeout(() => {
-        if (audioRef.current) audioRef.current.src = getStreamUrl(saved.song);
-      }, 0);
+      setTimeout(() => loadAudioForSong(saved.song, { autoplay: false }), 0);
     } catch { /* 损坏数据忽略 */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [loadAudioForSong, userId]);
 
   // 保存当前播放快照(节流:由调用点控制频率)。
   const savePlayback = useCallback((cur) => {
@@ -109,14 +152,9 @@ export const PlayerProvider = ({ children }) => {
   const startPlay = useCallback((song) => {
     setNowPlaying(song);
     // 记录最近播放(按用户隔离,后端去重+封顶 500;未登录静默)。fire-and-forget。
-    recordPlayHistory(song);
-    setTimeout(() => {
-      if (audioRef.current) {
-        audioRef.current.src = getStreamUrl(song);
-        audioRef.current.play().catch(() => {});
-      }
-    }, 0);
-  }, []);
+    if (!offline) recordPlayHistory(song);
+    setTimeout(() => loadAudioForSong(song, { autoplay: true }), 0);
+  }, [loadAudioForSong, offline]);
 
   // play(song, list):list 为当前列表(队列),用于上/下一首与失败自动跳
   const play = useCallback((song, list = []) => {
