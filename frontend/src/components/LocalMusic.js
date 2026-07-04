@@ -39,7 +39,7 @@ function AlbumCover({ songs }) {
 // NAS 曲库页:下载到服务器的音乐 + 上传文件,按 user_id 归属过滤。
 // 支持「歌曲 / 专辑」两种视图;可播放/上传/删除。后端接口 /music/local_music。
 export default function LocalMusic() {
-  const { play, isPlaying, isPaused } = usePlayer();
+  const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const feedback = useFeedback();
   const qc = useQueryClient();
   const fileRef = useRef(null);
@@ -103,6 +103,7 @@ export default function LocalMusic() {
             <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
               isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
               isPaused={isPaused}
+              onTogglePlayback={togglePlay}
               onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
           ))}
         </div>
@@ -170,6 +171,7 @@ export default function LocalMusic() {
               <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
                 isPlaying={isPlaying(song)} onPlay={(s) => play(s, tracks)}
                 isPaused={isPaused}
+                onTogglePlayback={togglePlay}
                 onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
             ))}
           </div>

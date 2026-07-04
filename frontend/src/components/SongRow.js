@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Download, FileText, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload, Ellipsis, Heart } from 'lucide-react';
+import { Play, Pause, Download, FileText, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload, Ellipsis, Heart } from 'lucide-react';
 import { getStreamUrl, saveToServer, coverProxyUrl, getFavoriteStatus, toggleFavorite } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CHANGED } from '../services/offlineAudio';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -143,6 +143,7 @@ const SongRow = ({
   isPlaying,
   isPaused = false,
   onPlay,
+  onTogglePlayback,
   onShowLyric,
   liveInfo,
   onRemove,
@@ -164,8 +165,11 @@ const SongRow = ({
   const sizeLabel = liveInfo?.size || fmtSize(rowSong.size);
   const rowKey = songIdentityKey(rowSong);
   const albumTitle = rowSong.album || '—';
-  const showPlayingBars = isPlaying && !isPaused;
+  const isActivelyPlaying = isPlaying && !isPaused;
+  const showPlayingBars = isActivelyPlaying;
   const showPausedCoverPlayButton = isPlaying && isPaused;
+  const CoverActionIcon = isActivelyPlaying ? Pause : Play;
+  const coverActionLabel = isActivelyPlaying ? '暂停' : '播放';
 
   useEffect(() => {
     if (!openMenu) return undefined;
@@ -310,8 +314,12 @@ const SongRow = ({
     closeMenu();
     onPlay(rowSong);
   };
-  const playFromButton = (e) => {
+  const handleCoverAction = (e) => {
     e.stopPropagation();
+    if (isPlaying && onTogglePlayback) {
+      onTogglePlayback();
+      return;
+    }
     onPlay(rowSong);
   };
 
@@ -333,18 +341,16 @@ const SongRow = ({
           {showPlayingBars && <PlayingCoverBars />}
           <button
             type="button"
-            onClick={playFromButton}
+            onClick={handleCoverAction}
             className={`absolute inset-0 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
               showPausedCoverPlayButton
                 ? 'pointer-events-auto opacity-100'
-                : isPlaying
-                  ? 'pointer-events-none opacity-0'
-                  : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+                : 'pointer-events-auto opacity-0 hover:opacity-100 focus:opacity-100 group-hover:opacity-100'
             }`}
-            title="播放"
-            aria-label="播放"
+            title={coverActionLabel}
+            aria-label={coverActionLabel}
           >
-            <Play size={18} fill="currentColor" />
+            <CoverActionIcon size={18} fill="currentColor" />
           </button>
         </div>
         <div className="min-w-0">
@@ -400,12 +406,12 @@ const SongRow = ({
 
       <button
         type="button"
-        onClick={playFromButton}
+        onClick={handleCoverAction}
         className="md:hidden flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm"
-        title="播放"
-        aria-label="播放"
+        title={coverActionLabel}
+        aria-label={coverActionLabel}
       >
-        <Play size={18} fill="currentColor" />
+        <CoverActionIcon size={18} fill="currentColor" />
       </button>
 
       <div ref={menuRef} className="relative hidden md:flex items-center justify-end">
