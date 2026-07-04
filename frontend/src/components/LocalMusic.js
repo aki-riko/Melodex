@@ -97,7 +97,8 @@ export default function LocalMusic() {
         <div className="space-y-0.5">
           {songs.map((song, i) => (
             <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
-              isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)} onRemove={handleDelete} />
+              isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
+              onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
           ))}
         </div>
       </div>
@@ -160,7 +161,8 @@ export default function LocalMusic() {
         <div className="space-y-0.5">
           {tracks.map((song, i) => (
             <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
-              isPlaying={isPlaying(song)} onPlay={(s) => play(s, tracks)} onRemove={handleDelete} />
+              isPlaying={isPlaying(song)} onPlay={(s) => play(s, tracks)}
+              onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
           ))}
         </div>
       )}
