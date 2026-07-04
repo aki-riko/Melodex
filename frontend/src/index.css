@@ -90,6 +90,48 @@ html {
 }
 .media-card:hover .media-card__play { opacity: 1; transform: translateY(0); }
 
+/* 歌曲行当前播放封面:封面上叠加循环音量柱。 */
+.song-row-playing-cover {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.song-row-equalizer {
+  height: 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,0.7));
+}
+.song-row-equalizer span {
+  width: 4px;
+  height: 18px;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.96);
+  transform-origin: bottom;
+  animation: song-row-equalizer 0.86s ease-in-out infinite;
+}
+.song-row-equalizer span:nth-child(2) { animation-delay: -0.16s; }
+.song-row-equalizer span:nth-child(3) { animation-delay: -0.32s; }
+.song-row-equalizer span:nth-child(4) { animation-delay: -0.48s; }
+@keyframes song-row-equalizer {
+  0%, 100% { transform: scaleY(0.35); opacity: 0.78; }
+  40% { transform: scaleY(1); opacity: 1; }
+  70% { transform: scaleY(0.55); opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .song-row-equalizer span {
+    animation: none;
+    transform: scaleY(0.7);
+  }
+}
+
 /* ===== 移动端全屏播放页动画 ===== */
 /* 展开页从底部滑入 */
 @keyframes player-slide-up {
