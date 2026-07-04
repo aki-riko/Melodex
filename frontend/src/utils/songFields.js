@@ -12,17 +12,29 @@ const objectExtra = (extra) => {
   return extra;
 };
 
-const extraValue = (extra, key) => {
-  const obj = objectExtra(extra);
-  return obj ? textValue(obj[key]).trim() : '';
+const firstValue = (...values) => {
+  for (const value of values) {
+    const text = textValue(value).trim();
+    if (text) return text;
+  }
+  return '';
 };
+
+const extraFirstValue = (extra, keys) => {
+  const obj = objectExtra(extra);
+  if (!obj) return '';
+  return firstValue(...keys.map((key) => obj[key]));
+};
+
+const ALBUM_KEYS = ['album', 'Album', 'album_name', 'albumName', 'AlbumName', 'albumname', 'album_title', 'albumTitle', 'AlbumTitle'];
+const ALBUM_ID_KEYS = ['album_id', 'AlbumID', 'albumID', 'albumId', 'album_mid', 'albumMid', 'albumMID', 'AlbumMid', 'AlbumMID', 'albummid', 'albumid'];
 
 export const normalizeSong = (song = {}) => {
   const input = song || {};
   const identity = normalizeSongIdentity(input);
   const extra = identity.extra;
-  const album = textValue(input.album ?? input.Album ?? extraValue(extra, 'album')).trim();
-  const albumId = textValue(input.album_id ?? input.AlbumID ?? extraValue(extra, 'album_id')).trim();
+  const album = firstValue(...ALBUM_KEYS.map((key) => input[key]), extraFirstValue(extra, ALBUM_KEYS));
+  const albumId = firstValue(...ALBUM_ID_KEYS.map((key) => input[key]), extraFirstValue(extra, ALBUM_ID_KEYS));
 
   return {
     ...input,

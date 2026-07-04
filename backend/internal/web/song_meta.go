@@ -115,5 +115,5 @@ func songAlbumID(song model.Song) string {
 	if song.Extra == nil {
 		return ""
 	}
-	return strings.TrimSpace(song.Extra["album_id"])
+	return extraMapAlbumID(song.Extra)
 }

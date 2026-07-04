@@ -5,6 +5,7 @@ import { getCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
 import { songIdentityKey } from '../utils/songIdentity';
+import { normalizeSong } from '../utils/songFields';
 
 const PlayerContext = createContext(null);
 
@@ -180,20 +181,22 @@ export const PlayerProvider = ({ children }) => {
   }, [nowPlaying, userId]);
 
   const startPlay = useCallback((song) => {
-    setNowPlaying(song);
+    const nextSong = normalizeSong(song);
+    setNowPlaying(nextSong);
     // 记录最近播放(按用户隔离,后端去重+封顶 500;未登录静默)。fire-and-forget。
-    if (!offline) recordPlayHistory(song);
-    setTimeout(() => loadAudioForSong(song, { autoplay: true }), 0);
+    if (!offline) recordPlayHistory(nextSong);
+    setTimeout(() => loadAudioForSong(nextSong, { autoplay: true }), 0);
   }, [loadAudioForSong, offline]);
 
   // play(song, list):list 为当前列表(队列),用于上/下一首与失败自动跳
   const play = useCallback((song, list = []) => {
-    const q = Array.isArray(list) && list.length ? list : [song];
+    const q = (Array.isArray(list) && list.length ? list : [song]).map(normalizeSong);
+    const target = normalizeSong(song);
     queueRef.current = q;
     setQueue(q);
     triedRef.current = new Set();
     setNotice('');
-    startPlay(song);
+    startPlay(target);
   }, [startPlay]);
 
   // playFromQueue:从队列面板点击某首,直接播放(不改变队列)

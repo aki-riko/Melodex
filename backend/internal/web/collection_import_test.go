@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/music-lib/model"
@@ -164,6 +165,114 @@ func TestImportCollectionEndpointCreatesImportedRecord(t *testing.T) {
 	}
 	if collection.ExternalID != "playlist-123" {
 		t.Fatalf("collection.ExternalID = %q, want playlist-123", collection.ExternalID)
+	}
+}
+
+func TestManualCollectionAddSongPreservesAlbumMetadata(t *testing.T) {
+	initCollectionDBForTest(t)
+
+	collection := Collection{
+		UserID:      testUserID,
+		Name:        "Manual Playlist",
+		Kind:        collectionKindManual,
+		ContentType: collectionContentPlaylist,
+		Source:      "local",
+	}
+	if err := db.Create(&collection).Error; err != nil {
+		t.Fatalf("create manual collection: %v", err)
+	}
+
+	router := newCollectionTestRouter()
+	songsPath := fmt.Sprintf("%s/collections/%d/songs", RoutePrefix, collection.ID)
+	body := bytes.NewBufferString(`{"id":"song-1","source":"qq","name":"Song One","artist":"Artist A","album":"Album A","album_id":"album-1","extra":{"songmid":"mid-1"}}`)
+	req := httptest.NewRequest(http.MethodPost, songsPath, body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST %s status = %d, want %d, body=%s", songsPath, rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var saved SavedSong
+	if err := db.Where("collection_id = ? AND song_id = ? AND source = ?", collection.ID, "song-1", "qq").First(&saved).Error; err != nil {
+		t.Fatalf("query saved song: %v", err)
+	}
+	extra := decodeSongExtraMap(saved.Extra)
+	if extraMapAlbum(extra) != "Album A" || extraMapAlbumID(extra) != "album-1" {
+		t.Fatalf("saved album metadata = %#v, want Album A/album-1", extra)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, songsPath, nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s status = %d, want %d, body=%s", songsPath, rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var songs []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &songs); err != nil {
+		t.Fatalf("decode songs: %v", err)
+	}
+	if len(songs) != 1 || songs[0]["album"] != "Album A" || songs[0]["album_id"] != "album-1" {
+		t.Fatalf("response songs = %#v, want album metadata", songs)
+	}
+}
+
+func TestManualCollectionSongsBackfillAlbumFromSearchCache(t *testing.T) {
+	initCollectionDBForTest(t)
+
+	collection := Collection{
+		UserID:      testUserID,
+		Name:        "Manual Playlist",
+		Kind:        collectionKindManual,
+		ContentType: collectionContentPlaylist,
+		Source:      "local",
+	}
+	if err := db.Create(&collection).Error; err != nil {
+		t.Fatalf("create manual collection: %v", err)
+	}
+	if err := db.Create(&SavedSong{
+		CollectionID: collection.ID,
+		SongID:       "song-1",
+		Source:       "qq",
+		Name:         "Song One",
+		Artist:       "Artist A",
+		Extra:        `{"songmid":"song-1"}`,
+	}).Error; err != nil {
+		t.Fatalf("create saved song: %v", err)
+	}
+	payload, err := json.Marshal(jsonSearchResponse{
+		Songs: []model.Song{{
+			ID:      "song-1",
+			Source:  "qq",
+			Name:    "Song One",
+			Artist:  "Artist A",
+			Album:   "Cached Album",
+			AlbumID: "cached-album-1",
+		}},
+		Type: "song",
+	})
+	if err != nil {
+		t.Fatalf("marshal cache payload: %v", err)
+	}
+	if err := db.Create(&searchCacheRow{Key: "album-cache", Payload: string(payload), CreatedAt: time.Now()}).Error; err != nil {
+		t.Fatalf("create search cache: %v", err)
+	}
+
+	resp, err := collectionSongsJSON(&collection)
+	if err != nil {
+		t.Fatalf("collectionSongsJSON: %v", err)
+	}
+	if len(resp) != 1 || resp[0]["album"] != "Cached Album" || resp[0]["album_id"] != "cached-album-1" {
+		t.Fatalf("response songs = %#v, want cached album metadata", resp)
+	}
+
+	var saved SavedSong
+	if err := db.Where("collection_id = ? AND song_id = ?", collection.ID, "song-1").First(&saved).Error; err != nil {
+		t.Fatalf("reload saved song: %v", err)
+	}
+	extra := decodeSongExtraMap(saved.Extra)
+	if extraMapAlbum(extra) != "Cached Album" || extraMapAlbumID(extra) != "cached-album-1" {
+		t.Fatalf("saved extra after backfill = %#v, want cached album metadata", extra)
 	}
 }
 

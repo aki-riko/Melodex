@@ -1,8 +1,11 @@
 package web
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/guohuiyuan/music-lib/model"
 )
 
 // 验证播放历史:去重(同歌重播刷新时间不新增行)+ 按 played_at 降序 + 用户隔离 + 超限剪枝。
@@ -77,6 +80,48 @@ func TestPlayHistoryPrune(t *testing.T) {
 	}
 }
 
+func TestPlayHistoryBackfillAlbumFromSearchCache(t *testing.T) {
+	setupUserTestDB(t)
+	u, _ := createUser("dave", "davepass1", RoleUser)
+
+	payload, err := json.Marshal(jsonSearchResponse{
+		Songs: []model.Song{{
+			ID:      "song-1",
+			Source:  "qq",
+			Name:    "Song One",
+			Artist:  "Artist A",
+			Album:   "Cached Album",
+			AlbumID: "cached-album-1",
+		}},
+		Type: "song",
+	})
+	if err != nil {
+		t.Fatalf("marshal cache payload: %v", err)
+	}
+	if err := db.Create(&searchCacheRow{Key: "history-album-cache", Payload: string(payload), CreatedAt: time.Now()}).Error; err != nil {
+		t.Fatalf("create search cache: %v", err)
+	}
+
+	recordPlayHistory(u.ID, "song-1", "qq", "Song One", "Artist A", "", 100, `{"songmid":"song-1"}`)
+	rows, err := listPlayHistory(u.ID, 0)
+	if err != nil {
+		t.Fatalf("list play history: %v", err)
+	}
+	songs := playHistoryToSongs(rows)
+	if len(songs) != 1 || songs[0]["album"] != "Cached Album" || songs[0]["album_id"] != "cached-album-1" {
+		t.Fatalf("history songs = %#v, want cached album metadata", songs)
+	}
+
+	var saved playHistoryRow
+	if err := db.Where("user_id = ? AND song_id = ?", u.ID, "song-1").First(&saved).Error; err != nil {
+		t.Fatalf("reload play history: %v", err)
+	}
+	extra := decodeSongExtraMap(saved.Extra)
+	if extraMapAlbum(extra) != "Cached Album" || extraMapAlbumID(extra) != "cached-album-1" {
+		t.Fatalf("history extra after backfill = %#v, want cached album metadata", extra)
+	}
+}
+
 func TestEncodeSongExtraWithMetadataAddsAlbumFields(t *testing.T) {
 	raw := encodeSongExtraWithMetadata(map[string]interface{}{"link": "https://example.test/song"}, "测试专辑", "album-1")
 	extra := decodeSongExtraMap(raw)
@@ -91,5 +136,11 @@ func TestEncodeSongExtraWithMetadataAddsAlbumFields(t *testing.T) {
 	extra = decodeSongExtraMap(raw)
 	if extraMapValue(extra, "album") != "已有专辑" {
 		t.Fatalf("existing album should win, got %#v", extra)
+	}
+
+	raw = encodeSongExtraWithMetadata(map[string]interface{}{"albumName": "别名专辑", "albumMid": "mid-1"}, "", "")
+	extra = decodeSongExtraMap(raw)
+	if extraMapValue(extra, "album") != "别名专辑" || extraMapValue(extra, "album_id") != "mid-1" {
+		t.Fatalf("album aliases should be normalized, got %#v", extra)
 	}
 }

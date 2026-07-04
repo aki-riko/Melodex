@@ -99,14 +99,14 @@ func listPlayHistory(userID uint, limit int) ([]playHistoryRow, error) {
 func playHistoryToSongs(rows []playHistoryRow) []gin.H {
 	resp := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
-		extraMap := decodeSongExtraMap(r.Extra)
+		extraMap := hydratePlayHistoryAlbumMetadata(&r, decodeSongExtraMap(r.Extra))
 		resp = append(resp, gin.H{
 			"id":        r.SongID,
 			"source":    r.Source,
 			"name":      r.Name,
 			"artist":    r.Artist,
-			"album":     extraMapValue(extraMap, "album"),
-			"album_id":  extraMapValue(extraMap, "album_id"),
+			"album":     extraMapAlbum(extraMap),
+			"album_id":  extraMapAlbumID(extraMap),
 			"cover":     r.Cover,
 			"duration":  r.Duration,
 			"link":      extraMapValue(extraMap, "link"),

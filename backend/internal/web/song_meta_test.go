@@ -98,6 +98,11 @@ func TestSongAlbumID(t *testing.T) {
 			want: "456",
 		},
 		{
+			name: "fallback to qq album mid alias",
+			song: model.Song{Extra: map[string]string{"albumMid": "mid-456"}},
+			want: "mid-456",
+		},
+		{
 			name: "empty when missing",
 			song: model.Song{},
 			want: "",

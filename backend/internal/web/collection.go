@@ -438,14 +438,14 @@ func loadSavedSongs(collectionID uint) ([]model.Song, error) {
 
 	songs := make([]model.Song, 0, len(savedSongs))
 	for _, ss := range savedSongs {
-		extra := decodeSongExtraMap(ss.Extra)
+		extra := hydrateSavedSongAlbumMetadata(&ss, decodeSongExtraMap(ss.Extra))
 		songs = append(songs, model.Song{
 			ID:       ss.SongID,
 			Source:   ss.Source,
 			Name:     ss.Name,
 			Artist:   ss.Artist,
-			Album:    extraMapValue(extra, "album"),
-			AlbumID:  extraMapValue(extra, "album_id"),
+			Album:    extraMapAlbum(extra),
+			AlbumID:  extraMapAlbumID(extra),
 			Link:     extraMapValue(extra, "link"),
 			Cover:    ss.Cover,
 			Duration: ss.Duration,
@@ -559,6 +559,36 @@ func extraMapValue(extra map[string]string, key string) string {
 	return strings.TrimSpace(extra[key])
 }
 
+func extraMapFirstValue(extra map[string]string, keys ...string) string {
+	if extra == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := strings.TrimSpace(extra[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+var albumExtraKeys = []string{
+	"album", "Album", "album_name", "albumName", "AlbumName", "albumname",
+	"album_title", "albumTitle", "AlbumTitle",
+}
+
+var albumIDExtraKeys = []string{
+	"album_id", "AlbumID", "albumID", "albumId", "album_mid", "albumMid",
+	"albumMID", "AlbumMid", "AlbumMID", "albummid", "albumid",
+}
+
+func extraMapAlbum(extra map[string]string) string {
+	return extraMapFirstValue(extra, albumExtraKeys...)
+}
+
+func extraMapAlbumID(extra map[string]string) string {
+	return extraMapFirstValue(extra, albumIDExtraKeys...)
+}
+
 func encodeSongExtraWithMetadata(extra interface{}, album, albumID string) string {
 	extraMap := make(map[string]interface{})
 
@@ -595,6 +625,12 @@ func encodeSongExtraWithMetadata(extra interface{}, album, albumID string) strin
 
 	album = strings.TrimSpace(album)
 	albumID = strings.TrimSpace(albumID)
+	if album == "" {
+		album = extraMapFirstInterfaceValue(extraMap, albumExtraKeys...)
+	}
+	if albumID == "" {
+		albumID = extraMapFirstInterfaceValue(extraMap, albumIDExtraKeys...)
+	}
 	isEmpty := func(key string) bool {
 		value, ok := extraMap[key]
 		if !ok || value == nil {
@@ -616,6 +652,21 @@ func encodeSongExtraWithMetadata(extra interface{}, album, albumID string) strin
 		return ""
 	}
 	return string(b)
+}
+
+func extraMapFirstInterfaceValue(extra map[string]interface{}, keys ...string) string {
+	if extra == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value, ok := extra[key]; ok {
+			text := strings.TrimSpace(fmt.Sprint(value))
+			if text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	return ""
 }
 
 func decodeSongExtraObject(raw string) interface{} {
@@ -713,7 +764,7 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 	resp := make([]gin.H, 0, len(savedSongs))
 	warmSongs := make([]model.Song, 0, len(savedSongs))
 	for _, s := range savedSongs {
-		extraMap := decodeSongExtraMap(s.Extra)
+		extraMap := hydrateSavedSongAlbumMetadata(&s, decodeSongExtraMap(s.Extra))
 		warmSongs = append(warmSongs, model.Song{
 			ID:       s.SongID,
 			Source:   s.Source,
@@ -728,8 +779,8 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 			"extra":         decodeSongExtraObject(s.Extra),
 			"name":          s.Name,
 			"artist":        s.Artist,
-			"album":         extraMapValue(extraMap, "album"),
-			"album_id":      extraMapValue(extraMap, "album_id"),
+			"album":         extraMapAlbum(extraMap),
+			"album_id":      extraMapAlbumID(extraMap),
 			"cover":         s.Cover,
 			"duration":      s.Duration,
 			"link":          extraMapValue(extraMap, "link"),
@@ -958,6 +1009,8 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 			Source   string      `json:"source" binding:"required"`
 			Name     string      `json:"name"`
 			Artist   string      `json:"artist"`
+			Album    string      `json:"album"`
+			AlbumID  string      `json:"album_id"`
 			Cover    string      `json:"cover"`
 			Duration int         `json:"duration"`
 			Extra    interface{} `json:"extra"`
@@ -968,12 +1021,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		extraStr := ""
-		if req.Extra != nil {
-			if b, err := json.Marshal(req.Extra); err == nil {
-				extraStr = string(b)
-			}
-		}
+		extraStr := encodeSongExtraWithMetadata(req.Extra, req.Album, req.AlbumID)
 
 		song := SavedSong{
 			CollectionID: collection.ID,
