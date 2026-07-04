@@ -336,13 +336,13 @@ const SongRow = ({
       </div>
 
       <div className="min-w-0 flex items-center gap-3">
-        <div className="relative flex-shrink-0">
+        <div className="song-row-cover-action relative flex-shrink-0">
           <CoverThumb song={rowSong} />
           {showPlayingBars && <PlayingCoverBars />}
           <button
             type="button"
             onClick={handleCoverAction}
-            className={`absolute inset-0 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
+            className={`absolute inset-0 z-10 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
               showPausedCoverPlayButton
                 ? 'pointer-events-auto opacity-100'
                 : 'pointer-events-auto opacity-0 hover:opacity-100 focus:opacity-100'
