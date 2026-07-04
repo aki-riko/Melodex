@@ -1,4 +1,4 @@
-import { getDownloadUrl } from './musicdl';
+import { coverProxyUrl, getDownloadUrl } from './musicdl';
 
 const DB_NAME = 'melodex-offline-audio';
 const DB_VERSION = 1;
@@ -166,6 +166,23 @@ const responseToBlob = async (response, mime, onProgress) => {
   return new Blob(chunks, { type: mime || 'application/octet-stream' });
 };
 
+const fetchCoverBlob = async (song, signal) => {
+  const url = coverProxyUrl(song);
+  if (!url) return null;
+  try {
+    const response = await fetch(url, { credentials: 'include', signal });
+    if (!response.ok) return null;
+    const mime = response.headers.get('content-type') || '';
+    const blob = await response.blob();
+    const blobMime = blob.type || mime;
+    if (!blob.size || blob.size > 8 * 1024 * 1024) return null;
+    if (blobMime && !blobMime.toLowerCase().startsWith('image/')) return null;
+    return { blob, mime: blobMime || 'image/jpeg' };
+  } catch {
+    return null;
+  }
+};
+
 export const cacheSong = async (song, { userId = 0, onProgress, signal } = {}) => {
   if (!canCacheSong(song)) throw new Error('这首歌缺少来源或 ID,无法缓存到本机');
 
@@ -189,6 +206,7 @@ export const cacheSong = async (song, { userId = 0, onProgress, signal } = {}) =
   const mime = response.headers.get('content-type') || 'application/octet-stream';
   const blob = await responseToBlob(response, mime, onProgress);
   if (!blob.size) throw new Error('缓存失败:音频为空');
+  const cover = await fetchCoverBlob(song, signal);
 
   const record = {
     key,
@@ -208,6 +226,8 @@ export const cacheSong = async (song, { userId = 0, onProgress, signal } = {}) =
     cachedAt: nowISO(),
     lastPlayedAt: null,
     blob,
+    coverBlob: cover?.blob || null,
+    coverMime: cover?.mime || '',
   };
 
   await putRecord(record);
