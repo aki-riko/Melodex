@@ -106,7 +106,7 @@ const ArtistModal = ({ artist, isVisible, onClose, modalRef }) => {
     >
       <div
         ref={modalRef}
-        className={`bg-card p-8 shadow-brutal border border-border w-full max-w-4xl relative transition-all duration-300 ease-in-out ${
+        className={`bg-card p-8 border border-border w-full max-w-4xl relative transition-all duration-300 ease-in-out ${
           isVisible ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
         }`}
       >

@@ -3,21 +3,34 @@ import { useQuery, useQueryClient } from 'react-query';
 import { Play, Clock, Trash2 } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { getPlayHistory, clearPlayHistory } from '../services/musicdl';
 
 // 最近播放页:列出按用户隔离的播放历史(后端 played_at 降序,封顶 500)。
 // 播放任意一首会以整张历史为队列;支持清空 / 删单条。
 export default function RecentlyPlayed() {
   const { play, isPlaying } = usePlayer();
+  const feedback = useFeedback();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery(['play-history'], getPlayHistory, { staleTime: 0 });
   const songs = data || [];
 
   const handleClearAll = async () => {
     if (!songs.length) return;
-    if (!window.confirm('清空全部最近播放记录?')) return;
-    await clearPlayHistory();
-    qc.invalidateQueries(['play-history']);
+    const ok = await feedback.confirm({
+      title: '清空最近播放?',
+      body: '只删除播放记录,不会删除歌曲文件或歌单。',
+      confirmLabel: '清空',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await clearPlayHistory();
+      qc.invalidateQueries(['play-history']);
+      feedback.success('最近播放已清空');
+    } catch {
+      feedback.error('清空最近播放失败,请稍后重试');
+    }
   };
 
   const handleRemove = async (song) => {

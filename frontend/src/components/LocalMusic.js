@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from 'react-query';
 import { Play, Download, Upload, RotateCw, Disc3, ChevronLeft } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { getLocalMusic, deleteLocalMusic, uploadLocalMusic, coverProxyUrl } from '../services/musicdl';
 
 const UNKNOWN_ALBUM = '未知专辑';
@@ -39,6 +40,7 @@ function AlbumCover({ songs }) {
 // 支持「歌曲 / 专辑」两种视图;可播放/上传/删除。后端接口 /music/local_music。
 export default function LocalMusic() {
   const { play, isPlaying } = usePlayer();
+  const feedback = useFeedback();
   const qc = useQueryClient();
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -66,8 +68,9 @@ export default function LocalMusic() {
     try {
       await uploadLocalMusic(f);
       refresh();
+      feedback.success('上传完成');
     } catch (err) {
-      window.alert('上传失败:' + (err?.response?.data?.error || err.message || '未知错误'));
+      feedback.error(`上传失败:${err?.response?.data?.error || err.message || '未知错误'}`);
     } finally {
       setUploading(false);
     }

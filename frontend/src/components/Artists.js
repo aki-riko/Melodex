@@ -47,9 +47,9 @@ const Artists = () => {
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           placeholder="输入歌手名,如 周杰伦…"
-          className="flex-grow px-4 py-3 border border-border rounded-md bg-card font-medium shadow-brutal-sm focus:shadow-brutal outline-none transition-shadow"
+          className="flex-grow px-4 py-3 border border-border rounded-md bg-card font-medium outline-none transition-shadow"
         />
-        <button type="submit" className="px-6 py-3 border border-border rounded-md bg-primary text-primary-foreground font-semibold shadow-brutal-sm transition-colors hover:bg-[#106EBE]">
+        <button type="submit" className="px-6 py-3 border border-border rounded-md bg-primary text-primary-foreground font-semibold transition-colors hover:bg-[#106EBE]">
           搜索
         </button>
       </form>
@@ -72,7 +72,7 @@ const Artists = () => {
 
       {lyric && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setLyric(null)}>
-          <div className="bg-card border border-border rounded-lg shadow-brutal-lg max-w-lg w-full max-h-[70vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card border border-border rounded-lg max-w-lg w-full max-h-[70vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h3 className="text-xl font-semibold">{lyric.song.name}</h3>

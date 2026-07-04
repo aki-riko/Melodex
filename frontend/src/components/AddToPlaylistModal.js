@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Plus, Check } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { saveToServer } from '../services/musicdl';
 
 // 加歌弹窗:SongRow 点"+"设置 addTarget 后弹出,选歌单加入或新建歌单。
@@ -9,6 +10,7 @@ import { saveToServer } from '../services/musicdl';
 export default function AddToPlaylistModal() {
   const { collections, addTarget, setAddTarget, addSong, create } = useCollections();
   const { offline } = useAuth();
+  const feedback = useFeedback();
   const [newName, setNewName] = useState('');
   const [done, setDone] = useState(null); // 刚加入的歌单 id(显示✓)
   const [busy, setBusy] = useState(false);
@@ -26,8 +28,15 @@ export default function AddToPlaylistModal() {
   const addTo = async (id) => {
     if (offline) return;
     setBusy(true);
-    try { await addSong(id, addTarget); autoDownload(addTarget); setDone(id); setTimeout(close, 700); }
-    catch { /* 静默 */ } finally { setBusy(false); }
+    try {
+      await addSong(id, addTarget);
+      autoDownload(addTarget);
+      setDone(id);
+      feedback.success('已加入歌单');
+      setTimeout(close, 700);
+    } catch {
+      feedback.error('加入歌单失败,请稍后重试');
+    } finally { setBusy(false); }
   };
 
   const createAndAdd = async (e) => {
@@ -38,8 +47,16 @@ export default function AddToPlaylistModal() {
     setBusy(true);
     try {
       const c = await create(name);
-      if (c && c.id != null) { await addSong(c.id, addTarget); autoDownload(addTarget); setDone(c.id); setTimeout(close, 700); }
-    } catch { /* 静默 */ } finally { setBusy(false); }
+      if (c && c.id != null) {
+        await addSong(c.id, addTarget);
+        autoDownload(addTarget);
+        setDone(c.id);
+        feedback.success('歌单已创建,歌曲已加入');
+        setTimeout(close, 700);
+      }
+    } catch {
+      feedback.error('新建歌单失败,请稍后重试');
+    } finally { setBusy(false); }
   };
 
   return (

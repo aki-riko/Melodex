@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu, Clock, Download, HardDriveDownload } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { importM3U } from '../services/collections';
 import { requestOpenPlaylist } from '../services/playlistBus';
 
@@ -119,6 +120,7 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
 function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
   const { collections, create, refresh } = useCollections();
   const { offline } = useAuth();
+  const feedback = useFeedback();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -153,10 +155,10 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
       const base = f.name.replace(/\.(m3u8?|M3U8?)$/, '');
       const r = await importM3U(base || '导入歌单', content);
       await refresh();
-      window.alert(`导入「${r.name}」:共 ${r.total} 条,匹配 ${r.matched} 首${r.skipped ? `,${r.skipped} 首未匹配` : ''}`);
+      feedback.success(`导入「${r.name}」:共 ${r.total} 条,匹配 ${r.matched} 首${r.skipped ? `,${r.skipped} 首未匹配` : ''}`);
       openNew({ id: r.id }, r.name);
     } catch (err) {
-      window.alert('导入失败:' + (err?.response?.data?.error || err.message || '未知错误'));
+      feedback.error('导入失败:' + (err?.response?.data?.error || err.message || '未知错误'));
     } finally {
       setImporting(false);
     }

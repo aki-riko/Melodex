@@ -4,6 +4,7 @@ import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useFeedback } from '../contexts/FeedbackContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
 import { coverProxyUrl, saveToServer } from '../services/musicdl';
@@ -52,6 +53,7 @@ export default function MyPlaylist() {
   const moreRef = useRef(null);
   const { play, isPlaying } = usePlayer();
   const { user, offline } = useAuth();
+  const feedback = useFeedback();
   const { remove, collections } = useCollections();
   const userId = user?.id || 0;
   const currentCollection = collections.find((c) => c.id === meta?.collectionId);
@@ -130,13 +132,21 @@ export default function MyPlaylist() {
   const handleDeleteCollection = async () => {
     if (!canDeleteCollection) return;
     setMoreOpen(false);
-    if (!window.confirm(`删除歌单「${currentName}」?`)) return;
+    const ok = await feedback.confirm({
+      title: `删除歌单「${currentName}」?`,
+      body: '只删除歌单记录,不会删除 NAS 曲库里的歌曲文件。',
+      confirmLabel: '删除歌单',
+      danger: true,
+    });
+    if (!ok) return;
     setNotice('');
     try {
       await remove(meta.collectionId);
       setMeta(null); setSongs([]);
+      feedback.success('歌单已删除');
     } catch {
       setNotice('删除歌单失败,请稍后重试');
+      feedback.error('删除歌单失败,请稍后重试');
     }
   };
 
