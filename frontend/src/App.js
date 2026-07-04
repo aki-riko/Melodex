@@ -17,7 +17,6 @@ import { CollectionsProvider } from './contexts/CollectionsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import FAQ from './components/FAQ';
-import Footer from './components/Footer';
 import 'react-toastify/dist/ReactToastify.css';
 
 const queryClient = new QueryClient({
@@ -94,8 +93,6 @@ function AppShell() {
               {section === 'Local' && <LocalMusic />}
               {section === 'Users' && isAdmin && <UserManagement />}
               {section === 'FAQ' && <FAQ />}
-              {/* 页脚(含第三方署名)只放帮助页,其余页保持干净 */}
-              {section === 'FAQ' && <Footer />}
             </div>
           </main>
         </div>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Footer from './Footer';
 
 const FAQ_DATA = {
   faq: '常见问题',
@@ -53,6 +54,7 @@ const FAQ = () => {
             )}
           </div>
         ))}
+        <Footer />
       </div>
     </div>
   );
