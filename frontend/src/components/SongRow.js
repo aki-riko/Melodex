@@ -310,12 +310,24 @@ const SongRow = ({
       }`}
     >
       <div className={`hidden md:flex h-8 items-center justify-end text-sm tabular-nums ${isPlaying ? 'text-primary' : 'text-muted-foreground'}`}>
-        <span className="group-hover:hidden">{index + 1}</span>
-        <Play size={16} fill="currentColor" className="hidden group-hover:block" />
+        {index + 1}
       </div>
 
       <div className="min-w-0 flex items-center gap-3">
-        <CoverThumb song={rowSong} />
+        <div className="relative flex-shrink-0">
+          <CoverThumb song={rowSong} />
+          <button
+            type="button"
+            onClick={playFromButton}
+            className={`absolute inset-0 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
+              isPlaying ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+            }`}
+            title="播放"
+            aria-label="播放"
+          >
+            <Play size={18} fill="currentColor" />
+          </button>
+        </div>
         <div className="min-w-0">
           <p className={`font-medium truncate ${isPlaying ? 'text-primary' : 'text-foreground'}`}>
             {rowSong.name || '未知歌曲'}
