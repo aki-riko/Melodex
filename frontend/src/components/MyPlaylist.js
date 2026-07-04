@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Play, Trash2 } from 'lucide-react';
+import { Check, Download, Play, RotateCw, Trash2 } from 'lucide-react';
 import SongRow from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
-import { coverProxyUrl } from '../services/musicdl';
+import { coverProxyUrl, saveToServer } from '../services/musicdl';
 
 // 歌单详情头图:用歌单内歌曲封面拼图(Spotify 风格)。
 //   - 取前 4 首"有封面"的歌:1 张铺满 / 2-3 张仍用首张铺满(半拼不好看) / ≥4 张 2x2 马赛克
@@ -42,6 +42,7 @@ export default function MyPlaylist() {
   const [meta, setMeta] = useState(null); // {collectionId, name}
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
   const { play, isPlaying } = usePlayer();
   const { remove, refresh, collections } = useCollections();
   const currentCollection = collections.find((c) => c.id === meta?.collectionId);
@@ -51,6 +52,7 @@ export default function MyPlaylist() {
 
   const load = useCallback(async (collectionId) => {
     setLoading(true);
+    setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
     try {
       const data = await getCollectionSongs(collectionId);
       const list = Array.isArray(data) ? data : (data?.songs || []);
@@ -95,6 +97,36 @@ export default function MyPlaylist() {
     setMeta(null); setSongs([]);
   };
 
+  const handleDownloadAll = async () => {
+    if (!songs.length || bulkDownload.phase === 'running') return;
+
+    const total = songs.length;
+    let done = 0;
+    let fail = 0;
+    setBulkDownload({ phase: 'running', done, fail, total });
+
+    for (const song of songs) {
+      try {
+        const result = await saveToServer(song);
+        if (result?.saved) done += 1;
+        else fail += 1;
+      } catch {
+        fail += 1;
+      }
+      setBulkDownload({ phase: 'running', done, fail, total });
+    }
+
+    setBulkDownload({ phase: fail ? 'fail' : 'done', done, fail, total });
+  };
+
+  const bulkDownloadLabel = (() => {
+    if (bulkDownload.phase === 'running') return `下载中 ${bulkDownload.done + bulkDownload.fail}/${bulkDownload.total}`;
+    if (bulkDownload.phase === 'done') return `已下载 ${bulkDownload.done}/${bulkDownload.total}`;
+    if (bulkDownload.phase === 'fail') return `失败 ${bulkDownload.fail} 首`;
+    return '全部下载到 NAS';
+  })();
+  const BulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
+
   return (
     <div>
       <div className="flex items-end gap-4 mb-6">
@@ -103,11 +135,22 @@ export default function MyPlaylist() {
           <p className="text-xs uppercase tracking-wider text-muted-foreground">歌单</p>
           <h1 className="text-3xl font-black truncate">{currentName}</h1>
           <p className="text-sm text-muted-foreground mt-1">{songs.length} 首</p>
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-wrap items-center gap-2 mt-3">
             <button onClick={() => songs.length && play(songs[0], songs)}
               disabled={!songs.length}
               className="flex items-center gap-2 px-5 py-2 rounded-full bg-primary text-primary-foreground font-semibold disabled:opacity-50">
               <Play size={18} fill="currentColor" />播放全部
+            </button>
+            <button onClick={handleDownloadAll}
+              disabled={!songs.length || bulkDownload.phase === 'running'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+                bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
+                : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                : 'bg-secondary text-foreground hover:bg-secondary/80'
+              }`}
+              title="把当前歌单全部下载到服务器(NAS)">
+              <BulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
+              {bulkDownloadLabel}
             </button>
             {canDeleteCollection && (
               <button onClick={handleDeleteCollection}
