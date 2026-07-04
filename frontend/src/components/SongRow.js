@@ -42,6 +42,17 @@ const CoverThumb = ({ song, size = 44 }) => {
   );
 };
 
+const PlayingCoverBars = () => (
+  <div className="song-row-playing-cover" aria-hidden="true">
+    <div className="song-row-equalizer">
+      <span />
+      <span />
+      <span />
+      <span />
+    </div>
+  </div>
+);
+
 const qualityOf = (song) => {
   const ext = (song.ext || '').toLowerCase();
   const br = song.bitrate || 0;
@@ -316,11 +327,12 @@ const SongRow = ({
       <div className="min-w-0 flex items-center gap-3">
         <div className="relative flex-shrink-0">
           <CoverThumb song={rowSong} />
+          {isPlaying && <PlayingCoverBars />}
           <button
             type="button"
             onClick={playFromButton}
             className={`absolute inset-0 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
-              isPlaying ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+              isPlaying ? 'pointer-events-none opacity-0' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
             }`}
             title="播放"
             aria-label="播放"
