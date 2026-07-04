@@ -35,7 +35,7 @@ const GROUPS = [
 const MOBILE_TABS = GROUPS.flatMap((g) => g.items).filter((i) => i.primary);
 
 // 桌面左侧固定栏
-export function Sidebar({ currentSection, onNavigate }) {
+export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
   const { user, isAdmin, logout, desktop } = useAuth();
   return (
     <aside className="hidden md:flex flex-col w-60 flex-shrink-0 bg-black/40 border-r border-border h-full overflow-y-auto app-scroll">
@@ -85,7 +85,7 @@ export function Sidebar({ currentSection, onNavigate }) {
           </div>
         ))}
         {/* 歌单组:列推荐歌单,点击跳热门页并打开该歌单(1:1 复刻 Spotify 左栏 Playlists) */}
-        <PlaylistNav onNavigate={onNavigate} />
+        <PlaylistNav currentSection={currentSection} currentSubPath={currentSubPath} onNavigate={onNavigate} />
       </nav>
       {/* 底部:当前用户 + 登出(桌面本机模式无需登出) */}
       {user && (
@@ -110,7 +110,7 @@ export function Sidebar({ currentSection, onNavigate }) {
 }
 
 // 侧栏自建歌单列表:列我的歌单 + 新建/导入,点击 → 切到歌单页打开
-function PlaylistNav({ onNavigate }) {
+function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
   const { collections, create, refresh } = useCollections();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -119,6 +119,7 @@ function PlaylistNav({ onNavigate }) {
   const [importing, setImporting] = useState(false);
   const fileRef = React.useRef(null);
   const btnRef = React.useRef(null);
+  const activeCollectionId = currentSection === 'MyPlaylist' && currentSubPath != null ? String(currentSubPath) : null;
 
   const openNew = (c, nm) => {
     if (c && c.id != null) { onNavigate('MyPlaylist', c.id); requestOpenPlaylist({ collectionId: c.id, name: nm || c.name, kind: c.kind }); }
@@ -201,27 +202,34 @@ function PlaylistNav({ onNavigate }) {
       {collections.length === 0 && !creating && (
         <p className="px-3 text-xs text-muted-foreground/70">点 + 新建或导入歌单</p>
       )}
-      {collections.map((c) => (
-        <button
-          key={c.id}
-          onClick={() => { onNavigate('MyPlaylist', c.id); requestOpenPlaylist({ collectionId: c.id, name: c.name, kind: c.kind }); }}
-          className="w-full flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors text-left"
-          title={c.name}
-        >
-          <Music size={16} className="flex-shrink-0" />
-          <span className="truncate">{c.name}</span>
-        </button>
-      ))}
+      {collections.map((c) => {
+        const active = activeCollectionId === String(c.id);
+        return (
+          <button
+            key={c.id}
+            onClick={() => { onNavigate('MyPlaylist', c.id); requestOpenPlaylist({ collectionId: c.id, name: c.name, kind: c.kind }); }}
+            className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors text-left ${
+              active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+            title={c.name}
+            aria-current={active ? 'page' : undefined}
+          >
+            <Music size={16} className="flex-shrink-0" />
+            <span className="truncate">{c.name}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 // 移动端底部 Tab 栏:主项(首页/搜索/设置)+「更多」抽屉(桌面侧栏在手机上没有,
 // 此前歌单/艺人/帮助/账号/登出/用户管理在手机端全丢失,这里用抽屉补回)。
-export function MobileTabBar({ currentSection, onNavigate }) {
+export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const { user, isAdmin, logout, desktop } = useAuth();
   const { collections } = useCollections();
+  const activeCollectionId = currentSection === 'MyPlaylist' && currentSubPath != null ? String(currentSubPath) : null;
 
   const go = (section, after, subPath) => {
     setMoreOpen(false);
@@ -289,14 +297,20 @@ export function MobileTabBar({ currentSection, onNavigate }) {
               {(collections || []).length === 0 ? (
                 <p className="px-3 py-2 text-sm text-muted-foreground">还没有歌单</p>
               ) : (
-                collections.map((c) => (
-                  <button key={c.id}
-                    onClick={() => go('MyPlaylist', () => requestOpenPlaylist({ collectionId: c.id, name: c.name, kind: c.kind }), c.id)}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors text-left">
-                    <Music size={16} className="flex-shrink-0" />
-                    <span className="truncate">{c.name}</span>
-                  </button>
-                ))
+                collections.map((c) => {
+                  const active = activeCollectionId === String(c.id);
+                  return (
+                    <button key={c.id}
+                      onClick={() => go('MyPlaylist', () => requestOpenPlaylist({ collectionId: c.id, name: c.name, kind: c.kind }), c.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-left ${
+                        active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                      aria-current={active ? 'page' : undefined}>
+                      <Music size={16} className="flex-shrink-0" />
+                      <span className="truncate">{c.name}</span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
