@@ -141,6 +141,7 @@ const SongRow = ({
   song,
   index,
   isPlaying,
+  isPaused = false,
   onPlay,
   onShowLyric,
   liveInfo,
@@ -163,6 +164,8 @@ const SongRow = ({
   const sizeLabel = liveInfo?.size || fmtSize(rowSong.size);
   const rowKey = songIdentityKey(rowSong);
   const albumTitle = rowSong.album || '—';
+  const showPlayingBars = isPlaying && !isPaused;
+  const showPausedCoverPlayButton = isPlaying && isPaused;
 
   useEffect(() => {
     if (!openMenu) return undefined;
@@ -327,12 +330,16 @@ const SongRow = ({
       <div className="min-w-0 flex items-center gap-3">
         <div className="relative flex-shrink-0">
           <CoverThumb song={rowSong} />
-          {isPlaying && <PlayingCoverBars />}
+          {showPlayingBars && <PlayingCoverBars />}
           <button
             type="button"
             onClick={playFromButton}
             className={`absolute inset-0 hidden items-center justify-center rounded bg-black/45 text-primary transition-opacity md:flex ${
-              isPlaying ? 'pointer-events-none opacity-0' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+              showPausedCoverPlayButton
+                ? 'pointer-events-auto opacity-100'
+                : isPlaying
+                  ? 'pointer-events-none opacity-0'
+                  : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
             }`}
             title="播放"
             aria-label="播放"

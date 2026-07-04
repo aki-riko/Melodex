@@ -6,7 +6,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 
 // 艺人:国内源没有"艺人榜"接口,改为按歌手名搜索其歌曲。
 const Artists = () => {
-  const { play, isPlaying } = usePlayer();
+  const { play, isPlaying, isPaused } = usePlayer();
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
   const [lyric, setLyric] = useState(null);
@@ -65,6 +65,7 @@ const Artists = () => {
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
+            isPaused={isPaused}
             onPlay={(s) => play(s, songs)}
             onShowLyric={showLyric}
           />

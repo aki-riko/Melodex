@@ -11,7 +11,7 @@ import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio'
 
 // 歌单歌曲列表(点开某歌单后)
 const PlaylistSongs = ({ meta, onBack }) => {
-  const { play, isPlaying } = usePlayer();
+  const { play, isPlaying, isPaused } = usePlayer();
   const { user, offline } = useAuth();
   const { create, addSong } = useCollections();
   const feedback = useFeedback();
@@ -240,6 +240,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
             song={song}
             index={idx}
             isPlaying={isPlaying(song)}
+            isPaused={isPaused}
             onPlay={(s) => play(s, songs)}
             onShowLyric={showLyric}
           />
