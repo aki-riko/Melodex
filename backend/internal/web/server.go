@@ -45,7 +45,7 @@ func defaultSourcesForSearchType(searchType string) []string {
 	case "album":
 		return core.GetAlbumSourceNames()
 	case "lyric":
-		return core.GetDefaultSourceNames()
+		return core.GetLyricSearchSourceNames()
 	default:
 		return core.GetDefaultSourceNames()
 	}

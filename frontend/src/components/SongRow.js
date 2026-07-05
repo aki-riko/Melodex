@@ -371,8 +371,9 @@ const SongRow = ({
             {(cacheState === 'fail' || dlState === 'fail') && statusBadge('失败', 'bg-destructive/10 text-destructive')}
           </div>
           {lyricMatch && (
-            <p className="mt-1 truncate text-xs text-primary/80">
-              {lyricMatch}
+            <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-primary/80">
+              <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-semibold text-primary">歌词命中</span>
+              <span className="truncate">{lyricMatch}</span>
             </p>
           )}
         </div>
