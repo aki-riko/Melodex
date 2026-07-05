@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from 'react-query';
 import { QRCodeCanvas } from 'qrcode.react';
+import { CheckCircle2, ExternalLink, KeyRound, LogOut, QrCode, X } from 'lucide-react';
 import {
   getQRSources,
   createQRLogin,
@@ -72,8 +73,15 @@ const qrExtraFlag = (extra, key) => {
   return value === '1' || value === 'true' || value === 'yes';
 };
 
+const platformHint = (source, loggedIn, qrSupported) => {
+  if (SOURCE_NOTES[source]) return SOURCE_NOTES[source];
+  if (!qrSupported) return '该平台暂不支持扫码,请粘贴网页版 Cookie。';
+  if (loggedIn) return '凭证已保存,会员链路会在验活与下载时自动使用。';
+  return '优先扫码登录;需要无损时可改用完整 Cookie。';
+};
+
 // 二维码登录卡片
-const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
+const QRLoginCard = ({ source, loggedIn, onLoggedIn, onLogout, qrSupported = true }) => {
   const manualSupported = source !== 'qq_wx';
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState('');
@@ -81,7 +89,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
   const [sodaSMS, setSodaSMS] = useState(null);
   const [sodaSMSCode, setSodaSMSCode] = useState('');
   const [sodaSMSBusy, setSodaSMSBusy] = useState(false);
-  const [showManual, setShowManual] = useState(!qrSupported && manualSupported);
+  const [showManual, setShowManual] = useState(false);
   const [manualCookie, setManualCookie] = useState('');
   const [manualMsg, setManualMsg] = useState('');
   const pollRef = useRef(null);
@@ -94,7 +102,7 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
       setManualMsg('已保存 ✓');
       setManualCookie('');
       onLoggedIn();
-      setTimeout(() => { setShowManual(false); setManualMsg(''); }, 1200);
+      setTimeout(() => { setShowManual(false); setManualMsg(''); }, 700);
     } catch (e) {
       setManualMsg(e?.name === 'AuthRequiredError' ? '需先登录管理员' : '保存失败');
     }
@@ -105,6 +113,15 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+  };
+
+  const closeQRSession = () => {
+    stopPoll();
+    setSession(null);
+    setStatus('');
+    setStatusNote('');
+    setSodaSMS(null);
+    setSodaSMSCode('');
   };
 
   useEffect(() => () => stopPoll(), []);
@@ -204,139 +221,222 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, qrSupported = true }) => {
             stopPoll();
           }
         } catch (e) {
-          /* 轮询失败忽略,继续下一次 */
+          setStatusNote(e?.message || '登录状态检查失败,稍后会自动重试');
         }
       }, 2000);
     } catch (e) {
       setStatus('failed');
+      setStatusNote(e?.message || '二维码创建失败');
     }
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg p-4">
-      <div className="flex justify-between items-center mb-3">
-        <span className="font-semibold">{sourceLabel(source)}</span>
-        {loggedIn ? (
-          <span className="text-xs font-medium px-2 py-0.5 border border-border rounded-md bg-success text-success-foreground">已登录</span>
-        ) : (
-          <span className="text-xs font-medium px-2 py-0.5 border border-border rounded-md bg-muted text-muted-foreground">未登录</span>
-        )}
-      </div>
-      {SOURCE_NOTES[source] && (
-        <p className="text-xs leading-relaxed text-muted-foreground bg-muted rounded-md p-2 mb-3">{SOURCE_NOTES[source]}</p>
-      )}
-      {session && (session.image_url || session.url) && status !== 'success' && (
-        <div className="flex flex-col items-center mb-3">
-          <div className="bg-white border border-border rounded-md p-2">
-            {session.image_url ? (
-              /* QQ 等源直接返回画好的二维码图(base64 PNG) */
-              <img src={session.image_url} alt="登录二维码" width={180} height={180} />
-            ) : (
-              /* 网易云等源返回二维码内容文本,前端自己画 */
-              <QRCodeCanvas value={session.url} size={180} />
+    <>
+      <div className="flex h-full min-h-[172px] flex-col rounded-lg border border-border bg-card p-4">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold text-foreground">{sourceLabel(source)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{qrSupported ? '支持扫码' : '仅 Cookie'}</p>
+          </div>
+          <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
+            loggedIn
+              ? 'border-primary/35 bg-primary/15 text-primary'
+              : 'border-border bg-secondary text-muted-foreground'
+          }`}>
+            {loggedIn && <CheckCircle2 size={13} />}
+            {loggedIn ? '已登录' : '未登录'}
+          </span>
+        </div>
+
+        <p className="min-h-[40px] text-xs leading-relaxed text-muted-foreground">
+          {platformHint(source, loggedIn, qrSupported)}
+        </p>
+
+        <div className="mt-auto pt-4">
+          {qrSupported ? (
+            <button
+              onClick={startLogin}
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+            >
+              <QrCode size={17} />
+              {session ? '刷新二维码' : '扫码登录'}
+            </button>
+          ) : manualSupported ? (
+            <button
+              onClick={() => setShowManual(true)}
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+            >
+              <KeyRound size={17} />
+              填写 Cookie
+            </button>
+          ) : null}
+
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {manualSupported && qrSupported && (
+              <button
+                onClick={() => setShowManual(true)}
+                className={`${loggedIn && source !== 'qq_wx' ? '' : 'col-span-2'} flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground`}
+              >
+                <KeyRound size={15} />
+                {loggedIn ? '更新 Cookie' : '手填 Cookie'}
+              </button>
+            )}
+            {loggedIn && source !== 'qq_wx' && (
+              <button
+                onClick={() => onLogout(source)}
+                className={`${manualSupported && qrSupported ? '' : 'col-span-2'} flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground`}
+              >
+                <LogOut size={15} />
+                退出登录
+              </button>
             )}
           </div>
-          <p className="text-sm font-medium text-muted-foreground mt-2">{STATUS_TEXT[status] || status}</p>
         </div>
-      )}
-      {statusNote && (
-        <p className="text-xs leading-relaxed text-muted-foreground bg-muted rounded-md p-2 mb-3">{statusNote}</p>
-      )}
-      {sodaSMS && (
-        <div className="text-xs leading-relaxed text-muted-foreground bg-muted rounded-md p-2 mb-3">
-          {sodaSMS.mode === 'up' ? (
-            <>
-              <p>请按汽水要求发送短信。</p>
-              <p>收件号码: <span className="text-foreground">{sodaSMS.upSMSMobile || '按手机提示'}</span></p>
-              <p>短信内容: <span className="text-foreground">{sodaSMS.upSMSContent || '按手机提示'}</span></p>
-              <button
-                onClick={sendSodaSMS}
-                disabled={sodaSMSBusy}
-                className="mt-2 px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
-              >
-                {sodaSMSBusy ? '确认中...' : '我已发送'}
+      </div>
+
+      {session && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 p-4" onClick={closeQRSession}>
+          <div className="w-full max-w-sm rounded-lg border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div className="min-w-0">
+                <p className="font-semibold">{sourceLabel(source)} 扫码登录</p>
+                <p className="text-xs text-muted-foreground">{STATUS_TEXT[status] || status || '正在生成二维码...'}</p>
+              </div>
+              <button onClick={closeQRSession} className="text-muted-foreground transition-colors hover:text-foreground" aria-label="关闭二维码">
+                <X size={20} />
               </button>
-            </>
-          ) : (
-            <>
-              <p>{sodaSMS.codeSent ? `验证码已发送${sodaSMS.mobile ? `至 ${sodaSMS.mobile}` : ''}` : `扫码成功${sodaSMS.mobile ? `,可发送验证码至 ${sodaSMS.mobile}` : ',需要短信验证'}`}</p>
-              {!sodaSMS.codeSent && (
-                <button
-                  onClick={sendSodaSMS}
-                  disabled={sodaSMSBusy}
-                  className="mt-2 px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
-                >
-                  {sodaSMSBusy ? '发送中...' : '发送验证码'}
-                </button>
-              )}
-              {sodaSMS.codeSent && (
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    value={sodaSMSCode}
-                    onChange={(e) => setSodaSMSCode(e.target.value)}
-                    placeholder="验证码"
-                    className="min-w-0 flex-grow px-2 py-1 border border-border rounded-md bg-card text-xs outline-none focus:border-primary"
-                  />
-                  <button
-                    onClick={validateSodaSMS}
-                    disabled={sodaSMSBusy}
-                    className="px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
-                  >
-                    {sodaSMSBusy ? '验证中...' : '确认登录'}
-                  </button>
+            </div>
+            <div className="p-4">
+              {(session.image_url || session.url) && status !== 'success' && (
+                <div className="flex flex-col items-center">
+                  <div className="rounded-md border border-border bg-white p-2">
+                    {session.image_url ? (
+                      <img src={session.image_url} alt="登录二维码" width={192} height={192} />
+                    ) : (
+                      <QRCodeCanvas value={session.url} size={192} />
+                    )}
+                  </div>
                 </div>
               )}
-            </>
-          )}
-        </div>
-      )}
-      {qrSupported && (
-        <button
-          onClick={startLogin}
-          className="w-full px-3 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm transition-colors hover:bg-[#106EBE]"
-        >
-          {session ? '刷新二维码' : '扫码登录'}
-        </button>
-      )}
-      {manualSupported && (
-        <button
-          onClick={() => setShowManual((v) => !v)}
-          className={`${qrSupported ? 'mt-2' : ''} w-full text-xs text-muted-foreground hover:text-primary transition-colors`}
-          title="扫码拿不到无损时,可手动粘贴完整 cookie"
-        >
-          {showManual ? (qrSupported ? '收起' : '收起 Cookie') : '手动填 Cookie(拿无损用)'}
-        </button>
-      )}
-      {showManual && (
-        <div className="mt-2">
-          {COOKIE_HELP[source] && (
-            <div className="text-xs text-muted-foreground mb-2 leading-relaxed bg-muted rounded-md p-2">
-              <p className="font-medium text-foreground mb-1">如何获取 Cookie:</p>
-              <p>1. 浏览器打开 <a href={COOKIE_HELP[source].url} target="_blank" rel="noreferrer" className="text-primary underline">{COOKIE_HELP[source].url}</a> 并登录(用会员账号)</p>
-              <p>2. 按 F12 打开开发者工具 → 「网络/Network」标签</p>
-              <p>3. 刷新页面,点任一请求 → 「标头/Headers」→ 找到请求头里的 <code className="bg-card px-1 rounded">Cookie:</code></p>
-              <p>4. 复制整段 Cookie 值(需包含 <code className="bg-card px-1 rounded">{COOKIE_HELP[source].key}</code>)粘到下方</p>
+
+              {statusNote && (
+                <p className="mt-3 rounded-md bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">{statusNote}</p>
+              )}
+
+              {sodaSMS && (
+                <div className="mt-3 rounded-md bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
+                  {sodaSMS.mode === 'up' ? (
+                    <>
+                      <p>请按汽水要求发送短信。</p>
+                      <p>收件号码: <span className="text-foreground">{sodaSMS.upSMSMobile || '按手机提示'}</span></p>
+                      <p>短信内容: <span className="text-foreground">{sodaSMS.upSMSContent || '按手机提示'}</span></p>
+                      <button
+                        onClick={sendSodaSMS}
+                        disabled={sodaSMSBusy}
+                        className="mt-3 rounded-md border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
+                      >
+                        {sodaSMSBusy ? '确认中...' : '我已发送'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p>{sodaSMS.codeSent ? `验证码已发送${sodaSMS.mobile ? `至 ${sodaSMS.mobile}` : ''}` : `扫码成功${sodaSMS.mobile ? `,可发送验证码至 ${sodaSMS.mobile}` : ',需要短信验证'}`}</p>
+                      {!sodaSMS.codeSent && (
+                        <button
+                          onClick={sendSodaSMS}
+                          disabled={sodaSMSBusy}
+                          className="mt-3 rounded-md border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
+                        >
+                          {sodaSMSBusy ? '发送中...' : '发送验证码'}
+                        </button>
+                      )}
+                      {sodaSMS.codeSent && (
+                        <div className="mt-3 flex items-center gap-2">
+                          <input
+                            value={sodaSMSCode}
+                            onChange={(e) => setSodaSMSCode(e.target.value)}
+                            placeholder="验证码"
+                            className="min-w-0 flex-grow rounded-md border border-border bg-card px-3 py-2 text-xs outline-none focus:border-primary"
+                          />
+                          <button
+                            onClick={validateSodaSMS}
+                            disabled={sodaSMSBusy}
+                            className="rounded-md border border-primary bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"
+                          >
+                            {sodaSMSBusy ? '验证中...' : '确认'}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={startLogin}
+                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+                >
+                  <QrCode size={17} />
+                  刷新二维码
+                </button>
+                <button
+                  onClick={closeQRSession}
+                  className="h-10 rounded-md border border-border bg-secondary px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  关闭
+                </button>
+              </div>
             </div>
-          )}
-          <textarea
-            value={manualCookie}
-            onChange={(e) => setManualCookie(e.target.value)}
-            placeholder={`粘贴 ${sourceLabel(source)} 网页版登录后的完整 Cookie…`}
-            rows={3}
-            className="w-full px-2 py-1.5 border border-border rounded-md bg-card text-xs outline-none focus:border-primary"
-          />
-          <div className="flex items-center gap-2 mt-1">
-            <button
-              onClick={submitManual}
-              className="px-3 py-1 border border-border rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-[#106EBE] transition-colors"
-            >
-              保存
-            </button>
-            {manualMsg && <span className="text-xs text-muted-foreground">{manualMsg}</span>}
           </div>
         </div>
       )}
-    </div>
+
+      {showManual && manualSupported && (
+        <div className="fixed inset-0 z-[76] flex items-center justify-center bg-black/60 p-4" onClick={() => setShowManual(false)}>
+          <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-lg border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div className="min-w-0">
+                <p className="font-semibold">手动填写 Cookie</p>
+                <p className="text-xs text-muted-foreground">{sourceLabel(source)}</p>
+              </div>
+              <button onClick={() => setShowManual(false)} className="text-muted-foreground transition-colors hover:text-foreground" aria-label="关闭手动填写 Cookie">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 app-scroll">
+              {COOKIE_HELP[source] && (
+                <div className="mb-3 rounded-md bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
+                  <p className="mb-2 font-medium text-foreground">获取方式</p>
+                  <p>1. 浏览器打开 <a href={COOKIE_HELP[source].url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline">{COOKIE_HELP[source].url}<ExternalLink size={12} /></a> 并登录会员账号</p>
+                  <p>2. 按 F12 打开开发者工具,进入「网络/Network」</p>
+                  <p>3. 刷新页面,点任一请求,在「标头/Headers」里找到 <code className="rounded bg-card px-1">Cookie:</code></p>
+                  <p>4. 复制整段 Cookie 值,确认包含 <code className="rounded bg-card px-1">{COOKIE_HELP[source].key}</code></p>
+                </div>
+              )}
+              <textarea
+                value={manualCookie}
+                onChange={(e) => setManualCookie(e.target.value)}
+                placeholder={`粘贴 ${sourceLabel(source)} 网页版登录后的完整 Cookie...`}
+                rows={5}
+                className="w-full resize-none rounded-md border border-border bg-secondary px-3 py-2 text-sm outline-none focus:border-primary"
+              />
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={submitManual}
+                  disabled={!manualCookie.trim()}
+                  className="flex h-10 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <KeyRound size={17} />
+                  保存 Cookie
+                </button>
+                {manualMsg && <span className="text-xs text-muted-foreground">{manualMsg}</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -382,22 +482,19 @@ const Settings = () => {
           <p className="text-sm text-muted-foreground mb-4">
             平台会员 Cookie 为全局共享(所有用户共用同一会员链路),仅管理员可配置。
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {sources.map((entry) => {
               const src = typeof entry === 'string' ? entry : entry.source;
               const qrSupported = typeof entry === 'string' ? true : !!entry.qr;
               return (
-              <div key={src}>
-                <QRLoginCard source={src} loggedIn={!!status[src]} onLoggedIn={handleLoggedIn} qrSupported={qrSupported} />
-                {status[src] && src !== 'qq_wx' && (
-                  <button
-                    onClick={() => handleLogout(src)}
-                    className="w-full mt-2 px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm transition-colors hover:bg-secondary"
-                  >
-                    退出登录
-                  </button>
-                )}
-              </div>
+                <QRLoginCard
+                  key={src}
+                  source={src}
+                  loggedIn={!!status[src]}
+                  onLoggedIn={handleLoggedIn}
+                  onLogout={handleLogout}
+                  qrSupported={qrSupported}
+                />
               );
             })}
           </div>
