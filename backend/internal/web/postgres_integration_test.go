@@ -30,7 +30,7 @@ func TestPostgresInitMigratesLegacySQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open legacy sqlite: %v", err)
 	}
-	if err := legacy.AutoMigrate(&User{}, &Collection{}, &SavedSong{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &searchHistoryRow{}, &playHistoryRow{}, &qualityCacheRow{}); err != nil {
+	if err := legacy.AutoMigrate(&User{}, &Collection{}, &SavedSong{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &apiCacheRow{}, &searchHistoryRow{}, &playHistoryRow{}, &qualityCacheRow{}); err != nil {
 		t.Fatalf("migrate legacy sqlite: %v", err)
 	}
 	user := User{ID: 3, Username: "root", PasswordHash: "!", Role: RoleAdmin}
@@ -88,6 +88,7 @@ func dropAllPostgresTestTables(t *testing.T, db *gorm.DB) {
 		&qualityCacheRow{},
 		&playHistoryRow{},
 		&searchHistoryRow{},
+		&apiCacheRow{},
 		&searchCacheRow{},
 		&userPrefRow{},
 		&DownloadRecord{},

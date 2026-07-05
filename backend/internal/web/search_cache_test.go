@@ -2,6 +2,7 @@ package web
 
 import (
 	"testing"
+	"time"
 
 	"github.com/guohuiyuan/music-lib/model"
 )
@@ -52,6 +53,75 @@ func TestSearchCacheRoundTripAndEmptySkip(t *testing.T) {
 	}
 	if len(cached.Songs) != 1 || cached.Songs[0].Cover != "https://x/c.jpg" || cached.Songs[0].Bitrate != 320 {
 		t.Fatalf("cached metadata mismatch: %+v", cached.Songs)
+	}
+}
+
+func TestSearchCacheStaleEntryStillReadableForRefresh(t *testing.T) {
+	setupUserTestDB(t)
+	key := searchCacheKey("song", "stale", "", []string{"qq"})
+	resp := jsonSearchResponse{
+		Type:    "song",
+		Keyword: "stale",
+		Sources: []string{"qq"},
+		Songs:   []model.Song{{ID: "1", Name: "旧缓存", Source: "qq"}},
+	}
+	putCachedSearch(key, resp)
+	old := time.Now().Add(-searchCacheTTL - time.Hour)
+	if err := db.Model(&searchCacheRow{}).Where("key = ?", key).Update("created_at", old).Error; err != nil {
+		t.Fatalf("age cache row: %v", err)
+	}
+
+	if _, ok := getCachedSearch(key); ok {
+		t.Fatal("fresh-only helper should miss stale rows")
+	}
+	entry, ok := getSearchCacheEntry(key)
+	if !ok {
+		t.Fatal("stale row should remain readable for SWR response")
+	}
+	if entry.Fresh {
+		t.Fatal("stale row should not be marked fresh")
+	}
+	if len(entry.Response.Songs) != 1 || entry.Response.Songs[0].Name != "旧缓存" {
+		t.Fatalf("stale payload mismatch: %+v", entry.Response.Songs)
+	}
+}
+
+func TestAPICacheKeyOrderAndStaleMetadata(t *testing.T) {
+	setupUserTestDB(t)
+	argsA := apiCacheArgs{Sources: []string{"qq", "netease"}}
+	argsB := apiCacheArgs{Sources: []string{"netease", "qq"}}
+	keyA := apiCacheKey(apiCacheNamespaceRecommend, argsA)
+	keyB := apiCacheKey(apiCacheNamespaceRecommend, argsB)
+	if keyA != keyB {
+		t.Fatal("api cache key should ignore source order")
+	}
+
+	resp := jsonPlaylistTabsResponse{Tabs: []jsonPlaylistTab{
+		{Source: "qq", SourceName: "QQ音乐", Playlists: []model.Playlist{{ID: "p1", Name: "旧歌单", Source: "qq"}}},
+	}}
+	putAPICache(keyA, apiCacheNamespaceRecommend, argsA, resp)
+	old := time.Now().Add(-apiCacheFreshTTL() - time.Hour)
+	if err := db.Model(&apiCacheRow{}).Where("key = ?", keyA).Update("created_at", old).Error; err != nil {
+		t.Fatalf("age api cache row: %v", err)
+	}
+
+	entry, ok := getAPICacheEntry(keyA)
+	if !ok {
+		t.Fatal("api cache should hit after put")
+	}
+	if entry.Fresh {
+		t.Fatal("aged api cache should be stale")
+	}
+	var cached jsonPlaylistTabsResponse
+	if !decodeAPICachePayload(entry, &cached) {
+		t.Fatal("decode api cache payload failed")
+	}
+	cached.cachedResponseMeta = cacheMetaForEntry(entry)
+	if !cached.Cached || !cached.Refreshing || cached.CachedAt == nil {
+		t.Fatalf("cache meta not marked for refresh: %+v", cached.cachedResponseMeta)
+	}
+	if got := cached.Tabs[0].Playlists[0].Name; got != "旧歌单" {
+		t.Fatalf("cached playlist name = %q", got)
 	}
 }
 

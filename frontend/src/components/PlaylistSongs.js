@@ -9,6 +9,7 @@ import { useCollections } from '../contexts/CollectionsContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import LoadingState from './LoadingState';
+import { useCachedRefresh } from '../hooks/useCachedRefresh';
 
 // 歌单歌曲列表(点开某歌单后)
 const PlaylistSongs = ({ meta, onBack }) => {
@@ -26,6 +27,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
     () => getPlaylistDetail(meta.id, meta.source),
     { enabled: !!meta }
   );
+  useCachedRefresh(state, !!meta);
 
   const showLyric = async (song) => {
     setLyric({ song, text: '加载中…' });
@@ -201,6 +203,12 @@ const PlaylistSongs = ({ meta, onBack }) => {
         />
       )}
       {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
+      {state.data?.cached && state.data?.refreshing && (
+        <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
+          <RotateCw size={15} className="animate-spin text-primary" />
+          <span>正在后台更新缓存，当前先显示上次结果</span>
+        </div>
+      )}
       {hasBulkStatus && (
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
           {bulkDownload.phase !== 'idle' && (

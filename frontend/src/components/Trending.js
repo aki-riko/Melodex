@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from 'react-query';
-import { Play } from 'lucide-react';
+import { Loader2, Play } from 'lucide-react';
 import { getRecommend } from '../services/musicdl';
 import { onOpenPlaylist } from '../services/playlistBus';
 import PlaylistSongs from './PlaylistSongs';
 import LoadingState from './LoadingState';
+import { useCachedRefresh } from '../hooks/useCachedRefresh';
 
 // 热门:展示国内各源(网易云/QQ)的推荐歌单,点进看歌曲并播放/下载。
 const Trending = () => {
   const [open, setOpen] = useState(null); // {id, source, name}
-  const { data, isLoading, isError } = useQuery(['trending-recommend'], () =>
+  const recommend = useQuery(['trending-recommend'], () =>
     getRecommend(['netease', 'qq'])
   );
+  useCachedRefresh(recommend);
+  const { data, isLoading, isError } = recommend;
 
   // 仅处理推荐歌单(带 id+source);自建歌单(collectionId)由 MyPlaylist 处理
   useEffect(() => onOpenPlaylist((meta) => { if (meta && meta.id && meta.source) setOpen(meta); }), []);
@@ -38,6 +41,12 @@ const Trending = () => {
       )}
       {isError && <p className="text-destructive font-medium">获取热门推荐失败</p>}
       {!isLoading && <div className="space-y-8">
+        {data?.cached && data?.refreshing && (
+          <div className="inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 size={15} className="animate-spin text-primary" />
+            <span>正在后台更新缓存，当前先显示上次结果</span>
+          </div>
+        )}
         {tabs.map((tab) => (
           <div key={tab.source}>            <h3 className="text-xl font-semibold mb-3 text-foreground">
               {tab.source_name || tab.source}

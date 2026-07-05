@@ -395,6 +395,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	core.CM.Load()
 	InitDB()
 	defer CloseDB()
+	startBackgroundCacheMaintenance()
 
 	if !opts.DisableAuth {
 		n, err := countUsers()

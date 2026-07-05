@@ -16,12 +16,22 @@ import (
 // 等所有元数据)缓存到 settings.db,TTL 内重复搜索直接返回,不重复打上游。
 // 结果与用户无关,全局共享(不按用户隔离)。链接解析模式不缓存。
 const searchCacheTTL = 24 * time.Hour
+const searchCacheMaxAge = 7 * 24 * time.Hour
+const searchCacheDefaultRefreshEvery = 30 * time.Minute
+const searchCacheBackgroundRefreshRows = 20
 
 // searchCacheRow 一行缓存。Key 为查询指纹,Payload 为 jsonSearchResponse 的 JSON。
 type searchCacheRow struct {
 	Key       string    `gorm:"primaryKey;size:64" json:"-"`
 	Payload   string    `gorm:"type:text;not null" json:"-"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"-"`
+}
+
+type searchCacheEntry struct {
+	Response   jsonSearchResponse
+	CreatedAt  time.Time
+	Fresh      bool
+	Refreshing bool
 }
 
 // searchCacheKey 计算查询指纹。sources 排序后参与,保证顺序无关。
@@ -40,26 +50,40 @@ func searchCacheKey(searchType, keyword, exactArtist string, sources []string) s
 
 // getCachedSearch 命中且未过期返回缓存的响应;否则返回 false。
 func getCachedSearch(key string) (jsonSearchResponse, bool) {
+	entry, ok := getSearchCacheEntry(key)
+	if !ok || !entry.Fresh {
+		return jsonSearchResponse{}, false
+	}
+	return entry.Response, true
+}
+
+func getSearchCacheEntry(key string) (searchCacheEntry, bool) {
 	var resp jsonSearchResponse
 	if db == nil {
-		return resp, false
+		return searchCacheEntry{}, false
 	}
 	var row searchCacheRow
 	if err := db.Where("key = ?", key).Limit(1).Find(&row).Error; err != nil {
-		return resp, false
+		return searchCacheEntry{}, false
 	}
 	if row.Key == "" {
-		return resp, false
+		return searchCacheEntry{}, false
 	}
-	if time.Since(row.CreatedAt) > searchCacheTTL {
-		// 过期:顺手删除,返回未命中。
+	if time.Since(row.CreatedAt) > searchCacheMaxAge {
+		// 超过最大保留期:顺手删除,返回未命中。
 		db.Where("key = ?", key).Delete(&searchCacheRow{})
-		return resp, false
+		return searchCacheEntry{}, false
 	}
 	if err := json.Unmarshal([]byte(row.Payload), &resp); err != nil {
-		return resp, false
+		return searchCacheEntry{}, false
 	}
-	return resp, true
+	_, refreshing := searchCacheRefreshInFlight.Load(key)
+	return searchCacheEntry{
+		Response:   resp,
+		CreatedAt:  row.CreatedAt,
+		Fresh:      time.Since(row.CreatedAt) <= searchCacheTTL,
+		Refreshing: refreshing,
+	}, true
 }
 
 // putCachedSearch 写入/更新缓存。空结果不缓存(避免把"暂时搜不到"固化)。
@@ -70,6 +94,7 @@ func putCachedSearch(key string, resp jsonSearchResponse) {
 	if len(resp.Songs) == 0 && len(resp.Playlists) == 0 {
 		return
 	}
+	resp.cachedResponseMeta = cachedResponseMeta{}
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return
@@ -96,7 +121,7 @@ func maybeGCSearchCache() {
 	}
 	searchCacheLastGC = time.Now()
 	// 删过期
-	db.Where("created_at < ?", time.Now().Add(-searchCacheTTL)).Delete(&searchCacheRow{})
+	db.Where("created_at < ?", time.Now().Add(-searchCacheMaxAge)).Delete(&searchCacheRow{})
 	// 超量则删最旧
 	var n int64
 	if db.Model(&searchCacheRow{}).Count(&n).Error == nil && n > searchCacheMaxRows {
@@ -104,5 +129,35 @@ func maybeGCSearchCache() {
 		if err := db.Order("created_at DESC").Offset(searchCacheMaxRows - 1).Limit(1).Find(&threshold).Error; err == nil && threshold.Key != "" {
 			db.Where("created_at < ?", threshold.CreatedAt).Delete(&searchCacheRow{})
 		}
+	}
+}
+
+func searchCacheRefreshEvery() time.Duration {
+	return durationFromEnv("MUSIC_DL_SEARCH_CACHE_REFRESH_INTERVAL", searchCacheDefaultRefreshEvery)
+}
+
+func refreshStaleSearchCacheRows(limit int) {
+	if db == nil {
+		return
+	}
+	if limit <= 0 {
+		limit = searchCacheBackgroundRefreshRows
+	}
+	var rows []searchCacheRow
+	if err := db.Where("created_at < ?", time.Now().Add(-searchCacheTTL)).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return
+	}
+	for _, row := range rows {
+		var resp jsonSearchResponse
+		if err := json.Unmarshal([]byte(row.Payload), &resp); err != nil {
+			continue
+		}
+		if strings.TrimSpace(resp.Keyword) == "" || strings.HasPrefix(strings.TrimSpace(resp.Keyword), "http") {
+			continue
+		}
+		refreshSearchCacheAsync(row.Key, resp.Type, resp.Keyword, resp.ExactArtist, resp.Sources)
 	}
 }
