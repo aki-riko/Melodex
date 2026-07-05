@@ -35,17 +35,123 @@ import { songIdentityKey } from '../utils/songIdentity';
 import LoadingState from './LoadingState';
 
 const TABS = [
-  { key: 'search', label: '歌曲搜索' },
-  { key: 'lyric', label: '歌词搜索' },
+  { key: 'search', label: '搜索下载' },
   { key: 'discover', label: '推荐歌单' },
 ];
 
 const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
 const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
+const COMBINED_SEARCH_RESULT_LIMIT = 80;
 
 // 搜索结果相关性排序已下沉到后端(/api/v1/search 综合排序:上游名次+翻唱降权+
 // 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
+
+const compactSearchText = (value) => String(value || '').replace(/[\s/\\|,，.。;；:：!！?？、'"“”‘’《》<>()[\]【】{}-]+/g, '').toLocaleLowerCase();
+
+const hasExactLyricHit = (song, query) => {
+  const q = compactSearchText(query);
+  if (q.length < 5) return false;
+  const match = song?.extra && typeof song.extra === 'object' ? song.extra.lyric_match : '';
+  return compactSearchText(match).includes(q);
+};
+
+const mergeSongData = (base, incoming) => ({
+  ...incoming,
+  ...base,
+  extra: {
+    ...(incoming?.extra || {}),
+    ...(base?.extra || {}),
+    lyric_match: (base?.extra?.lyric_match || incoming?.extra?.lyric_match || ''),
+  },
+});
+
+const artistParts = (artist) => String(artist || '')
+  .split(/[、,，/&\s-]+/)
+  .map(compactSearchText)
+  .filter((part) => part.length >= 2);
+
+const combinedSearchKey = (song) => {
+  const source = String(song?.source || '').trim();
+  const id = String(song?.id || '').trim();
+  if (source && id) return `${source}:${id}`;
+  const title = compactSearchText(song?.name);
+  const artist = compactSearchText(song?.artist);
+  const duration = song?.duration || '';
+  return title ? `${source}:${title}:${artist}:${duration}` : songIdentityKey(song);
+};
+
+const hasTitleArtistHit = (song, query) => {
+  const q = compactSearchText(query);
+  const title = compactSearchText(song?.name);
+  if (!q || title.length < 2 || !q.includes(title)) return false;
+  const artists = artistParts(song?.artist);
+  return artists.length === 0 || artists.some((artist) => q.includes(artist));
+};
+
+const mergeSearchSongs = (query, songSongs = [], lyricSongs = []) => {
+  const lyricFirst = lyricSongs.some((song) => hasExactLyricHit(song, query));
+  const orderedGroups = lyricFirst ? [lyricSongs, songSongs] : [songSongs, lyricSongs];
+  const byKey = new Map();
+  const merged = [];
+
+  const appendSong = (song) => {
+    const key = combinedSearchKey(song);
+    if (!key) return;
+    const existing = byKey.get(key);
+    if (existing) {
+      byKey.set(key, mergeSongData(existing, song));
+      return;
+    }
+    byKey.set(key, song);
+    merged.push(key);
+  };
+
+  const appendGroup = (group, predicate = null) => {
+    group.forEach((song) => {
+      if (!predicate || predicate(song)) appendSong(song);
+    });
+  };
+
+  if (!lyricFirst) {
+    orderedGroups.forEach((group) => appendGroup(group, (song) => hasTitleArtistHit(song, query)));
+  }
+  orderedGroups.forEach((group) => appendGroup(group));
+
+  return merged.map((key) => byKey.get(key));
+};
+
+const searchSongsAndLyrics = async (keyword) => {
+  const query = keyword.trim();
+  const isLink = /^(https?:\/\/|www\.)/i.test(query);
+  const requests = [
+    searchMusic(query, { type: 'song' }),
+    ...(isLink ? [] : [searchMusic(query, { type: 'lyric' })]),
+  ];
+  const [songResult, lyricResult] = await Promise.allSettled(requests);
+  const songData = songResult?.status === 'fulfilled' ? songResult.value : null;
+  const lyricData = lyricResult?.status === 'fulfilled' ? lyricResult.value : null;
+  const failures = [songResult, lyricResult]
+    .filter((result) => result && result.status === 'rejected')
+    .map((result) => result.reason?.message || String(result.reason));
+
+  if (!songData && !lyricData) {
+    throw new Error(failures[0] || '搜索失败');
+  }
+
+  const songs = mergeSearchSongs(query, songData?.songs || [], lyricData?.songs || []).slice(0, COMBINED_SEARCH_RESULT_LIMIT);
+  return {
+    ...(songData || lyricData || {}),
+    type: 'combined',
+    keyword: query,
+    songs,
+    playlists: songData?.playlists || [],
+    cached: !!(songData?.cached || lyricData?.cached),
+    refreshing: !!(songData?.refreshing || lyricData?.refreshing),
+    cached_at: songData?.cached_at || lyricData?.cached_at,
+    error: songs.length === 0 ? (songData?.error || lyricData?.error || failures[0] || '') : '',
+  };
+};
 
 const SearchStatusPanel = ({ stage, progress, available, total }) => {
   if (!stage) return null;
@@ -118,11 +224,10 @@ const QueryRefreshProgress = ({ active, className = '' }) => {
   );
 };
 
-// 歌曲搜索面板
-const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, searchType = 'song', state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
+// 搜索面板
+const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
   const feedback = useFeedback();
-  const isLyricSearch = searchType === 'lyric';
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
   const { status, progress } = useLiveCheck(allSongs);
 
@@ -220,8 +325,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, searchTyp
     if (!query && !state.isLoading) return null;
     if (state.isLoading) {
       return {
-        title: isLyricSearch ? `正在按歌词搜索「${query}」` : `正在搜索「${query}」`,
-        detail: isLyricSearch ? '正在调用支持歌词搜索的平台接口，按歌词片段返回歌曲。' : '正在从多个音乐源拉取候选结果。',
+        title: `正在搜索「${query}」`,
+        detail: '正在同时匹配歌名、歌手和歌词片段。',
         icon: Loader2,
         loading: true,
       };
@@ -282,7 +387,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, searchTyp
           type="text"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder={isLyricSearch ? '输入一句歌词，比如“确认过眼神”' : '输入歌名 / 歌手,或粘贴链接…'}
+          placeholder="输入歌名 / 歌手 / 歌词，或粘贴链接…"
           className="flex-grow rounded-md border border-border bg-card px-4 py-3 font-medium outline-none transition-colors focus:border-primary"
         />
         <button type="submit" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:brightness-110">
@@ -349,7 +454,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, searchTyp
             onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
             liveInfo={status[songIdentityKey(song)]}
-            lyricQuery={isLyricSearch ? query : ''}
+            lyricQuery={query}
           />
         ))}
       </div>
@@ -655,12 +760,12 @@ const Download = ({ downloadRequest }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadRequest?.ts]);
 
-  // 歌曲搜索
+  // 歌名 + 歌词合并搜索
   const search = useQuery(
-    ['musicdl-search', tab === 'lyric' ? 'lyric' : 'song', query],
-    () => searchMusic(query, { type: tab === 'lyric' ? 'lyric' : 'song' }),
+    ['musicdl-search', 'combined', query],
+    () => searchSongsAndLyrics(query),
     {
-      enabled: (tab === 'search' || tab === 'lyric') && !!query,
+      enabled: tab === 'search' && !!query,
       keepPreviousData: true,
       // 失焦/重新聚焦不自动重搜(否则切窗口回来会重新搜索+重新验活)
       refetchOnWindowFocus: false,
@@ -668,7 +773,7 @@ const Download = ({ downloadRequest }) => {
       staleTime: 5 * 60 * 1000,
     }
   );
-  useCachedRefresh(search, (tab === 'search' || tab === 'lyric') && !!query);
+  useCachedRefresh(search, tab === 'search' && !!query);
 
   // 推荐歌单(默认网易云 + QQ)
   const recommend = useQuery(
@@ -738,14 +843,13 @@ const Download = ({ downloadRequest }) => {
         ))}
       </div>
 
-      {(tab === 'search' || tab === 'lyric') && (
+      {tab === 'search' && (
         <SearchPane
           keyword={keyword}
           setKeyword={setKeyword}
           onSubmit={handleSearch}
           runSearch={runSearch}
           query={query}
-          searchType={tab === 'lyric' ? 'lyric' : 'song'}
           state={search}
           onPlay={handlePlay}
           onTogglePlayback={togglePlay}
