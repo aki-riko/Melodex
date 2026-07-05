@@ -399,6 +399,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
   const closeSuggestionTimerRef = useRef(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [autoPlayQuery, setAutoPlayQuery] = useState('');
   const rawSuggestionKeyword = keyword.trim();
   const debouncedSuggestionKeyword = useDebouncedValue(rawSuggestionKeyword, SEARCH_SUGGESTION_DEBOUNCE_MS);
   const canSuggest = rawSuggestionKeyword.length >= SEARCH_SUGGESTION_MIN_LENGTH && !SEARCH_LINK_RE.test(rawSuggestionKeyword);
@@ -468,6 +469,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     if (!value) return;
     setSuggestionsOpen(false);
     setActiveSuggestion(-1);
+    setAutoPlayQuery(value);
     if (runSearch) runSearch(value);
   };
 
@@ -495,6 +497,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
   };
 
   const handleFormSubmit = (event) => {
+    setAutoPlayQuery('');
     setSuggestionsOpen(false);
     setActiveSuggestion(-1);
     onSubmit(event);
@@ -512,6 +515,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
   const [historyNotice, setHistoryNotice] = useState('');
 
   const onChipSearch = (kw) => {
+    setAutoPlayQuery('');
     if (runSearch) runSearch(kw);
   };
   const onChipDelete = async (kw, e) => {
@@ -583,6 +587,36 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       return a.i - b.i;
     })
     .map((x) => x.s);
+
+  const hasCurrentSearchResult = !!query && state.data?.keyword === query;
+
+  useEffect(() => {
+    if (!autoPlayQuery || query !== autoPlayQuery || !hasCurrentSearchResult) return;
+
+    if (songs.length > 0) {
+      onPlay(songs[0], songs);
+      setAutoPlayQuery('');
+      return;
+    }
+
+    const liveCheckFinished = progress.total > 0 && progress.done >= progress.total;
+    const searchFinishedWithoutSongs = !state.isLoading && allSongs.length === 0;
+    if (state.isError || state.data?.error || liveCheckFinished || searchFinishedWithoutSongs) {
+      setAutoPlayQuery('');
+    }
+  }, [
+    allSongs.length,
+    autoPlayQuery,
+    hasCurrentSearchResult,
+    onPlay,
+    progress.done,
+    progress.total,
+    query,
+    songs,
+    state.data?.error,
+    state.isError,
+    state.isLoading,
+  ]);
 
   const sortBtnCls = (mode) =>
     `rounded-md border px-3 py-2 text-left transition-colors ${
@@ -659,6 +693,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
             onFocus={openSuggestions}
             onBlur={closeSuggestionsSoon}
             onChange={(e) => {
+              setAutoPlayQuery('');
               setKeyword(e.target.value);
               openSuggestions();
             }}
