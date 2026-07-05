@@ -120,6 +120,9 @@ func TestLoginAndMe(t *testing.T) {
 	if cookie == nil {
 		t.Fatal("login should set session cookie")
 	}
+	if cookie.MaxAge != int(defaultSessionMaxAge.Seconds()) {
+		t.Fatalf("login cookie MaxAge = %d, want %d", cookie.MaxAge, int(defaultSessionMaxAge.Seconds()))
+	}
 
 	// /me 带 cookie 返回当前用户。
 	meReq := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
@@ -138,6 +141,30 @@ func TestLoginAndMe(t *testing.T) {
 	}
 	if meResp.User.Username != "alice" || meResp.User.Role != RoleUser {
 		t.Fatalf("unexpected /me user: %+v", meResp.User)
+	}
+}
+
+func TestLoginCookieUsesConfiguredSessionMaxAge(t *testing.T) {
+	setupUserTestDB(t)
+	t.Setenv(sessionDaysEnv, "30")
+	r := newAuthAPITestRouter(t)
+	if _, err := createUser("alice", "alicepass1", RoleUser); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	rec := doJSON(r, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"username": "alice", "password": "alicepass1",
+	}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	cookie := sessionCookieFromRec(rec)
+	if cookie == nil {
+		t.Fatal("login should set session cookie")
+	}
+	want := int((30 * 24 * time.Hour).Seconds())
+	if cookie.MaxAge != want {
+		t.Fatalf("configured cookie MaxAge = %d, want %d", cookie.MaxAge, want)
 	}
 }
 

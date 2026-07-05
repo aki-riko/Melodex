@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,12 +23,16 @@ import (
 )
 
 const (
-	authCookieName      = "music_dl_session"
-	sessionMaxAge       = 7 * 24 * time.Hour
-	minAuthPasswordSize = 8
-	setupTokenBytes     = 24
-	loginLockBaseDelay  = time.Second
-	loginLockMaxDelay   = time.Minute
+	authCookieName       = "music_dl_session"
+	sessionMaxAgeEnv     = "MUSIC_DL_SESSION_MAX_AGE"
+	sessionDaysEnv       = "MUSIC_DL_SESSION_DAYS"
+	defaultSessionMaxAge = 180 * 24 * time.Hour
+	minSessionMaxAge     = time.Hour
+	maxSessionMaxAge     = 3650 * 24 * time.Hour
+	minAuthPasswordSize  = 8
+	setupTokenBytes      = 24
+	loginLockBaseDelay   = time.Second
+	loginLockMaxDelay    = time.Minute
 )
 
 var authRuntime = newAuthRuntimeState()
@@ -147,6 +153,23 @@ func randomToken(byteLen int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
+func sessionMaxAge() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv(sessionMaxAgeEnv)); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d >= minSessionMaxAge && d <= maxSessionMaxAge {
+			return d
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv(sessionDaysEnv)); raw != "" {
+		if days, err := strconv.Atoi(raw); err == nil {
+			d := time.Duration(days) * 24 * time.Hour
+			if d >= minSessionMaxAge && d <= maxSessionMaxAge {
+				return d
+			}
+		}
+	}
+	return defaultSessionMaxAge
+}
+
 // signingSecret 返回全局会话签名密钥(HMAC-SHA256)。多用户共用同一签名密钥,
 // 用户身份由 payload 内的 UserID 区分。密钥存在 WebAuthSettings.SessionSecret,
 // 首次调用若缺失则生成并持久化(幂等)。
@@ -230,7 +253,7 @@ func parseSessionValue(secret, value string, now time.Time) (sessionPayload, boo
 		return payload, false
 	}
 	issuedAt := time.Unix(payload.IssuedAt, 0)
-	if issuedAt.After(now.Add(2*time.Minute)) || now.Sub(issuedAt) > sessionMaxAge {
+	if issuedAt.After(now.Add(2*time.Minute)) || now.Sub(issuedAt) > sessionMaxAge() {
 		return payload, false
 	}
 	return payload, true
@@ -250,7 +273,7 @@ func setAuthCookie(c *gin.Context, value string) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	// Path 用 "/" 而非 RoutePrefix:登录态需覆盖 React(/)与 /api/* 接口,
 	// 否则跳回根后 React 调 /api/* 带不上鉴权 cookie → 表现为"没登录"。
-	c.SetCookie(authCookieName, value, int(sessionMaxAge.Seconds()), "/", "", isSecureRequest(c), true)
+	c.SetCookie(authCookieName, value, int(sessionMaxAge().Seconds()), "/", "", isSecureRequest(c), true)
 }
 
 func clearAuthCookie(c *gin.Context) {

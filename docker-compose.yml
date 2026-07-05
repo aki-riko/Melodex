@@ -36,6 +36,8 @@ services:
       MUSIC_DL_DATABASE_DRIVER: postgres
       MUSIC_DL_DATABASE_DSN: host=postgres user=${POSTGRES_USER:-melodex} password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env} dbname=${POSTGRES_DB:-melodex} port=5432 sslmode=disable TimeZone=Asia/Shanghai
       MUSIC_DL_LEGACY_SQLITE_DB: /home/appuser/data/settings.db
+      # Web 登录会话默认 180 天;可按需改天数,或用 MUSIC_DL_SESSION_MAX_AGE=720h 这类 Go duration。
+      # MUSIC_DL_SESSION_DAYS: "180"
       # Subsonic API facade(默认关):配齐下面三项才启用,音流/substreamer 等
       # 标准 Subsonic 客户端即可连本服务搜全网/在线听/听过自动入库。
       # 凭据为客户端登录用的用户名与密码(强密码),禁止用默认值对外暴露。
