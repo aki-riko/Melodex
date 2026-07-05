@@ -90,6 +90,65 @@ html {
 }
 .media-card:hover .media-card__play { opacity: 1; transform: translateY(0); }
 
+/* 统一加载态:低调骨架、等待点和不确定进度条。 */
+.loading-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: hsl(var(--secondary));
+}
+.loading-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.11), transparent);
+  animation: loading-shimmer 1.25s ease-in-out infinite;
+}
+@keyframes loading-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.loading-dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: loading-dots 1.25s steps(4, end) infinite;
+}
+@keyframes loading-dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75%, 100% { content: "..."; }
+}
+
+.loading-bar-indeterminate {
+  position: relative;
+  overflow: hidden;
+}
+.loading-bar-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: -45%;
+  width: 45%;
+  border-radius: inherit;
+  background: hsl(var(--primary));
+  animation: loading-bar-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes loading-bar-indeterminate {
+  0% { left: -45%; }
+  100% { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-shimmer::after,
+  .loading-dots::after,
+  .loading-bar-indeterminate::after {
+    animation: none;
+  }
+}
+
 /* 歌曲行当前播放封面:封面上叠加循环音量柱。 */
 .song-row-playing-cover {
   position: absolute;

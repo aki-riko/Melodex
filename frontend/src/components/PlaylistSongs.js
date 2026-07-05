@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
+import LoadingState from './LoadingState';
 
 // 歌单歌曲列表(点开某歌单后)
 const PlaylistSongs = ({ meta, onBack }) => {
@@ -191,7 +192,14 @@ const PlaylistSongs = ({ meta, onBack }) => {
           </div>
         </div>
       </div>
-      {state.isLoading && <p className="text-muted-foreground font-bold">加载歌单…</p>}
+      {state.isLoading && (
+        <LoadingState
+          title="加载歌单"
+          detail="正在读取歌单歌曲和封面信息"
+          rows={6}
+          className="mb-4"
+        />
+      )}
       {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
       {hasBulkStatus && (
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
@@ -232,21 +240,25 @@ const PlaylistSongs = ({ meta, onBack }) => {
           )}
         </div>
       )}
-      <SongListHeader />
-      <div className="space-y-0.5">
-        {songs.map((song, idx) => (
-          <SongRow
-            key={`${song.source}-${song.id}-${idx}`}
-            song={song}
-            index={idx}
-            isPlaying={isPlaying(song)}
-            isPaused={isPaused}
-            onTogglePlayback={togglePlay}
-            onPlay={(s) => play(s, songs)}
-            onShowLyric={showLyric}
-          />
-        ))}
-      </div>
+      {!state.isLoading && (
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5">
+            {songs.map((song, idx) => (
+              <SongRow
+                key={`${song.source}-${song.id}-${idx}`}
+                song={song}
+                index={idx}
+                isPlaying={isPlaying(song)}
+                isPaused={isPaused}
+                onTogglePlayback={togglePlay}
+                onPlay={(s) => play(s, songs)}
+                onShowLyric={showLyric}
+              />
+            ))}
+          </div>
+        </>
+      )}
       {lyric && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setLyric(null)}>
           <div className="bg-card border border-border rounded-lg shadow-xl max-w-lg w-full max-h-[70vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>

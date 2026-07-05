@@ -13,6 +13,7 @@ import {
 } from '../services/musicdl';
 import { useAuth } from '../contexts/AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
+import LoadingState from './LoadingState';
 
 const SOURCE_NOTES = {
   qq_wx: '微信入口共用 QQ 音乐凭证;登录成功后会更新 QQ 音乐 Cookie。退出或手填 Cookie 请使用 QQ音乐卡片。',
@@ -417,11 +418,18 @@ const Settings = () => {
           下载目录:{localMusic.data?.download_dir || '—'}
           {localMusic.data && !localMusic.data.exists && '(目录不存在)'}
         </p>
-        {localMusic.isLoading && <p className="text-muted-foreground font-medium">加载中…</p>}
+        {localMusic.isLoading && (
+          <LoadingState
+            title="加载本地音乐库"
+            detail="正在读取服务器下载目录和曲目摘要"
+            rows={4}
+            className="mb-4"
+          />
+        )}
         {tracks.length === 0 && !localMusic.isLoading && (
           <p className="text-muted-foreground">本地音乐库为空。在下载页下载歌曲后会出现在这里。</p>
         )}
-        <div className="space-y-2">
+        {!localMusic.isLoading && <div className="space-y-2">
           {tracks.map((t) => (
             <div key={t.id} className="flex items-center gap-3 p-3 border border-border rounded-md bg-card">
               <div className="flex-grow min-w-0">
@@ -436,7 +444,7 @@ const Settings = () => {
               </button>
             </div>
           ))}
-        </div>
+        </div>}
       </section>
     </div>
   );

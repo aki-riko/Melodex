@@ -4,6 +4,7 @@ import { Play } from 'lucide-react';
 import { getRecommend } from '../services/musicdl';
 import { onOpenPlaylist } from '../services/playlistBus';
 import PlaylistSongs from './PlaylistSongs';
+import LoadingState from './LoadingState';
 
 // 热门:展示国内各源(网易云/QQ)的推荐歌单,点进看歌曲并播放/下载。
 const Trending = () => {
@@ -27,9 +28,16 @@ const Trending = () => {
   return (
     <div>
       <h1 className="text-3xl font-black mb-6">热门推荐</h1>
-      {isLoading && <p className="text-muted-foreground font-medium">加载中…</p>}
+      {isLoading && (
+        <LoadingState
+          title="加载热门推荐"
+          detail="正在从国内音乐源拉取推荐歌单"
+          rows={6}
+          className="mb-6"
+        />
+      )}
       {isError && <p className="text-destructive font-medium">获取热门推荐失败</p>}
-      <div className="space-y-8">
+      {!isLoading && <div className="space-y-8">
         {tabs.map((tab) => (
           <div key={tab.source}>            <h3 className="text-xl font-semibold mb-3 text-foreground">
               {tab.source_name || tab.source}
@@ -52,7 +60,7 @@ const Trending = () => {
             </div>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   );
 };

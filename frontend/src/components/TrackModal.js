@@ -7,6 +7,7 @@ import {
 } from '../services/lastfm';
 import { formatNumber, formatDuration, capitalize } from '../utils/format';
 import { requestDownloadSearch } from '../services/downloadBus';
+import { InlineLoading } from './LoadingState';
 
 const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
   const [spotifyTrack, setSpotifyTrack] = useState(null);
@@ -208,7 +209,7 @@ const TrackModal = ({ track, isVisible, onClose, modalRef }) => {
                 title="Album Player"
               ></iframe>
             ) : null}
-            {loading ? <p className="mt-4 text-center text-muted-foreground">正在加载详情…</p> : null}
+            {loading ? <InlineLoading label="正在加载详情" className="mt-4 flex justify-center" /> : null}
           </div>
         </div>
         
