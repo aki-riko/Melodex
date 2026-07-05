@@ -608,6 +608,7 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 							}
 							res[i].Extra["_rank"] = strconv.Itoa(i)
 						}
+						res = augmentLyricSearchOriginals(s, res, core.GetSearchFunc(s))
 						mu.Lock()
 						allSongs = append(allSongs, res...)
 						mu.Unlock()
@@ -647,6 +648,135 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 	}
 	wg.Wait()
 	return allSongs, allPlaylists
+}
+
+func augmentLyricSearchOriginals(source string, songs []model.Song, searchFn core.SearchFunc) []model.Song {
+	if len(songs) == 0 || searchFn == nil {
+		return songs
+	}
+
+	out := make([]model.Song, 0, len(songs)+4)
+	seen := make(map[string]struct{}, len(songs)+4)
+	for _, song := range songs {
+		for _, candidate := range findInferredLyricOriginals(source, song, searchFn) {
+			key := songResultKey(candidate)
+			if key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, candidate)
+		}
+
+		key := songResultKey(song)
+		if key != "" {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		out = append(out, song)
+	}
+	return out
+}
+
+func findInferredLyricOriginals(source string, song model.Song, searchFn core.SearchFunc) []model.Song {
+	artist, title, ok := inferredOriginalFromQuotedTitle(song.Name)
+	if !ok || artistMatches(song.Artist, artist) {
+		return nil
+	}
+
+	results, err := searchFn(title + " " + artist)
+	if err != nil {
+		return nil
+	}
+
+	out := []model.Song{}
+	targetTitle := normalizeLookupText(title)
+	for i, candidate := range results {
+		if normalizeLookupText(candidate.Name) != targetTitle || !artistMatches(candidate.Artist, artist) {
+			continue
+		}
+		candidate.Source = source
+		if candidate.Extra == nil {
+			candidate.Extra = map[string]string{}
+		}
+		copyLyricMatchExtra(candidate.Extra, song.Extra)
+		candidate.Extra["search_match"] = "lyric"
+		candidate.Extra["lyric_inferred_original"] = "1"
+		candidate.Extra["lyric_inferred_from"] = strings.TrimSpace(song.Name)
+		candidate.Extra["_rank"] = inferredLyricOriginalRank(song, i)
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func inferredLyricOriginalRank(song model.Song, candidateRank int) string {
+	rank := 0
+	if song.Extra != nil {
+		if parsed, err := strconv.Atoi(song.Extra["_rank"]); err == nil && parsed >= 0 {
+			rank = parsed
+		}
+	}
+	return strconv.Itoa(rank*1000 + candidateRank)
+}
+
+func copyLyricMatchExtra(dst, src map[string]string) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, key := range []string{"lyric_match", "search_match"} {
+		if value := strings.TrimSpace(src[key]); value != "" {
+			dst[key] = value
+		}
+	}
+}
+
+func inferredOriginalFromQuotedTitle(name string) (artist string, title string, ok bool) {
+	name = strings.TrimSpace(name)
+	start := strings.Index(name, "《")
+	end := strings.LastIndex(name, "》")
+	if start <= 0 || end <= start+len("《") {
+		return "", "", false
+	}
+	artist = strings.TrimSpace(name[:start])
+	title = strings.TrimSpace(name[start+len("《") : end])
+	if artist == "" || title == "" {
+		return "", "", false
+	}
+	return artist, title, true
+}
+
+func artistMatches(value, target string) bool {
+	targetNorm := normalizeArtistToken(target)
+	if targetNorm == "" {
+		return false
+	}
+	for _, token := range splitArtistTokens(value) {
+		if normalizeArtistToken(token) == targetNorm {
+			return true
+		}
+	}
+	return false
+}
+
+func songResultKey(song model.Song) string {
+	source := strings.TrimSpace(song.Source)
+	id := strings.TrimSpace(song.ID)
+	if id == "" && song.Extra != nil {
+		id = strings.TrimSpace(song.Extra["songmid"])
+	}
+	if source != "" && id != "" {
+		return source + "\x00" + id
+	}
+	name := normalizeLookupText(song.Name)
+	artist := normalizeLookupText(song.Artist)
+	if source == "" || name == "" || artist == "" {
+		return ""
+	}
+	return source + "\x00" + name + "\x00" + artist
 }
 
 // parseLinkSearch 解析粘贴的链接(歌曲/歌单/专辑),返回结果与最终类型。
