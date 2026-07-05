@@ -164,6 +164,7 @@ const SongRow = ({
   const cacheable = canCacheSong(rowSong);
   const sizeLabel = liveInfo?.size || fmtSize(rowSong.size);
   const rowKey = songIdentityKey(rowSong);
+  const favoriteCacheKey = `${userId}:${rowKey}`;
   const albumTitle = rowSong.album || '—';
   const isActivelyPlaying = isPlaying && !isPaused;
   const showPlayingBars = isActivelyPlaying;
@@ -220,7 +221,7 @@ const SongRow = ({
       setFavorited(false);
       return undefined;
     }
-    const cached = favoriteStatusCache.get(rowKey);
+    const cached = favoriteStatusCache.get(favoriteCacheKey);
     if (cached != null) {
       setFavorited(cached);
       return undefined;
@@ -228,7 +229,7 @@ const SongRow = ({
     let cancelled = false;
     getFavoriteStatus(rowSong)
       .then((ok) => {
-        favoriteStatusCache.set(rowKey, ok);
+        favoriteStatusCache.set(favoriteCacheKey, ok);
         if (!cancelled) setFavorited(ok);
       })
       .catch((err) => {
@@ -238,7 +239,7 @@ const SongRow = ({
     return () => {
       cancelled = true;
     };
-  }, [offline, rowKey, rowSong]);
+  }, [favoriteCacheKey, offline, rowSong]);
 
   const closeMenu = () => setOpenMenu(false);
 
@@ -274,11 +275,11 @@ const SongRow = ({
     const prev = favorited;
     setFavBusy(true);
     setFavorited(!prev);
-    favoriteStatusCache.set(rowKey, !prev);
+    favoriteStatusCache.set(favoriteCacheKey, !prev);
     try {
       const next = await toggleFavorite(rowSong);
       setFavorited(next);
-      favoriteStatusCache.set(rowKey, next);
+      favoriteStatusCache.set(favoriteCacheKey, next);
       if (next && rowSong.source !== 'local') {
         saveToServer(rowSong)
           .then((r) => { if (r?.saved) setDlState('done'); })
@@ -287,7 +288,7 @@ const SongRow = ({
     } catch (err) {
       console.warn('切换收藏失败', err);
       setFavorited(prev);
-      favoriteStatusCache.set(rowKey, prev);
+      favoriteStatusCache.set(favoriteCacheKey, prev);
     } finally {
       setFavBusy(false);
     }

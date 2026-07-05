@@ -296,17 +296,65 @@ export const clearPlayHistory = async (song) => {
 
 // ===== 收藏(「我喜欢」歌单,按用户隔离) =====
 
+const favoriteStatusBatch = {
+  timer: null,
+  queue: new Map(),
+};
+
+const favoritePairKey = (song) => `${song.source}\u001f${song.id}`;
+
+const flushFavoriteStatusBatch = async () => {
+  const entries = Array.from(favoriteStatusBatch.queue.values());
+  favoriteStatusBatch.queue.clear();
+  favoriteStatusBatch.timer = null;
+  if (!entries.length) return;
+
+  const runChunk = async (chunk) => {
+    const { data } = await client.post('/music/favorites/status_batch', {
+      songs: chunk.map((entry) => songWritePayload(entry.song)),
+    }, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const statusByKey = new Map();
+    (data.statuses || []).forEach((item) => {
+      statusByKey.set(`${item.source}\u001f${item.id}`, !!item.favorited);
+    });
+    chunk.forEach((entry) => {
+      const favorited = statusByKey.get(favoritePairKey(entry.song)) || false;
+      entry.resolve(favorited);
+    });
+  };
+
+  try {
+    for (let i = 0; i < entries.length; i += 500) {
+      await runChunk(entries.slice(i, i + 500));
+    }
+  } catch (err) {
+    entries.forEach((entry) => entry.reject(err));
+  }
+};
+
 // 查某歌是否已收藏 → bool
 export const getFavoriteStatus = async (song) => {
   const s = normalizeSong(song);
-  try {
-    const { data } = await client.get(
-      `/music/favorites/status?source=${encodeURIComponent(s.source)}&id=${encodeURIComponent(s.id)}`,
-    );
-    return !!data.favorited;
-  } catch {
-    return false;
-  }
+  if (!s.id || !s.source) return false;
+  return new Promise((resolve, reject) => {
+    const key = favoritePairKey(s);
+    const existing = favoriteStatusBatch.queue.get(key);
+    if (existing) {
+      existing.resolve = ((prevResolve) => (value) => {
+        prevResolve(value);
+        resolve(value);
+      })(existing.resolve);
+      existing.reject = ((prevReject) => (err) => {
+        prevReject(err);
+        reject(err);
+      })(existing.reject);
+    } else {
+      favoriteStatusBatch.queue.set(key, { song: s, resolve, reject });
+    }
+    if (!favoriteStatusBatch.timer) {
+      favoriteStatusBatch.timer = globalThis.setTimeout(flushFavoriteStatusBatch, 25);
+    }
+  }).catch(() => false);
 };
 
 // 切换收藏(有则取消/无则加)→ 返回切换后的 bool

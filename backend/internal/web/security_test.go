@@ -59,7 +59,7 @@ func TestSessionRevokedOnPasswordChange(t *testing.T) {
 	}
 
 	// 改密前:旧 cookie 有效
-	if _, ok := authenticateRequest(mkReq(), now.Add(time.Minute)); !ok {
+	if _, ok, err := authenticateRequest(mkReq(), now.Add(time.Minute)); err != nil || !ok {
 		t.Fatal("session should be valid before password change")
 	}
 
@@ -69,7 +69,7 @@ func TestSessionRevokedOnPasswordChange(t *testing.T) {
 	}
 
 	// 改密后:旧 cookie 失效
-	if _, ok := authenticateRequest(mkReq(), now.Add(time.Minute)); ok {
+	if _, ok, err := authenticateRequest(mkReq(), now.Add(time.Minute)); err != nil || ok {
 		t.Fatal("old session should be revoked after password change")
 	}
 }

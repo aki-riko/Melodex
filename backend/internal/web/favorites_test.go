@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,6 +85,50 @@ func TestFavoriteToggleAndStatus(t *testing.T) {
 	db.Model(&SavedSong{}).Where("collection_id = ?", fav.ID).Count(&n)
 	if n != 0 {
 		t.Fatalf("favorite should be empty after un-toggle, got %d", n)
+	}
+}
+
+func TestFavoriteStatusBatch(t *testing.T) {
+	setupUserTestDB(t)
+	alice, _ := createUser("alice", "alicepass1", RoleUser)
+	r := newFavoriteTestRouter(alice.ID)
+
+	rec := doJSON(r, http.MethodPost, RoutePrefix+"/favorites/toggle", map[string]string{
+		"id": "s1", "source": "qq", "name": "Song 1",
+	}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(r, http.MethodPost, RoutePrefix+"/favorites/status_batch", gin.H{
+		"songs": []gin.H{
+			{"id": "s1", "source": "qq"},
+			{"id": "s2", "source": "qq"},
+			{"id": "s1", "source": "qq"},
+			{"id": "", "source": "qq"},
+		},
+	}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Statuses []favoriteStatusItem `json:"statuses"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode batch response: %v", err)
+	}
+	if len(got.Statuses) != 2 {
+		t.Fatalf("batch statuses len = %d, want 2: %#v", len(got.Statuses), got.Statuses)
+	}
+	statusByKey := map[string]bool{}
+	for _, item := range got.Statuses {
+		statusByKey[favoritePairKey(item.Source, item.SongID)] = item.Favorited
+	}
+	if !statusByKey[favoritePairKey("qq", "s1")] {
+		t.Fatalf("s1 should be favorited: %#v", got.Statuses)
+	}
+	if statusByKey[favoritePairKey("qq", "s2")] {
+		t.Fatalf("s2 should not be favorited: %#v", got.Statuses)
 	}
 }
 
