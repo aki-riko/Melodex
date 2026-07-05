@@ -3,7 +3,6 @@ import React from 'react';
 const sections = [
   { key: 'Home', label: '首页' },
   { key: 'Trending', label: '热门' },
-  { key: 'Artists', label: '艺人' },
   { key: 'Discover', label: '发现' },
   { key: 'Download', label: '下载' },
   { key: 'Settings', label: '设置' },

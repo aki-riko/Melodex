@@ -4,7 +4,6 @@ import { WifiOff } from 'lucide-react';
 import { Sidebar, MobileTabBar } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Trending from './components/Trending';
-import Artists from './components/Artists';
 import Download from './components/Download';
 import Settings from './components/Settings';
 import MyPlaylist from './components/MyPlaylist';
@@ -32,7 +31,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const VALID_SECTIONS = ['Home', 'Artists', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Offline', 'Users'];
+const VALID_SECTIONS = ['Home', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Offline', 'Users'];
 // hash 形如 #myplaylist 或 #myplaylist/123(歌单 id);section 取第一段。
 const routeFromHash = () => {
   const parts = (window.location.hash || '').replace(/^#/, '').split('/');
@@ -103,7 +102,6 @@ function AppShell() {
               {(section === 'Home' || section === 'Trending') && <Trending />}
               {section === 'Download' && <Download downloadRequest={downloadRequest} />}
               {section === 'Settings' && <Settings />}
-              {section === 'Artists' && <Artists />}
               {section === 'MyPlaylist' && <MyPlaylist />}
               {section === 'Recent' && <RecentlyPlayed />}
               {section === 'Local' && <LocalMusic />}

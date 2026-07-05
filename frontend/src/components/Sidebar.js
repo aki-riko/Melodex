@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, Search, Library, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu, Clock, Download, HardDriveDownload } from 'lucide-react';
+import { Home, Search, Settings, HelpCircle, Music, Plus, Users, LogOut, Menu, Clock, Download, HardDriveDownload } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
@@ -12,7 +12,6 @@ const GROUPS = [
     title: '发现',
     items: [
       { key: 'Home', label: '首页', icon: Home, primary: true },
-      { key: 'Artists', label: '艺人', icon: Library },
     ],
   },
   {
@@ -252,7 +251,6 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
   // 「更多」抽屉里展示的次级导航(非 primary 的桌面项)。
   const moreNav = [
     { key: 'Recent', label: '最近播放', icon: Clock },
-    { key: 'Artists', label: '艺人', icon: Library },
     { key: 'Settings', label: '设置', icon: Settings },
     { key: 'FAQ', label: '帮助', icon: HelpCircle },
   ];
@@ -349,7 +347,7 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
             </a>
           );
         })}
-        {/* 更多:打开抽屉(歌单/艺人/帮助/账号/登出/用户管理) */}
+        {/* 更多:打开抽屉(歌单/帮助/账号/登出/用户管理) */}
         <button
           onClick={() => setMoreOpen((o) => !o)}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] transition-colors ${
