@@ -80,6 +80,10 @@ const platformHint = (source, loggedIn, qrSupported) => {
   return '优先扫码登录;需要无损时可改用完整 Cookie。';
 };
 
+const actionGridClass = (count) => (
+  count >= 3 ? 'grid-cols-3' : count === 2 ? 'grid-cols-2' : 'grid-cols-1'
+);
+
 // 二维码登录卡片
 const QRLoginCard = ({ source, loggedIn, onLoggedIn, onLogout, qrSupported = true }) => {
   const manualSupported = source !== 'qq_wx';
@@ -230,67 +234,61 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, onLogout, qrSupported = tru
     }
   };
 
+  const actionCount = (qrSupported ? 1 : 0)
+    + (manualSupported ? 1 : 0)
+    + (loggedIn && source !== 'qq_wx' ? 1 : 0);
+
   return (
     <>
-      <div className="flex h-full min-h-[172px] flex-col rounded-lg border border-border bg-card p-4">
-        <div className="mb-3 flex items-start justify-between gap-3">
+      <div className="flex h-full min-h-[108px] flex-col rounded-md border border-border bg-card p-3">
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-foreground">{sourceLabel(source)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{qrSupported ? '支持扫码' : '仅 Cookie'}</p>
+            <p className="truncate text-sm font-semibold text-foreground">{sourceLabel(source)}</p>
+            <p className="mt-1 truncate text-[11px] leading-4 text-muted-foreground" title={platformHint(source, loggedIn, qrSupported)}>
+              {qrSupported ? '扫码' : '手填'}{manualSupported && qrSupported ? ' / 手填' : ''}
+            </p>
           </div>
-          <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
+          <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
             loggedIn
               ? 'border-primary/35 bg-primary/15 text-primary'
               : 'border-border bg-secondary text-muted-foreground'
           }`}>
-            {loggedIn && <CheckCircle2 size={13} />}
+            {loggedIn && <CheckCircle2 size={12} />}
             {loggedIn ? '已登录' : '未登录'}
           </span>
         </div>
 
-        <p className="min-h-[40px] text-xs leading-relaxed text-muted-foreground">
-          {platformHint(source, loggedIn, qrSupported)}
-        </p>
-
-        <div className="mt-auto pt-4">
-          {qrSupported ? (
+        <div className={`mt-auto grid gap-1.5 pt-3 ${actionGridClass(actionCount)}`}>
+          {qrSupported && (
             <button
               onClick={startLogin}
-              className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-primary bg-primary px-2 text-xs font-semibold text-primary-foreground transition-colors hover:brightness-95"
+              title={`${sourceLabel(source)}扫码登录`}
             >
-              <QrCode size={17} />
-              {session ? '刷新二维码' : '扫码登录'}
+              <QrCode size={14} />
+              <span className="truncate">{session ? '刷新' : '扫码'}</span>
             </button>
-          ) : manualSupported ? (
+          )}
+          {manualSupported && (
             <button
               onClick={() => setShowManual(true)}
-              className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="扫码拿不到无损时,可手动粘贴完整 Cookie"
             >
-              <KeyRound size={17} />
-              填写 Cookie
+              <KeyRound size={14} />
+              <span className="truncate">手填</span>
             </button>
-          ) : null}
-
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {manualSupported && qrSupported && (
-              <button
-                onClick={() => setShowManual(true)}
-                className={`${loggedIn && source !== 'qq_wx' ? '' : 'col-span-2'} flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground`}
-              >
-                <KeyRound size={15} />
-                {loggedIn ? '更新 Cookie' : '手填 Cookie'}
-              </button>
-            )}
-            {loggedIn && source !== 'qq_wx' && (
-              <button
-                onClick={() => onLogout(source)}
-                className={`${manualSupported && qrSupported ? '' : 'col-span-2'} flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground`}
-              >
-                <LogOut size={15} />
-                退出登录
-              </button>
-            )}
-          </div>
+          )}
+          {loggedIn && source !== 'qq_wx' && (
+            <button
+              onClick={() => onLogout(source)}
+              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title={`退出 ${sourceLabel(source)} 登录`}
+            >
+              <LogOut size={14} />
+              <span className="truncate">退出</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -477,12 +475,12 @@ const Settings = () => {
       </p>
 
       {isAdmin && (
-        <section className="mb-10">
-          <h3 className="text-xl font-semibold mb-4">账号登录</h3>
-          <p className="text-sm text-muted-foreground mb-4">
+        <section className="mb-8">
+          <h3 className="text-lg font-semibold mb-2">账号登录</h3>
+          <p className="text-xs text-muted-foreground mb-3">
             平台会员 Cookie 为全局共享(所有用户共用同一会员链路),仅管理员可配置。
           </p>
-          <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 items-stretch gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
             {sources.map((entry) => {
               const src = typeof entry === 'string' ? entry : entry.source;
               const qrSupported = typeof entry === 'string' ? true : !!entry.qr;
