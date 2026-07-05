@@ -19,6 +19,7 @@ const searchCacheTTL = 24 * time.Hour
 const searchCacheMaxAge = 7 * 24 * time.Hour
 const searchCacheDefaultRefreshEvery = 30 * time.Minute
 const searchCacheBackgroundRefreshRows = 20
+const lyricSearchCacheVersion = "native-v1"
 
 // searchCacheRow 一行缓存。Key 为查询指纹,Payload 为 jsonSearchResponse 的 JSON。
 type searchCacheRow struct {
@@ -39,13 +40,21 @@ func searchCacheKey(searchType, keyword, exactArtist string, sources []string) s
 	s := append([]string(nil), sources...)
 	sort.Strings(s)
 	raw := strings.Join([]string{
-		strings.ToLower(strings.TrimSpace(searchType)),
+		normalizedSearchCacheType(searchType),
 		strings.ToLower(strings.TrimSpace(keyword)),
 		strings.ToLower(strings.TrimSpace(exactArtist)),
 		strings.Join(s, ","),
 	}, "\x00")
 	sum := sha1.Sum([]byte(raw))
 	return hex.EncodeToString(sum[:])
+}
+
+func normalizedSearchCacheType(searchType string) string {
+	t := strings.ToLower(strings.TrimSpace(searchType))
+	if t == "lyric" {
+		return t + ":" + lyricSearchCacheVersion
+	}
+	return t
 }
 
 // getCachedSearch 命中且未过期返回缓存的响应;否则返回 false。

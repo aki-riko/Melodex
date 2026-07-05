@@ -178,6 +178,16 @@ func GetSearchFunc(source string) SearchFunc {
 	}
 }
 
+func GetLyricSearchFunc(source string) SearchFunc {
+	c := CM.Get(source)
+	switch source {
+	case "qq":
+		return qq.New(c).SearchLyrics
+	default:
+		return nil
+	}
+}
+
 func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
 	c := CM.Get(source)
 	switch source {
@@ -1041,6 +1051,10 @@ func GetDefaultSourceNames() []string {
 		}
 	}
 	return defaultSources
+}
+
+func GetLyricSearchSourceNames() []string {
+	return []string{"qq"}
 }
 
 func GetSourceDescription(source string) string {

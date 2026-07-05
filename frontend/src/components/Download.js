@@ -221,7 +221,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, searchTyp
     if (state.isLoading) {
       return {
         title: isLyricSearch ? `正在按歌词搜索「${query}」` : `正在搜索「${query}」`,
-        detail: isLyricSearch ? '先找候选歌曲，再读取歌词文本做命中匹配。' : '正在从多个音乐源拉取候选结果。',
+        detail: isLyricSearch ? '正在调用支持歌词搜索的平台接口，按歌词片段返回歌曲。' : '正在从多个音乐源拉取候选结果。',
         icon: Loader2,
         loading: true,
       };

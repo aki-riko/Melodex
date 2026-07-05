@@ -1,6 +1,10 @@
 package web
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +25,29 @@ func TestSearchCacheKeyOrderInsensitive(t *testing.T) {
 	if k1 == k4 {
 		t.Fatal("type should change cache key")
 	}
+}
+
+func TestSearchCacheKeySeparatesNativeLyricSearchFromLegacy(t *testing.T) {
+	keyword := "我吹过你吹过的晚风"
+	sources := []string{"qq"}
+	got := searchCacheKey("lyric", keyword, "", sources)
+	legacy := legacySearchCacheKeyForTest("lyric", keyword, "", sources)
+	if got == legacy {
+		t.Fatal("lyric search cache key reused the legacy song-candidate implementation key")
+	}
+}
+
+func legacySearchCacheKeyForTest(searchType, keyword, exactArtist string, sources []string) string {
+	s := append([]string(nil), sources...)
+	sort.Strings(s)
+	raw := strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(searchType)),
+		strings.ToLower(strings.TrimSpace(keyword)),
+		strings.ToLower(strings.TrimSpace(exactArtist)),
+		strings.Join(s, ","),
+	}, "\x00")
+	sum := sha1.Sum([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func TestSearchCacheRoundTripAndEmptySkip(t *testing.T) {

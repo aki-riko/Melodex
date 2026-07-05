@@ -26,8 +26,8 @@ func TestDefaultSourcesForSearchType(t *testing.T) {
 		t.Fatal("defaultSourcesForSearchType(song) returned empty sources")
 	}
 
-	if got := defaultSourcesForSearchType("lyric"); !reflect.DeepEqual(got, defaultSourcesForSearchType("song")) {
-		t.Fatalf("defaultSourcesForSearchType(lyric) = %v, want song defaults", got)
+	if got := defaultSourcesForSearchType("lyric"); !reflect.DeepEqual(got, core.GetLyricSearchSourceNames()) {
+		t.Fatalf("defaultSourcesForSearchType(lyric) = %v, want lyric search sources", got)
 	}
 }
 
