@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { getLastFmArtistDetails } from '../services/lastfm';
 import { getSpotifyArtistDetails } from '../services/spotify';
 import { formatNumber, capitalize } from '../utils/format';
+import { InlineLoading } from './LoadingState';
 
 const ArtistModal = ({ artist, isVisible, onClose, modalRef }) => {
   const [artistInfo, setArtistInfo] = useState(null);
@@ -143,7 +144,7 @@ const ArtistModal = ({ artist, isVisible, onClose, modalRef }) => {
                 {artistInfo.bio.summary.replace(/<[^>]+>/g, '').slice(0, 300)}{artistInfo.bio.summary.length > 300 ? '…' : ''}
               </p>
             ) : null}
-            {loading ? <p className="mt-4 text-muted-foreground">正在加载详情…</p> : null}
+            {loading ? <InlineLoading label="正在加载详情" className="mt-4 flex" /> : null}
           </div>
           <div className="w-1/2 pl-6 flex flex-col">
             <div className="mb-6">

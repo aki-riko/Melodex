@@ -5,6 +5,7 @@ import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { getPlayHistory, clearPlayHistory } from '../services/musicdl';
+import LoadingState from './LoadingState';
 
 // 最近播放页:列出按用户隔离的播放历史(后端 played_at 降序,封顶 500)。
 // 播放任意一首会以整张历史为队列;支持清空 / 删单条。
@@ -64,20 +65,31 @@ export default function RecentlyPlayed() {
           </div>
         </div>
       </div>
-      {isLoading && <p className="text-muted-foreground">加载中…</p>}
+      {isLoading && (
+        <LoadingState
+          title="加载最近播放"
+          detail="正在读取当前账号的播放记录"
+          rows={6}
+          className="mb-4"
+        />
+      )}
       {!isLoading && songs.length === 0 && (
         <p className="text-muted-foreground">还没有播放记录,去搜索或歌单里播放歌曲吧。</p>
       )}
-      <SongListHeader />
-      <div className="space-y-0.5">
-        {songs.map((song, i) => (
-          <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
-            isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
-            isPaused={isPaused}
-            onTogglePlayback={togglePlay}
-            onRemove={handleRemove} removeTitle="从最近播放移除" removeHint="只删除这条播放记录" />
-        ))}
-      </div>
+      {!isLoading && (
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5">
+            {songs.map((song, i) => (
+              <SongRow key={`${song.source}-${song.id}`} song={song} index={i}
+                isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
+                isPaused={isPaused}
+                onTogglePlayback={togglePlay}
+                onRemove={handleRemove} removeTitle="从最近播放移除" removeHint="只删除这条播放记录" />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

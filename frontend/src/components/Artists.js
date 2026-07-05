@@ -3,6 +3,7 @@ import { useQuery } from 'react-query';
 import { searchMusic, getLyric } from '../services/musicdl';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
+import LoadingState from './LoadingState';
 
 // 艺人:国内源没有"艺人榜"接口,改为按歌手名搜索其歌曲。
 const Artists = () => {
@@ -54,24 +55,35 @@ const Artists = () => {
         </button>
       </form>
 
-      {state.isLoading && <p className="text-muted-foreground font-medium">搜索中…</p>}
+      {state.isLoading && (
+        <LoadingState
+          title="搜索艺人歌曲"
+          detail="正在从国内多源匹配这位歌手的歌曲"
+          rows={6}
+          className="mb-4"
+        />
+      )}
       {query && !state.isLoading && songs.length === 0 && <p className="text-muted-foreground">没有找到该歌手的歌曲。</p>}
 
-      <SongListHeader />
-      <div className="space-y-0.5">
-        {songs.map((song, idx) => (
-          <SongRow
-            key={`${song.source}-${song.id}-${idx}`}
-            song={song}
-            index={idx}
-            isPlaying={isPlaying(song)}
-            isPaused={isPaused}
-            onTogglePlayback={togglePlay}
-            onPlay={(s) => play(s, songs)}
-            onShowLyric={showLyric}
-          />
-        ))}
-      </div>
+      {!state.isLoading && (
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5">
+            {songs.map((song, idx) => (
+              <SongRow
+                key={`${song.source}-${song.id}-${idx}`}
+                song={song}
+                index={idx}
+                isPlaying={isPlaying(song)}
+                isPaused={isPaused}
+                onTogglePlayback={togglePlay}
+                onPlay={(s) => play(s, songs)}
+                onShowLyric={showLyric}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {lyric && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setLyric(null)}>

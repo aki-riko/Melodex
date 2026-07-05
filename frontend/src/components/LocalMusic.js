@@ -1,10 +1,11 @@
 import React, { useRef, useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
-import { Play, Download, Upload, RotateCw, Disc3, ChevronLeft } from 'lucide-react';
+import { Play, Download, Upload, RotateCw, Disc3, ChevronLeft, Loader2 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { getLocalMusic, deleteLocalMusic, uploadLocalMusic, coverProxyUrl } from '../services/musicdl';
+import LoadingState from './LoadingState';
 
 const UNKNOWN_ALBUM = '未知专辑';
 
@@ -46,7 +47,7 @@ export default function LocalMusic() {
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState('songs'); // 'songs' | 'albums'
   const [openAlbum, setOpenAlbum] = useState(null); // 专辑详情(album 对象)
-  const { data, isLoading } = useQuery(['local-music-page'], () => getLocalMusic({ limit: 0 }), { staleTime: 0 });
+  const { data, isLoading, isFetching } = useQuery(['local-music-page'], () => getLocalMusic({ limit: 0 }), { staleTime: 0 });
 
   const tracks = useMemo(() => data?.tracks || [], [data]);
   const albums = useMemo(() => groupByAlbum(tracks), [tracks]);
@@ -130,12 +131,13 @@ export default function LocalMusic() {
             <button onClick={() => fileRef.current && fileRef.current.click()}
               disabled={uploading}
               className="flex items-center gap-2 px-4 py-2 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
-              <Upload size={18} />{uploading ? '上传中…' : '上传'}
+              {uploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+              {uploading ? '上传中' : '上传'}
             </button>
             <button onClick={refresh}
               className="flex items-center gap-2 px-4 py-2 rounded-full text-muted-foreground hover:text-foreground transition-colors"
               title="刷新">
-              <RotateCw size={18} />
+              <RotateCw size={18} className={isFetching ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
@@ -158,12 +160,19 @@ export default function LocalMusic() {
         下载目录:{data?.download_dir || '—'}
         {data && !data.exists && '(目录不存在)'}
       </p>
-      {isLoading && <p className="text-muted-foreground">加载中…</p>}
+      {isLoading && (
+        <LoadingState
+          title="读取 NAS 曲库"
+          detail="正在扫描服务器下载目录、专辑和封面信息"
+          rows={7}
+          className="mb-4"
+        />
+      )}
       {!isLoading && tracks.length === 0 && (
         <p className="text-muted-foreground">NAS 曲库为空。在搜索页下载歌曲、或在此上传文件后会出现在这里。</p>
       )}
 
-      {view === 'songs' && (
+      {!isLoading && view === 'songs' && (
         <>
           <SongListHeader />
           <div className="space-y-0.5">
@@ -178,7 +187,7 @@ export default function LocalMusic() {
         </>
       )}
 
-      {view === 'albums' && tracks.length > 0 && (
+      {!isLoading && view === 'albums' && tracks.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {albums.map((al) => (
             <button key={al.name} onClick={() => setOpenAlbum(al)}

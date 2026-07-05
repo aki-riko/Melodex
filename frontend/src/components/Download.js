@@ -13,8 +13,8 @@ import {
   AlertCircle,
   Check,
   Download as DownloadIcon,
-  Filter,
   HardDriveDownload,
+  Loader2,
   ListPlus,
   Music,
   Play,
@@ -30,6 +30,7 @@ import { useFeedback } from '../contexts/FeedbackContext';
 import { useLiveCheck } from '../hooks/useLiveCheck';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
+import LoadingState from './LoadingState';
 
 const TABS = [
   { key: 'search', label: '歌曲搜索' },
@@ -43,6 +44,7 @@ const SearchStatusPanel = ({ stage, progress, available, total }) => {
   if (!stage) return null;
   const pct = progress?.total ? Math.round((progress.done / progress.total) * 100) : 0;
   const Icon = stage.icon;
+  const loading = !!stage.loading;
   return (
     <div className={`mb-4 rounded-md border px-4 py-3 ${
       stage.tone === 'error'
@@ -52,20 +54,35 @@ const SearchStatusPanel = ({ stage, progress, available, total }) => {
           : 'border-border bg-card/70 text-muted-foreground'
     }`}>
       <div className="flex items-start gap-3">
-        <Icon size={18} className={`mt-0.5 flex-shrink-0 ${stage.pulse ? 'animate-pulse' : ''}`} />
+        <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
+          loading ? 'bg-primary/10 text-primary' : ''
+        }`}>
+          <Icon size={18} className={loading ? 'animate-spin' : ''} />
+        </div>
         <div className="min-w-0 flex-grow">
-          <p className="font-medium text-foreground">{stage.title}</p>
+          <p className="font-medium text-foreground">
+            {stage.title}
+            {loading ? <span className="loading-dots" aria-hidden="true" /> : null}
+          </p>
           <p className="mt-0.5 text-sm">{stage.detail}</p>
-          {progress?.total > 0 && (
+          {(loading || progress?.total > 0) && (
             <div className="mt-3">
-              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+              <div className={`h-1.5 overflow-hidden rounded-full bg-secondary ${
+                progress?.total > 0 ? '' : 'loading-bar-indeterminate'
+              }`}>
+                {progress?.total > 0 && (
+                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                )}
               </div>
-              <p className="mt-1 text-xs">
-                已检查 {progress.done}/{progress.total}
-                {available != null ? ` · 当前可播放 ${available}` : ''}
-                {total != null ? ` · 原始结果 ${total}` : ''}
-              </p>
+              {progress?.total > 0 ? (
+                <p className="mt-1 text-xs">
+                  已检查 {progress.done}/{progress.total}
+                  {available != null ? ` · 当前可播放 ${available}` : ''}
+                  {total != null ? ` · 原始结果 ${total}` : ''}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs">连接音乐源中,页面仍在工作</p>
+              )}
             </div>
           )}
         </div>
@@ -177,8 +194,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       return {
         title: `正在搜索「${query}」`,
         detail: '正在从多个音乐源拉取候选结果。',
-        icon: Search,
-        pulse: true,
+        icon: Loader2,
+        loading: true,
       };
     }
     if (state.isError) {
@@ -201,8 +218,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       return {
         title: '正在筛选可播放结果',
         detail: '候选歌曲会逐首检查,不可播放或受限结果会被自动隐藏。',
-        icon: Filter,
-        pulse: true,
+        icon: Loader2,
+        loading: true,
       };
     }
     if (progress.total > 0 && songs.length > 0) {
@@ -327,7 +344,16 @@ const LyricModal = ({ lyric, onClose }) => (
 
 // 推荐歌单面板(按源分栏的网格)
 const DiscoverPane = ({ state, onOpen }) => {
-  if (state.isLoading) return <p className="text-muted-foreground font-bold">加载推荐歌单…</p>;
+  if (state.isLoading) {
+    return (
+      <LoadingState
+        title="加载推荐歌单"
+        detail="正在从网易云和 QQ 拉取推荐内容"
+        rows={6}
+        className="mb-6"
+      />
+    );
+  }
   if (state.isError) return <p className="text-destructive font-bold">加载失败:{String(state.error?.message || state.error)}</p>;
   const tabs = state.data?.tabs || [];
   return (
@@ -530,7 +556,14 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
           </div>
         </div>
       </div>
-      {state.isLoading && <p className="text-muted-foreground font-bold">加载歌单…</p>}
+      {state.isLoading && (
+        <LoadingState
+          title="加载歌单"
+          detail="正在读取歌单歌曲和封面信息"
+          rows={6}
+          className="mb-4"
+        />
+      )}
       {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
       {hasBulkStatus && (
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
@@ -539,21 +572,25 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
           <BulkStatusCard title="加入我的歌单" state={bulkCopy} />
         </div>
       )}
-      <SongListHeader />
-      <div className="space-y-0.5">
-        {songs.map((song, idx) => (
-          <SongRow
-            key={`${song.source}-${song.id}-${idx}`}
-            song={song}
-            index={idx}
-            isPlaying={isPlaying(song)}
-            isPaused={isPaused}
-            onTogglePlayback={onTogglePlayback}
-            onPlay={(s) => onPlay(s, songs)}
-            onShowLyric={onShowLyric}
-          />
-        ))}
-      </div>
+      {!state.isLoading && (
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5">
+            {songs.map((song, idx) => (
+              <SongRow
+                key={`${song.source}-${song.id}-${idx}`}
+                song={song}
+                index={idx}
+                isPlaying={isPlaying(song)}
+                isPaused={isPaused}
+                onTogglePlayback={onTogglePlayback}
+                onPlay={(s) => onPlay(s, songs)}
+                onShowLyric={onShowLyric}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };

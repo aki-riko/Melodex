@@ -11,6 +11,7 @@ import {
 } from '../services/musicdl';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
+import LoadingState from './LoadingState';
 
 const ROLE_LABEL = { admin: '管理员', user: '普通用户' };
 
@@ -159,39 +160,47 @@ const UserManagement = () => {
 
       <section>
         <h3 className="text-xl font-semibold mb-3">用户列表</h3>
-        {usersQuery.isLoading && <p className="text-muted-foreground">加载中…</p>}
-        <div className="space-y-2">
-          {users.map((u) => (
-            <div key={u.id} className="flex flex-wrap items-center gap-2 p-3 border border-border rounded-md bg-card">
-              <div className="flex-grow min-w-0">
-                <p className="font-semibold truncate">
-                  {u.username}
-                  {u.id === me?.id && <span className="ml-2 text-xs text-muted-foreground">(我)</span>}
-                  {u.disabled && <span className="ml-2 text-xs text-destructive">已禁用</span>}
-                </p>
-                <p className="text-sm text-muted-foreground">{ROLE_LABEL[u.role] || u.role}</p>
-              </div>
-              {u.id !== me?.id && (
-                <>
-                  <button onClick={() => onToggleRole(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
-                    {u.role === 'admin' ? '降为用户' : '升为管理员'}
-                  </button>
-                  <button onClick={() => onToggleDisabled(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
-                    {u.disabled ? '启用' : '禁用'}
-                  </button>
-                </>
-              )}
-              <button onClick={() => onResetPassword(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
-                重置密码
-              </button>
-              {u.id !== me?.id && (
-                <button onClick={() => onDelete(u)} className="px-2 py-1 border border-border rounded-md bg-destructive text-destructive-foreground text-xs font-semibold hover:brightness-95 transition-colors">
-                  删除
+        {usersQuery.isLoading ? (
+          <LoadingState
+            title="加载用户列表"
+            detail="正在读取账号、角色和注册开关状态"
+            rows={4}
+            className="mb-4"
+          />
+        ) : (
+          <div className="space-y-2">
+            {users.map((u) => (
+              <div key={u.id} className="flex flex-wrap items-center gap-2 p-3 border border-border rounded-md bg-card">
+                <div className="flex-grow min-w-0">
+                  <p className="font-semibold truncate">
+                    {u.username}
+                    {u.id === me?.id && <span className="ml-2 text-xs text-muted-foreground">(我)</span>}
+                    {u.disabled && <span className="ml-2 text-xs text-destructive">已禁用</span>}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{ROLE_LABEL[u.role] || u.role}</p>
+                </div>
+                {u.id !== me?.id && (
+                  <>
+                    <button onClick={() => onToggleRole(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
+                      {u.role === 'admin' ? '降为用户' : '升为管理员'}
+                    </button>
+                    <button onClick={() => onToggleDisabled(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
+                      {u.disabled ? '启用' : '禁用'}
+                    </button>
+                  </>
+                )}
+                <button onClick={() => onResetPassword(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
+                  重置密码
                 </button>
-              )}
-            </div>
-          ))}
-        </div>
+                {u.id !== me?.id && (
+                  <button onClick={() => onDelete(u)} className="px-2 py-1 border border-border rounded-md bg-destructive text-destructive-foreground text-xs font-semibold hover:brightness-95 transition-colors">
+                    删除
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

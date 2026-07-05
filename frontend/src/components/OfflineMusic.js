@@ -14,6 +14,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { formatDuration } from '../utils/format';
 import { sourceLabel } from '../utils/sourceLabels';
+import LoadingState from './LoadingState';
 
 const fmtBytes = (bytes) => {
   if (!bytes) return '0B';
@@ -277,7 +278,14 @@ export default function OfflineMusic() {
         </div>
       )}
 
-      {loading && <p className="text-muted-foreground">加载中…</p>}
+      {loading && (
+        <LoadingState
+          title="读取本机缓存"
+          detail="正在从当前浏览器/PWA 读取已缓存的音频"
+          rows={6}
+          className="mb-4"
+        />
+      )}
       {!loading && records.length === 0 && (
         <div className="rounded-md border border-border bg-card/70 px-4 py-5 text-muted-foreground">
           <p>还没有本机缓存。</p>
@@ -285,6 +293,7 @@ export default function OfflineMusic() {
         </div>
       )}
 
+      {!loading && (
       <div className="space-y-0.5">
         {records.map((record, i) => {
           const song = toSong(record);
@@ -301,6 +310,7 @@ export default function OfflineMusic() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

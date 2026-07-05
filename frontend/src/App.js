@@ -20,6 +20,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { FeedbackProvider } from './contexts/FeedbackContext';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import FAQ from './components/FAQ';
+import LoadingState from './components/LoadingState';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -126,7 +127,13 @@ function AuthedApp() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
-        加载中…
+        <LoadingState
+          title="启动 Melodex"
+          detail="正在恢复登录态和播放器状态"
+          compact
+          showRows={false}
+          className="w-[min(28rem,calc(100vw-2rem))]"
+        />
       </div>
     );
   }

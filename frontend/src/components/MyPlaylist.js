@@ -10,6 +10,7 @@ import { getCollectionSongs, removeSongFromCollection } from '../services/collec
 import { coverProxyUrl, saveToServer } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
+import LoadingState from './LoadingState';
 
 // 歌单详情头图:用歌单内歌曲封面拼图(Spotify 风格)。
 //   - 取前 4 首"有封面"的歌:1 张铺满 / 2-3 张仍用首张铺满(半拼不好看) / ≥4 张 2x2 马赛克
@@ -317,7 +318,14 @@ export default function MyPlaylist() {
           )}
         </div>
       )}
-      {loading && <p className="text-muted-foreground">加载中…</p>}
+      {loading && (
+        <LoadingState
+          title="加载歌单"
+          detail="正在读取歌曲、专辑和封面信息"
+          rows={6}
+          className="mb-4"
+        />
+      )}
       {!loading && songs.length === 0 && (
         <div className="rounded-md border border-border bg-card/70 px-4 py-5 text-muted-foreground">
           <p>这个歌单还没有歌。</p>
@@ -329,16 +337,20 @@ export default function MyPlaylist() {
           </button>
         </div>
       )}
-      <SongListHeader />
-      <div className="space-y-0.5">
-        {songs.map((song, i) => (
-          <SongRow key={songIdentityKey(song)} song={song} index={i}
-            isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
-            isPaused={isPaused}
-            onTogglePlayback={togglePlay}
-            onRemove={handleRemove} removeTitle={rowRemoveTitle} removeHint={rowRemoveHint} />
-        ))}
-      </div>
+      {!loading && (
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5">
+            {songs.map((song, i) => (
+              <SongRow key={songIdentityKey(song)} song={song} index={i}
+                isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
+                isPaused={isPaused}
+                onTogglePlayback={togglePlay}
+                onRemove={handleRemove} removeTitle={rowRemoveTitle} removeHint={rowRemoveHint} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
