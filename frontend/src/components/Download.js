@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from 'react-query';
 import {
   searchMusic,
+  getSearchSuggestions,
   getRecommend,
   getPlaylistDetail,
   getLyric,
@@ -32,6 +33,7 @@ import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
+import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
 
 const TABS = [
@@ -43,6 +45,9 @@ const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
 const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
 const COMBINED_SEARCH_RESULT_LIMIT = 80;
+const SEARCH_SUGGESTION_MIN_LENGTH = 2;
+const SEARCH_SUGGESTION_DEBOUNCE_MS = 260;
+const SEARCH_LINK_RE = /^(https?:\/\/|www\.)/i;
 
 // 搜索结果相关性排序已下沉到后端(/api/v1/search 综合排序:上游名次+翻唱降权+
 // 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
@@ -81,12 +86,112 @@ const combinedSearchKey = (song) => {
   return title ? `${source}:${title}:${artist}:${duration}` : songIdentityKey(song);
 };
 
+const useDebouncedValue = (value, delay) => {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+
+  return debounced;
+};
+
 const hasTitleArtistHit = (song, query) => {
   const q = compactSearchText(query);
   const title = compactSearchText(song?.name);
   if (!q || title.length < 2 || !q.includes(title)) return false;
   const artists = artistParts(song?.artist);
   return artists.length === 0 || artists.some((artist) => q.includes(artist));
+};
+
+const suggestionValue = (song) => {
+  const name = String(song?.name || '').trim();
+  const artist = String(song?.artist || '').trim();
+  return artist ? `${name} ${artist}` : name;
+};
+
+const songMetaText = (song, extra = []) => (
+  [song?.artist, song?.album, sourceLabel(song?.source), ...extra]
+    .filter(Boolean)
+    .join(' · ')
+);
+
+const addSuggestion = (bucket, seen, item) => {
+  const key = `${item.kind}:${compactSearchText(item.value)}:${compactSearchText(item.detail)}`;
+  if (!item.value || seen.has(key)) return;
+  seen.add(key);
+  bucket.push(item);
+};
+
+const buildSearchSuggestionGroups = (keyword, songs = [], keywords = []) => {
+  const q = compactSearchText(keyword);
+  if (q.length < SEARCH_SUGGESTION_MIN_LENGTH) return [];
+
+  const titleItems = [];
+  const artistItems = [];
+  const relatedItems = [];
+  const titleSeen = new Set();
+  const artistSeen = new Set();
+  const relatedSeen = new Set();
+
+  keywords.forEach((value) => {
+    const text = String(value || '').trim();
+    if (!text || !compactSearchText(text).includes(q)) return;
+    const target = /\s/.test(text) ? artistItems : titleItems;
+    const seen = /\s/.test(text) ? artistSeen : titleSeen;
+    addSuggestion(target, seen, {
+      kind: 'keyword',
+      value: text,
+      label: text,
+      detail: '最近搜索',
+    });
+  });
+
+  songs.forEach((song) => {
+    const name = String(song?.name || '').trim();
+    if (!name) return;
+    const artist = String(song?.artist || '').trim();
+    const nameText = compactSearchText(name);
+    const artistText = compactSearchText(artist);
+    const combinedText = `${nameText}${artistText}`;
+    const titleMatches = nameText.includes(q) || q.includes(nameText);
+    const artistMatches = artistText.includes(q) || combinedText.includes(q);
+
+    if (titleMatches && titleItems.length < 5) {
+      addSuggestion(titleItems, titleSeen, {
+        kind: 'title',
+        value: name,
+        label: name,
+        detail: songMetaText(song),
+      });
+    }
+
+    if ((titleMatches || artistMatches) && artist && artistItems.length < 6) {
+      addSuggestion(artistItems, artistSeen, {
+        kind: 'artist',
+        value: `${name} ${artist}`,
+        label: name,
+        detail: artist,
+        badge: sourceLabel(song.source),
+      });
+    }
+
+    if (!titleMatches && relatedItems.length < 5) {
+      addSuggestion(relatedItems, relatedSeen, {
+        kind: 'related',
+        value: suggestionValue(song),
+        label: name,
+        detail: songMetaText(song),
+      });
+    }
+  });
+
+  return [
+    { key: 'title', label: '歌名', items: titleItems },
+    { key: 'artist', label: '歌名 + 歌手', items: artistItems },
+    { key: 'related', label: '相关歌曲', items: relatedItems },
+  ].filter((group) => group.items.length > 0);
 };
 
 const mergeSearchSongs = (query, songSongs = [], lyricSongs = []) => {
@@ -123,7 +228,7 @@ const mergeSearchSongs = (query, songSongs = [], lyricSongs = []) => {
 
 const searchSongsAndLyrics = async (keyword) => {
   const query = keyword.trim();
-  const isLink = /^(https?:\/\/|www\.)/i.test(query);
+  const isLink = SEARCH_LINK_RE.test(query);
   const requests = [
     searchMusic(query, { type: 'song' }),
     ...(isLink ? [] : [searchMusic(query, { type: 'lyric' })]),
@@ -224,12 +329,176 @@ const QueryRefreshProgress = ({ active, className = '' }) => {
   );
 };
 
+const SearchSuggestionDropdown = ({ open, loading, groups, activeIndex, onActive, onPick }) => {
+  if (!open) return null;
+  let optionIndex = -1;
+
+  return (
+    <div
+      className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-md border border-border bg-card shadow-2xl"
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      {loading && groups.length === 0 ? (
+        <div className="px-4 py-3 text-sm text-muted-foreground">
+          正在补全<span className="loading-dots" aria-hidden="true" />
+        </div>
+      ) : groups.length > 0 ? (
+        <div className="max-h-96 overflow-y-auto py-2 app-scroll" role="listbox" id="download-search-suggestions">
+          {groups.map((group) => (
+            <div key={group.key} className="py-1">
+              <div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </div>
+              {group.items.map((item) => {
+                optionIndex += 1;
+                const selected = optionIndex === activeIndex;
+                return (
+                  <button
+                    key={`${group.key}-${item.value}-${item.detail}`}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onMouseEnter={() => onActive(optionIndex)}
+                    onClick={() => onPick(item)}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                      selected ? 'bg-secondary' : 'hover:bg-secondary'
+                    }`}
+                  >
+                    <Search size={16} className="flex-shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-grow">
+                      <span className="block truncate text-sm font-medium text-foreground">{item.label}</span>
+                      {item.detail && <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>}
+                    </span>
+                    {item.badge && (
+                      <span className="max-w-24 flex-shrink-0 truncate rounded bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {loading && (
+            <div className="px-3 pt-1 text-xs text-muted-foreground">
+              更新中<span className="loading-dots" aria-hidden="true" />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="px-4 py-3 text-sm text-muted-foreground">暂无补全建议</div>
+      )}
+    </div>
+  );
+};
+
 // 搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
   const feedback = useFeedback();
+  const closeSuggestionTimerRef = useRef(null);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const rawSuggestionKeyword = keyword.trim();
+  const debouncedSuggestionKeyword = useDebouncedValue(rawSuggestionKeyword, SEARCH_SUGGESTION_DEBOUNCE_MS);
+  const canSuggest = rawSuggestionKeyword.length >= SEARCH_SUGGESTION_MIN_LENGTH && !SEARCH_LINK_RE.test(rawSuggestionKeyword);
+  const suggestionSearch = useQuery(
+    ['musicdl-search-suggestions', debouncedSuggestionKeyword],
+    async () => {
+      const [localResult, onlineResult] = await Promise.allSettled([
+        getSearchSuggestions(debouncedSuggestionKeyword, { limit: 24 }),
+        searchMusic(debouncedSuggestionKeyword, { type: 'song' }),
+      ]);
+      const localData = localResult.status === 'fulfilled' ? localResult.value : {};
+      const onlineData = onlineResult.status === 'fulfilled' ? onlineResult.value : {};
+      return {
+        keywords: localData.keywords || [],
+        songs: [
+          ...(localData.songs || []),
+          ...(onlineData.songs || []),
+        ],
+      };
+    },
+    {
+      enabled: suggestionsOpen && debouncedSuggestionKeyword.length >= SEARCH_SUGGESTION_MIN_LENGTH && !SEARCH_LINK_RE.test(debouncedSuggestionKeyword),
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 5 * 60 * 1000,
+    }
+  );
+  const suggestionGroups = useMemo(
+    () => buildSearchSuggestionGroups(
+      debouncedSuggestionKeyword,
+      suggestionSearch.data?.songs || [],
+      suggestionSearch.data?.keywords || []
+    ),
+    [debouncedSuggestionKeyword, suggestionSearch.data]
+  );
+  const flatSuggestions = useMemo(
+    () => suggestionGroups.flatMap((group) => group.items),
+    [suggestionGroups]
+  );
+  const showSuggestions = suggestionsOpen && canSuggest;
+  const suggestionsLoading = showSuggestions && (
+    rawSuggestionKeyword !== debouncedSuggestionKeyword || suggestionSearch.isLoading || suggestionSearch.isFetching
+  );
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
   const { status, progress } = useLiveCheck(allSongs);
+
+  useEffect(() => {
+    setActiveSuggestion(-1);
+  }, [rawSuggestionKeyword, suggestionsOpen]);
+
+  useEffect(() => () => {
+    if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
+  }, []);
+
+  const openSuggestions = () => {
+    if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
+    setSuggestionsOpen(true);
+  };
+
+  const closeSuggestionsSoon = () => {
+    if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
+    closeSuggestionTimerRef.current = window.setTimeout(() => setSuggestionsOpen(false), 120);
+  };
+
+  const pickSuggestion = (item) => {
+    const value = (item?.value || '').trim();
+    if (!value) return;
+    setSuggestionsOpen(false);
+    setActiveSuggestion(-1);
+    if (runSearch) runSearch(value);
+  };
+
+  const handleSuggestionKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      setSuggestionsOpen(false);
+      setActiveSuggestion(-1);
+      return;
+    }
+    if (!showSuggestions || flatSuggestions.length === 0) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveSuggestion((idx) => (idx + 1) % flatSuggestions.length);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveSuggestion((idx) => (idx <= 0 ? flatSuggestions.length - 1 : idx - 1));
+      return;
+    }
+    if (event.key === 'Enter' && activeSuggestion >= 0) {
+      event.preventDefault();
+      pickSuggestion(flatSuggestions[activeSuggestion]);
+    }
+  };
+
+  const handleFormSubmit = (event) => {
+    setSuggestionsOpen(false);
+    setActiveSuggestion(-1);
+    onSubmit(event);
+  };
 
   // 搜索历史(仅登录用户有;未登录返回空)。搜索成功后刷新。
   const history = useQuery(['search-history'], getSearchHistory, {
@@ -382,14 +651,34 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
 
   return (
     <div>
-      <form onSubmit={onSubmit} className="flex gap-2 mb-6">
-        <input
-          type="text"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder="输入歌名 / 歌手 / 歌词，或粘贴链接…"
-          className="flex-grow rounded-md border border-border bg-card px-4 py-3 font-medium outline-none transition-colors focus:border-primary"
-        />
+      <form onSubmit={handleFormSubmit} className="mb-6 flex gap-2">
+        <div className="relative min-w-0 flex-grow">
+          <input
+            type="text"
+            value={keyword}
+            onFocus={openSuggestions}
+            onBlur={closeSuggestionsSoon}
+            onChange={(e) => {
+              setKeyword(e.target.value);
+              openSuggestions();
+            }}
+            onKeyDown={handleSuggestionKeyDown}
+            placeholder="输入歌名 / 歌手 / 歌词，或粘贴链接…"
+            className="w-full rounded-md border border-border bg-card px-4 py-3 font-medium outline-none transition-colors focus:border-primary"
+            aria-autocomplete="list"
+            aria-expanded={showSuggestions}
+            aria-haspopup="listbox"
+            aria-controls="download-search-suggestions"
+          />
+          <SearchSuggestionDropdown
+            open={showSuggestions}
+            loading={suggestionsLoading}
+            groups={suggestionGroups}
+            activeIndex={activeSuggestion}
+            onActive={setActiveSuggestion}
+            onPick={pickSuggestion}
+          />
+        </div>
         <button type="submit" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:brightness-110">
           搜索
         </button>

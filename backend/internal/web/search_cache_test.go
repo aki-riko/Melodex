@@ -183,3 +183,37 @@ func TestSearchHistoryIsolationAndDedup(t *testing.T) {
 		t.Fatalf("link should not be recorded, got %d", len(h))
 	}
 }
+
+func TestSearchSuggestionsUseHistoryAndCache(t *testing.T) {
+	setupUserTestDB(t)
+	alice, _ := createUser("alice", "alicepass1", RoleUser)
+	bob, _ := createUser("bob", "bobpass1", RoleUser)
+
+	recordSearchHistory(alice.ID, "错位时空 艾辰", "song")
+	recordSearchHistory(alice.ID, "周杰伦 晴天", "song")
+	recordSearchHistory(bob.ID, "错位人生", "song")
+
+	keywords := suggestSearchHistoryKeywords(alice.ID, "错位", 8)
+	if len(keywords) != 1 || keywords[0] != "错位时空 艾辰" {
+		t.Fatalf("history suggestions mismatch: %+v", keywords)
+	}
+
+	cacheKey := searchCacheKey("song", "错位时空 艾辰", "", []string{"qq", "netease"})
+	putCachedSearch(cacheKey, jsonSearchResponse{
+		Type:    "song",
+		Keyword: "错位时空 艾辰",
+		Sources: []string{"qq", "netease"},
+		Songs: []model.Song{
+			{ID: "2100630469", Name: "错位时空", Artist: "艾辰", Source: "netease", Album: "错位时空"},
+			{ID: "004ZgdqY0Gfpq8", Name: "谁与归", Artist: "艾辰", Source: "qq", Album: "谁与归"},
+		},
+	})
+
+	songs := suggestSearchCacheSongs("错位", 10)
+	if len(songs) != 1 {
+		t.Fatalf("cache suggestions len=%d, songs=%+v", len(songs), songs)
+	}
+	if songs[0].Name != "错位时空" || songs[0].Artist != "艾辰" {
+		t.Fatalf("cache suggestion mismatch: %+v", songs[0])
+	}
+}

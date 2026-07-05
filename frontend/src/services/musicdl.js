@@ -45,6 +45,15 @@ export const searchMusic = async (keyword, { type = 'song', sources = [], exactA
   return withSongs(data); // { songs, playlists, type, keyword, sources, error }
 };
 
+// 输入框补全建议:只读本地搜索历史/缓存,不触发上游搜索或验活。
+export const getSearchSuggestions = async (keyword, { limit = 24 } = {}) => {
+  const params = new URLSearchParams();
+  params.set('q', keyword);
+  params.set('limit', limit);
+  const { data } = await client.get(`/api/v1/search_suggestions?${params.toString()}`);
+  return withSongs(data); // { keywords, songs }
+};
+
 // 获取可用音乐源
 export const getSources = async () => {
   const { data } = await client.get('/api/v1/sources');
