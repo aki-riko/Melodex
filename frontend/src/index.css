@@ -149,6 +149,25 @@ html {
   }
 }
 
+/* 底栏当前歌词:当前行切换时轻微淡入。 */
+.player-mini-lyric {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: player-mini-lyric-fade 0.18s ease-out;
+}
+
+@keyframes player-mini-lyric-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-mini-lyric {
+    animation: none;
+  }
+}
+
 /* 歌曲行当前播放封面:封面上叠加循环音量柱。 */
 .song-row-playing-cover {
   position: absolute;

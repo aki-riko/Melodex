@@ -166,6 +166,7 @@ const SongRow = ({
   const rowKey = songIdentityKey(rowSong);
   const favoriteCacheKey = `${userId}:${rowKey}`;
   const albumTitle = rowSong.album || '—';
+  const lyricMatch = rowSong.extra && typeof rowSong.extra === 'object' ? rowSong.extra.lyric_match : '';
   const isActivelyPlaying = isPlaying && !isPaused;
   const showPlayingBars = isActivelyPlaying;
   const showPausedCoverPlayButton = isPlaying && isPaused;
@@ -369,6 +370,11 @@ const SongRow = ({
             {dlState === 'done' && statusBadge('NAS', 'bg-primary/10 text-primary')}
             {(cacheState === 'fail' || dlState === 'fail') && statusBadge('失败', 'bg-destructive/10 text-destructive')}
           </div>
+          {lyricMatch && (
+            <p className="mt-1 truncate text-xs text-primary/80">
+              {lyricMatch}
+            </p>
+          )}
         </div>
       </div>
 

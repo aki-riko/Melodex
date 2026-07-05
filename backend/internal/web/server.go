@@ -44,6 +44,8 @@ func defaultSourcesForSearchType(searchType string) []string {
 		return core.GetPlaylistSourceNames()
 	case "album":
 		return core.GetAlbumSourceNames()
+	case "lyric":
+		return core.GetDefaultSourceNames()
 	default:
 		return core.GetDefaultSourceNames()
 	}
@@ -69,6 +71,8 @@ func searchPlaceholderForType(searchType string) string {
 		return "搜索歌单、创建者，或直接粘贴歌单链接"
 	case "album":
 		return "搜索专辑、歌手，或直接粘贴专辑链接"
+	case "lyric":
+		return "输入一句歌词，先找候选歌曲再匹配歌词文本"
 	default:
 		return "搜索歌曲、歌手，或直接粘贴分享链接"
 	}
