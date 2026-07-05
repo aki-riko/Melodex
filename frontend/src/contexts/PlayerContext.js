@@ -10,6 +10,7 @@ import { normalizeSong } from '../utils/songFields';
 const PlayerContext = createContext(null);
 
 const songSourceText = (song) => (song?.source ? sourceLabel(song.source) : '');
+const lyricCache = new Map();
 
 // 播放模式:order 顺序 / repeat 单曲循环 / shuffle 随机
 // 播放模式:shuffle 随机 / order 顺序(放完停) / repeat 单曲循环 / loop 列表循环(放完从头)
@@ -601,21 +602,33 @@ export const PlayerBar = () => {
     return () => window.removeEventListener('popstate', onPop);
   }, [collapseExpanded]);
 
-  // 展开且当前歌变化时拉取并解析歌词(仅在展开播放页用,省请求)。
+  // 当前歌变化时拉取并解析歌词。桌面底栏和展开播放页共用同一份结果。
   useEffect(() => {
-    if (!expanded || !nowPlaying || offline) {
+    if (!nowPlaying || offline) {
       setLrc([]);
       return;
     }
     let cancelled = false;
+    const cached = lyricCache.get(curKey);
+    if (cached) {
+      setLrc(cached);
+      return () => { cancelled = true; };
+    }
     setLrc([]);
     getLyric(nowPlaying)
-      .then((text) => { if (!cancelled) setLrc(parseLRC(text)); })
+      .then((text) => {
+        const parsed = parseLRC(text);
+        lyricCache.set(curKey, parsed);
+        if (!cancelled) setLrc(parsed);
+      })
       .catch(() => { if (!cancelled) setLrc([]); });
     return () => { cancelled = true; };
-  }, [expanded, curKey, nowPlaying, offline]);
+  }, [curKey, nowPlaying, offline]);
 
   const lyricIdx = currentLyricIndex(lrc, progress.cur);
+  const activeLyricLine = lyricIdx >= 0 ? lrc[lyricIdx] : null;
+  const miniLyricText = activeLyricLine?.text || '';
+  const artistSourceText = nowPlaying ? `${nowPlaying.artist}${nowPlaying.source ? ` · ${songSourceText(nowPlaying)}` : ''}` : '';
 
   // 歌词自动滚动:当前行变化时滚到视图中央。
   const activeLyricRef = useRef(null);
@@ -661,9 +674,15 @@ export const PlayerBar = () => {
                 : <div className="w-12 h-12 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={20} className="text-muted-foreground" /></div>}
               <div className="min-w-0">
                 <p className="truncate font-semibold text-sm group-hover:text-primary transition-colors">{nowPlaying?.name}</p>
-                <p className="text-muted-foreground text-xs truncate">
-                  {nowPlaying ? `${nowPlaying.artist} · ${songSourceText(nowPlaying)}` : ''}
-                </p>
+                <div className="mt-0.5 h-4 overflow-hidden text-xs text-muted-foreground">
+                  {miniLyricText ? (
+                    <span key={`${curKey}-${lyricIdx}`} className="player-mini-lyric block whitespace-nowrap text-primary/90">
+                      {miniLyricText}
+                    </span>
+                  ) : (
+                    <span className="block truncate">{artistSourceText}</span>
+                  )}
+                </div>
               </div>
             </button>
             {/* 中:控制按钮 */}

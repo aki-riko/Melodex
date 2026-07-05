@@ -33,7 +33,7 @@ client.interceptors.response.use(
   }
 );
 
-// 多源搜索。type: song | playlist | album
+// 多源搜索。type: song | lyric | playlist | album
 export const searchMusic = async (keyword, { type = 'song', sources = [], exactArtist = '' } = {}) => {
   const params = new URLSearchParams();
   params.set('q', keyword);

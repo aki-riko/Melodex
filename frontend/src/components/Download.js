@@ -36,6 +36,7 @@ import LoadingState from './LoadingState';
 
 const TABS = [
   { key: 'search', label: '歌曲搜索' },
+  { key: 'lyric', label: '歌词搜索' },
   { key: 'discover', label: '推荐歌单' },
 ];
 
@@ -100,17 +101,28 @@ const SearchStatusPanel = ({ stage, progress, available, total }) => {
 const CacheRefreshNotice = ({ data, className = '' }) => {
   if (!data?.cached || !data?.refreshing) return null;
   return (
-    <div className={`mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground ${className}`}>
-      <Loader2 size={15} className="animate-spin text-primary" />
-      <span>正在后台更新缓存，当前先显示上次结果</span>
+    <div className={`mb-3 ${className}`} role="status" aria-live="polite" title="正在后台更新缓存，当前先显示上次结果">
+      <span className="sr-only">正在后台更新缓存，当前先显示上次结果</span>
+      <div className="h-1 overflow-hidden rounded-full bg-secondary loading-bar-indeterminate" />
+    </div>
+  );
+};
+
+const QueryRefreshProgress = ({ active, className = '' }) => {
+  if (!active) return null;
+  return (
+    <div className={`mb-3 ${className}`} role="status" aria-live="polite" title="正在刷新内容">
+      <span className="sr-only">正在刷新内容</span>
+      <div className="h-1 overflow-hidden rounded-full bg-secondary loading-bar-indeterminate" />
     </div>
   );
 };
 
 // 歌曲搜索面板
-const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
+const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, searchType = 'song', state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
   const feedback = useFeedback();
+  const isLyricSearch = searchType === 'lyric';
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
   const { status, progress } = useLiveCheck(allSongs);
 
@@ -208,8 +220,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     if (!query && !state.isLoading) return null;
     if (state.isLoading) {
       return {
-        title: `正在搜索「${query}」`,
-        detail: '正在从多个音乐源拉取候选结果。',
+        title: isLyricSearch ? `正在按歌词搜索「${query}」` : `正在搜索「${query}」`,
+        detail: isLyricSearch ? '先找候选歌曲，再读取歌词文本做命中匹配。' : '正在从多个音乐源拉取候选结果。',
         icon: Loader2,
         loading: true,
       };
@@ -270,7 +282,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
           type="text"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="输入歌名 / 歌手,或粘贴链接…"
+          placeholder={isLyricSearch ? '输入一句歌词，比如“确认过眼神”' : '输入歌名 / 歌手,或粘贴链接…'}
           className="flex-grow rounded-md border border-border bg-card px-4 py-3 font-medium outline-none transition-colors focus:border-primary"
         />
         <button type="submit" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:brightness-110">
@@ -312,6 +324,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
         <p className="mb-4 text-sm text-destructive">{historyNotice}</p>
       )}
       <CacheRefreshNotice data={state.data} />
+      <QueryRefreshProgress active={state.isFetching && !!state.data && !state.isLoading && !searchStage?.loading && !(state.data?.cached && state.data?.refreshing)} />
       <SearchStatusPanel stage={searchStage} progress={progress} available={songs.length} total={allSongs.length} />
       {songs.length > 0 && (
         <div className="mb-4 flex flex-wrap items-stretch gap-2">
@@ -361,7 +374,7 @@ const LyricModal = ({ lyric, onClose }) => (
 
 // 推荐歌单面板(按源分栏的网格)
 const DiscoverPane = ({ state, onOpen }) => {
-  if (state.isLoading) {
+  if (state.isLoading && !state.data) {
     return (
       <LoadingState
         title="加载推荐歌单"
@@ -375,6 +388,7 @@ const DiscoverPane = ({ state, onOpen }) => {
   const tabs = state.data?.tabs || [];
   return (
     <div className="space-y-8 pb-32">
+      <QueryRefreshProgress active={state.isFetching && tabs.length > 0 && !(state.data?.cached && state.data?.refreshing)} />
       <CacheRefreshNotice data={state.data} />
       {tabs.map((tab) => (
         <div key={tab.source}>
@@ -578,7 +592,8 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
           </div>
         </div>
       </div>
-      {state.isLoading && (
+      <QueryRefreshProgress active={state.isFetching && songs.length > 0 && !(state.data?.cached && state.data?.refreshing)} />
+      {state.isLoading && songs.length === 0 && (
         <LoadingState
           title="加载歌单"
           detail="正在读取歌单歌曲和封面信息"
@@ -641,10 +656,10 @@ const Download = ({ downloadRequest }) => {
 
   // 歌曲搜索
   const search = useQuery(
-    ['musicdl-search', query],
-    () => searchMusic(query, { type: 'song' }),
+    ['musicdl-search', tab === 'lyric' ? 'lyric' : 'song', query],
+    () => searchMusic(query, { type: tab === 'lyric' ? 'lyric' : 'song' }),
     {
-      enabled: tab === 'search' && !!query,
+      enabled: (tab === 'search' || tab === 'lyric') && !!query,
       keepPreviousData: true,
       // 失焦/重新聚焦不自动重搜(否则切窗口回来会重新搜索+重新验活)
       refetchOnWindowFocus: false,
@@ -652,7 +667,7 @@ const Download = ({ downloadRequest }) => {
       staleTime: 5 * 60 * 1000,
     }
   );
-  useCachedRefresh(search, tab === 'search' && !!query);
+  useCachedRefresh(search, (tab === 'search' || tab === 'lyric') && !!query);
 
   // 推荐歌单(默认网易云 + QQ)
   const recommend = useQuery(
@@ -722,13 +737,14 @@ const Download = ({ downloadRequest }) => {
         ))}
       </div>
 
-      {tab === 'search' && (
+      {(tab === 'search' || tab === 'lyric') && (
         <SearchPane
           keyword={keyword}
           setKeyword={setKeyword}
           onSubmit={handleSearch}
           runSearch={runSearch}
           query={query}
+          searchType={tab === 'lyric' ? 'lyric' : 'song'}
           state={search}
           onPlay={handlePlay}
           onTogglePlayback={togglePlay}

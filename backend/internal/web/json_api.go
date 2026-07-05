@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -393,7 +394,7 @@ func jsonSearchHandler(c *gin.Context) {
 		resp.Playlists = playlists
 		resp.Type = finalType
 		resp.Error = errMsg
-		if resp.Type == "song" && len(resp.Songs) > 0 {
+		if isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
 			warmQualityCache(resp.Songs, 6)
 		}
 		if errMsg != "" {
@@ -414,7 +415,7 @@ func jsonSearchHandler(c *gin.Context) {
 			if !entry.Fresh {
 				refreshSearchCacheAsync(cacheKey, searchType, keyword, exactArtist, sources)
 			}
-			if cached.Type == "song" && len(cached.Songs) > 0 {
+			if isTrackSearchType(cached.Type) && len(cached.Songs) > 0 {
 				warmQualityCache(cached.Songs, 6)
 			}
 			c.JSON(200, cached)
@@ -426,7 +427,7 @@ func jsonSearchHandler(c *gin.Context) {
 		// 写缓存(排序/过滤后的最终结果)+ 记搜索历史。
 		putCachedSearch(cacheKey, resp)
 		recordSearchHistory(currentUserID(c), keyword, resp.Type)
-		if resp.Type == "song" && len(resp.Songs) > 0 {
+		if isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
 			warmQualityCache(resp.Songs, 6)
 		}
 		c.JSON(200, resp)
@@ -437,6 +438,132 @@ func jsonSearchHandler(c *gin.Context) {
 }
 
 var searchCacheRefreshInFlight sync.Map
+
+const (
+	lyricSearchCandidateLimitEnv  = "MUSIC_DL_LYRIC_SEARCH_CANDIDATE_LIMIT"
+	lyricSearchConcurrencyEnv     = "MUSIC_DL_LYRIC_SEARCH_CONCURRENCY"
+	defaultLyricCandidateLimit    = 80
+	defaultLyricSearchConcurrency = 6
+)
+
+func isTrackSearchType(searchType string) bool {
+	return searchType == "song" || searchType == "lyric"
+}
+
+var fetchLyricForSearch = func(song model.Song) (string, error) {
+	fn := core.GetLyricFunc(song.Source)
+	if fn == nil {
+		return "", fmt.Errorf("source %s does not support lyrics", song.Source)
+	}
+	s := song
+	return fn(&s)
+}
+
+func filterSongsByLyric(keyword string, songs []model.Song) []model.Song {
+	needle := compactLyricSearchText(keyword)
+	if needle == "" || len(songs) == 0 {
+		return songs
+	}
+
+	limit := len(songs)
+	if maxCandidates := lyricSearchCandidateLimit(); limit > maxCandidates {
+		limit = maxCandidates
+	}
+
+	type matchResult struct {
+		song model.Song
+		ok   bool
+	}
+	results := make([]matchResult, limit)
+	sem := make(chan struct{}, lyricSearchConcurrency())
+	var wg sync.WaitGroup
+
+	for i := 0; i < limit; i++ {
+		i := i
+		song := songs[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			raw, err := fetchLyricForSearch(song)
+			if err != nil || !lyricTextContains(raw, needle) {
+				return
+			}
+			if song.Extra == nil {
+				song.Extra = map[string]string{}
+			}
+			song.Extra["lyric_match"] = extractLyricMatchLine(raw, needle)
+			results[i] = matchResult{song: song, ok: true}
+		}()
+	}
+	wg.Wait()
+
+	out := make([]model.Song, 0, limit)
+	for _, result := range results {
+		if result.ok {
+			out = append(out, result.song)
+		}
+	}
+	return out
+}
+
+func lyricSearchCandidateLimit() int {
+	return positiveIntFromEnv(lyricSearchCandidateLimitEnv, defaultLyricCandidateLimit)
+}
+
+func lyricSearchConcurrency() int {
+	n := positiveIntFromEnv(lyricSearchConcurrencyEnv, defaultLyricSearchConcurrency)
+	if n > 16 {
+		return 16
+	}
+	return n
+}
+
+func positiveIntFromEnv(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		return n
+	}
+	return fallback
+}
+
+func lyricTextContains(raw string, needle string) bool {
+	return strings.Contains(compactLyricSearchText(raw), needle)
+}
+
+func compactLyricSearchText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	text = lrcTimestampRe.ReplaceAllString(text, "")
+	text = strings.ToLower(text)
+	return strings.Join(strings.Fields(text), "")
+}
+
+func extractLyricMatchLine(raw string, needle string) string {
+	for _, rawLine := range strings.Split(raw, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || lrcTagLineRe.MatchString(line) {
+			continue
+		}
+		line = strings.TrimSpace(lrcTimestampRe.ReplaceAllString(line, ""))
+		if line == "" || !strings.Contains(compactLyricSearchText(line), needle) {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) > 80 {
+			return string(runes[:80]) + "..."
+		}
+		return line
+	}
+	return ""
+}
 
 func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources []string) jsonSearchResponse {
 	resp := jsonSearchResponse{
@@ -453,10 +580,13 @@ func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources
 	resp.Playlists = playlists
 
 	// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
-	if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
+	if isTrackSearchType(resp.Type) && keyword != "" && len(resp.Songs) > 0 {
 		sortSongsByRelevance(resp.Songs, keyword)
 	}
-	if resp.Type == "song" && exactArtist != "" && len(resp.Songs) > 0 {
+	if resp.Type == "lyric" && keyword != "" && len(resp.Songs) > 0 {
+		resp.Songs = filterSongsByLyric(keyword, resp.Songs)
+	}
+	if isTrackSearchType(resp.Type) && exactArtist != "" && len(resp.Songs) > 0 {
 		resp.Songs = filterSongsByExactArtist(resp.Songs, exactArtist)
 	}
 	return resp
@@ -473,7 +603,7 @@ func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sourc
 		defer searchCacheRefreshInFlight.Delete(key)
 		resp := buildKeywordSearchResponse(keyword, searchType, exactArtist, sources)
 		putCachedSearch(key, resp)
-		if resp.Type == "song" && len(resp.Songs) > 0 {
+		if isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
 			warmQualityCache(resp.Songs, 6)
 		}
 	}()
