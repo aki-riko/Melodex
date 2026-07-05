@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getMe, login as apiLogin, logout as apiLogout, setupAdmin, register as apiRegister } from '../services/musicdl';
 
 const AuthContext = createContext(null);
@@ -26,6 +26,7 @@ const clearLastKnown = () => {
 // AuthProvider 在应用启动时拉取 /api/v1/me 判断登录态,向下提供当前用户与登录/登出操作。
 // 未登录 → 渲染登录/初始化页;登录后 → 渲染主应用(见 App.js)。
 export const AuthProvider = ({ children }) => {
+  const refreshInFlightRef = useRef(null);
   const [state, setState] = useState({
     loading: true,
     authenticated: false,
@@ -36,46 +37,54 @@ export const AuthProvider = ({ children }) => {
     offline: false,
   });
 
-  const refresh = useCallback(async () => {
-    try {
-      const me = await getMe();
-      const nextState = {
-        loading: false,
-        authenticated: !!me.authenticated,
-        user: me.user || null,
-        setupRequired: !!me.setupRequired,
-        allowRegistration: !!me.allowRegistration,
-        desktop: !!me.desktop,
-        offline: false,
-      };
-      if (nextState.authenticated && nextState.user) {
-        saveLastKnown({
-          user: nextState.user,
-          desktop: nextState.desktop,
-          savedAt: new Date().toISOString(),
-        });
-      } else {
-        clearLastKnown();
-      }
-      setState(nextState);
-    } catch (e) {
-      // 网络错误:使用最近登录用户进入离线模式,只允许本机缓存播放。
-      // 明确的 HTTP 错误不能降级,避免把过期/无效会话伪装成登录态。
-      const cached = !e?.response ? loadLastKnown() : null;
-      if (cached?.user?.id) {
-        setState({
+  const refresh = useCallback(() => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const run = (async () => {
+      try {
+        const me = await getMe();
+        const nextState = {
           loading: false,
-          authenticated: true,
-          user: cached.user,
-          setupRequired: false,
-          allowRegistration: false,
-          desktop: !!cached.desktop,
-          offline: true,
-        });
-        return;
+          authenticated: !!me.authenticated,
+          user: me.user || null,
+          setupRequired: !!me.setupRequired,
+          allowRegistration: !!me.allowRegistration,
+          desktop: !!me.desktop,
+          offline: false,
+        };
+        if (nextState.authenticated && nextState.user) {
+          saveLastKnown({
+            user: nextState.user,
+            desktop: nextState.desktop,
+            savedAt: new Date().toISOString(),
+          });
+        } else {
+          clearLastKnown();
+        }
+        setState(nextState);
+      } catch (e) {
+        const status = e?.response?.status || 0;
+        const cached = (!e?.response || status >= 500) ? loadLastKnown() : null;
+        if (cached?.user?.id) {
+          setState({
+            loading: false,
+            authenticated: true,
+            user: cached.user,
+            setupRequired: false,
+            allowRegistration: false,
+            desktop: !!cached.desktop,
+            offline: true,
+          });
+          return;
+        }
+        setState((s) => ({ ...s, loading: false, authenticated: false, user: null, offline: false }));
       }
-      setState((s) => ({ ...s, loading: false, authenticated: false, user: null, offline: false }));
-    }
+    })();
+
+    refreshInFlightRef.current = run.finally(() => {
+      refreshInFlightRef.current = null;
+    });
+    return refreshInFlightRef.current;
   }, []);
 
   useEffect(() => {

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guohuiyuan/go-music-dl/core"
 )
 
 func TestPrepareSetupTokenLifecycle(t *testing.T) {
@@ -303,6 +306,61 @@ func TestAuthRequiredAllowsSignedSession(t *testing.T) {
 	}
 	if rec.Body.String() != "owner" {
 		t.Fatalf("body = %q, want owner", rec.Body.String())
+	}
+}
+
+func signedSessionForAuthTest(t *testing.T, u *User, secret string, now time.Time) string {
+	t.Helper()
+	raw, err := json.Marshal(sessionPayload{
+		UserID:   u.ID,
+		Username: u.Username,
+		Epoch:    u.SessionEpoch,
+		IssuedAt: now.Unix(),
+		Nonce:    "test-nonce",
+	})
+	if err != nil {
+		t.Fatalf("marshal session: %v", err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(raw)
+	return encoded + "." + signSessionPayload(secret, encoded)
+}
+
+func TestAuthRequiredKeepsCookieOnAuthBackendError(t *testing.T) {
+	setupUserTestDB(t)
+	gin.SetMode(gin.TestMode)
+	u, err := createUser("owner", "ownerpass1", RoleUser)
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	value := signedSessionForAuthTest(t, u, "sekret", time.Now())
+
+	core.ResetConfigStateForTest()
+	resetAuthRuntimeForTest()
+	t.Cleanup(func() {
+		core.ResetConfigStateForTest()
+		resetAuthRuntimeForTest()
+	})
+	t.Setenv(core.DatabaseDriverEnv, "unsupported")
+
+	router := gin.New()
+	router.Use(authRequired())
+	router.GET("/secure", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/secure", nil)
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: value})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503, body=%s", rec.Code, rec.Body.String())
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == authCookieName {
+			t.Fatalf("auth backend error must not clear session cookie: %+v", cookie)
+		}
 	}
 }
 

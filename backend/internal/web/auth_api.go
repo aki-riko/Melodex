@@ -51,7 +51,11 @@ func registerAuthAPIRoutes(api *gin.RouterGroup, opts StartOptions) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "请先初始化管理员账号", "setupRequired": true})
 			return
 		}
-		u, ok := authenticateRequest(c, time.Now())
+		u, ok, authErr := authenticateRequest(c, time.Now())
+		if authErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "登录状态校验失败,请稍后重试"})
+			return
+		}
 		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录", "allowRegistration": registrationAllowed()})
 			return
@@ -347,4 +351,3 @@ func userMgmtErrMsg(err error) string {
 		return "操作失败"
 	}
 }
-

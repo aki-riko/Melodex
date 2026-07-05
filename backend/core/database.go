@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
@@ -15,6 +17,13 @@ const (
 	DatabaseDSNEnv          = "MUSIC_DL_DATABASE_DSN"
 	DatabaseDriverEnv       = "MUSIC_DL_DATABASE_DRIVER"
 	LegacySQLiteDatabaseEnv = "MUSIC_DL_LEGACY_SQLITE_DB"
+	DatabaseMaxOpenConnsEnv = "MUSIC_DL_DB_MAX_OPEN_CONNS"
+	DatabaseMaxIdleConnsEnv = "MUSIC_DL_DB_MAX_IDLE_CONNS"
+	DatabaseConnMaxLifeEnv  = "MUSIC_DL_DB_CONN_MAX_LIFETIME"
+
+	defaultPostgresMaxOpenConns = 16
+	defaultPostgresMaxIdleConns = 8
+	defaultPostgresConnMaxLife  = 30 * time.Minute
 )
 
 func databaseDriver() string {
@@ -53,7 +62,14 @@ func OpenAppDatabase() (*gorm.DB, error) {
 		if dsn == "" {
 			return nil, fmt.Errorf("%s is required when %s=postgres", DatabaseDSNEnv, DatabaseDriverEnv)
 		}
-		return gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err != nil {
+			return nil, err
+		}
+		if err := configurePostgresPool(db); err != nil {
+			return nil, err
+		}
+		return db, nil
 	case "sqlite", "sqlite3":
 		dbPath := strings.TrimSpace(os.Getenv(DatabaseDSNEnv))
 		if dbPath == "" {
@@ -67,6 +83,47 @@ func OpenAppDatabase() (*gorm.DB, error) {
 	default:
 		return nil, fmt.Errorf("unsupported database driver %q", databaseDriver())
 	}
+}
+
+func intEnv(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
+}
+
+func durationEnv(name string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
+func configurePostgresPool(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+
+	maxOpen := intEnv(DatabaseMaxOpenConnsEnv, defaultPostgresMaxOpenConns)
+	maxIdle := intEnv(DatabaseMaxIdleConnsEnv, defaultPostgresMaxIdleConns)
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetConnMaxLifetime(durationEnv(DatabaseConnMaxLifeEnv, defaultPostgresConnMaxLife))
+	return nil
 }
 
 // IsPostgresDB checks the actual GORM dialect on an opened database.

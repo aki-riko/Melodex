@@ -9,6 +9,18 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const maxFavoriteStatusBatch = 500
+
+type favoriteStatusItem struct {
+	SongID    string `json:"id"`
+	Source    string `json:"source"`
+	Favorited bool   `json:"favorited,omitempty"`
+}
+
+func favoritePairKey(source, songID string) string {
+	return strings.TrimSpace(source) + "\x1f" + strings.TrimSpace(songID)
+}
+
 // ensureFavoriteCollection 返回该用户的「我喜欢」歌单(kind=favorite),不存在则创建。
 // 每个用户默认有且仅有一个;幂等。userID=0 视为无效。
 func ensureFavoriteCollection(userID uint) (*Collection, error) {
@@ -79,6 +91,75 @@ func RegisterFavoriteRoutes(api *gin.RouterGroup) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"favorited": fav})
+	})
+
+	api.POST("/favorites/status_batch", func(c *gin.Context) {
+		uid := currentUserID(c)
+		var req struct {
+			Songs []favoriteStatusItem `json:"songs"`
+		}
+		if c.ShouldBindJSON(&req) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+			return
+		}
+		if len(req.Songs) > maxFavoriteStatusBatch {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "一次最多查询 500 首"})
+			return
+		}
+
+		items := make([]favoriteStatusItem, 0, len(req.Songs))
+		seen := make(map[string]bool, len(req.Songs))
+		sources := make([]string, 0, len(req.Songs))
+		sourceSeen := map[string]bool{}
+		ids := make([]string, 0, len(req.Songs))
+		idSeen := map[string]bool{}
+		for _, item := range req.Songs {
+			item.Source = strings.TrimSpace(item.Source)
+			item.SongID = strings.TrimSpace(item.SongID)
+			if item.Source == "" || item.SongID == "" {
+				continue
+			}
+			key := favoritePairKey(item.Source, item.SongID)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			items = append(items, item)
+			if !sourceSeen[item.Source] {
+				sourceSeen[item.Source] = true
+				sources = append(sources, item.Source)
+			}
+			if !idSeen[item.SongID] {
+				idSeen[item.SongID] = true
+				ids = append(ids, item.SongID)
+			}
+		}
+		if len(items) == 0 {
+			c.JSON(http.StatusOK, gin.H{"statuses": []favoriteStatusItem{}})
+			return
+		}
+
+		fav, err := ensureFavoriteCollection(uid)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询收藏状态失败"})
+			return
+		}
+
+		var saved []SavedSong
+		if err := db.Select("song_id", "source").
+			Where("collection_id = ? AND source IN ? AND song_id IN ?", fav.ID, sources, ids).
+			Find(&saved).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询收藏状态失败"})
+			return
+		}
+		favorited := make(map[string]bool, len(saved))
+		for _, song := range saved {
+			favorited[favoritePairKey(song.Source, song.SongID)] = true
+		}
+		for i := range items {
+			items[i].Favorited = favorited[favoritePairKey(items[i].Source, items[i].SongID)]
+		}
+		c.JSON(http.StatusOK, gin.H{"statuses": items})
 	})
 
 	// 切换收藏:在「我喜欢」中有则删、无则加

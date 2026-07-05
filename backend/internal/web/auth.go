@@ -53,6 +53,7 @@ type loginAttemptState struct {
 type authRuntimeState struct {
 	mu            sync.Mutex
 	setupToken    string
+	sessionSecret string
 	loginAttempts map[string]loginAttemptState
 }
 
@@ -174,11 +175,19 @@ func sessionMaxAge() time.Duration {
 // 用户身份由 payload 内的 UserID 区分。密钥存在 WebAuthSettings.SessionSecret,
 // 首次调用若缺失则生成并持久化(幂等)。
 func signingSecret() (string, error) {
+	authRuntime.mu.Lock()
+	defer authRuntime.mu.Unlock()
+
+	if authRuntime.sessionSecret != "" {
+		return authRuntime.sessionSecret, nil
+	}
+
 	settings, err := core.GetWebAuthSettings()
 	if err != nil {
 		return "", err
 	}
 	if s := strings.TrimSpace(settings.SessionSecret); s != "" {
+		authRuntime.sessionSecret = s
 		return s, nil
 	}
 	secret, err := randomToken(32)
@@ -189,6 +198,7 @@ func signingSecret() (string, error) {
 	if err := core.SaveWebAuthSettings(settings); err != nil {
 		return "", err
 	}
+	authRuntime.sessionSecret = secret
 	return secret, nil
 }
 
@@ -384,7 +394,15 @@ func authRequired() gin.HandlerFunc {
 			return
 		}
 
-		if u, ok := authenticateRequest(c, time.Now()); ok {
+		if u, ok, err := authenticateRequest(c, time.Now()); err != nil {
+			if wantsHTML(c) {
+				c.String(http.StatusServiceUnavailable, "登录状态校验失败,请稍后重试")
+			} else {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "登录状态校验失败,请稍后重试"})
+			}
+			c.Abort()
+			return
+		} else if ok {
 			setCurrentUser(c, u)
 			c.Next()
 			return
@@ -401,35 +419,41 @@ func authRequired() gin.HandlerFunc {
 }
 
 // authenticateRequest 验签会话 cookie 并查库确认用户存在且未禁用。
-func authenticateRequest(c *gin.Context, now time.Time) (*User, bool) {
+func authenticateRequest(c *gin.Context, now time.Time) (*User, bool, error) {
 	value, err := c.Cookie(authCookieName)
 	if err != nil || value == "" {
-		return nil, false
+		return nil, false, nil
 	}
 	secret, err := signingSecret()
 	if err != nil {
-		return nil, false
+		return nil, false, err
 	}
 	payload, ok := parseSessionValue(secret, value, now)
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 	u, err := findUserByID(payload.UserID)
-	if err != nil || u == nil {
-		return nil, false
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if u == nil {
+		return nil, false, nil
 	}
 	if u.Disabled {
-		return nil, false
+		return nil, false, nil
 	}
 	// 用户名变更则旧会话失效(防止改名后旧 cookie 仍显示旧名)。
 	if u.Username != payload.Username {
-		return nil, false
+		return nil, false, nil
 	}
 	// 会话纪元不匹配(改密码后递增)→ 旧会话作废,实现"改密码即登出所有设备"。
 	if u.SessionEpoch != payload.Epoch {
-		return nil, false
+		return nil, false, nil
 	}
-	return u, true
+	return u, true, nil
 }
 
 // adminRequired 必须在 authRequired 之后使用:非管理员返回 403。
@@ -452,7 +476,7 @@ func adminRequired() gin.HandlerFunc {
 // 但不强制登录。无有效会话则不写入上下文,继续放行。
 func attachUserOptional() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if u, ok := authenticateRequest(c, time.Now()); ok {
+		if u, ok, err := authenticateRequest(c, time.Now()); err == nil && ok {
 			setCurrentUser(c, u)
 		}
 		c.Next()
@@ -567,7 +591,10 @@ func bindAuthRoutes(api *gin.RouterGroup) {
 			c.Redirect(http.StatusFound, RoutePrefix+"/setup")
 			return
 		}
-		if _, ok := authenticateRequest(c, time.Now()); ok {
+		if _, ok, err := authenticateRequest(c, time.Now()); err != nil {
+			c.String(http.StatusServiceUnavailable, "登录状态校验失败,请稍后重试")
+			return
+		} else if ok {
 			c.Redirect(http.StatusFound, safeAuthRedirectTarget(c.Query("next")))
 			return
 		}
