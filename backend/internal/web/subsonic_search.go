@@ -506,7 +506,31 @@ func relevanceScore(song model.Song, query string) int {
 	if strings.Contains(artist, q) {
 		score += 80
 	}
+	if hasTitleAndArtistIntent(name, artist, q) {
+		score += 1200
+	}
 	return score
+}
+
+func hasTitleAndArtistIntent(name, artist, query string) bool {
+	parts := strings.Fields(query)
+	if len(parts) < 2 {
+		return false
+	}
+	titleHit := false
+	artistHit := false
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if strings.Contains(name, part) {
+			titleHit = true
+		}
+		if strings.Contains(artist, part) {
+			artistHit = true
+		}
+	}
+	return titleHit && artistHit
 }
 
 // upstreamRankScore 把上游源内的原始名次(Extra["_rank"])换算成分数:
@@ -561,6 +585,7 @@ func coverPenalty(song model.Song) int {
 //   - 真实码率 ≥ 320(高品档)   → +300
 //   - has_lossless=1(源声明无损,兜底:某些源码率字段缺失时仍认无损)→ 至少按 +600
 //   - is_paid=1(付费单曲 ≈ 正版)→ 额外 +200
+//
 // bitrate 取 song.Bitrate(搜索结果已带回真实码率,非 0)。
 func officialBonus(song model.Song) int {
 	bonus := 0
@@ -602,11 +627,18 @@ func combinedScore(song model.Song, query string) int {
 	if relevant {
 		bonus = officialBonus(song)
 	}
+	if bonus > 0 && isExactTitleMatch(song, query) && isUpstreamTop(song) {
+		rank += 300
+	}
 	// 完全匹配(1000)但毫无音质信号 → 疑似译名翻唱白嫖,本地分降到 600。
 	if local >= 1000 && bonus == 0 {
 		local = 600
 	}
 	return local + rank + bonus - coverPenalty(song)
+}
+
+func isExactTitleMatch(song model.Song, query string) bool {
+	return strings.EqualFold(strings.TrimSpace(song.Name), strings.TrimSpace(query))
 }
 
 // isUpstreamTop 判断该歌是否为某上游源的搜索第1名(_rank==0)。
