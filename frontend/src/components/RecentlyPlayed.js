@@ -6,6 +6,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { getPlayHistory, clearPlayHistory } from '../services/musicdl';
 import LoadingState from './LoadingState';
+import CoverMosaic from './CoverMosaic';
 
 // 最近播放页:列出按用户隔离的播放历史(后端 played_at 降序,封顶 500)。
 // 播放任意一首会以整张历史为队列;支持清空 / 删单条。
@@ -43,9 +44,7 @@ export default function RecentlyPlayed() {
   return (
     <div>
       <div className="flex items-end gap-4 mb-6">
-        <div className="w-32 h-32 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 shadow">
-          <Clock size={48} className="text-muted-foreground" />
-        </div>
+        <CoverMosaic items={songs} icon={Clock} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">播放记录</p>
           <h1 className="text-3xl font-black truncate">最近播放</h1>

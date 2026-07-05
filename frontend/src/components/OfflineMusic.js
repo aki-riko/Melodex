@@ -15,6 +15,7 @@ import { useFeedback } from '../contexts/FeedbackContext';
 import { formatDuration } from '../utils/format';
 import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
+import CoverMosaic from './CoverMosaic';
 
 const fmtBytes = (bytes) => {
   if (!bytes) return '0B';
@@ -70,6 +71,37 @@ function OfflineCover({ record, offline }) {
   );
 }
 
+function OfflineHeaderCover({ records, offline }) {
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    const objectUrls = [];
+    const next = [];
+
+    for (const record of records || []) {
+      const song = toSong(record);
+      let coverUrl = '';
+
+      if (record.coverBlob && typeof URL !== 'undefined' && URL.createObjectURL) {
+        coverUrl = URL.createObjectURL(record.coverBlob);
+        objectUrls.push(coverUrl);
+      }
+      if (!coverUrl && !offline && song.cover) {
+        coverUrl = coverProxyUrl(song);
+      }
+      if (coverUrl) {
+        next.push({ ...song, coverUrl });
+      }
+      if (next.length >= 4) break;
+    }
+
+    setItems(next);
+    return () => objectUrls.forEach((url) => URL.revokeObjectURL(url));
+  }, [records, offline]);
+
+  return <CoverMosaic items={items} icon={HardDriveDownload} getUrl={(item) => item.coverUrl} />;
+}
+
 function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
   const song = toSong(record);
   return (
@@ -115,7 +147,7 @@ export default function OfflineMusic() {
   const userId = user?.id || 0;
   const [records, setRecords] = useState([]);
   const [estimate, setEstimate] = useState({ usage: 0, quota: 0, persisted: false });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [persisting, setPersisting] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -201,6 +233,20 @@ export default function OfflineMusic() {
     }
   };
 
+  const primaryLoading = loading && records.length === 0;
+
+  if (primaryLoading) {
+    return (
+      <div>
+        <LoadingState
+          title="读取离线音乐"
+          detail="正在从当前浏览器/PWA 缓存读取已保存的音频"
+          rows={7}
+        />
+      </div>
+    );
+  }
+
   const usageLabel = estimate.quota
     ? `${fmtBytes(estimate.usage)} / ${fmtBytes(estimate.quota)}`
     : fmtBytes(estimate.usage);
@@ -211,9 +257,7 @@ export default function OfflineMusic() {
   return (
     <div>
       <div className="flex items-end gap-4 mb-6">
-        <div className="w-32 h-32 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 shadow">
-          <HardDriveDownload size={48} className="text-muted-foreground" />
-        </div>
+        <OfflineHeaderCover records={records} offline={offline} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">本机缓存</p>
           <h1 className="text-3xl font-black truncate">离线音乐</h1>
