@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery } from 'react-query';
 import { Check, Download, HardDriveDownload, ListPlus, Music, Play, RotateCw } from 'lucide-react';
 import { getPlaylistDetail, getLyric, saveToServer } from '../services/musicdl';
@@ -10,6 +10,11 @@ import { useFeedback } from '../contexts/FeedbackContext';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import LoadingState from './LoadingState';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
+import { useScopedBulkState } from '../hooks/useScopedBulkState';
+
+const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
+const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
+const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
 
 // 歌单歌曲列表(点开某歌单后)
 const PlaylistSongs = ({ meta, onBack }) => {
@@ -18,10 +23,11 @@ const PlaylistSongs = ({ meta, onBack }) => {
   const { create, addSong } = useCollections();
   const feedback = useFeedback();
   const [lyric, setLyric] = useState(null);
-  const [bulkDownload, setBulkDownload] = useState({ phase: 'idle', done: 0, fail: 0, total: 0 });
-  const [bulkCache, setBulkCache] = useState({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
-  const [bulkCopy, setBulkCopy] = useState({ phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null });
+  const downloadTasks = useScopedBulkState(IDLE_BULK_DOWNLOAD, 'recommended-playlist-download');
+  const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'recommended-playlist-cache');
+  const copyTasks = useScopedBulkState(IDLE_BULK_COPY, 'recommended-playlist-copy');
   const userId = user?.id || 0;
+  const taskKey = `${meta.source}:${meta.id}`;
   const state = useQuery(
     ['pl-detail', meta.id, meta.source],
     () => getPlaylistDetail(meta.id, meta.source),
@@ -40,80 +46,84 @@ const PlaylistSongs = ({ meta, onBack }) => {
   };
 
   const songs = state.data?.songs || [];
-  useEffect(() => {
-    setBulkDownload({ phase: 'idle', done: 0, fail: 0, total: 0 });
-    setBulkCache({ phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 });
-    setBulkCopy({ phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null });
-  }, [meta.id, meta.source]);
+  const bulkDownload = downloadTasks.getState(taskKey);
+  const bulkCache = cacheTasks.getState(taskKey);
+  const bulkCopy = copyTasks.getState(taskKey);
 
   const handleDownloadAll = async () => {
     if (!songs.length || offline || bulkDownload.phase === 'running') return;
-    const total = songs.length;
+    const playlistSongs = songs.slice();
+    const total = playlistSongs.length;
     let done = 0;
     let fail = 0;
-    setBulkDownload({ phase: 'running', done, fail, total });
-    for (const song of songs) {
-      try {
-        const result = await saveToServer(song);
-        if (result?.saved) done += 1;
-        else fail += 1;
-      } catch {
-        fail += 1;
+    await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
+      for (const song of playlistSongs) {
+        try {
+          const result = await saveToServer(song);
+          if (result?.saved) done += 1;
+          else fail += 1;
+        } catch {
+          fail += 1;
+        }
+        update({ phase: 'running', done, fail, total });
       }
-      setBulkDownload({ phase: 'running', done, fail, total });
-    }
-    setBulkDownload({ phase: fail ? 'fail' : 'done', done, fail, total });
+      update({ phase: fail ? 'fail' : 'done', done, fail, total });
+    });
   };
 
   const handleCacheAll = async () => {
     if (!songs.length || offline || bulkCache.phase === 'running') return;
-    const total = songs.length;
+    const playlistSongs = songs.slice();
+    const total = playlistSongs.length;
     let done = 0;
     let fail = 0;
     let skipped = 0;
-    setBulkCache({ phase: 'running', done, fail, skipped, total });
-    for (const song of songs) {
-      try {
-        if (!canCacheSong(song) || (await isSongCached(song, userId))) {
-          skipped += 1;
-        } else {
-          await cacheSong(song, { userId });
-          done += 1;
+    await cacheTasks.runForKey(taskKey, { phase: 'running', done, fail, skipped, total }, async (update) => {
+      for (const song of playlistSongs) {
+        try {
+          if (!canCacheSong(song) || (await isSongCached(song, userId))) {
+            skipped += 1;
+          } else {
+            await cacheSong(song, { userId });
+            done += 1;
+          }
+        } catch {
+          fail += 1;
         }
-      } catch {
-        fail += 1;
+        update({ phase: 'running', done, fail, skipped, total });
       }
-      setBulkCache({ phase: 'running', done, fail, skipped, total });
-    }
-    setBulkCache({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
+      update({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
+    });
   };
 
   const handleCopyToMine = async () => {
     if (!songs.length || offline || bulkCopy.phase === 'running') return;
-    const total = songs.length;
+    const playlistSongs = songs.slice();
+    const total = playlistSongs.length;
     let done = 0;
     let fail = 0;
-    setBulkCopy({ phase: 'running', done, fail, total, collectionId: null });
-    try {
-      const collection = await create(meta.name || '推荐歌单');
-      const collectionId = collection?.id;
-      if (collectionId == null) throw new Error('collection id missing');
-      for (const song of songs) {
-        try {
-          await addSong(collectionId, song);
-          done += 1;
-        } catch {
-          fail += 1;
+    await copyTasks.runForKey(taskKey, { phase: 'running', done, fail, total, collectionId: null }, async (update) => {
+      try {
+        const collection = await create(meta.name || '推荐歌单');
+        const collectionId = collection?.id;
+        if (collectionId == null) throw new Error('collection id missing');
+        for (const song of playlistSongs) {
+          try {
+            await addSong(collectionId, song);
+            done += 1;
+          } catch {
+            fail += 1;
+          }
+          update({ phase: 'running', done, fail, total, collectionId });
         }
-        setBulkCopy({ phase: 'running', done, fail, total, collectionId });
+        update({ phase: fail ? 'fail' : 'done', done, fail, total, collectionId });
+        if (fail) feedback.error(`已创建歌单,但 ${fail} 首加入失败`);
+        else feedback.success('已加入我的歌单');
+      } catch {
+        update({ phase: 'fail', done, fail: total || 1, total, collectionId: null });
+        feedback.error('加入我的歌单失败,请稍后重试');
       }
-      setBulkCopy({ phase: fail ? 'fail' : 'done', done, fail, total, collectionId });
-      if (fail) feedback.error(`已创建歌单,但 ${fail} 首加入失败`);
-      else feedback.success('已加入我的歌单');
-    } catch {
-      setBulkCopy({ phase: 'fail', done, fail: total || 1, total, collectionId: null });
-      feedback.error('加入我的歌单失败,请稍后重试');
-    }
+    });
   };
 
   const downloadLabel = bulkDownload.phase === 'done'
