@@ -7,6 +7,7 @@ import { useFeedback } from '../contexts/FeedbackContext';
 import { getLocalMusic, deleteLocalMusic, uploadLocalMusic, coverProxyUrl } from '../services/musicdl';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
+import { useCachedRefresh } from '../hooks/useCachedRefresh';
 
 const UNKNOWN_ALBUM = '未知专辑';
 
@@ -48,7 +49,9 @@ export default function LocalMusic() {
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState('songs'); // 'songs' | 'albums'
   const [openAlbum, setOpenAlbum] = useState(null); // 专辑详情(album 对象)
-  const { data, isLoading, isFetching } = useQuery(['local-music-page'], () => getLocalMusic({ limit: 0 }), { staleTime: 0 });
+  const localMusic = useQuery(['local-music-page'], () => getLocalMusic({ limit: 0 }), { staleTime: 0 });
+  useCachedRefresh(localMusic);
+  const { data, isLoading, isFetching } = localMusic;
   const primaryLoading = isLoading || (!data && isFetching);
 
   const tracks = useMemo(() => data?.tracks || [], [data]);
@@ -172,6 +175,12 @@ export default function LocalMusic() {
         下载目录:{data?.download_dir || '—'}
         {data && !data.exists && '(目录不存在)'}
       </p>
+      {data?.refreshing && (
+        <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
+          <RotateCw size={15} className="animate-spin text-primary" />
+          <span>正在后台扫描 NAS 曲库，当前先显示已有结果</span>
+        </div>
+      )}
       {!primaryLoading && tracks.length === 0 && (
         <p className="text-muted-foreground">NAS 曲库为空。在搜索页下载歌曲、或在此上传文件后会出现在这里。</p>
       )}

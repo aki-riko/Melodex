@@ -28,6 +28,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { useLiveCheck } from '../hooks/useLiveCheck';
+import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
 import LoadingState from './LoadingState';
@@ -87,6 +88,16 @@ const SearchStatusPanel = ({ stage, progress, available, total }) => {
           )}
         </div>
       </div>
+    </div>
+  );
+};
+
+const CacheRefreshNotice = ({ data, className = '' }) => {
+  if (!data?.cached || !data?.refreshing) return null;
+  return (
+    <div className={`mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground ${className}`}>
+      <Loader2 size={15} className="animate-spin text-primary" />
+      <span>正在后台更新缓存，当前先显示上次结果</span>
     </div>
   );
 };
@@ -295,6 +306,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       {historyNotice && (
         <p className="mb-4 text-sm text-destructive">{historyNotice}</p>
       )}
+      <CacheRefreshNotice data={state.data} />
       <SearchStatusPanel stage={searchStage} progress={progress} available={songs.length} total={allSongs.length} />
       {songs.length > 0 && (
         <div className="mb-4 flex flex-wrap items-stretch gap-2">
@@ -358,6 +370,7 @@ const DiscoverPane = ({ state, onOpen }) => {
   const tabs = state.data?.tabs || [];
   return (
     <div className="space-y-8 pb-32">
+      <CacheRefreshNotice data={state.data} />
       {tabs.map((tab) => (
         <div key={tab.source}>
           <h3 className="text-lg font-semibold mb-3 pl-2 border-l-4 border-primary text-foreground">{tab.source_name || tab.source}</h3>
@@ -565,6 +578,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
         />
       )}
       {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
+      <CacheRefreshNotice data={state.data} />
       {hasBulkStatus && (
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
           <BulkStatusCard title="NAS 下载" state={bulkDownload} />
@@ -629,6 +643,7 @@ const Download = ({ downloadRequest }) => {
       staleTime: 5 * 60 * 1000,
     }
   );
+  useCachedRefresh(search, tab === 'search' && !!query);
 
   // 推荐歌单(默认网易云 + QQ)
   const recommend = useQuery(
@@ -636,6 +651,7 @@ const Download = ({ downloadRequest }) => {
     () => getRecommend(['netease', 'qq']),
     { enabled: tab === 'discover', refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 }
   );
+  useCachedRefresh(recommend, tab === 'discover');
 
   // 歌单详情
   const playlistDetail = useQuery(
@@ -643,6 +659,7 @@ const Download = ({ downloadRequest }) => {
     () => getPlaylistDetail(openPlaylist.id, openPlaylist.source),
     { enabled: !!openPlaylist, refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 }
   );
+  useCachedRefresh(playlistDetail, !!openPlaylist);
 
   const handleSearch = (e) => {
     e.preventDefault();

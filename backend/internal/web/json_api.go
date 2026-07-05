@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -59,19 +60,26 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 			c.JSON(400, gin.H{"error": "该源不支持查看歌单详情"})
 			return
 		}
-		songs, err := fn(id)
-		if songs == nil {
-			songs = []model.Song{}
-		}
-		for i := range songs {
-			if strings.TrimSpace(songs[i].Source) == "" {
-				songs[i].Source = src
+		args := apiCacheArgs{Source: src, ID: id}
+		key := apiCacheKey(apiCacheNamespacePlaylistDetail, args)
+		if entry, ok := getAPICacheEntry(key); ok {
+			var cached jsonSongListResponse
+			if decodeAPICachePayload(entry, &cached) {
+				cached.cachedResponseMeta = cacheMetaForEntry(entry)
+				if !entry.Fresh {
+					refreshAPICacheAsync(key, apiCacheNamespacePlaylistDetail, args)
+				}
+				if len(cached.Songs) > 0 {
+					warmQualityCache(cached.Songs, 6)
+				}
+				c.JSON(200, cached)
+				return
 			}
 		}
-		warmQualityCache(songs, 6)
-		out := gin.H{"songs": songs, "type": "playlist", "source": src, "link": core.GetOriginalLink(src, id, "playlist")}
-		if err != nil {
-			out["error"] = fmt.Sprintf("获取歌单失败: %v", err)
+		out := buildSongListDetailResponse("playlist", id, src)
+		if len(out.Songs) > 0 {
+			putAPICache(key, apiCacheNamespacePlaylistDetail, args, out)
+			warmQualityCache(out.Songs, 6)
 		}
 		c.JSON(200, out)
 	})
@@ -89,19 +97,26 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 			c.JSON(400, gin.H{"error": "该源不支持查看专辑详情"})
 			return
 		}
-		songs, err := fn(id)
-		if songs == nil {
-			songs = []model.Song{}
-		}
-		for i := range songs {
-			if strings.TrimSpace(songs[i].Source) == "" {
-				songs[i].Source = src
+		args := apiCacheArgs{Source: src, ID: id}
+		key := apiCacheKey(apiCacheNamespaceAlbumDetail, args)
+		if entry, ok := getAPICacheEntry(key); ok {
+			var cached jsonSongListResponse
+			if decodeAPICachePayload(entry, &cached) {
+				cached.cachedResponseMeta = cacheMetaForEntry(entry)
+				if !entry.Fresh {
+					refreshAPICacheAsync(key, apiCacheNamespaceAlbumDetail, args)
+				}
+				if len(cached.Songs) > 0 {
+					warmQualityCache(cached.Songs, 6)
+				}
+				c.JSON(200, cached)
+				return
 			}
 		}
-		warmQualityCache(songs, 6)
-		out := gin.H{"songs": songs, "type": "album", "source": src, "link": core.GetOriginalLink(src, id, "album")}
-		if err != nil {
-			out["error"] = fmt.Sprintf("获取专辑失败: %v", err)
+		out := buildSongListDetailResponse("album", id, src)
+		if len(out.Songs) > 0 {
+			putAPICache(key, apiCacheNamespaceAlbumDetail, args, out)
+			warmQualityCache(out.Songs, 6)
 		}
 		c.JSON(200, out)
 	})
@@ -109,32 +124,47 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	// 每日推荐歌单:按源返回歌单列表
 	userSecure.GET("/recommend", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), core.GetRecommendSourceNames())
-		c.JSON(200, gin.H{"tabs": loadPlaylistTabsJSON(sources, func(src string) ([]model.Playlist, error) {
-			fn := core.GetRecommendFunc(src)
-			if fn == nil {
-				return nil, fmt.Errorf("该源不支持推荐歌单")
+		args := apiCacheArgs{Sources: sources}
+		key := apiCacheKey(apiCacheNamespaceRecommend, args)
+		if entry, ok := getAPICacheEntry(key); ok {
+			var cached jsonPlaylistTabsResponse
+			if decodeAPICachePayload(entry, &cached) {
+				cached.cachedResponseMeta = cacheMetaForEntry(entry)
+				if !entry.Fresh {
+					refreshAPICacheAsync(key, apiCacheNamespaceRecommend, args)
+				}
+				c.JSON(200, cached)
+				return
 			}
-			return fn()
-		})})
+		}
+		out := buildRecommendResponse(sources)
+		if playlistTabsHaveItems(out.Tabs) {
+			putAPICache(key, apiCacheNamespaceRecommend, args, out)
+		}
+		c.JSON(200, out)
 	})
 
 	// 歌单分类列表
 	userSecure.GET("/playlist_categories", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), core.GetPlaylistCategorySourceNames())
-		result := []gin.H{}
-		for _, src := range sources {
-			fn := core.GetPlaylistCategoriesFunc(src)
-			if fn == nil {
-				continue
+		args := apiCacheArgs{Sources: sources}
+		key := apiCacheKey(apiCacheNamespacePlaylistCategory, args)
+		if entry, ok := getAPICacheEntry(key); ok {
+			var cached jsonPlaylistCategoriesResponse
+			if decodeAPICachePayload(entry, &cached) {
+				cached.cachedResponseMeta = cacheMetaForEntry(entry)
+				if !entry.Fresh {
+					refreshAPICacheAsync(key, apiCacheNamespacePlaylistCategory, args)
+				}
+				c.JSON(200, cached)
+				return
 			}
-			cats, err := fn()
-			entry := gin.H{"source": src, "source_name": core.GetSourceDescription(src), "categories": cats}
-			if err != nil {
-				entry["error"] = err.Error()
-			}
-			result = append(result, entry)
 		}
-		c.JSON(200, gin.H{"sources": result})
+		out := buildPlaylistCategoriesResponse(sources)
+		if playlistCategoriesHaveItems(out.Sources) {
+			putAPICache(key, apiCacheNamespacePlaylistCategory, args, out)
+		}
+		c.JSON(200, out)
 	})
 
 	// 某分类下的歌单
@@ -146,16 +176,22 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 			c.JSON(400, gin.H{"error": "该源不支持歌单分类"})
 			return
 		}
-		playlists, err := fn(categoryID, 1, 120)
-		for i := range playlists {
-			playlists[i].Source = source
+		args := apiCacheArgs{Source: source, CategoryID: categoryID}
+		key := apiCacheKey(apiCacheNamespaceCategoryPlaylists, args)
+		if entry, ok := getAPICacheEntry(key); ok {
+			var cached jsonPlaylistListResponse
+			if decodeAPICachePayload(entry, &cached) {
+				cached.cachedResponseMeta = cacheMetaForEntry(entry)
+				if !entry.Fresh {
+					refreshAPICacheAsync(key, apiCacheNamespaceCategoryPlaylists, args)
+				}
+				c.JSON(200, cached)
+				return
+			}
 		}
-		if playlists == nil {
-			playlists = []model.Playlist{}
-		}
-		out := gin.H{"playlists": playlists, "source": source}
-		if err != nil {
-			out["error"] = fmt.Sprintf("获取分类歌单失败: %v", err)
+		out := buildCategoryPlaylistsResponse(source, categoryID)
+		if len(out.Playlists) > 0 {
+			putAPICache(key, apiCacheNamespaceCategoryPlaylists, args, out)
 		}
 		c.JSON(200, out)
 	})
@@ -273,12 +309,54 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 
 // jsonSearchSongResult 在 model.Song 基础上附带前端友好的展示字段。
 type jsonSearchResponse struct {
-	Songs     []model.Song     `json:"songs"`
+	Songs       []model.Song     `json:"songs"`
+	Playlists   []model.Playlist `json:"playlists"`
+	Type        string           `json:"type"`
+	Keyword     string           `json:"keyword"`
+	ExactArtist string           `json:"exact_artist,omitempty"`
+	Sources     []string         `json:"sources"`
+	Error       string           `json:"error,omitempty"`
+	cachedResponseMeta
+}
+
+type jsonSongListResponse struct {
+	Songs  []model.Song `json:"songs"`
+	Type   string       `json:"type"`
+	Source string       `json:"source"`
+	Link   string       `json:"link"`
+	Error  string       `json:"error,omitempty"`
+	cachedResponseMeta
+}
+
+type jsonPlaylistTabsResponse struct {
+	Tabs []jsonPlaylistTab `json:"tabs"`
+	cachedResponseMeta
+}
+
+type jsonPlaylistTab struct {
+	Source     string           `json:"source"`
+	SourceName string           `json:"source_name"`
+	Playlists  []model.Playlist `json:"playlists"`
+	Error      string           `json:"error,omitempty"`
+}
+
+type jsonPlaylistCategoriesResponse struct {
+	Sources []jsonPlaylistCategorySource `json:"sources"`
+	cachedResponseMeta
+}
+
+type jsonPlaylistCategorySource struct {
+	Source     string                   `json:"source"`
+	SourceName string                   `json:"source_name"`
+	Categories []model.PlaylistCategory `json:"categories"`
+	Error      string                   `json:"error,omitempty"`
+}
+
+type jsonPlaylistListResponse struct {
 	Playlists []model.Playlist `json:"playlists"`
-	Type      string           `json:"type"`
-	Keyword   string           `json:"keyword"`
-	Sources   []string         `json:"sources"`
+	Source    string           `json:"source"`
 	Error     string           `json:"error,omitempty"`
+	cachedResponseMeta
 }
 
 // jsonSearchHandler 复用 core 的并发多源搜索逻辑,返回结构化 JSON
@@ -294,11 +372,12 @@ func jsonSearchHandler(c *gin.Context) {
 	}
 
 	resp := jsonSearchResponse{
-		Songs:     []model.Song{},
-		Playlists: []model.Playlist{},
-		Type:      searchType,
-		Keyword:   keyword,
-		Sources:   sources,
+		Songs:       []model.Song{},
+		Playlists:   []model.Playlist{},
+		Type:        searchType,
+		Keyword:     keyword,
+		ExactArtist: exactArtist,
+		Sources:     sources,
 	}
 
 	if keyword == "" {
@@ -324,8 +403,17 @@ func jsonSearchHandler(c *gin.Context) {
 	} else {
 		// 关键词搜索:先查结果缓存(含完整元数据),命中直接返回。
 		cacheKey := searchCacheKey(searchType, keyword, exactArtist, sources)
-		if cached, ok := getCachedSearch(cacheKey); ok {
+		if entry, ok := getSearchCacheEntry(cacheKey); ok {
+			cached := entry.Response
+			cached.cachedResponseMeta = cachedResponseMeta{
+				Cached:     true,
+				Refreshing: !entry.Fresh || entry.Refreshing,
+				CachedAt:   &entry.CreatedAt,
+			}
 			recordSearchHistory(currentUserID(c), keyword, cached.Type)
+			if !entry.Fresh {
+				refreshSearchCacheAsync(cacheKey, searchType, keyword, exactArtist, sources)
+			}
 			if cached.Type == "song" && len(cached.Songs) > 0 {
 				warmQualityCache(cached.Songs, 6)
 			}
@@ -333,18 +421,7 @@ func jsonSearchHandler(c *gin.Context) {
 			return
 		}
 
-		// 关键词多源并发搜索
-		songs, playlists := concurrentKeywordSearch(keyword, searchType, sources)
-		resp.Songs = songs
-		resp.Playlists = playlists
-
-		// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
-		if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
-			sortSongsByRelevance(resp.Songs, keyword)
-		}
-		if resp.Type == "song" && exactArtist != "" && len(resp.Songs) > 0 {
-			resp.Songs = filterSongsByExactArtist(resp.Songs, exactArtist)
-		}
+		resp = buildKeywordSearchResponse(keyword, searchType, exactArtist, sources)
 
 		// 写缓存(排序/过滤后的最终结果)+ 记搜索历史。
 		putCachedSearch(cacheKey, resp)
@@ -357,6 +434,141 @@ func jsonSearchHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, resp)
+}
+
+var searchCacheRefreshInFlight sync.Map
+
+func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources []string) jsonSearchResponse {
+	resp := jsonSearchResponse{
+		Songs:       []model.Song{},
+		Playlists:   []model.Playlist{},
+		Type:        searchType,
+		Keyword:     keyword,
+		ExactArtist: exactArtist,
+		Sources:     append([]string(nil), sources...),
+	}
+
+	songs, playlists := concurrentKeywordSearch(keyword, searchType, sources)
+	resp.Songs = songs
+	resp.Playlists = playlists
+
+	// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
+	if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
+		sortSongsByRelevance(resp.Songs, keyword)
+	}
+	if resp.Type == "song" && exactArtist != "" && len(resp.Songs) > 0 {
+		resp.Songs = filterSongsByExactArtist(resp.Songs, exactArtist)
+	}
+	return resp
+}
+
+func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sources []string) {
+	if strings.TrimSpace(key) == "" || strings.TrimSpace(keyword) == "" {
+		return
+	}
+	if _, loaded := searchCacheRefreshInFlight.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	go func() {
+		defer searchCacheRefreshInFlight.Delete(key)
+		resp := buildKeywordSearchResponse(keyword, searchType, exactArtist, sources)
+		putCachedSearch(key, resp)
+		if resp.Type == "song" && len(resp.Songs) > 0 {
+			warmQualityCache(resp.Songs, 6)
+		}
+	}()
+}
+
+func buildSongListDetailResponse(contentType, id, src string) jsonSongListResponse {
+	resp := jsonSongListResponse{
+		Songs:  []model.Song{},
+		Type:   contentType,
+		Source: src,
+		Link:   core.GetOriginalLink(src, id, contentType),
+	}
+	var fn func(string) ([]model.Song, error)
+	if contentType == "album" {
+		fn = core.GetAlbumDetailFunc(src)
+	} else {
+		fn = core.GetPlaylistDetailFunc(src)
+	}
+	if fn == nil {
+		resp.Error = fmt.Sprintf("该源不支持查看%s详情", contentType)
+		return resp
+	}
+	songs, err := fn(id)
+	if songs == nil {
+		songs = []model.Song{}
+	}
+	for i := range songs {
+		if strings.TrimSpace(songs[i].Source) == "" {
+			songs[i].Source = src
+		}
+	}
+	resp.Songs = songs
+	if err != nil {
+		if contentType == "album" {
+			resp.Error = fmt.Sprintf("获取专辑失败: %v", err)
+		} else {
+			resp.Error = fmt.Sprintf("获取歌单失败: %v", err)
+		}
+	}
+	return resp
+}
+
+func buildRecommendResponse(sources []string) jsonPlaylistTabsResponse {
+	return jsonPlaylistTabsResponse{Tabs: loadPlaylistTabsJSON(sources, func(src string) ([]model.Playlist, error) {
+		fn := core.GetRecommendFunc(src)
+		if fn == nil {
+			return nil, fmt.Errorf("该源不支持推荐歌单")
+		}
+		return fn()
+	})}
+}
+
+func buildPlaylistCategoriesResponse(sources []string) jsonPlaylistCategoriesResponse {
+	result := []jsonPlaylistCategorySource{}
+	for _, src := range sources {
+		fn := core.GetPlaylistCategoriesFunc(src)
+		if fn == nil {
+			continue
+		}
+		cats, err := fn()
+		entry := jsonPlaylistCategorySource{
+			Source:     src,
+			SourceName: core.GetSourceDescription(src),
+			Categories: cats,
+		}
+		if entry.Categories == nil {
+			entry.Categories = []model.PlaylistCategory{}
+		}
+		if err != nil {
+			entry.Error = err.Error()
+		}
+		result = append(result, entry)
+	}
+	return jsonPlaylistCategoriesResponse{Sources: result}
+}
+
+func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListResponse {
+	resp := jsonPlaylistListResponse{Playlists: []model.Playlist{}, Source: source}
+	fn := core.GetCategoryPlaylistsFunc(source)
+	if fn == nil {
+		resp.Error = "该源不支持歌单分类"
+		return resp
+	}
+	playlists, err := fn(categoryID, 1, 120)
+	if playlists == nil {
+		playlists = []model.Playlist{}
+	}
+	for i := range playlists {
+		playlists[i].Source = source
+	}
+	resp.Playlists = playlists
+	if err != nil {
+		resp.Error = fmt.Sprintf("获取分类歌单失败: %v", err)
+	}
+	return resp
 }
 
 // concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
@@ -458,8 +670,8 @@ func parseLinkSearch(link, searchType string) ([]model.Song, []model.Playlist, s
 }
 
 // loadPlaylistTabsJSON 按源加载歌单,整理为前端友好的分栏结构。
-func loadPlaylistTabsJSON(sources []string, loader func(string) ([]model.Playlist, error)) []gin.H {
-	tabs := []gin.H{}
+func loadPlaylistTabsJSON(sources []string, loader func(string) ([]model.Playlist, error)) []jsonPlaylistTab {
+	tabs := []jsonPlaylistTab{}
 	for _, src := range sources {
 		playlists, err := loader(src)
 		if playlists == nil {
@@ -468,15 +680,82 @@ func loadPlaylistTabsJSON(sources []string, loader func(string) ([]model.Playlis
 		for i := range playlists {
 			playlists[i].Source = src
 		}
-		tab := gin.H{
-			"source":      src,
-			"source_name": core.GetSourceDescription(src),
-			"playlists":   playlists,
+		tab := jsonPlaylistTab{
+			Source:     src,
+			SourceName: core.GetSourceDescription(src),
+			Playlists:  playlists,
 		}
 		if err != nil {
-			tab["error"] = err.Error()
+			tab.Error = err.Error()
 		}
 		tabs = append(tabs, tab)
 	}
 	return tabs
+}
+
+func playlistTabsHaveItems(tabs []jsonPlaylistTab) bool {
+	for _, tab := range tabs {
+		if len(tab.Playlists) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func playlistCategoriesHaveItems(sources []jsonPlaylistCategorySource) bool {
+	for _, source := range sources {
+		if len(source.Categories) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func refreshAPICacheAsync(key, namespace string, args apiCacheArgs) {
+	if strings.TrimSpace(key) == "" {
+		return
+	}
+	if _, loaded := apiCacheRefreshFlight.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	go func() {
+		defer apiCacheRefreshFlight.Delete(key)
+		switch namespace {
+		case apiCacheNamespaceRecommend:
+			out := buildRecommendResponse(args.Sources)
+			if playlistTabsHaveItems(out.Tabs) {
+				putAPICache(key, namespace, args, out)
+			}
+		case apiCacheNamespacePlaylistDetail:
+			out := buildSongListDetailResponse("playlist", args.ID, args.Source)
+			if len(out.Songs) > 0 {
+				putAPICache(key, namespace, args, out)
+				warmQualityCache(out.Songs, 6)
+			}
+		case apiCacheNamespaceAlbumDetail:
+			out := buildSongListDetailResponse("album", args.ID, args.Source)
+			if len(out.Songs) > 0 {
+				putAPICache(key, namespace, args, out)
+				warmQualityCache(out.Songs, 6)
+			}
+		case apiCacheNamespacePlaylistCategory:
+			out := buildPlaylistCategoriesResponse(args.Sources)
+			if playlistCategoriesHaveItems(out.Sources) {
+				putAPICache(key, namespace, args, out)
+			}
+		case apiCacheNamespaceCategoryPlaylists:
+			out := buildCategoryPlaylistsResponse(args.Source, args.CategoryID)
+			if len(out.Playlists) > 0 {
+				putAPICache(key, namespace, args, out)
+			}
+		}
+	}()
+}
+
+func refreshAPICacheRowAsync(row apiCacheRow) {
+	var args apiCacheArgs
+	if err := json.Unmarshal([]byte(row.Args), &args); err != nil {
+		return
+	}
+	refreshAPICacheAsync(row.Key, row.Namespace, args)
 }

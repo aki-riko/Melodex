@@ -51,6 +51,9 @@ func migrateLegacySQLiteWebData() error {
 	if err := copyLegacyRows[searchCacheRow](legacyDB, "created_at ASC"); err != nil {
 		return err
 	}
+	if err := copyLegacyRows[apiCacheRow](legacyDB, "created_at ASC"); err != nil {
+		return err
+	}
 	if err := copyLegacyRows[searchHistoryRow](legacyDB, "id ASC"); err != nil {
 		return err
 	}

@@ -3,7 +3,9 @@ package web
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/guohuiyuan/go-music-dl/core"
@@ -17,6 +19,16 @@ func resetCollectionStateForTest() {
 		}
 	}
 	db = nil
+	invalidateLocalMusicScanCache()
+	localMusicMetaCacheMu.Lock()
+	localMusicMetaCache = make(map[string]*localMusicTrack)
+	localMusicMetaCacheMu.Unlock()
+	apiCacheRefreshFlight = sync.Map{}
+	searchCacheRefreshInFlight = sync.Map{}
+	qualityWarmInFlight = sync.Map{}
+	apiCacheLastGC = time.Time{}
+	searchCacheLastGC = time.Time{}
+	qualityCacheLastGC = time.Time{}
 	// InitDB 现在经 migrateRootUserAndOwnership 触发 core 的 configDB 连接(同一 settings.db
 	// 文件)。测试切换临时库时必须一并关闭 core 连接,否则 Windows 下 TempDir 清理被文件占用阻塞。
 	core.ResetConfigStateForTest()
