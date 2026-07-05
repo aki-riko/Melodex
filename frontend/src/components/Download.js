@@ -161,7 +161,7 @@ const buildSearchSuggestionGroups = (keyword, songs = [], keywords = []) => {
     if (titleMatches && titleItems.length < 5) {
       addSuggestion(titleItems, titleSeen, {
         kind: 'title',
-        value: name,
+        value: suggestionValue(song),
         label: name,
         detail: songMetaText(song),
       });

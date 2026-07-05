@@ -152,10 +152,10 @@ func TestDetectRealExt(t *testing.T) {
 		url, ct, want string
 	}{
 		{"http://x/song.flac", "", "flac"},
-		{"http://x/song.flac?vkey=abc&t=1", "", "flac"},      // 带 query
+		{"http://x/song.flac?vkey=abc&t=1", "", "flac"}, // 带 query
 		{"http://x/song.mp3", "", "mp3"},
 		{"http://x/a/b.m4a?x=1", "audio/mp4", "m4a"},
-		{"http://x/nopath", "audio/flac", "flac"},            // 无后缀靠 Content-Type
+		{"http://x/nopath", "audio/flac", "flac"}, // 无后缀靠 Content-Type
 		{"http://x/nopath", "audio/mpeg", "mp3"},
 		{"http://x/stream?id=1", "application/octet-stream", ""}, // 都判不出
 	}
@@ -365,12 +365,95 @@ func TestRelevanceScore(t *testing.T) {
 	}
 }
 
+func TestSortSongsByRelevanceHonorsArtistIntent(t *testing.T) {
+	songs := []model.Song{
+		{
+			Name:    "遇萤",
+			Artist:  "李蚊香",
+			Extra:   map[string]string{"_rank": "6", "has_lossless": "1", "is_paid": "1"},
+			Bitrate: 1521,
+		},
+		{
+			Name:    "遇萤",
+			Artist:  "CRITTY",
+			Extra:   map[string]string{"_rank": "0", "has_lossless": "1"},
+			Bitrate: 320,
+		},
+		{
+			Name:    "从未失约",
+			Artist:  "心然;CRITTY;慕寒",
+			Extra:   map[string]string{"_rank": "8", "has_lossless": "1", "is_paid": "1"},
+			Bitrate: 1774,
+		},
+	}
+
+	sortSongsByRelevance(songs, "遇萤 CRITTY")
+
+	if songs[0].Artist != "CRITTY" || songs[0].Name != "遇萤" {
+		t.Fatalf("明确搜索歌名+歌手时应优先 CRITTY 版本, 实际首位 %+v", songs[0])
+	}
+}
+
+func TestSortSongsByRelevanceHonorsOSTArtistIntent(t *testing.T) {
+	songs := []model.Song{
+		{
+			Name:    "遇萤",
+			Artist:  "霍尊",
+			Album:   "遇龙 网剧音乐原声带",
+			Extra:   map[string]string{"_rank": "5", "has_lossless": "1", "is_paid": "1"},
+			Bitrate: 844,
+		},
+		{
+			Name:    "遇萤-橙光《遇龙》主题曲（纯歌版）",
+			Artist:  "CRITTY、橙光音乐",
+			Album:   "遇龙·橙光OST",
+			Extra:   map[string]string{"_rank": "0", "has_lossless": "1"},
+			Bitrate: 320,
+		},
+		{
+			Name:    "萤光",
+			Artist:  "李什么海",
+			Extra:   map[string]string{"_rank": "0"},
+			Bitrate: 1644,
+		},
+	}
+
+	sortSongsByRelevance(songs, "遇萤 橙光音乐")
+
+	if songs[0].Artist != "CRITTY、橙光音乐" {
+		t.Fatalf("明确搜索橙光音乐时应优先 OST 相关版本, 实际首位 %+v", songs[0])
+	}
+}
+
+func TestSortSongsByRelevancePrefersExactTitleUpstreamTop(t *testing.T) {
+	songs := []model.Song{
+		{
+			Name:    "遇萤",
+			Artist:  "李蚊香",
+			Extra:   map[string]string{"_rank": "1", "has_lossless": "1", "is_paid": "1"},
+			Bitrate: 1521,
+		},
+		{
+			Name:    "遇萤",
+			Artist:  "CRITTY",
+			Extra:   map[string]string{"_rank": "0", "has_lossless": "1"},
+			Bitrate: 320,
+		},
+	}
+
+	sortSongsByRelevance(songs, "遇萤")
+
+	if songs[0].Artist != "CRITTY" {
+		t.Fatalf("精确歌名搜索应让上游置顶结果优先于高码率非置顶同名版本, 实际首位 %+v", songs[0])
+	}
+}
+
 func TestSortSongsByRelevance(t *testing.T) {
 	q := "晴天"
 	songs := []model.Song{
-		{Name: "无关歌", Artist: "A", Bitrate: 999},   // 噪声,应沉底
+		{Name: "无关歌", Artist: "A", Bitrate: 999},  // 噪声,应沉底
 		{Name: "晴天", Artist: "周杰伦", Bitrate: 900}, // 完全相等原唱 → 应最前
-		{Name: "晴天娃娃", Artist: "B", Bitrate: 320},  // 前缀匹配
+		{Name: "晴天娃娃", Artist: "B", Bitrate: 320}, // 前缀匹配
 	}
 	sortSongsByRelevance(songs, q)
 
@@ -387,8 +470,8 @@ func TestSortSongsByRelevance(t *testing.T) {
 func TestCoverPenaltyDemotesCover(t *testing.T) {
 	q := "晴天"
 	songs := []model.Song{
-		{Name: "晴天", Artist: "翻唱歌手", Bitrate: 999},     // 标记翻唱,应被压
-		{Name: "晴天", Artist: "周杰伦", Bitrate: 128},      // 原唱低码率
+		{Name: "晴天", Artist: "翻唱歌手", Bitrate: 999},    // 标记翻唱,应被压
+		{Name: "晴天", Artist: "周杰伦", Bitrate: 128},     // 原唱低码率
 		{Name: "晴天 (钢琴版)", Artist: "X", Bitrate: 900}, // 钢琴版,重罚
 	}
 	sortSongsByRelevance(songs, q)
