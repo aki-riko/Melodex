@@ -608,7 +608,7 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 							}
 							res[i].Extra["_rank"] = strconv.Itoa(i)
 						}
-						res = augmentLyricSearchOriginals(s, res, core.GetSearchFunc(s))
+						res = augmentLyricSearchOriginals(s, res, searchInferredLyricOriginalCandidates)
 						mu.Lock()
 						allSongs = append(allSongs, res...)
 						mu.Unlock()
@@ -650,7 +650,7 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 	return allSongs, allPlaylists
 }
 
-func augmentLyricSearchOriginals(source string, songs []model.Song, searchFn core.SearchFunc) []model.Song {
+func augmentLyricSearchOriginals(source string, songs []model.Song, searchFn func(string) ([]model.Song, error)) []model.Song {
 	if len(songs) == 0 || searchFn == nil {
 		return songs
 	}
@@ -682,7 +682,12 @@ func augmentLyricSearchOriginals(source string, songs []model.Song, searchFn cor
 	return out
 }
 
-func findInferredLyricOriginals(source string, song model.Song, searchFn core.SearchFunc) []model.Song {
+func searchInferredLyricOriginalCandidates(keyword string) ([]model.Song, error) {
+	songs, _ := concurrentKeywordSearch(keyword, "song", defaultSourcesForSearchType("song"))
+	return songs, nil
+}
+
+func findInferredLyricOriginals(source string, song model.Song, searchFn func(string) ([]model.Song, error)) []model.Song {
 	artist, title, ok := inferredOriginalFromQuotedTitle(song.Name)
 	if !ok || artistMatches(song.Artist, artist) {
 		return nil
@@ -699,7 +704,9 @@ func findInferredLyricOriginals(source string, song model.Song, searchFn core.Se
 		if normalizeLookupText(candidate.Name) != targetTitle || !artistMatches(candidate.Artist, artist) {
 			continue
 		}
-		candidate.Source = source
+		if strings.TrimSpace(candidate.Source) == "" {
+			candidate.Source = source
+		}
 		if candidate.Extra == nil {
 			candidate.Extra = map[string]string{}
 		}
