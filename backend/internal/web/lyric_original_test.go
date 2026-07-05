@@ -6,6 +6,12 @@ import (
 	"github.com/guohuiyuan/music-lib/model"
 )
 
+const (
+	lyricOriginalArtist = "\u827e\u8fb0"
+	lyricOriginalTitle  = "\u9519\u4f4d\u65f6\u7a7a"
+	lyricCoverArtist    = "\u8c37\u6881\u5c0f\u7487"
+)
+
 func TestAugmentLyricSearchOriginalsPromotesInferredOriginal(t *testing.T) {
 	lyricHit := model.Song{
 		Source: "qq",
@@ -44,6 +50,52 @@ func TestAugmentLyricSearchOriginalsPromotesInferredOriginal(t *testing.T) {
 	}
 	if got[1].ID != "cover-mid" {
 		t.Fatalf("second = %+v, want original lyric hit kept after inferred original", got[1])
+	}
+}
+
+func TestAugmentLyricSearchOriginalsKeepsMultiSourceCandidate(t *testing.T) {
+	lyricHit := model.Song{
+		Source: "qq",
+		ID:     "cover-mid",
+		Name:   lyricOriginalArtist + "\u300a" + lyricOriginalTitle + "\u300b",
+		Artist: lyricCoverArtist,
+		Extra: map[string]string{
+			"_rank":        "0",
+			"lyric_match":  "\u6211\u5439\u8fc7\u4f60\u5439\u8fc7\u7684\u665a\u98ce",
+			"search_match": "lyric",
+		},
+	}
+
+	got := augmentLyricSearchOriginals("qq", []model.Song{lyricHit}, func(keyword string) ([]model.Song, error) {
+		want := lyricOriginalTitle + " " + lyricOriginalArtist
+		if keyword != want {
+			t.Fatalf("keyword = %q, want %q", keyword, want)
+		}
+		return []model.Song{
+			{
+				Source: "qq",
+				Name:   lyricOriginalTitle,
+				Artist: lyricOriginalArtist,
+				ID:     "003hk8xl2MJtkA",
+			},
+			{
+				Source: "netease",
+				Name:   lyricOriginalTitle,
+				Artist: lyricOriginalArtist,
+				ID:     "2100630469",
+				Extra:  map[string]string{"song_id": "2100630469"},
+			},
+		}, nil
+	})
+
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want qq original + netease original + lyric hit", len(got))
+	}
+	if got[1].Source != "netease" || got[1].ID != "2100630469" {
+		t.Fatalf("second = %+v, want netease original source/id preserved", got[1])
+	}
+	if got[1].Extra["song_id"] != "2100630469" || got[1].Extra["search_match"] != "lyric" {
+		t.Fatalf("extra = %+v, want original extra plus lyric marker", got[1].Extra)
 	}
 }
 
