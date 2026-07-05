@@ -8,6 +8,7 @@ import { formatDuration } from '../utils/format';
 import { sourceLabel } from '../utils/sourceLabels';
 import { normalizeSong } from '../utils/songFields';
 import { songIdentityKey } from '../utils/songIdentity';
+import HighlightedLyricMatch from './HighlightedLyricMatch';
 
 const fmtSec = (sec) => (sec ? formatDuration(sec * 1000) : '—');
 const fmtSize = (bytes) => {
@@ -146,6 +147,7 @@ const SongRow = ({
   onTogglePlayback,
   onShowLyric,
   liveInfo,
+  lyricQuery = '',
   onRemove,
   removeTitle = '从歌单移除',
   removeHint = '只从当前歌单移除',
@@ -371,9 +373,11 @@ const SongRow = ({
             {(cacheState === 'fail' || dlState === 'fail') && statusBadge('失败', 'bg-destructive/10 text-destructive')}
           </div>
           {lyricMatch && (
-            <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-primary/80">
+            <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
               <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-semibold text-primary">歌词命中</span>
-              <span className="truncate">{lyricMatch}</span>
+              <span className="truncate text-foreground/90">
+                <HighlightedLyricMatch text={lyricMatch} query={lyricQuery} />
+              </span>
             </p>
           )}
         </div>

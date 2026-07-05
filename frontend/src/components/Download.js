@@ -349,6 +349,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, searchTyp
             onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
             liveInfo={status[songIdentityKey(song)]}
+            lyricQuery={isLyricSearch ? query : ''}
           />
         ))}
       </div>
