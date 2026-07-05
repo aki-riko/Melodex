@@ -71,7 +71,7 @@ func TestUserSessionValidation(t *testing.T) {
 	if _, ok := parseSessionValue(secret, value+"x", now.Add(time.Minute)); ok {
 		t.Fatal("tampered session should be invalid")
 	}
-	if _, ok := parseSessionValue(secret, value, now.Add(sessionMaxAge+time.Second)); ok {
+	if _, ok := parseSessionValue(secret, value, now.Add(sessionMaxAge()+time.Second)); ok {
 		t.Fatal("expired session should be invalid")
 	}
 	if _, ok := parseSessionValue("other-secret", value, now.Add(time.Minute)); ok {
@@ -81,6 +81,31 @@ func TestUserSessionValidation(t *testing.T) {
 	payload, ok := parseSessionValue(secret, value, now.Add(time.Minute))
 	if !ok || payload.UserID != u.ID {
 		t.Fatalf("session payload UserID = %d, want %d", payload.UserID, u.ID)
+	}
+}
+
+func TestSessionMaxAgeConfig(t *testing.T) {
+	t.Setenv(sessionMaxAgeEnv, "")
+	t.Setenv(sessionDaysEnv, "")
+	if got := sessionMaxAge(); got != defaultSessionMaxAge {
+		t.Fatalf("default session max age = %s, want %s", got, defaultSessionMaxAge)
+	}
+
+	t.Setenv(sessionMaxAgeEnv, "720h")
+	if got := sessionMaxAge(); got != 30*24*time.Hour {
+		t.Fatalf("duration env session max age = %s, want 720h", got)
+	}
+
+	t.Setenv(sessionMaxAgeEnv, "")
+	t.Setenv(sessionDaysEnv, "365")
+	if got := sessionMaxAge(); got != 365*24*time.Hour {
+		t.Fatalf("days env session max age = %s, want 365d", got)
+	}
+
+	t.Setenv(sessionMaxAgeEnv, "bad")
+	t.Setenv(sessionDaysEnv, "0")
+	if got := sessionMaxAge(); got != defaultSessionMaxAge {
+		t.Fatalf("invalid env should fall back to default, got %s", got)
 	}
 }
 
