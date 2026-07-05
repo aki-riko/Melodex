@@ -6,6 +6,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { getLocalMusic, deleteLocalMusic, uploadLocalMusic, coverProxyUrl } from '../services/musicdl';
 import LoadingState from './LoadingState';
+import CoverMosaic from './CoverMosaic';
 
 const UNKNOWN_ALBUM = '未知专辑';
 
@@ -48,6 +49,7 @@ export default function LocalMusic() {
   const [view, setView] = useState('songs'); // 'songs' | 'albums'
   const [openAlbum, setOpenAlbum] = useState(null); // 专辑详情(album 对象)
   const { data, isLoading, isFetching } = useQuery(['local-music-page'], () => getLocalMusic({ limit: 0 }), { staleTime: 0 });
+  const primaryLoading = isLoading || (!data && isFetching);
 
   const tracks = useMemo(() => data?.tracks || [], [data]);
   const albums = useMemo(() => groupByAlbum(tracks), [tracks]);
@@ -76,6 +78,18 @@ export default function LocalMusic() {
       setUploading(false);
     }
   };
+
+  if (primaryLoading) {
+    return (
+      <div>
+        <LoadingState
+          title="读取 NAS 曲库"
+          detail="正在扫描服务器下载目录、专辑和封面信息"
+          rows={8}
+        />
+      </div>
+    );
+  }
 
   // 专辑详情视图
   if (openAlbum) {
@@ -115,9 +129,7 @@ export default function LocalMusic() {
   return (
     <div>
       <div className="flex items-end gap-4 mb-6">
-        <div className="w-32 h-32 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 shadow">
-          <Download size={48} className="text-muted-foreground" />
-        </div>
+        <CoverMosaic items={tracks} icon={Download} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">服务器音乐库</p>
           <h1 className="text-3xl font-black truncate">NAS 曲库</h1>
@@ -160,19 +172,11 @@ export default function LocalMusic() {
         下载目录:{data?.download_dir || '—'}
         {data && !data.exists && '(目录不存在)'}
       </p>
-      {isLoading && (
-        <LoadingState
-          title="读取 NAS 曲库"
-          detail="正在扫描服务器下载目录、专辑和封面信息"
-          rows={7}
-          className="mb-4"
-        />
-      )}
-      {!isLoading && tracks.length === 0 && (
+      {!primaryLoading && tracks.length === 0 && (
         <p className="text-muted-foreground">NAS 曲库为空。在搜索页下载歌曲、或在此上传文件后会出现在这里。</p>
       )}
 
-      {!isLoading && view === 'songs' && (
+      {!primaryLoading && view === 'songs' && (
         <>
           <SongListHeader />
           <div className="space-y-0.5">
@@ -187,7 +191,7 @@ export default function LocalMusic() {
         </>
       )}
 
-      {!isLoading && view === 'albums' && tracks.length > 0 && (
+      {!primaryLoading && view === 'albums' && tracks.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {albums.map((al) => (
             <button key={al.name} onClick={() => setOpenAlbum(al)}
