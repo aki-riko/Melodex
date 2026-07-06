@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import SleepTimerControl from '../components/SleepTimerControl';
-import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory, switchSource as switchSongSource } from '../services/musicdl';
+import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory, switchSource as switchSongSource, getMe } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
 import { songIdentityKey } from '../utils/songIdentity';
 import { normalizeSong } from '../utils/songFields';
+import { ensurePlaybackSession } from './playerAuth.js';
 import { MODES, isCurrentAudioEvent, pickNextSong } from './playerQueue.js';
 import {
   createSleepTimer,
@@ -425,6 +426,21 @@ export const PlayerProvider = ({ children }) => {
       const retrySeq = ++playSeqRef.current;
       setTimeout(() => loadAudioForSong(cur, { autoplay: true, seq: retrySeq, preferCache: false }), 0);
       return;
+    }
+
+    if (!offline && audio?.dataset?.sourceKind === 'network') {
+      const authenticated = await ensurePlaybackSession(getMe);
+      if (!authenticated) {
+        if (seqAtError !== playSeqRef.current || songIdentityKey(nowPlayingRef.current || {}) !== curKey) return;
+        try {
+          audio.pause();
+          audio.removeAttribute('src');
+          audio.load();
+        } catch { /* ignore */ }
+        setIsPaused(true);
+        setNotice('登录状态已失效,请重新登录后再播放。');
+        return;
+      }
     }
 
     const switchKey = switchAttemptKey(cur);

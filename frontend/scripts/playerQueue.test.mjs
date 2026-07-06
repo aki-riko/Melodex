@@ -9,6 +9,7 @@ import {
   SLEEP_STOP_AFTER_TRACK_KEY,
   shouldStopAtTrackEnd,
 } from '../src/contexts/playerSleepTimer.js';
+import { ensurePlaybackSession, UNAUTHORIZED_EVENT } from '../src/contexts/playerAuth.js';
 import { songIdentityKey } from '../src/utils/songIdentity.js';
 
 const songs = [
@@ -76,5 +77,27 @@ assert.equal(shouldStopAtTrackEnd(sleepTimer, false, 901000), false, '开关关�
 assert.equal(shouldStopAtTrackEnd({ ...sleepTimer, pendingEndOfTrack: true }, true, 60000), true, '待停止状态应始终拦截自然续播');
 assert.equal(formatSleepTimerRemaining(61000), '1:01', '分钟级剩余时间应格式化为 m:ss');
 assert.equal(formatSleepTimerRemaining(3661000), '1:01:01', '小时级剩余时间应格式化为 h:mm:ss');
+
+const authEvents = [];
+const authEventTarget = { dispatchEvent: (event) => authEvents.push(event) };
+assert.equal(
+  await ensurePlaybackSession(async () => ({ authenticated: true }), { eventTarget: authEventTarget }),
+  true,
+  '播放报错时若会话仍有效,不应阻断原有换源逻辑',
+);
+assert.equal(authEvents.length, 0, '会话有效时不应派发 unauthorized 事件');
+assert.equal(
+  await ensurePlaybackSession(async () => ({ authenticated: false }), { eventTarget: authEventTarget }),
+  false,
+  '播放报错时若会话失效,应阻断自动换源/跳歌',
+);
+assert.equal(authEvents.length, 1, '会话失效时应派发一次 unauthorized 事件');
+assert.equal(authEvents[0].type, UNAUTHORIZED_EVENT, '会话失效事件名称应保持统一');
+assert.equal(authEvents[0].detail.reason, 'playback-auth', '会话失效事件应带播放报错来源');
+assert.equal(
+  await ensurePlaybackSession(async () => { throw new Error('network'); }, { eventTarget: authEventTarget }),
+  true,
+  '无法确认会话状态时不应误判为登出',
+);
 
 console.log('playerQueue tests passed');
