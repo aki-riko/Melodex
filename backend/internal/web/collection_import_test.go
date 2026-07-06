@@ -168,6 +168,105 @@ func TestImportCollectionEndpointCreatesImportedRecord(t *testing.T) {
 	}
 }
 
+func TestImportCollectionEndpointMergesIntoManualCollection(t *testing.T) {
+	initCollectionDBForTest(t)
+
+	target := Collection{
+		UserID:      testUserID,
+		Name:        "同名歌单",
+		Kind:        collectionKindManual,
+		ContentType: collectionContentPlaylist,
+		Source:      "local",
+	}
+	if err := db.Create(&target).Error; err != nil {
+		t.Fatalf("create target collection: %v", err)
+	}
+	if err := db.Create(&SavedSong{
+		CollectionID: target.ID,
+		SongID:       "song-1",
+		Source:       "qq",
+		Name:         "Existing Song",
+	}).Error; err != nil {
+		t.Fatalf("create existing saved song: %v", err)
+	}
+
+	origPlaylistDetail := playlistDetailFuncProvider
+	playlistDetailFuncProvider = func(source string) func(string) ([]model.Song, error) {
+		if source != "qq" {
+			t.Fatalf("playlist detail source = %q, want qq", source)
+		}
+		return func(id string) ([]model.Song, error) {
+			if id != "playlist-merge" {
+				t.Fatalf("playlist detail id = %q, want playlist-merge", id)
+			}
+			return []model.Song{
+				{ID: "song-1", Source: "qq", Name: "Existing Song", Artist: "Artist A"},
+				{ID: "song-2", Name: "New Song", Artist: "Artist B", Album: "Album B", AlbumID: "album-b"},
+			}, nil
+		}
+	}
+	t.Cleanup(func() {
+		playlistDetailFuncProvider = origPlaylistDetail
+	})
+
+	router := newCollectionTestRouter()
+	body, err := json.Marshal(importCollectionRequest{
+		Name:        "同名歌单",
+		Source:      "qq",
+		ExternalID:  "playlist-merge",
+		ContentType: collectionContentPlaylist,
+		MergeIntoID: target.ID,
+	})
+	if err != nil {
+		t.Fatalf("marshal merge import request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/collections/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /collections/import merge status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		ID     uint `json:"id"`
+		Merged bool `json:"merged"`
+		Added  int  `json:"added"`
+		Total  int  `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode merge response: %v", err)
+	}
+	if resp.ID != target.ID || !resp.Merged || resp.Added != 1 || resp.Total != 2 {
+		t.Fatalf("merge response = %+v, want target id/merged/added=1/total=2", resp)
+	}
+
+	var saved []SavedSong
+	if err := db.Where("collection_id = ?", target.ID).Order("song_id ASC").Find(&saved).Error; err != nil {
+		t.Fatalf("query merged songs: %v", err)
+	}
+	if len(saved) != 2 {
+		t.Fatalf("saved songs len = %d, want 2", len(saved))
+	}
+	if saved[1].SongID != "song-2" || saved[1].Source != "qq" {
+		t.Fatalf("new merged song = %+v, want song-2 from qq", saved[1])
+	}
+	extra := decodeSongExtraMap(saved[1].Extra)
+	if extraMapAlbum(extra) != "Album B" || extraMapAlbumID(extra) != "album-b" {
+		t.Fatalf("merged song extra = %#v, want album metadata", extra)
+	}
+
+	var importedCount int64
+	if err := db.Model(&Collection{}).Where("kind = ?", collectionKindImported).Count(&importedCount).Error; err != nil {
+		t.Fatalf("count imported collections: %v", err)
+	}
+	if importedCount != 0 {
+		t.Fatalf("imported collection count = %d, want 0", importedCount)
+	}
+}
+
 func TestManualCollectionAddSongPreservesAlbumMetadata(t *testing.T) {
 	initCollectionDBForTest(t)
 
