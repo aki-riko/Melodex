@@ -514,6 +514,13 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       return;
     }
     if (recognition.phase === 'uploading') return;
+    if (recognitionStatus.isLoading && !recognitionStatus.data) {
+      setRecognition({ phase: 'checking', message: '正在确认识曲服务状态' });
+      window.setTimeout(() => setRecognition((current) => (
+        current.message === '正在确认识曲服务状态' ? { phase: 'idle', message: '' } : current
+      )), 1200);
+      return;
+    }
     if (recognitionDisabled) {
       const msg = recognitionStatus.data?.error || '听歌识曲未启用';
       setRecognition({ phase: 'error', message: msg });
@@ -872,11 +879,13 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
         <button
           type="button"
           onClick={handleRecognitionClick}
-          disabled={recognition.phase === 'uploading' || recognitionDisabled}
+          disabled={recognition.phase === 'uploading'}
           className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${
             recognition.phase === 'recording'
               ? 'border-destructive bg-destructive/15 text-destructive hover:bg-destructive/20'
-              : 'border-border bg-card text-foreground hover:border-primary hover:text-primary'
+              : recognitionDisabled
+                ? 'border-border bg-card text-muted-foreground hover:border-primary hover:text-primary'
+                : 'border-border bg-card text-foreground hover:border-primary hover:text-primary'
           }`}
           title={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
           aria-label={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
@@ -894,13 +903,13 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
             : recognition.phase === 'success'
               ? 'border-primary/30 bg-primary/10 text-primary'
               : 'border-border bg-card/70 text-muted-foreground'
-        }`}>
+          }`}>
           <div className="flex items-center gap-2">
-            {(recognition.phase === 'recording' || recognition.phase === 'uploading') && <Loader2 size={15} className="animate-spin text-primary" />}
+            {(recognition.phase === 'checking' || recognition.phase === 'recording' || recognition.phase === 'uploading') && <Loader2 size={15} className="animate-spin text-primary" />}
             <span>{recognition.message}</span>
             {recognition.phase === 'recording' && <span className="loading-dots" aria-hidden="true" />}
           </div>
-          {(recognition.phase === 'recording' || recognition.phase === 'uploading') && (
+          {(recognition.phase === 'checking' || recognition.phase === 'recording' || recognition.phase === 'uploading') && (
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary loading-bar-indeterminate" />
           )}
         </div>
