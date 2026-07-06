@@ -39,7 +39,7 @@ function AlbumCover({ songs }) {
   );
 }
 
-// NAS 曲库页:下载到服务器的音乐 + 上传文件,按 user_id 归属过滤。
+// 服务器曲库页:下载到服务器的音乐 + 上传文件,按 user_id 归属过滤。
 // 支持「歌曲 / 专辑」两种视图;可播放/上传/删除。后端接口 /music/local_music。
 export default function LocalMusic() {
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
@@ -86,7 +86,7 @@ export default function LocalMusic() {
     return (
       <div>
         <LoadingState
-          title="读取 NAS 曲库"
+          title="读取服务器曲库"
           detail="正在扫描服务器下载目录、专辑和封面信息"
           rows={8}
         />
@@ -122,7 +122,7 @@ export default function LocalMusic() {
               isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
               isPaused={isPaused}
               onTogglePlayback={togglePlay}
-              onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
+              onRemove={handleDelete} removeTitle="从服务器曲库删除" removeHint="删除服务器曲库里的这首歌" />
           ))}
         </div>
       </div>
@@ -135,7 +135,7 @@ export default function LocalMusic() {
         <CoverMosaic items={tracks} icon={Download} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">服务器音乐库</p>
-          <h1 className="text-3xl font-black truncate">NAS 曲库</h1>
+          <h1 className="text-3xl font-black truncate">服务器曲库</h1>
           <p className="text-sm text-muted-foreground mt-1">{tracks.length} 首 · {albums.length} 张专辑</p>
           <div className="flex flex-wrap gap-2 mt-3">
             <button onClick={() => tracks.length && play(tracks[0], tracks)}
@@ -178,11 +178,11 @@ export default function LocalMusic() {
       {data?.refreshing && (
         <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
           <RotateCw size={15} className="animate-spin text-primary" />
-          <span>正在后台扫描 NAS 曲库，当前先显示已有结果</span>
+          <span>正在后台扫描服务器曲库，当前先显示已有结果</span>
         </div>
       )}
       {!primaryLoading && tracks.length === 0 && (
-        <p className="text-muted-foreground">NAS 曲库为空。在搜索页下载歌曲、或在此上传文件后会出现在这里。</p>
+        <p className="text-muted-foreground">服务器曲库为空。在搜索页下载歌曲、或在此上传文件后会出现在这里。</p>
       )}
 
       {!primaryLoading && view === 'songs' && (
@@ -194,7 +194,7 @@ export default function LocalMusic() {
                 isPlaying={isPlaying(song)} onPlay={(s) => play(s, tracks)}
                 isPaused={isPaused}
                 onTogglePlayback={togglePlay}
-                onRemove={handleDelete} removeTitle="从 NAS 曲库删除" removeHint="删除服务器曲库里的这首歌" />
+                onRemove={handleDelete} removeTitle="从服务器曲库删除" removeHint="删除服务器曲库里的这首歌" />
             ))}
           </div>
         </>
