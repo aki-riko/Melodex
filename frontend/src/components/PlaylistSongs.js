@@ -127,10 +127,10 @@ const PlaylistSongs = ({ meta, onBack }) => {
   };
 
   const downloadLabel = bulkDownload.phase === 'done'
-    ? '已下载到 NAS'
+    ? '已下载到服务器'
     : bulkDownload.phase === 'fail'
-      ? '重试下载到 NAS'
-      : '下载到 NAS';
+      ? '重试下载到服务器'
+      : '下载到服务器';
   const cacheLabel = bulkCache.phase === 'done'
     ? '已缓存到本机'
     : bulkCache.phase === 'fail'
@@ -175,7 +175,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title={offline ? '离线状态无法下载到 NAS' : '把这张推荐歌单下载到服务器曲库'}>
+              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器曲库'}>
               <DownloadIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {downloadLabel}
             </button>
@@ -225,7 +225,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
             <div className={`rounded-md border px-3 py-2 text-sm ${
               bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
             }`}>
-              <p className="font-medium text-foreground">NAS 下载</p>
+              <p className="font-medium text-foreground">服务器下载</p>
               <p>
                 已完成 {bulkDownload.done}/{bulkDownload.total}
                 {bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}

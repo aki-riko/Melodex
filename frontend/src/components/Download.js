@@ -1173,7 +1173,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
     });
   };
 
-  const downloadLabel = playlistBulkLabel(bulkDownload, '下载到 NAS', '下载到 NAS', '已下载到 NAS', '重试下载到 NAS');
+  const downloadLabel = playlistBulkLabel(bulkDownload, '下载到服务器', '下载到服务器', '已下载到服务器', '重试下载到服务器');
   const cacheLabel = playlistBulkLabel(bulkCache, '缓存到本机', '缓存到本机', '已缓存到本机', '重试缓存到本机');
   const copyLabel = playlistBulkLabel(bulkCopy, '加入我的歌单', '加入我的歌单', '已加入我的歌单', '重试加入歌单');
   const DownloadBulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : DownloadIcon;
@@ -1205,7 +1205,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title={offline ? '离线状态无法下载到 NAS' : '把这张推荐歌单下载到服务器曲库'}>
+              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器曲库'}>
               <DownloadBulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {downloadLabel}
             </button>
@@ -1247,7 +1247,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
       <CacheRefreshNotice data={state.data} />
       {hasBulkStatus && (
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
-          <BulkStatusCard title="NAS 下载" state={bulkDownload} />
+          <BulkStatusCard title="服务器下载" state={bulkDownload} />
           <BulkStatusCard title="本机缓存" state={bulkCache} cache />
           <BulkStatusCard title="加入我的歌单" state={bulkCopy} />
         </div>

@@ -369,7 +369,7 @@ const SongRow = ({
             <span className="text-[11px] whitespace-nowrap">{sourceLabel(rowSong.source)}</span>
             {sizeLabel && <span className="text-[11px] whitespace-nowrap">{sizeLabel}</span>}
             {cacheState === 'done' && statusBadge('本机', 'bg-primary/10 text-primary')}
-            {dlState === 'done' && statusBadge('NAS', 'bg-primary/10 text-primary')}
+            {dlState === 'done' && statusBadge('服务器', 'bg-primary/10 text-primary')}
             {(cacheState === 'fail' || dlState === 'fail') && statusBadge('失败', 'bg-destructive/10 text-destructive')}
           </div>
           {lyricMatch && (
@@ -394,7 +394,7 @@ const SongRow = ({
         />
         <ActionButton
           icon={dlState === 'done' ? Check : dlState === 'fail' ? RotateCw : Download}
-          title={dlState === 'done' ? '已下载到 NAS' : dlState === 'fail' ? '重试下载到 NAS' : '下载到 NAS'}
+          title={dlState === 'done' ? '已下载到服务器' : dlState === 'fail' ? '重试下载到服务器' : '下载到服务器'}
           onClick={handleDownload}
           disabled={offline || dlState === 'saving' || dlState === 'done'}
           active={dlState === 'done'}

@@ -31,7 +31,7 @@ const Footer = () => {
             </a>
             {' '}· 仅供学习与技术交流
           </p>
-          <p className="mt-1">自托管 PWA 音乐搜索、NAS 曲库与离线缓存工具。</p>
+          <p className="mt-1">自托管 PWA 音乐搜索、服务器曲库与离线缓存工具。</p>
           <p className="mt-3 text-xs opacity-70">
             基于开源项目{' '}
             <a href="https://github.com/guohuiyuan/go-music-dl" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">go-music-dl</a>

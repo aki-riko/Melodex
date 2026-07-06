@@ -3,8 +3,8 @@ import { X, Check, Download, Music, RefreshCw, LogIn } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { getUserPlaylists, coverProxyUrl } from '../services/musicdl';
-import { importPlaylist } from '../services/collections';
+import { getUserPlaylists, coverProxyUrl, saveToServer } from '../services/musicdl';
+import { importPlaylist, getCollectionSongs } from '../services/collections';
 
 // 从已登录平台(网易云/QQ/酷狗/汽水)导入个人歌单(引用型:只存引用,打开实时拉曲)。
 // open=false 时不渲染;onNavigate 用于「去登录」跳到设置页;成功后 refresh 侧栏。
@@ -17,6 +17,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   const [active, setActive] = useState(''); // 当前选中源
   const [importingId, setImportingId] = useState(null); // 正在导入的歌单 id
   const [doneIds, setDoneIds] = useState({}); // 已导入的歌单 id → true
+  const [dlProgress, setDlProgress] = useState({}); // 歌单 id → 下载进度文案(后台下载到服务器)
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,6 +47,36 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
 
   const activeTab = tabs.find((t) => t.source === active);
 
+  // 导入成功后,后台把整单曲目逐首下载到服务器(实时从平台拉曲 → 逐首 saveToServer)。
+  // 串行下载,失败不打断(用户仍可在歌单页手动重试);进度文案挂在歌单卡片上。
+  const autoDownloadAll = async (playlistId, collectionId) => {
+    if (offline) return;
+    try {
+      setDlProgress((m) => ({ ...m, [playlistId]: '拉取曲目…' }));
+      const data = await getCollectionSongs(collectionId);
+      const list = Array.isArray(data) ? data : (data?.songs || []);
+      const total = list.length;
+      if (total === 0) {
+        setDlProgress((m) => ({ ...m, [playlistId]: '无可下载曲目' }));
+        return;
+      }
+      let done = 0;
+      let fail = 0;
+      for (const song of list) {
+        try {
+          const result = await saveToServer(song);
+          if (result?.saved) done += 1; else fail += 1;
+        } catch {
+          fail += 1;
+        }
+        setDlProgress((m) => ({ ...m, [playlistId]: `下载到服务器 ${done + fail}/${total}` }));
+      }
+      setDlProgress((m) => ({ ...m, [playlistId]: fail ? `完成 ${done}/${total}(${fail} 首失败)` : `已全部下载到服务器 ${done}/${total}` }));
+    } catch {
+      setDlProgress((m) => ({ ...m, [playlistId]: '自动下载失败,可在歌单页手动下载' }));
+    }
+  };
+
   const doImport = async (playlist) => {
     if (offline || importingId) return;
     setImportingId(playlist.id);
@@ -53,11 +84,13 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
       const r = await importPlaylist({ ...playlist, source: active });
       setDoneIds((m) => ({ ...m, [playlist.id]: true }));
       if (r?.duplicate) {
-        feedback.info(`「${r.name || playlist.name}」已导入过`);
+        feedback.info(`「${r.name || playlist.name}」已导入过,继续下载到服务器`);
       } else {
-        feedback.success(`已导入「${r?.name || playlist.name}」`);
+        feedback.success(`已导入「${r?.name || playlist.name}」,开始下载到服务器`);
       }
       await refresh();
+      // 后台整单下载到服务器(不 await,不阻塞弹窗交互)。
+      if (r?.id != null) autoDownloadAll(playlist.id, r.id);
     } catch (err) {
       feedback.error('导入失败:' + (err?.response?.data?.error || err.message || '未知错误'));
     } finally {
@@ -73,7 +106,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="min-w-0">
             <p className="font-semibold">从平台导入歌单</p>
-            <p className="text-xs text-muted-foreground">导入你在已登录平台创建/收藏的歌单,打开时实时拉取曲目,可在线听也可下载到 NAS。</p>
+            <p className="text-xs text-muted-foreground">导入你在已登录平台创建/收藏的歌单,导入后自动把曲目下载到服务器,也可在线播放。</p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button onClick={load} disabled={loading} className="text-muted-foreground hover:text-foreground p-1 disabled:opacity-50" aria-label="刷新" title="刷新">
@@ -134,6 +167,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
                   <p className="text-xs text-muted-foreground truncate">
                     {pl.track_count > 0 ? `${pl.track_count} 首` : ''}{pl.creator ? `${pl.track_count > 0 ? ' · ' : ''}${pl.creator}` : ''}
                   </p>
+                  {dlProgress[pl.id] && <p className="text-xs text-primary truncate mt-0.5">{dlProgress[pl.id]}</p>}
                 </div>
                 <button onClick={() => doImport(pl)} disabled={offline || busy || done}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium flex-shrink-0 transition-colors ${

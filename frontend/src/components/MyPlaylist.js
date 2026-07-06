@@ -120,7 +120,7 @@ export default function MyPlaylist() {
     setMoreOpen(false);
     const ok = await feedback.confirm({
       title: `删除歌单「${currentName}」?`,
-      body: '只删除歌单记录,不会删除 NAS 曲库里的歌曲文件。',
+      body: '只删除歌单记录,不会删除服务器曲库里的歌曲文件。',
       confirmLabel: '删除歌单',
       danger: true,
     });
@@ -189,10 +189,10 @@ export default function MyPlaylist() {
   };
 
   const bulkDownloadLabel = (() => {
-    if (bulkDownload.phase === 'running') return '下载到 NAS';
-    if (bulkDownload.phase === 'done') return '已下载到 NAS';
-    if (bulkDownload.phase === 'fail') return '重试下载到 NAS';
-    return '全部下载到 NAS';
+    if (bulkDownload.phase === 'running') return '下载到服务器';
+    if (bulkDownload.phase === 'done') return '已下载到服务器';
+    if (bulkDownload.phase === 'fail') return '重试下载到服务器';
+    return '全部下载到服务器';
   })();
   const BulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
   const bulkCacheLabel = (() => {
@@ -228,7 +228,7 @@ export default function MyPlaylist() {
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title={offline ? '离线状态无法下载到 NAS' : '把当前歌单全部下载到服务器(NAS)'}>
+              title={offline ? '离线状态无法下载到服务器' : '把当前歌单全部下载到服务器'}>
               <BulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {bulkDownloadLabel}
             </button>
@@ -261,7 +261,7 @@ export default function MyPlaylist() {
                       <Trash2 size={16} className="flex-shrink-0" />
                       <span className="min-w-0">
                         <span className="block font-medium">删除歌单</span>
-                        <span className="block truncate text-xs text-muted-foreground">不会删除 NAS 文件</span>
+                        <span className="block truncate text-xs text-muted-foreground">不会删除服务器文件</span>
                       </span>
                     </button>
                   </div>
@@ -283,7 +283,7 @@ export default function MyPlaylist() {
             <div className={`rounded-md border px-3 py-2 text-sm ${
               bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
             }`}>
-              <p className="font-medium text-foreground">NAS 下载</p>
+              <p className="font-medium text-foreground">服务器下载</p>
               <p>
                 已完成 {bulkDownload.done}/{bulkDownload.total}
                 {bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}
