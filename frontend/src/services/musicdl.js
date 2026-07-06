@@ -479,11 +479,14 @@ export const checkQRLogin = async (source, key) =>
     return data;
   });
 
-// 各源登录状态 → { logged_in: { netease:true, ... } }
+// 各源登录状态 → { loggedIn, details }; details 不含 Cookie 明文
 export const getCookieStatus = async () =>
   callSecure(async () => {
-    const { data } = await client.get('/api/v1/cookies');
-    return data.logged_in || {};
+    const { data } = await client.get('/api/v1/cookies?verify=1');
+    return {
+      loggedIn: data.logged_in || {},
+      details: data.details || {},
+    };
   });
 
 // 退出某源登录

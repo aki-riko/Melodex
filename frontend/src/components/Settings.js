@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from 'react-query';
 import { QRCodeCanvas } from 'qrcode.react';
-import { CheckCircle2, ExternalLink, KeyRound, LogOut, QrCode, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ExternalLink, KeyRound, LogOut, QrCode, X } from 'lucide-react';
 import {
   getQRSources,
   createQRLogin,
@@ -80,13 +80,60 @@ const platformHint = (source, loggedIn, qrSupported) => {
   return '优先扫码登录;需要无损时可改用完整 Cookie。';
 };
 
+const cookieDetailFor = (details, source) => details?.[source] || (source === 'qq_wx' ? details?.qq : null) || {};
+
+const missingQQStrongCredential = (source, detail) => (
+  (source === 'qq' || source === 'qq_wx') && detail?.saved && detail?.hints?.has_music_key === false
+);
+
+const credentialHint = (source, loggedIn, qrSupported, detail) => {
+  if (!loggedIn) return platformHint(source, loggedIn, qrSupported);
+  if (detail?.error) return `已保存,但真实状态探测失败:${detail.error}`;
+  if (missingQQStrongCredential(source, detail)) {
+    return '已保存,但缺 QQ 音乐强凭证(qm_keyst/qqmusic_key),VIP/无损可能失效。';
+  }
+  if (detail?.vip_checked && detail.vip) return '真实探测:VIP 链路有效。';
+  if (detail?.vip_checked && !detail.vip) return '真实探测:VIP 链路不可用,请重新扫码或手填完整 Cookie。';
+  return platformHint(source, loggedIn, qrSupported);
+};
+
+const credentialBadge = (loggedIn, detail) => {
+  if (!loggedIn) {
+    return {
+      text: '未登录',
+      className: 'border-border bg-secondary text-muted-foreground',
+      icon: null,
+    };
+  }
+  if (detail?.error || (detail?.vip_checked && !detail.vip)) {
+    return {
+      text: detail?.error ? '待检查' : 'VIP失效',
+      className: 'border-yellow-500/35 bg-yellow-500/10 text-yellow-300',
+      icon: <AlertTriangle size={12} />,
+    };
+  }
+  if (detail?.vip_checked && detail.vip) {
+    return {
+      text: 'VIP有效',
+      className: 'border-primary/35 bg-primary/15 text-primary',
+      icon: <CheckCircle2 size={12} />,
+    };
+  }
+  return {
+    text: '已保存',
+    className: 'border-primary/35 bg-primary/15 text-primary',
+    icon: <CheckCircle2 size={12} />,
+  };
+};
+
 const actionGridClass = (count) => (
   count >= 3 ? 'grid-cols-3' : count === 2 ? 'grid-cols-2' : 'grid-cols-1'
 );
 
 // 二维码登录卡片
-const QRLoginCard = ({ source, loggedIn, onLoggedIn, onLogout, qrSupported = true }) => {
+const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, qrSupported = true }) => {
   const manualSupported = source !== 'qq_wx';
+  const badge = credentialBadge(loggedIn, detail);
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
@@ -244,17 +291,13 @@ const QRLoginCard = ({ source, loggedIn, onLoggedIn, onLogout, qrSupported = tru
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">{sourceLabel(source)}</p>
-            <p className="mt-1 truncate text-[11px] leading-4 text-muted-foreground" title={platformHint(source, loggedIn, qrSupported)}>
+            <p className="mt-1 truncate text-[11px] leading-4 text-muted-foreground" title={credentialHint(source, loggedIn, qrSupported, detail)}>
               {qrSupported ? '扫码' : '手填'}{manualSupported && qrSupported ? ' / 手填' : ''}
             </p>
           </div>
-          <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
-            loggedIn
-              ? 'border-primary/35 bg-primary/15 text-primary'
-              : 'border-border bg-secondary text-muted-foreground'
-          }`}>
-            {loggedIn && <CheckCircle2 size={12} />}
-            {loggedIn ? '已登录' : '未登录'}
+          <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}>
+            {badge.icon}
+            {badge.text}
           </span>
         </div>
 
@@ -462,7 +505,9 @@ const Settings = () => {
   };
 
   const sources = qrSources.data || [];
-  const status = cookieStatus.data || {};
+  const cookieData = cookieStatus.data || {};
+  const status = cookieData.loggedIn || {};
+  const details = cookieData.details || {};
   const tracks = localMusic.data?.tracks || [];
 
   return (
@@ -489,6 +534,7 @@ const Settings = () => {
                   key={src}
                   source={src}
                   loggedIn={!!status[src]}
+                  detail={cookieDetailFor(details, src)}
                   onLoggedIn={handleLoggedIn}
                   onLogout={handleLogout}
                   qrSupported={qrSupported}
