@@ -57,6 +57,7 @@ curl.exe -sS -D - -X POST https://api.audd.io/ \
 - 上传文件不落盘，只在内存中短暂转发给 provider。
 - 默认单次上传上限 10MB，可通过 `MUSIC_DL_RECOGNITION_MAX_BYTES` 调整。
 - 默认识曲超时 20 秒，可通过 `MUSIC_DL_RECOGNITION_TIMEOUT` 调整。
+- 默认每 IP 每分钟最多 10 次识曲请求，可通过 `MUSIC_DL_RECOGNITION_RATE_LIMIT_PER_MINUTE` 调整。
 - provider 默认不启用；配置完整后自动启用，或显式设置 `MUSIC_DL_RECOGNITION_PROVIDER`。
 
 ## 环境变量
@@ -86,6 +87,7 @@ MUSIC_DL_ACRCLOUD_ACCESS_SECRET=your-access-secret
 ```env
 MUSIC_DL_RECOGNITION_TIMEOUT=20s
 MUSIC_DL_RECOGNITION_MAX_BYTES=10485760
+MUSIC_DL_RECOGNITION_RATE_LIMIT_PER_MINUTE=10
 ```
 
 ## 上线操作
@@ -135,6 +137,7 @@ docker exec melodex sh -c 'env | cut -d= -f1 | grep -E "MUSIC_DL_(RECOGNITION|AU
 - 浏览器麦克风权限必须在 HTTPS 或 localhost 下使用；生产 `https://tsp.9li.life` 满足条件。
 - iOS Safari/部分 Android Chromium 的录音格式可能不同，后端按 multipart 透传给 provider，由 provider 做格式兼容。
 - 识曲服务是外部付费/限额服务，必须保留登录态和同源保护。
+- `POST /api/v1/recognize` 有单独 per-IP 限流；provider 额度较小或多人共用时，优先调低 `MUSIC_DL_RECOGNITION_RATE_LIMIT_PER_MINUTE`。
 - 识曲只能得到「歌名/歌手」级结果，最终能否播放仍由 Melodex 当前国内源搜索和验活决定。
 - 没有配置 provider 时，按钮会返回“未启用”，不会误调用外部服务。
 - Provider endpoint 生产必须使用 HTTPS；HTTP 只允许 localhost/127.0.0.1 这类本机测试地址，避免 token 明文出网。
