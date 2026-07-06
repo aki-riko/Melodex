@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import SleepTimerControl from '../components/SleepTimerControl';
-import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory } from '../services/musicdl';
+import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory, switchSource as switchSongSource } from '../services/musicdl';
 import { getCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
@@ -20,6 +20,14 @@ const PlayerContext = createContext(null);
 
 const songSourceText = (song) => (song?.source ? sourceLabel(song.source) : '');
 const lyricCache = new Map();
+
+const switchAttemptKey = (song) => {
+  const s = normalizeSong(song);
+  const title = (s.name || '').trim().toLowerCase();
+  const artist = (s.artist || '').trim().toLowerCase();
+  const duration = s.duration || 0;
+  return title ? `${title}|${artist}|${duration}` : songIdentityKey(s);
+};
 
 // 播放模式:shuffle 随机 / order 顺序(放完停) / repeat 单曲循环 / loop 列表循环(放完从头)
 
@@ -59,6 +67,7 @@ export const PlayerProvider = ({ children }) => {
   const audioRef = useRef(null);
   const queueRef = useRef([]); // 当前播放队列(ref,供 next/prev 等回调读取免闭包陈旧)
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
+  const switchTriedRef = useRef(new Set()); // 同一首歌只自动换源一次,避免坏源之间来回重试
   const modeRef = useRef(loadMode());
   const nowPlayingRef = useRef(null);
   const sleepTimerRef = useRef(null);
@@ -284,6 +293,7 @@ export const PlayerProvider = ({ children }) => {
     queueRef.current = q;
     setQueue(q);
     triedRef.current = new Set();
+    switchTriedRef.current = new Set();
     setNotice('');
     startPlay(target);
   }, [startPlay]);
@@ -291,6 +301,7 @@ export const PlayerProvider = ({ children }) => {
   // playFromQueue:从队列面板点击某首,直接播放(不改变队列)
   const playFromQueue = useCallback((song) => {
     triedRef.current = new Set();
+    switchTriedRef.current = new Set();
     setNotice('');
     startPlay(song);
   }, [startPlay]);
@@ -312,6 +323,7 @@ export const PlayerProvider = ({ children }) => {
   const next = useCallback(() => {
     if (!nowPlaying) return;
     triedRef.current = new Set();
+    switchTriedRef.current = new Set();
     const n = pickNext(nowPlaying, true);
     if (n) startPlay(n);
   }, [nowPlaying, pickNext, startPlay]);
@@ -319,6 +331,7 @@ export const PlayerProvider = ({ children }) => {
   const prev = useCallback(() => {
     if (!nowPlaying) return;
     triedRef.current = new Set();
+    switchTriedRef.current = new Set();
     const p = pickNext(nowPlaying, false);
     if (p) startPlay(p);
   }, [nowPlaying, pickNext, startPlay]);
@@ -369,16 +382,50 @@ export const PlayerProvider = ({ children }) => {
     }
     if (modeRef.current === 'repeat' && nowPlaying) { startPlay(nowPlaying); return; }
     triedRef.current = new Set();
+    switchTriedRef.current = new Set();
     const n = pickNext(nowPlaying, true, true); // auto 续播:order 到尾则停
     if (n) startPlay(n);
   }, [clearSleepTimer, nowPlaying, pickNext, progress.dur, savePlayback, startPlay]);
 
-  // audio 报错(死链/无法播放)→ 自动跳下一首没试过的
-  const handleError = useCallback((event) => {
-    const cur = nowPlaying;
+  // audio 报错(死链/无法播放)→ 先自动换源,失败后再跳下一首没试过的
+  const handleError = useCallback(async (event) => {
+    const cur = nowPlayingRef.current || nowPlaying;
     if (!cur) return;
-    if (!isCurrentAudioEvent(event?.currentTarget || audioRef.current, playSeqRef.current, cur)) return;
+    const audio = event?.currentTarget || audioRef.current;
+    const seqAtError = playSeqRef.current;
+    if (!isCurrentAudioEvent(audio, seqAtError, cur)) return;
     const curKey = songIdentityKey(cur);
+
+    const switchKey = switchAttemptKey(cur);
+    const canSwitchSource = !offline && cur.source && cur.source !== 'local' && cur.name && !switchTriedRef.current.has(switchKey);
+    if (canSwitchSource) {
+      switchTriedRef.current.add(switchKey);
+      setNotice(`「${cur.name}」当前源无法播放,正在自动换源…`);
+      try {
+        const replacement = await switchSongSource(cur);
+        const replacementKey = songIdentityKey(replacement);
+        const stillCurrent = seqAtError === playSeqRef.current
+          && songIdentityKey(nowPlayingRef.current || {}) === curKey;
+        if (!stillCurrent) return;
+        if (stillCurrent && replacement.id && replacement.source && replacementKey !== curKey) {
+          let replacedInQueue = false;
+          const nextQueue = queueRef.current.map((s) => {
+            if (songIdentityKey(s) !== curKey) return s;
+            replacedInQueue = true;
+            return replacement;
+          });
+          queueRef.current = replacedInQueue ? nextQueue : [replacement, ...nextQueue];
+          setQueue(queueRef.current);
+          setNotice(`「${cur.name}」已换到 ${songSourceText(replacement) || '可用源'}。`);
+          startPlay(replacement);
+          return;
+        }
+      } catch (err) {
+        console.warn('自动换源失败', err);
+      }
+    }
+
+    if (seqAtError !== playSeqRef.current || songIdentityKey(nowPlayingRef.current || {}) !== curKey) return;
     triedRef.current.add(curKey);
     const list = queueRef.current;
     const idx = list.findIndex((s) => songIdentityKey(s) === curKey);
@@ -389,7 +436,7 @@ export const PlayerProvider = ({ children }) => {
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
     }
-  }, [nowPlaying, startPlay]);
+  }, [nowPlaying, offline, startPlay]);
 
   // MediaSession:PC 全局媒体键 / 锁屏 / 通知栏 / 蓝牙耳机控制 + 元数据
   useEffect(() => {
