@@ -289,14 +289,33 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 	api.GET("/cookies", func(c *gin.Context) {
 		all := core.CM.GetAll()
 		status := map[string]bool{}
+		details := map[string]core.CookieStatusDetail{}
+		verify := strings.TrimSpace(c.Query("verify")) == "1"
+		detailCache := map[string]core.CookieStatusDetail{}
+
+		statusFor := func(source string) core.CookieStatusDetail {
+			cookieSource := qrLoginCookieSource(source)
+			if detail, ok := detailCache[cookieSource]; ok {
+				detail.Source = source
+				return detail
+			}
+			detail := core.BuildCookieStatusDetail(cookieSource, all[cookieSource], verify)
+			detailCache[cookieSource] = detail
+			detail.Source = source
+			return detail
+		}
+
 		for src, v := range all {
-			status[src] = strings.TrimSpace(v) != ""
+			detail := core.BuildCookieStatusDetail(src, v, verify)
+			status[src] = detail.Saved
+			details[src] = detail
 		}
 		for _, src := range core.GetCookieSourceNames() {
-			cookieSource := qrLoginCookieSource(src)
-			status[src] = strings.TrimSpace(all[cookieSource]) != ""
+			detail := statusFor(src)
+			status[src] = detail.Saved
+			details[src] = detail
 		}
-		c.JSON(200, gin.H{"logged_in": status})
+		c.JSON(200, gin.H{"logged_in": status, "details": details})
 	})
 
 	// 清除某源 cookie(退出登录)。SetAll 对空值执行删除(见 core.CookieManager.SetAll)。

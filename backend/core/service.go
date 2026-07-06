@@ -58,6 +58,17 @@ type CookieManager struct {
 
 var CM = &CookieManager{cookies: make(map[string]string)}
 
+type CookieStatusDetail struct {
+	Source       string          `json:"source"`
+	Saved        bool            `json:"saved"`
+	Verifiable   bool            `json:"verifiable"`
+	VIPChecked   bool            `json:"vip_checked"`
+	VIP          bool            `json:"vip"`
+	Error        string          `json:"error,omitempty"`
+	CookieLength int             `json:"cookie_length,omitempty"`
+	Hints        map[string]bool `json:"hints,omitempty"`
+}
+
 func (m *CookieManager) Load() {
 	if err := ensureConfigDB(); err != nil {
 		return
@@ -132,6 +143,136 @@ func (m *CookieManager) GetAll() map[string]string {
 		res[k] = v
 	}
 	return res
+}
+
+func BuildCookieStatusDetail(source, cookie string, verify bool) CookieStatusDetail {
+	source = normalizeCookieStatusSource(source)
+	cookie = strings.TrimSpace(cookie)
+	detail := CookieStatusDetail{
+		Source:       source,
+		Saved:        cookie != "",
+		Verifiable:   cookieStatusVerifiable(source),
+		CookieLength: len(cookie),
+		Hints:        cookieCredentialHints(source, cookie),
+	}
+	if !detail.Saved || !verify || !detail.Verifiable {
+		return detail
+	}
+
+	vip, err := probeCookieVIPStatus(source, cookie)
+	detail.VIPChecked = true
+	if err != nil {
+		detail.Error = cookieStatusError(err)
+		return detail
+	}
+	detail.VIP = vip
+	return detail
+}
+
+func normalizeCookieStatusSource(source string) string {
+	switch strings.TrimSpace(source) {
+	case "qq_wx", "qq_mobile", "qq_connect":
+		return "qq"
+	default:
+		return strings.TrimSpace(source)
+	}
+}
+
+func cookieStatusVerifiable(source string) bool {
+	switch normalizeCookieStatusSource(source) {
+	case "netease", "qq", "kugou", "bilibili", "soda":
+		return true
+	default:
+		return false
+	}
+}
+
+func probeCookieVIPStatus(source, cookie string) (bool, error) {
+	switch normalizeCookieStatusSource(source) {
+	case "netease":
+		return netease.New(cookie).IsVipAccount()
+	case "qq":
+		return qq.New(cookie).IsVipAccount()
+	case "kugou":
+		return kugou.New(cookie).IsVipAccount()
+	case "bilibili":
+		return bilibili.New(cookie).IsVipAccount()
+	case "soda":
+		return soda.New(cookie).IsVipAccount()
+	default:
+		return false, nil
+	}
+}
+
+func cookieCredentialHints(source, cookie string) map[string]bool {
+	if strings.TrimSpace(cookie) == "" {
+		return nil
+	}
+	values := cookieNameSet(cookie)
+	switch normalizeCookieStatusSource(source) {
+	case "netease":
+		return map[string]bool{
+			"has_music_u": values["MUSIC_U"],
+		}
+	case "qq":
+		return map[string]bool{
+			"has_uin":         hasAnyCookieName(values, "str_musicid", "qqmusic_uin", "musicid", "uin"),
+			"has_music_key":   hasAnyCookieName(values, "musickey", "qqmusic_key", "qm_keyst"),
+			"has_musickey":    values["musickey"],
+			"has_qqmusic_key": values["qqmusic_key"],
+			"has_qm_keyst":    values["qm_keyst"],
+		}
+	case "kugou":
+		return map[string]bool{
+			"has_token":  hasAnyCookieName(values, "token", "KuGoo", "kguser"),
+			"has_kg_mid": values["kg_mid"],
+		}
+	case "bilibili":
+		return map[string]bool{
+			"has_sessdata": values["SESSDATA"],
+		}
+	case "soda":
+		return map[string]bool{
+			"has_sessionid": hasAnyCookieName(values, "sessionid", "sessionid_ss"),
+			"has_passport":  hasAnyCookieName(values, "passport_csrf_token", "passport_auth_status", "sid_guard"),
+		}
+	default:
+		return nil
+	}
+}
+
+func cookieNameSet(cookie string) map[string]bool {
+	req := http.Request{Header: http.Header{"Cookie": []string{cookie}}}
+	result := make(map[string]bool)
+	for _, c := range req.Cookies() {
+		name := strings.TrimSpace(c.Name)
+		if name != "" && strings.TrimSpace(c.Value) != "" {
+			result[name] = true
+		}
+	}
+	return result
+}
+
+func hasAnyCookieName(values map[string]bool, names ...string) bool {
+	for _, name := range names {
+		if values[name] {
+			return true
+		}
+	}
+	return false
+}
+
+func cookieStatusError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(err.Error())
+	msg = strings.ReplaceAll(msg, "\r", " ")
+	msg = strings.ReplaceAll(msg, "\n", " ")
+	if len(msg) > 240 {
+		return msg[:240] + "..."
+	}
+	return msg
 }
 
 // ==========================================
