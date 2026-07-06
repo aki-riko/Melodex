@@ -51,6 +51,9 @@ func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics b
 	if err != nil {
 		return nil, err
 	}
+	if !LooksLikeAudioData(contentType, audioData) {
+		return nil, fmt.Errorf("upstream response is not audio: %s", contentType)
+	}
 
 	signatureExt := DetectAudioExtBySignature(audioData)
 	ext := signatureExt

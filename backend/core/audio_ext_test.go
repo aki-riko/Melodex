@@ -16,6 +16,8 @@ func TestDetectAudioExtBySignature(t *testing.T) {
 	}{
 		{name: "flac", data: []byte{'f', 'L', 'a', 'C', 0x00}, want: "flac"},
 		{name: "id3 mp3", data: []byte{'I', 'D', '3', 0x04}, want: "mp3"},
+		{name: "m4a ftyp", data: []byte{0x00, 0x00, 0x00, 0x20, 'f', 't', 'y', 'p', 'M', '4', 'A', ' '}, want: "m4a"},
+		{name: "wav riff", data: []byte{'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E'}, want: "wav"},
 		{name: "unknown", data: []byte("not-audio"), want: ""},
 	}
 
@@ -23,6 +25,30 @@ func TestDetectAudioExtBySignature(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := DetectAudioExtBySignature(tc.data); got != tc.want {
 				t.Fatalf("DetectAudioExtBySignature() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLooksLikeAudioDataRejectsTextErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		data        []byte
+		want        bool
+	}{
+		{name: "mp3 signature", contentType: "audio/mpeg", data: []byte{'I', 'D', '3', 0x04}, want: true},
+		{name: "flac signature without mime", contentType: "", data: []byte{'f', 'L', 'a', 'C'}, want: true},
+		{name: "m4a signature octet stream", contentType: "application/octet-stream", data: []byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'M', '4', 'A', ' '}, want: true},
+		{name: "html mislabeled as audio", contentType: "audio/mpeg", data: []byte("<!doctype html><html>login</html>"), want: false},
+		{name: "json mislabeled as audio", contentType: "audio/mpeg", data: []byte(`{"error":"expired"}`), want: false},
+		{name: "text without audio mime", contentType: "text/plain", data: []byte("not-audio"), want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := LooksLikeAudioData(tc.contentType, tc.data); got != tc.want {
+				t.Fatalf("LooksLikeAudioData() = %v, want %v", got, tc.want)
 			}
 		})
 	}

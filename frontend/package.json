@@ -36,7 +36,7 @@
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
-    "test:player": "node scripts/playerQueue.test.mjs",
+    "test:player": "node scripts/playerQueue.test.mjs && node scripts/audioProbe.test.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {

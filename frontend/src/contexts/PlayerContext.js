@@ -2,7 +2,7 @@ import React, { createContext, useContext, useRef, useState, useCallback, useEff
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import SleepTimerControl from '../components/SleepTimerControl';
 import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory, switchSource as switchSongSource } from '../services/musicdl';
-import { getCachedSong, touchCachedSong } from '../services/offlineAudio';
+import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
 import { songIdentityKey } from '../utils/songIdentity';
@@ -81,6 +81,7 @@ export const PlayerProvider = ({ children }) => {
   const objectUrlRef = useRef('');
   const coverObjectUrlRef = useRef('');
   const playSeqRef = useRef(0);
+  const recordedPlaySeqRef = useRef('');
 
   useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
   useEffect(() => { sleepTimerRef.current = sleepTimer; }, [sleepTimer]);
@@ -101,20 +102,22 @@ export const PlayerProvider = ({ children }) => {
     coverObjectUrlRef.current = '';
   }, []);
 
-  const loadAudioForSong = useCallback(async (song, { autoplay = true, seq: requestedSeq } = {}) => {
+  const loadAudioForSong = useCallback(async (song, { autoplay = true, seq: requestedSeq, preferCache = true } = {}) => {
     const seq = requestedSeq ?? ++playSeqRef.current;
     if (seq !== playSeqRef.current) return;
     const songKey = songIdentityKey(song);
     let src = '';
+    let sourceKind = '';
     let objectUrl = '';
     let coverUrl = '';
     let coverMime = '';
 
     try {
-      const cached = await getCachedSong(song, userId);
+      const cached = preferCache ? await getPlayableCachedSong(song, userId) : null;
       if (cached?.blob) {
         objectUrl = URL.createObjectURL(cached.blob);
         src = objectUrl;
+        sourceKind = 'cache';
         if (cached.coverBlob) {
           coverUrl = URL.createObjectURL(cached.coverBlob);
           coverMime = cached.coverMime || cached.coverBlob.type || 'image/jpeg';
@@ -137,7 +140,10 @@ export const PlayerProvider = ({ children }) => {
       return;
     }
 
-    if (!src && !offline) src = getStreamUrl(song);
+    if (!src && !offline) {
+      src = getStreamUrl(song);
+      sourceKind = 'network';
+    }
 
     revokeObjectUrl();
     revokeCoverObjectUrl();
@@ -145,6 +151,7 @@ export const PlayerProvider = ({ children }) => {
     if (!src) {
       delete audio.dataset.playSeq;
       delete audio.dataset.songKey;
+      delete audio.dataset.sourceKind;
       audio.removeAttribute('src');
       audio.load();
       setIsPaused(true);
@@ -153,6 +160,7 @@ export const PlayerProvider = ({ children }) => {
     }
     audio.dataset.playSeq = String(seq);
     audio.dataset.songKey = songKey;
+    audio.dataset.sourceKind = sourceKind;
     audio.src = src;
     audio.load();
     objectUrlRef.current = objectUrl;
@@ -281,8 +289,6 @@ export const PlayerProvider = ({ children }) => {
     const seq = ++playSeqRef.current;
     const nextSong = normalizeSong(song);
     setNowPlaying(nextSong);
-    // 记录最近播放(按用户隔离,后端去重+封顶 500;未登录静默)。fire-and-forget。
-    if (!offline) recordPlayHistory(nextSong);
     setTimeout(() => loadAudioForSong(nextSong, { autoplay: true, seq }), 0);
   }, [loadAudioForSong, offline]);
 
@@ -370,6 +376,18 @@ export const PlayerProvider = ({ children }) => {
     }
   }, []);
 
+  const handlePlaying = useCallback((event) => {
+    setIsPaused(false);
+    const cur = nowPlayingRef.current || nowPlaying;
+    const audio = event?.currentTarget || audioRef.current;
+    if (!isCurrentAudioEvent(audio, playSeqRef.current, cur)) return;
+    const seq = audio?.dataset?.playSeq || '';
+    if (!offline && seq && recordedPlaySeqRef.current !== seq) {
+      recordedPlaySeqRef.current = seq;
+      recordPlayHistory(cur);
+    }
+  }, [nowPlaying, offline]);
+
   // 播放结束:repeat 重播当前,否则跳下一首
   const handleEnded = useCallback((event) => {
     if (!isCurrentAudioEvent(event?.currentTarget || audioRef.current, playSeqRef.current, nowPlaying)) return;
@@ -395,6 +413,19 @@ export const PlayerProvider = ({ children }) => {
     const seqAtError = playSeqRef.current;
     if (!isCurrentAudioEvent(audio, seqAtError, cur)) return;
     const curKey = songIdentityKey(cur);
+
+    if (!offline && audio?.dataset?.sourceKind === 'cache') {
+      setNotice(`「${cur.name}」本机缓存无法播放,正在重新拉取当前源…`);
+      try {
+        await deleteCachedSong(cur, userId);
+      } catch (err) {
+        console.warn('删除损坏本机缓存失败', err);
+      }
+      if (seqAtError !== playSeqRef.current || songIdentityKey(nowPlayingRef.current || {}) !== curKey) return;
+      const retrySeq = ++playSeqRef.current;
+      setTimeout(() => loadAudioForSong(cur, { autoplay: true, seq: retrySeq, preferCache: false }), 0);
+      return;
+    }
 
     const switchKey = switchAttemptKey(cur);
     const canSwitchSource = !offline && cur.source && cur.source !== 'local' && cur.name && !switchTriedRef.current.has(switchKey);
@@ -436,7 +467,7 @@ export const PlayerProvider = ({ children }) => {
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
     }
-  }, [nowPlaying, offline, startPlay]);
+  }, [loadAudioForSong, nowPlaying, offline, startPlay, userId]);
 
   // MediaSession:PC 全局媒体键 / 锁屏 / 通知栏 / 蓝牙耳机控制 + 元数据
   useEffect(() => {
@@ -493,7 +524,7 @@ export const PlayerProvider = ({ children }) => {
       sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
       startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
       isPlaying: (s) => nowPlaying && songIdentityKey(nowPlaying) === songIdentityKey(s),
-      next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
+      next, prev, togglePlay, seek, handleError, handleEnded, handlePlaying, setIsPaused, setProgress,
       handleTimeUpdate, handleLoadedMetadata, savePlayback,
       cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
     }}>
@@ -667,7 +698,7 @@ const KaraokeLine = ({ line, cur }) => {
 export const PlayerBar = () => {
   const {
     nowPlaying, audioRef, notice, isPaused, progress, mode,
-    next, prev, togglePlay, seek, handleError, handleEnded,
+    next, prev, togglePlay, seek, handleError, handleEnded, handlePlaying,
     setIsPaused, setProgress, cycleMode,
     volume, setVolume, muted, toggleMute,
     queue, playFromQueue,
@@ -1192,6 +1223,7 @@ export const PlayerBar = () => {
         onError={handleError}
         onEnded={handleEnded}
         onPlay={() => setIsPaused(false)}
+        onPlaying={handlePlaying}
         onPause={(e) => { setIsPaused(true); savePlayback(e.target.currentTime); }}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}

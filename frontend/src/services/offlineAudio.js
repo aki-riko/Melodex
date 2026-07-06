@@ -1,6 +1,7 @@
 import { coverProxyUrl, getDownloadUrl } from './musicdl';
 import { normalizeSongIdentity, songExtraHash, songIdentityKey } from '../utils/songIdentity';
 import { normalizeSong } from '../utils/songFields';
+import { audioBlobLooksPlayable } from '../utils/audioProbe';
 
 const DB_NAME = 'melodex-offline-audio';
 const DB_VERSION = 1;
@@ -194,6 +195,9 @@ export const cacheSong = async (song, { userId = 0, onProgress, signal } = {}) =
   const mime = response.headers.get('content-type') || 'application/octet-stream';
   const blob = await responseToBlob(response, mime, onProgress);
   if (!blob.size) throw new Error('缓存失败:音频为空');
+  if (!(await audioBlobLooksPlayable(blob, mime))) {
+    throw new Error('缓存失败:响应不是可播放的音频');
+  }
   const cover = await fetchCoverBlob(song, signal);
 
   const record = {
@@ -227,6 +231,19 @@ export const cacheSong = async (song, { userId = 0, onProgress, signal } = {}) =
 export const getCachedSong = (song, userId = 0) => {
   if (!canCacheSong(song)) return Promise.resolve(null);
   return getRecordByKey(offlineSongKey(song, userId));
+};
+
+export const getPlayableCachedSong = async (song, userId = 0, { deleteInvalid = true } = {}) => {
+  const record = await getCachedSong(song, userId);
+  if (!record?.blob) return null;
+  if (await audioBlobLooksPlayable(record.blob, record.mime || record.blob.type || '')) {
+    return record;
+  }
+  if (deleteInvalid) {
+    await deleteRecordByKey(record.key);
+    emitChanged({ action: 'delete', key: record.key, userId: userKey(userId), reason: 'invalid-audio' });
+  }
+  return null;
 };
 
 export const isSongCached = async (song, userId = 0) => {
