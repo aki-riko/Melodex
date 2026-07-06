@@ -80,6 +80,19 @@ const statusBadge = (label, cls = 'bg-muted text-muted-foreground') => (
   </span>
 );
 
+// 从歌名/专辑名文本推断是否伴奏/无人声版本(平台无独立字段,只能靠命名标记)。
+// 返回 null 或徽章文案。括号内标记优先,避免误伤正名里含这些词的歌。
+const instrumentalLabelOf = (song) => {
+  const text = `${song?.name || ''} ${song?.album || ''}`;
+  // 常见伴奏/无人声标记:instrumental / off vocal / karaoke / カラオケ / 伴奏 / inst.
+  if (/[(（\[【][^)）\]】]*(instrumental|inst\.?|off\s*vocal|karaoke|カラオケ|伴奏)[^)）\]】]*[)）\]】]/i.test(text)) {
+    return '伴奏';
+  }
+  // 无括号但独立出现"伴奏"二字(中文平台常见),或结尾 Off Vocal。
+  if (/伴奏/.test(text) || /off\s*vocal/i.test(text)) return '伴奏';
+  return null;
+};
+
 const favoriteStatusCache = new Map();
 
 const ActionButton = ({ icon: Icon, title, onClick, disabled, active, danger, busy }) => (
@@ -154,6 +167,7 @@ const SongRow = ({
 }) => {
   const rowSong = useMemo(() => normalizeSong(song), [song]);
   const q = realQualityOf(liveInfo, rowSong);
+  const instrumentalLabel = instrumentalLabelOf(rowSong);
   const { setAddTarget } = useCollections();
   const { user, offline } = useAuth();
   const userId = user?.id || 0;
@@ -366,6 +380,7 @@ const SongRow = ({
             <span className="truncate max-w-[14rem]">{rowSong.artist || '未知歌手'}</span>
             {rowSong.is_vip && statusBadge('VIP', 'bg-primary text-primary-foreground')}
             {q && statusBadge(q.label, q.cls)}
+            {instrumentalLabel && statusBadge(instrumentalLabel, 'bg-amber-500/15 text-amber-600 dark:text-amber-400')}
             <span className="text-[11px] whitespace-nowrap">{sourceLabel(rowSong.source)}</span>
             {sizeLabel && <span className="text-[11px] whitespace-nowrap">{sizeLabel}</span>}
             {cacheState === 'done' && statusBadge('本机', 'bg-primary/10 text-primary')}
