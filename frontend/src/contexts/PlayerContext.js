@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
+import SleepTimerControl from '../components/SleepTimerControl';
 import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory } from '../services/musicdl';
 import { getCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
@@ -7,6 +8,13 @@ import { sourceLabel } from '../utils/sourceLabels';
 import { songIdentityKey } from '../utils/songIdentity';
 import { normalizeSong } from '../utils/songFields';
 import { MODES, isCurrentAudioEvent, pickNextSong } from './playerQueue.js';
+import {
+  createSleepTimer,
+  getSleepTimerRemainingMs,
+  loadStopAfterTrackPreference,
+  saveStopAfterTrackPreference,
+  shouldStopAtTrackEnd,
+} from './playerSleepTimer.js';
 
 const PlayerContext = createContext(null);
 
@@ -45,10 +53,16 @@ export const PlayerProvider = ({ children }) => {
   const [muted, setMuted] = useState(false);
   const [queue, setQueue] = useState([]); // 当前播放队列(state 副本,供队列面板渲染)
   const [cachedCover, setCachedCover] = useState({ url: '', mime: '' });
+  const [sleepTimer, setSleepTimer] = useState(null);
+  const [sleepRemainingMs, setSleepRemainingMs] = useState(0);
+  const [sleepStopAfterTrack, setSleepStopAfterTrackState] = useState(loadStopAfterTrackPreference);
   const audioRef = useRef(null);
   const queueRef = useRef([]); // 当前播放队列(ref,供 next/prev 等回调读取免闭包陈旧)
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
   const modeRef = useRef(loadMode());
+  const nowPlayingRef = useRef(null);
+  const sleepTimerRef = useRef(null);
+  const sleepStopAfterTrackRef = useRef(loadStopAfterTrackPreference());
   useEffect(() => { modeRef.current = mode; localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
   const { user, offline } = useAuth();
@@ -58,6 +72,13 @@ export const PlayerProvider = ({ children }) => {
   const objectUrlRef = useRef('');
   const coverObjectUrlRef = useRef('');
   const playSeqRef = useRef(0);
+
+  useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
+  useEffect(() => { sleepTimerRef.current = sleepTimer; }, [sleepTimer]);
+  useEffect(() => {
+    sleepStopAfterTrackRef.current = sleepStopAfterTrack;
+    saveStopAfterTrackPreference(sleepStopAfterTrack);
+  }, [sleepStopAfterTrack]);
 
   const revokeObjectUrl = useCallback(() => {
     if (!objectUrlRef.current) return;
@@ -154,6 +175,37 @@ export const PlayerProvider = ({ children }) => {
 
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
 
+  const clearSleepTimer = useCallback(() => {
+    sleepTimerRef.current = null;
+    setSleepTimer(null);
+    setSleepRemainingMs(0);
+  }, []);
+
+  const stopPlaybackForSleepTimer = useCallback((message = '睡眠定时已停止播放。') => {
+    const audio = audioRef.current;
+    if (audio) audio.pause();
+    clearSleepTimer();
+    setNotice(message);
+  }, [clearSleepTimer]);
+
+  const startSleepTimer = useCallback((minutes) => {
+    const timer = createSleepTimer(minutes);
+    if (!timer) return;
+    sleepTimerRef.current = timer;
+    setSleepTimer(timer);
+    setSleepRemainingMs(getSleepTimerRemainingMs(timer));
+    setNotice(`睡眠定时已设置为 ${minutes} 分钟。`);
+  }, []);
+
+  const cancelSleepTimer = useCallback(() => {
+    clearSleepTimer();
+    setNotice('睡眠定时已取消。');
+  }, [clearSleepTimer]);
+
+  const setSleepStopAfterTrack = useCallback((enabled) => {
+    setSleepStopAfterTrackState(Boolean(enabled));
+  }, []);
+
   // 恢复上次播放:登录后(userId 确定)读 localStorage,加载上次的歌+队列+进度,
   // 但不自动播放(浏览器禁 autoplay)——只把进度暂存 resumeRef,onLoadedMetadata 时 seek。
   useEffect(() => {
@@ -186,6 +238,35 @@ export const PlayerProvider = ({ children }) => {
       }));
     } catch { /* 配额满等忽略 */ }
   }, [nowPlaying, userId]);
+
+  useEffect(() => {
+    if (!sleepTimer) return undefined;
+
+    const tick = () => {
+      const timer = sleepTimerRef.current;
+      if (!timer) return;
+      const remaining = getSleepTimerRemainingMs(timer);
+      setSleepRemainingMs(remaining);
+      if (remaining > 0) return;
+
+      const audio = audioRef.current;
+      if (sleepStopAfterTrackRef.current && nowPlayingRef.current && audio && !audio.paused) {
+        if (!timer.pendingEndOfTrack) {
+          const pendingTimer = { ...timer, pendingEndOfTrack: true };
+          sleepTimerRef.current = pendingTimer;
+          setSleepTimer(pendingTimer);
+          setNotice('睡眠定时已到点,播完当前歌曲后停止。');
+        }
+        return;
+      }
+
+      stopPlaybackForSleepTimer();
+    };
+
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [sleepTimer, stopPlaybackForSleepTimer]);
 
   const startPlay = useCallback((song) => {
     const seq = ++playSeqRef.current;
@@ -279,11 +360,18 @@ export const PlayerProvider = ({ children }) => {
   // 播放结束:repeat 重播当前,否则跳下一首
   const handleEnded = useCallback((event) => {
     if (!isCurrentAudioEvent(event?.currentTarget || audioRef.current, playSeqRef.current, nowPlaying)) return;
+    if (shouldStopAtTrackEnd(sleepTimerRef.current, sleepStopAfterTrackRef.current)) {
+      clearSleepTimer();
+      setIsPaused(true);
+      savePlayback(event?.currentTarget?.currentTime || progress.dur || 0);
+      setNotice('睡眠定时已在本曲结束后停止播放。');
+      return;
+    }
     if (modeRef.current === 'repeat' && nowPlaying) { startPlay(nowPlaying); return; }
     triedRef.current = new Set();
     const n = pickNext(nowPlaying, true, true); // auto 续播:order 到尾则停
     if (n) startPlay(n);
-  }, [nowPlaying, pickNext, startPlay]);
+  }, [clearSleepTimer, nowPlaying, pickNext, progress.dur, savePlayback, startPlay]);
 
   // audio 报错(死链/无法播放)→ 自动跳下一首没试过的
   const handleError = useCallback((event) => {
@@ -355,6 +443,8 @@ export const PlayerProvider = ({ children }) => {
       volume, setVolume, muted, toggleMute,
       cachedCoverUrl: cachedCover.url,
       queue, playFromQueue,
+      sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
+      startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
       isPlaying: (s) => nowPlaying && songIdentityKey(nowPlaying) === songIdentityKey(s),
       next, prev, togglePlay, seek, handleError, handleEnded, setIsPaused, setProgress,
       handleTimeUpdate, handleLoadedMetadata, savePlayback,
@@ -534,6 +624,8 @@ export const PlayerBar = () => {
     setIsPaused, setProgress, cycleMode,
     volume, setVolume, muted, toggleMute,
     queue, playFromQueue,
+    sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
+    startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
     cachedCoverUrl,
     handleTimeUpdate, handleLoadedMetadata, savePlayback,
   } = usePlayer();
@@ -655,6 +747,15 @@ export const PlayerBar = () => {
     : effectiveVol < 0.5
       ? <Volume1 size={18} />
       : <Volume2 size={18} />;
+  const sleepTimerControlProps = {
+    active: Boolean(sleepTimer),
+    pendingEndOfTrack: Boolean(sleepTimer?.pendingEndOfTrack),
+    remainingMs: sleepRemainingMs,
+    stopAfterTrack: sleepStopAfterTrack,
+    onStopAfterTrackChange: setSleepStopAfterTrack,
+    onStart: startSleepTimer,
+    onCancel: cancelSleepTimer,
+  };
 
   return (
     <>
@@ -701,6 +802,7 @@ export const PlayerBar = () => {
               title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
               {modeIcon}
             </button>
+            <SleepTimerControl {...sleepTimerControlProps} align="center" />
             {/* 右:进度条 */}
             <div className="flex items-center gap-2 flex-grow min-w-0">
               <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>
@@ -909,6 +1011,9 @@ export const PlayerBar = () => {
               <span>{fmtTime(progress.dur)}</span>
             </div>
           </div>
+          <div className="mt-4 flex justify-center px-8">
+            <SleepTimerControl {...sleepTimerControlProps} align="center" />
+          </div>
           {/* 控制按钮 */}
           <div className="flex items-center justify-between px-10 mt-6">
             <button onClick={cycleMode}
@@ -1011,6 +1116,7 @@ export const PlayerBar = () => {
               <button onClick={cycleMode}
                 className={`${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'} transition-colors`}
                 title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">{modeIcon}</button>
+              <SleepTimerControl {...sleepTimerControlProps} align="center" />
               <button onClick={prev} className="text-foreground hover:scale-110 transition-transform" aria-label="上一首">
                 <SkipBack size={30} fill="currentColor" />
               </button>
