@@ -74,7 +74,7 @@ export const recognizeAudio = async (blob) => {
 
 export const getRecognitionStatus = async () => {
   const { data } = await client.get('/api/v1/recognize/status');
-  return data; // { enabled, provider, max_bytes, timeout, error? }
+  return data; // { enabled, provider, max_bytes, timeout, rate_limit_per_minute, error? }
 };
 
 // 获取可用音乐源
