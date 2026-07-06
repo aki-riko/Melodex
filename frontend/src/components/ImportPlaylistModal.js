@@ -13,6 +13,16 @@ const DL_IDLE = { phase: 'idle', done: 0, fail: 0, total: 0, text: '' };
 
 const downloadTaskKey = (source, playlistId) => `${source || 'unknown'}:${playlistId ?? ''}`;
 
+const normalizedPlaylistName = (name) => (name || '').trim().toLocaleLowerCase();
+
+const findSameNameMergeTarget = (collections, playlistName) => {
+  const name = normalizedPlaylistName(playlistName);
+  if (!name) return null;
+  return (collections || []).find((collection) => (
+    collection?.kind !== 'imported' && normalizedPlaylistName(collection?.name) === name
+  )) || null;
+};
+
 const downloadProgressText = (state) => {
   if (!state || state.phase === 'idle') return '';
   if (state.text) return state.text;
@@ -25,7 +35,7 @@ const downloadProgressText = (state) => {
 // 从已登录平台(网易云/QQ/酷狗/汽水)导入个人歌单(引用型:只存引用,打开实时拉曲)。
 // open=false 时不渲染;onNavigate 用于「去登录」跳到设置页;成功后 refresh 侧栏。
 export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
-  const { refresh } = useCollections();
+  const { collections, refresh } = useCollections();
   const { offline } = useAuth();
   const feedback = useFeedback();
   const [loading, setLoading] = useState(false);
@@ -33,6 +43,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   const [active, setActive] = useState(''); // 当前选中源
   const [importingId, setImportingId] = useState(null); // 正在导入的平台歌单 key
   const [doneIds, setDoneIds] = useState({}); // 已导入的平台歌单 key → true
+  const [mergePrompt, setMergePrompt] = useState(null); // { playlist, source, target, taskKey }
   const downloadTasks = useScopedBulkState(DL_IDLE, 'playlist-import-dl');
 
   const load = useCallback(async () => {
@@ -53,6 +64,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   useEffect(() => {
     if (open) {
       setDoneIds({});
+      setMergePrompt(null);
       load();
     }
   }, [open, load]);
@@ -96,14 +108,16 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
     });
   };
 
-  const doImport = async (playlist) => {
-    const taskKey = downloadTaskKey(active, playlist.id);
+  const performImport = async (playlist, { source = active, mergeInto = null } = {}) => {
+    const taskKey = downloadTaskKey(source, playlist.id);
     if (offline || importingId) return;
     setImportingId(taskKey);
     try {
-      const r = await importPlaylist({ ...playlist, source: active });
-      setDoneIds((m) => ({ ...m, [taskKey]: true }));
-      if (r?.duplicate) {
+      const r = await importPlaylist({ ...playlist, source }, { mergeIntoId: mergeInto?.id });
+      setDoneIds((m) => ({ ...m, [taskKey]: r?.merged ? 'merged' : 'imported' }));
+      if (r?.merged) {
+        feedback.success(`已合并到「${r.name || mergeInto?.name || playlist.name}」,新增 ${r.added ?? 0}/${r.total ?? 0} 首,开始下载到服务器`);
+      } else if (r?.duplicate) {
         feedback.info(`「${r.name || playlist.name}」已导入过,继续下载到服务器`);
       } else {
         feedback.success(`已导入「${r?.name || playlist.name}」,开始下载到服务器`);
@@ -116,6 +130,18 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
     } finally {
       setImportingId(null);
     }
+  };
+
+  const doImport = async (playlist) => {
+    const source = active;
+    const taskKey = downloadTaskKey(source, playlist.id);
+    if (offline || importingId) return;
+    const target = findSameNameMergeTarget(collections, playlist.name);
+    if (target) {
+      setMergePrompt({ playlist, source, target, taskKey });
+      return;
+    }
+    await performImport(playlist, { source });
   };
 
   const goLogin = () => { close(); onNavigate?.('Settings'); };
@@ -151,6 +177,46 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
           </div>
         )}
 
+        {mergePrompt && (
+          <div className="mx-4 mt-3 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm">
+            <p className="font-medium text-foreground">已存在同名歌单「{mergePrompt.target.name}」</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              要把「{mergePrompt.playlist.name}」的曲目合并进去吗？选择新建会保留一个独立的平台引用歌单。
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  const prompt = mergePrompt;
+                  setMergePrompt(null);
+                  performImport(prompt.playlist, { source: prompt.source, mergeInto: prompt.target });
+                }}
+                disabled={offline || Boolean(importingId)}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              >
+                合并
+              </button>
+              <button
+                onClick={() => {
+                  const prompt = mergePrompt;
+                  setMergePrompt(null);
+                  performImport(prompt.playlist, { source: prompt.source });
+                }}
+                disabled={offline || Boolean(importingId)}
+                className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
+              >
+                新建
+              </button>
+              <button
+                onClick={() => setMergePrompt(null)}
+                disabled={Boolean(importingId)}
+                className="rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary disabled:opacity-50"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-y-auto app-scroll flex-grow px-4 py-3">
           {loading && <p className="text-sm text-muted-foreground py-6 text-center">加载中…</p>}
 
@@ -176,9 +242,11 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
             const dlState = downloadTasks.getState(taskKey);
             const dlText = downloadProgressText(dlState);
             const downloading = dlState.phase === 'loading' || dlState.phase === 'running';
-            const done = doneIds[taskKey] || dlState.phase === 'done';
+            const doneStatus = doneIds[taskKey] || (dlState.phase === 'done' ? 'imported' : '');
+            const done = Boolean(doneStatus);
+            const waitingMerge = mergePrompt?.taskKey === taskKey;
             const busy = importingId === taskKey;
-            const buttonLabel = done ? '已导入' : busy ? '导入中' : downloading ? '下载中' : '导入';
+            const buttonLabel = doneStatus === 'merged' ? '已合并' : done ? '已导入' : waitingMerge ? '待确认' : busy ? '导入中' : downloading ? '下载中' : '导入';
             return (
               <div key={pl.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
                 <div className="w-11 h-11 rounded bg-secondary flex-shrink-0 overflow-hidden flex items-center justify-center">
@@ -194,11 +262,11 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
                   </p>
                   {dlText && <p className="text-xs text-primary truncate mt-0.5">{dlText}</p>}
                 </div>
-                <button onClick={() => doImport(pl)} disabled={offline || busy || downloading || done}
+                <button onClick={() => doImport(pl)} disabled={offline || waitingMerge || busy || downloading || done}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium flex-shrink-0 transition-colors ${
                     done ? 'bg-primary/10 text-primary' : 'bg-primary text-primary-foreground disabled:opacity-50'
                   }`}>
-                  {done ? <Check size={15} /> : <Download size={15} className={(busy || downloading) ? 'animate-pulse' : ''} />}
+                  {done ? <Check size={15} /> : <Download size={15} className={(busy || downloading || waitingMerge) ? 'animate-pulse' : ''} />}
                   {buttonLabel}
                 </button>
               </div>

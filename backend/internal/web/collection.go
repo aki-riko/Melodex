@@ -86,6 +86,7 @@ type importCollectionRequest struct {
 	ExternalID  string `json:"external_id"`
 	Link        string `json:"link"`
 	ContentType string `json:"content_type"`
+	MergeIntoID uint   `json:"merge_into_id"`
 }
 
 func (c Collection) normalizedKind() string {
@@ -457,6 +458,45 @@ func loadSavedSongs(collectionID uint) ([]model.Song, error) {
 		})
 	}
 	return songs, nil
+}
+
+func saveSongToManualCollection(collectionID uint, song model.Song) (bool, error) {
+	songID := strings.TrimSpace(song.ID)
+	source := strings.TrimSpace(song.Source)
+	if songID == "" || source == "" {
+		return false, fmt.Errorf("missing song id or source")
+	}
+
+	extraStr := encodeSongExtraWithMetadata(song.Extra, song.Album, song.AlbumID)
+	saved := SavedSong{
+		CollectionID: collectionID,
+		SongID:       songID,
+		Source:       source,
+		Name:         song.Name,
+		Artist:       song.Artist,
+		Cover:        song.Cover,
+		Duration:     song.Duration,
+		Extra:        extraStr,
+	}
+	result := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&saved)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func saveSongsToManualCollection(collectionID uint, songs []model.Song) (int, error) {
+	added := 0
+	for _, song := range songs {
+		ok, err := saveSongToManualCollection(collectionID, song)
+		if err != nil {
+			return added, err
+		}
+		if ok {
+			added++
+		}
+	}
+	return added, nil
 }
 
 func loadImportedCollectionSongs(collection *Collection) ([]model.Song, error) {
@@ -906,6 +946,37 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 		}
 		collection.UserID = uid
 
+		if req.MergeIntoID != 0 {
+			target, err := loadOwnedCollection(fmt.Sprintf("%d", req.MergeIntoID), uid)
+			if err != nil {
+				c.JSON(404, gin.H{"error": "合并目标歌单不存在"})
+				return
+			}
+			if target.isImported() {
+				c.JSON(400, gin.H{"error": "外部导入歌单/专辑不保存歌曲明细，不能作为合并目标"})
+				return
+			}
+
+			songs, err := loadImportedCollectionSongs(collection)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "读取平台歌单失败: " + err.Error()})
+				return
+			}
+			added, err := saveSongsToManualCollection(target.ID, songs)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "合并失败: " + err.Error()})
+				return
+			}
+			c.JSON(200, gin.H{
+				"id":     target.ID,
+				"name":   target.Name,
+				"merged": true,
+				"added":  added,
+				"total":  len(songs),
+			})
+			return
+		}
+
 		var existing Collection
 		err = db.Where(
 			"user_id = ? AND kind = ? AND content_type = ? AND source = ? AND external_id = ?",
@@ -1025,20 +1096,22 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		extraStr := encodeSongExtraWithMetadata(req.Extra, req.Album, req.AlbumID)
-
-		song := SavedSong{
-			CollectionID: collection.ID,
-			SongID:       req.SongID,
-			Source:       req.Source,
-			Name:         req.Name,
-			Artist:       req.Artist,
-			Cover:        req.Cover,
-			Duration:     req.Duration,
-			Extra:        extraStr,
-		}
-
-		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&song).Error; err != nil {
+		_, err = saveSongToManualCollection(collection.ID, model.Song{
+			ID:       req.SongID,
+			Source:   req.Source,
+			Name:     req.Name,
+			Artist:   req.Artist,
+			Album:    req.Album,
+			AlbumID:  req.AlbumID,
+			Cover:    req.Cover,
+			Duration: req.Duration,
+			Extra:    decodeSongExtraMap(encodeSongExtraWithMetadata(req.Extra, "", "")),
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "missing song id or source") {
+				c.JSON(400, gin.H{"error": "参数错误，缺少 id 或 source"})
+				return
+			}
 			c.JSON(500, gin.H{"error": "添加失败: " + err.Error()})
 			return
 		}
