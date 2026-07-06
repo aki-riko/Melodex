@@ -434,6 +434,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
   const mountedRef = useRef(true);
   const [recognition, setRecognition] = useState({ phase: 'idle', message: '' });
   const rawSuggestionKeyword = keyword.trim();
+  const clearCacheKeyword = (rawSuggestionKeyword || query || '').trim();
   const debouncedSuggestionKeyword = useDebouncedValue(rawSuggestionKeyword, SEARCH_SUGGESTION_DEBOUNCE_MS);
   const canSuggest = rawSuggestionKeyword.length >= SEARCH_SUGGESTION_MIN_LENGTH && !SEARCH_LINK_RE.test(rawSuggestionKeyword);
   const suggestionSearch = useQuery(
@@ -728,7 +729,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
     }
   };
   const handleClearSearchCache = async () => {
-    const k = (query || keyword || '').trim();
+    const k = clearCacheKeyword;
     if (!k || clearingSearchCache) return;
     setClearingSearchCache(true);
     try {
@@ -928,21 +929,17 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
         <button type="submit" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:brightness-110">
           搜索
         </button>
+        <button
+          type="button"
+          onClick={handleClearSearchCache}
+          disabled={!clearCacheKeyword || clearingSearchCache || state.isLoading || state.isFetching}
+          className="flex h-12 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          title={clearCacheKeyword ? `清理「${clearCacheKeyword}」的搜索缓存并重新搜索` : '输入关键词后清理搜索缓存'}
+        >
+          <RotateCw size={15} className={clearingSearchCache ? 'animate-spin' : ''} />
+          <span className="hidden sm:inline">清缓存重搜</span>
+        </button>
       </form>
-      {query && (
-        <div className="mb-3 flex justify-end">
-          <button
-            type="button"
-            onClick={handleClearSearchCache}
-            disabled={clearingSearchCache || state.isLoading || state.isFetching}
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            title="清理当前关键词的搜索缓存并重新搜索"
-          >
-            <RotateCw size={15} className={clearingSearchCache ? 'animate-spin' : ''} />
-            清缓存重搜
-          </button>
-        </div>
-      )}
       {recognition.phase !== 'idle' && (
         <div className={`mb-5 rounded-md border px-3 py-2 text-sm ${
           recognition.phase === 'error'
