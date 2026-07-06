@@ -57,6 +57,10 @@ func (r *rateLimiter) allow(ip string) bool {
 // searchRateLimiter:公开搜索接口的 per-IP 限流(30 次/分钟)。
 var searchRateLimiter = newRateLimiter(30, time.Minute)
 
+// recognitionRateLimiter:听歌识曲会调用外部付费/限额服务,单独限流防误触发循环
+// 或登录用户高频调用耗尽额度。
+var recognitionRateLimiter = newRateLimiter(10, time.Minute)
+
 // rateLimitMiddleware 超限返回 429。
 func rateLimitMiddleware(rl *rateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
