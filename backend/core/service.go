@@ -994,6 +994,9 @@ func DetectAudioExtBySignature(data []byte) string {
 	if len(data) >= 12 && bytes.Equal(data[4:8], []byte{'f', 't', 'y', 'p'}) {
 		return "m4a"
 	}
+	if len(data) >= 12 && bytes.Equal(data[:4], []byte{'R', 'I', 'F', 'F'}) && bytes.Equal(data[8:12], []byte{'W', 'A', 'V', 'E'}) {
+		return "wav"
+	}
 	return ""
 }
 
@@ -1019,6 +1022,40 @@ func DetectAudioExtByContentType(contentType string) string {
 	}
 }
 
+func LooksLikeAudioData(contentType string, data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	if DetectAudioExtBySignature(data) != "" {
+		return true
+	}
+	ext := DetectAudioExtByContentType(contentType)
+	if ext == "" {
+		return false
+	}
+	return !looksLikeTextResponse(data)
+}
+
+func looksLikeTextResponse(data []byte) bool {
+	const maxProbe = 64
+	if len(data) == 0 {
+		return false
+	}
+	limit := len(data)
+	if limit > maxProbe {
+		limit = maxProbe
+	}
+	probe := strings.TrimLeft(strings.ToLower(string(data[:limit])), " \t\r\n\x00")
+	return strings.HasPrefix(probe, "<!doctype") ||
+		strings.HasPrefix(probe, "<html") ||
+		strings.HasPrefix(probe, "<") ||
+		strings.HasPrefix(probe, "{") ||
+		strings.HasPrefix(probe, "[") ||
+		strings.HasPrefix(probe, "error") ||
+		strings.HasPrefix(probe, "failed") ||
+		strings.HasPrefix(probe, "upstream")
+}
+
 func AudioMimeByExt(ext string) string {
 	switch strings.ToLower(strings.TrimSpace(ext)) {
 	case "wma":
@@ -1029,6 +1066,8 @@ func AudioMimeByExt(ext string) string {
 		return "audio/ogg"
 	case "m4a":
 		return "audio/mp4"
+	case "wav":
+		return "audio/wav"
 	default:
 		return "audio/mpeg"
 	}
@@ -1532,7 +1571,7 @@ type SourceRangeFetch struct {
 }
 
 func NewSourceRangeFetch(urlStr string, source string, rangeHeader string) (*SourceRangeFetch, bool, error) {
-	req, err := BuildSourceRequest("GET", urlStr, source, "bytes=0-3")
+	req, err := BuildSourceRequest("GET", urlStr, source, "bytes=0-15")
 	if err != nil {
 		return nil, false, err
 	}
@@ -1561,6 +1600,9 @@ func NewSourceRangeFetch(urlStr string, source string, rangeHeader string) (*Sou
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
 	if idx := strings.Index(contentType, ";"); idx >= 0 {
 		contentType = strings.TrimSpace(contentType[:idx])
+	}
+	if !LooksLikeAudioData(contentType, probeData) {
+		return nil, true, fmt.Errorf("upstream range response is not audio: %s", contentType)
 	}
 	if ext == "" {
 		ext = DetectAudioExtByContentType(contentType)
