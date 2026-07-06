@@ -54,6 +54,29 @@ export const getSearchSuggestions = async (keyword, { limit = 24 } = {}) => {
   return withSongs(data); // { keywords, songs }
 };
 
+const recognitionExtForMime = (mime = '') => {
+  if (mime.includes('mp4')) return 'm4a';
+  if (mime.includes('ogg')) return 'ogg';
+  if (mime.includes('wav')) return 'wav';
+  return 'webm';
+};
+
+// 听歌识曲:前端只上传短录音,第三方识曲 token/签名全部在后端处理。
+export const recognizeAudio = async (blob) => {
+  const form = new FormData();
+  form.append('file', blob, `recognition.${recognitionExtForMime(blob?.type || '')}`);
+  const { data } = await client.post('/api/v1/recognize', form, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    timeout: 60000,
+  });
+  return data; // { status, matched, provider, query, result, error? }
+};
+
+export const getRecognitionStatus = async () => {
+  const { data } = await client.get('/api/v1/recognize/status');
+  return data; // { enabled, provider, max_bytes, timeout, error? }
+};
+
 // 获取可用音乐源
 export const getSources = async () => {
   const { data } = await client.get('/api/v1/sources');
