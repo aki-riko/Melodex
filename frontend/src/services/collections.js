@@ -12,9 +12,9 @@ const client = axios.create({
 
 const BASE = '/music/collections';
 
-// 列我的自建歌单(默认只 manual 自建)
-export const listCollections = async () => {
-  const { data } = await client.get(BASE);
+// 列我的歌单。includeImported=true 时含平台导入(引用型)歌单,否则只 manual+favorite。
+export const listCollections = async ({ includeImported = false } = {}) => {
+  const { data } = await client.get(includeImported ? `${BASE}?include_imported=1` : BASE);
   return Array.isArray(data) ? data : [];
 };
 
@@ -60,5 +60,22 @@ export const removeSongFromCollection = async (id, song) => {
 // 每首一次多源搜索,大歌单可能耗时数分钟,故单独放宽超时到 10 分钟。
 export const importM3U = async (name, content) => {
   const { data } = await client.post(`${BASE}/import_m3u`, { name, content }, { timeout: 600000 });
+  return data;
+};
+
+// 引用型导入平台歌单:只存 source+id,打开时后端实时从平台拉曲目。
+// playlist 来自 getUserPlaylists 返回的 model.Playlist(含 id/name/cover/creator/track_count/link/source)。
+// 返回 { id, name } 或 { id, name, duplicate:true }(已导入过同一歌单)。
+export const importPlaylist = async (playlist) => {
+  const { data } = await client.post(`${BASE}/import`, {
+    source: playlist.source,
+    external_id: playlist.id,
+    link: playlist.link || '',
+    content_type: 'playlist',
+    name: playlist.name || '',
+    cover: playlist.cover || '',
+    creator: playlist.creator || '',
+    track_count: playlist.track_count || 0,
+  });
   return data;
 };

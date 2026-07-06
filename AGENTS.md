@@ -130,6 +130,16 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **前端自建歌单**:Sidebar「我的歌单」组列出 + 「+」弹出菜单(新建空歌单 / 导入 m3u);SongRow 的「+」(ListPlus)弹 AddToPlaylistModal 选歌单加入;MyPlaylist 是歌单详情页(播放全部/移歌/删歌单)。playlistBus 区分推荐歌单(id+source→Trending)vs 自建歌单(collectionId→MyPlaylist);`requestOpenPlaylist` 派发延 60ms 否则切页后目标组件未挂载收不到事件。
 - **m3u/m3u8 导入**(`m3u_import.go`,`POST /music/collections/import_m3u`):解析 `#EXTINF` + 媒体行 → 每条按歌名 `concurrentKeywordSearch` + `sortSongsByRelevance` 取第1名入库 → 返回 {total,matched,skipped}。**关键:优先用媒体行文件名做搜索词**(含分隔符时),因真实 m3u 常 EXTINF 只有歌名、文件名才含"歌手-歌名",用文件名匹配率高(实战 407 首 100% 匹配)。识别 `#EXT-X-` HLS 视频流→拒绝。`.m3u`/`.m3u8` 同一套解析。**坑:前端 importM3U 超时必须放宽到 10min**(默认 30s,百首导入需数分钟会超时失败)。
 
+## 平台个人歌单导入(引用型,2026-07 新增)
+
+从已登录平台(网易云/QQ/酷狗/汽水,以 `core.GetUserPlaylistSourceNames()` 为准)一键导入你创建/收藏的歌单。**引用型**:只存 `source+external_id`,打开时后端 `loadImportedCollectionSongs` 实时从平台拉曲目,导入瞬间完成、可在线听、也可整单/逐首下载到 NAS(复用 MyPlaylist 现有下载按钮)。
+
+- **后端能力早已就绪**(music-lib 各源 `GetUserPlaylists(page,limit)` 依赖登录 cookie + `GetPlaylistSongs(id)`;`POST /music/collections/import` 建 kind=imported 歌单带去重),本次仅补一个 JSON 路由 + 前端。
+- **新增路由 `GET /api/v1/user_playlists`**(`json_api.go`,userSecure 组需登录):复用 `loadPlaylistTabsJSON` + `userPlaylistsFuncProvider`(可替换以便测试,默认 `core.GetUserPlaylistsFunc`)按源返回 `{tabs:[{source,source_name,playlists,error}]}`。**不缓存**(依登录 cookie,跨用户/跨登录态会串)。未登录的源 `GetUserPlaylists` 自身返 error → 落 tab.Error,前端提示「去设置登录」。
+- **前端**:`musicdl.js` 的 `getUserPlaylists()` 拉列表;`collections.js` 的 `importPlaylist(playlist)` 把 `model.Playlist`(id/name/cover/creator/track_count/link)映射成 import body(content_type='playlist');`ImportPlaylistModal.js` 按源 tab 展示歌单卡片,点击导入,duplicate 提示已导入;Sidebar「+」菜单第三项「从平台导入歌单」。
+- **坑:侧栏必须带 `include_imported=1`**(`listCollections({includeImported:true})`,CollectionsContext 已改),否则导入歌单不显示——后端默认列表只返 manual+favorite。
+- 验证(本机桌面模式二进制,2026-07):`/api/v1/user_playlists` 未登录返 200 且 4 源各带正确 source_name + require cookie error;import 建引用型歌单返 id+自动补 link;重复导入返 duplicate;默认列表不含 imported、include_imported=1 可见。前后端 build/test 零回归。
+
 ## 搜索排序(2026-06 重写,Web 与 Subsonic 共用)
 
 `json_api.go` 的 `/api/v1/search` 和 facade 的 search3 都用 `sortSongsByRelevance`:综合分 = 本地相关性 `relevanceScore`(歌名完全=1000/开头600/含400/多词累加/歌手+80) + 上游名次分 `upstreamRankScore`(各源返回序,译名匹配不到时兜底) + 正版信号 `officialBonus`(无损+600/付费+200) − 翻唱降权 `coverPenalty`(歌名含 Cover/翻唱/钢琴版/伴奏/纯音乐等强特征罚1200/Live等弱罚300);**无正版信号的完全匹配封顶到 600**(防译名翻唱白嫖歌名霸榜),同分按真实码率降序。前端 Download.js 信任后端返回序(relevance 字段取 -origIdx 不本地重算)。

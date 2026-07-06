@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { importM3U } from '../services/collections';
 import { requestOpenPlaylist } from '../services/playlistBus';
+import ImportPlaylistModal from './ImportPlaylistModal';
 
 // 导航项:桌面左栏分组展示,移动端取 primary 的几项做底部 Tab
 const GROUPS = [
@@ -125,6 +126,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const [importing, setImporting] = useState(false);
+  const [platformImportOpen, setPlatformImportOpen] = useState(false);
   const fileRef = React.useRef(null);
   const btnRef = React.useRef(null);
   const activeCollectionId = currentSection === 'MyPlaylist' && currentSubPath != null ? String(currentSubPath) : null;
@@ -197,11 +199,17 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
                 onClick={() => { setMenuOpen(false); fileRef.current && fileRef.current.click(); }}>
                 {importing ? '导入中…' : '导入 m3u/m3u8'}
               </button>
+              <button className="w-full px-3 py-2 text-sm text-left hover:bg-secondary"
+                onClick={() => { setMenuOpen(false); setPlatformImportOpen(true); }}>
+                从平台导入歌单
+              </button>
             </div>
           </>
         )}
         <input ref={fileRef} type="file" accept=".m3u,.m3u8" className="hidden" onChange={onFile} />
       </div>
+      <ImportPlaylistModal open={platformImportOpen} onClose={() => setPlatformImportOpen(false)} onNavigate={onNavigate} />
+      {/* 导入弹窗 refresh 后侧栏自动更新;此处 refresh 已在 context 内共享 */}
       {creating && (
         <form onSubmit={submit} className="px-3 mb-2">
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)}

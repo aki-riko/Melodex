@@ -17,7 +17,7 @@ export const CollectionsProvider = ({ children }) => {
       return [];
     }
     try {
-      const list = await api.listCollections();
+      const list = await api.listCollections({ includeImported: true });
       setCollections(list);
       return list;
     } catch { /* 忽略,UI 自行兜底 */ }
