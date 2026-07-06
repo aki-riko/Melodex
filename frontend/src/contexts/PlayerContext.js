@@ -6,15 +6,14 @@ import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
 import { songIdentityKey } from '../utils/songIdentity';
 import { normalizeSong } from '../utils/songFields';
+import { MODES, isCurrentAudioEvent, pickNextSong } from './playerQueue.js';
 
 const PlayerContext = createContext(null);
 
 const songSourceText = (song) => (song?.source ? sourceLabel(song.source) : '');
 const lyricCache = new Map();
 
-// 播放模式:order 顺序 / repeat 单曲循环 / shuffle 随机
 // 播放模式:shuffle 随机 / order 顺序(放完停) / repeat 单曲循环 / loop 列表循环(放完从头)
-const MODES = ['order', 'loop', 'repeat', 'shuffle'];
 
 // 音量持久化(纯前端展示偏好,localStorage 即可,无需后端)。
 const VOLUME_KEY = 'melodex_volume';
@@ -72,8 +71,10 @@ export const PlayerProvider = ({ children }) => {
     coverObjectUrlRef.current = '';
   }, []);
 
-  const loadAudioForSong = useCallback(async (song, { autoplay = true } = {}) => {
-    const seq = ++playSeqRef.current;
+  const loadAudioForSong = useCallback(async (song, { autoplay = true, seq: requestedSeq } = {}) => {
+    const seq = requestedSeq ?? ++playSeqRef.current;
+    if (seq !== playSeqRef.current) return;
+    const songKey = songIdentityKey(song);
     let src = '';
     let objectUrl = '';
     let coverUrl = '';
@@ -112,13 +113,18 @@ export const PlayerProvider = ({ children }) => {
     revokeCoverObjectUrl();
     setCachedCover({ url: '', mime: '' });
     if (!src) {
+      delete audio.dataset.playSeq;
+      delete audio.dataset.songKey;
       audio.removeAttribute('src');
       audio.load();
       setIsPaused(true);
       setNotice(`「${song.name}」还没有缓存到本机,离线模式无法播放。`);
       return;
     }
+    audio.dataset.playSeq = String(seq);
+    audio.dataset.songKey = songKey;
     audio.src = src;
+    audio.load();
     objectUrlRef.current = objectUrl;
     coverObjectUrlRef.current = coverUrl;
     setCachedCover({ url: coverUrl, mime: coverMime });
@@ -182,11 +188,12 @@ export const PlayerProvider = ({ children }) => {
   }, [nowPlaying, userId]);
 
   const startPlay = useCallback((song) => {
+    const seq = ++playSeqRef.current;
     const nextSong = normalizeSong(song);
     setNowPlaying(nextSong);
     // 记录最近播放(按用户隔离,后端去重+封顶 500;未登录静默)。fire-and-forget。
     if (!offline) recordPlayHistory(nextSong);
-    setTimeout(() => loadAudioForSong(nextSong, { autoplay: true }), 0);
+    setTimeout(() => loadAudioForSong(nextSong, { autoplay: true, seq }), 0);
   }, [loadAudioForSong, offline]);
 
   // play(song, list):list 为当前列表(队列),用于上/下一首与失败自动跳
@@ -211,23 +218,13 @@ export const PlayerProvider = ({ children }) => {
   // auto=false 表示用户手动点上/下一首:任何模式都绕回(不停)。
   // shuffle 随机;loop/repeat/手动 均环绕。
   const pickNext = useCallback((cur, forward = true, auto = false) => {
-    const list = queueRef.current;
-    if (!list.length) return null;
-    const curKey = songIdentityKey(cur);
-    const idx = list.findIndex((s) => songIdentityKey(s) === curKey);
-    if (modeRef.current === 'shuffle' && list.length > 1) {
-      let r = idx;
-      while (r === idx) r = Math.floor(Math.random() * list.length);
-      return list[r];
-    }
-    const step = forward ? 1 : -1;
-    const rawNext = idx + step;
-    // order 模式自动续播到队尾后停止(不环绕)。
-    if (auto && modeRef.current === 'order' && rawNext >= list.length) {
-      return null;
-    }
-    const nextIdx = (rawNext + list.length) % list.length;
-    return list[nextIdx];
+    return pickNextSong({
+      list: queueRef.current,
+      current: cur,
+      mode: modeRef.current,
+      forward,
+      auto,
+    });
   }, []);
 
   // 手动下一首/上一首
@@ -280,7 +277,8 @@ export const PlayerProvider = ({ children }) => {
   }, []);
 
   // 播放结束:repeat 重播当前,否则跳下一首
-  const handleEnded = useCallback(() => {
+  const handleEnded = useCallback((event) => {
+    if (!isCurrentAudioEvent(event?.currentTarget || audioRef.current, playSeqRef.current, nowPlaying)) return;
     if (modeRef.current === 'repeat' && nowPlaying) { startPlay(nowPlaying); return; }
     triedRef.current = new Set();
     const n = pickNext(nowPlaying, true, true); // auto 续播:order 到尾则停
@@ -288,9 +286,10 @@ export const PlayerProvider = ({ children }) => {
   }, [nowPlaying, pickNext, startPlay]);
 
   // audio 报错(死链/无法播放)→ 自动跳下一首没试过的
-  const handleError = useCallback(() => {
+  const handleError = useCallback((event) => {
     const cur = nowPlaying;
     if (!cur) return;
+    if (!isCurrentAudioEvent(event?.currentTarget || audioRef.current, playSeqRef.current, cur)) return;
     const curKey = songIdentityKey(cur);
     triedRef.current.add(curKey);
     const list = queueRef.current;
