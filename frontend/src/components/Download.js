@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery } from 'react-query';
 import {
   searchMusic,
@@ -8,6 +8,8 @@ import {
   getLyric,
   getSearchHistory,
   clearSearchHistory,
+  recognizeAudio,
+  getRecognitionStatus,
   saveToServer,
 } from '../services/musicdl';
 import {
@@ -17,10 +19,12 @@ import {
   HardDriveDownload,
   Loader2,
   ListPlus,
+  Mic,
   Music,
   Play,
   RotateCw,
   Search,
+  Square,
   X,
 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
@@ -48,6 +52,14 @@ const COMBINED_SEARCH_RESULT_LIMIT = 80;
 const SEARCH_SUGGESTION_MIN_LENGTH = 2;
 const SEARCH_SUGGESTION_DEBOUNCE_MS = 260;
 const SEARCH_LINK_RE = /^(https?:\/\/|www\.)/i;
+const RECOGNITION_RECORD_MS = 10000;
+const RECOGNITION_MIME_TYPES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/ogg;codecs=opus',
+  'audio/ogg',
+  'audio/mp4',
+];
 
 // 搜索结果相关性排序已下沉到后端(/api/v1/search 综合排序:上游名次+翻唱降权+
 // 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
@@ -96,6 +108,15 @@ const useDebouncedValue = (value, delay) => {
 
   return debounced;
 };
+
+const pickRecognitionMimeType = () => {
+  if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') return '';
+  return RECOGNITION_MIME_TYPES.find((type) => window.MediaRecorder.isTypeSupported(type)) || '';
+};
+
+const recognitionErrorMessage = (err) => (
+  err?.response?.data?.error || err?.message || '听歌识曲失败,请稍后再试'
+);
 
 const hasTitleArtistHit = (song, query) => {
   const q = compactSearchText(query);
@@ -400,6 +421,9 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [autoPlayQuery, setAutoPlayQuery] = useState('');
+  const recognitionRef = useRef({ recorder: null, stream: null, chunks: [], timer: null, failed: false });
+  const mountedRef = useRef(true);
+  const [recognition, setRecognition] = useState({ phase: 'idle', message: '' });
   const rawSuggestionKeyword = keyword.trim();
   const debouncedSuggestionKeyword = useDebouncedValue(rawSuggestionKeyword, SEARCH_SUGGESTION_DEBOUNCE_MS);
   const canSuggest = rawSuggestionKeyword.length >= SEARCH_SUGGESTION_MIN_LENGTH && !SEARCH_LINK_RE.test(rawSuggestionKeyword);
@@ -427,6 +451,11 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       staleTime: 5 * 60 * 1000,
     }
   );
+  const recognitionStatus = useQuery(['musicdl-recognition-status'], getRecognitionStatus, {
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const recognitionDisabled = recognitionStatus.data && recognitionStatus.data.enabled === false;
   const suggestionGroups = useMemo(
     () => buildSearchSuggestionGroups(
       debouncedSuggestionKeyword,
@@ -453,6 +482,132 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
   useEffect(() => () => {
     if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
   }, []);
+
+  const cleanupRecognitionResources = useCallback(() => {
+    const current = recognitionRef.current;
+    if (current.timer) {
+      window.clearTimeout(current.timer);
+    }
+    if (current.stream) {
+      current.stream.getTracks().forEach((track) => track.stop());
+    }
+    recognitionRef.current = { recorder: null, stream: null, chunks: [], timer: null, failed: false };
+  }, []);
+
+  const stopRecognition = useCallback(() => {
+    const { recorder } = recognitionRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+      return;
+    }
+    cleanupRecognitionResources();
+  }, [cleanupRecognitionResources]);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+    cleanupRecognitionResources();
+  }, [cleanupRecognitionResources]);
+
+  const handleRecognitionClick = async () => {
+    if (recognition.phase === 'recording') {
+      stopRecognition();
+      return;
+    }
+    if (recognition.phase === 'uploading') return;
+    if (recognitionDisabled) {
+      const msg = recognitionStatus.data?.error || '听歌识曲未启用';
+      setRecognition({ phase: 'error', message: msg });
+      feedback.error(msg);
+      return;
+    }
+
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.getUserMedia || typeof window.MediaRecorder === 'undefined') {
+      setRecognition({ phase: 'error', message: '当前浏览器不支持录音识曲' });
+      feedback.error('当前浏览器不支持录音识曲');
+      return;
+    }
+
+    try {
+      const stream = await mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      const mimeType = pickRecognitionMimeType();
+      const recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recognitionRef.current = { recorder, stream, chunks: [], timer: null, failed: false };
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recognitionRef.current.chunks.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        recognitionRef.current.failed = true;
+        cleanupRecognitionResources();
+        if (!mountedRef.current) return;
+        setRecognition({ phase: 'error', message: '录音失败,请重新授权麦克风后再试' });
+        feedback.error('录音失败,请重新授权麦克风后再试');
+      };
+      recorder.onstop = async () => {
+        const current = recognitionRef.current;
+        const chunks = current.chunks.slice();
+        const failed = current.failed;
+        const blobType = recorder.mimeType || mimeType || 'audio/webm';
+        cleanupRecognitionResources();
+        if (failed || !mountedRef.current) return;
+        const blob = new Blob(chunks, { type: blobType });
+        if (!blob.size) {
+          setRecognition({ phase: 'error', message: '没有录到声音,请再试一次' });
+          feedback.error('没有录到声音,请再试一次');
+          return;
+        }
+        setRecognition({ phase: 'uploading', message: '正在识别这段声音' });
+        try {
+          const data = await recognizeAudio(blob);
+          if (!mountedRef.current) return;
+          if (!data?.matched) {
+            const msg = data?.error || '没有识别到歌曲,可以再录一段更清晰的';
+            setRecognition({ phase: 'error', message: msg });
+            feedback.error(msg);
+            return;
+          }
+          const result = data.result || {};
+          const nextQuery = (data.query || [result.title, result.artist].filter(Boolean).join(' ')).trim();
+          if (!nextQuery) {
+            setRecognition({ phase: 'error', message: '识别到了结果,但没有可搜索的歌名' });
+            feedback.error('识别到了结果,但没有可搜索的歌名');
+            return;
+          }
+          setSuggestionsOpen(false);
+          setActiveSuggestion(-1);
+          setKeyword(nextQuery);
+          setAutoPlayQuery(nextQuery);
+          if (runSearch) runSearch(nextQuery);
+          const foundText = result.artist ? `${result.title || nextQuery} · ${result.artist}` : (result.title || nextQuery);
+          setRecognition({ phase: 'success', message: `识别到 ${foundText}` });
+          feedback.success('识别成功,正在搜索可播放版本');
+        } catch (err) {
+          if (!mountedRef.current) return;
+          const msg = recognitionErrorMessage(err);
+          setRecognition({ phase: 'error', message: msg });
+          feedback.error(msg);
+        }
+      };
+
+      recorder.start(1000);
+      recognitionRef.current.timer = window.setTimeout(stopRecognition, RECOGNITION_RECORD_MS);
+      setRecognition({ phase: 'recording', message: '正在录音识曲' });
+    } catch (err) {
+      cleanupRecognitionResources();
+      const msg = err?.name === 'NotAllowedError' ? '麦克风权限被拒绝' : recognitionErrorMessage(err);
+      setRecognition({ phase: 'error', message: msg });
+      feedback.error(msg);
+    }
+  };
 
   const openSuggestions = () => {
     if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
@@ -685,7 +840,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
 
   return (
     <div>
-      <form onSubmit={handleFormSubmit} className="mb-6 flex gap-2">
+      <form onSubmit={handleFormSubmit} className="mb-3 flex gap-2">
         <div className="relative min-w-0 flex-grow">
           <input
             type="text"
@@ -714,10 +869,42 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
             onPick={pickSuggestion}
           />
         </div>
+        <button
+          type="button"
+          onClick={handleRecognitionClick}
+          disabled={recognition.phase === 'uploading' || recognitionDisabled}
+          className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${
+            recognition.phase === 'recording'
+              ? 'border-destructive bg-destructive/15 text-destructive hover:bg-destructive/20'
+              : 'border-border bg-card text-foreground hover:border-primary hover:text-primary'
+          }`}
+          title={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
+          aria-label={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
+        >
+          {recognition.phase === 'recording' ? <Square size={18} fill="currentColor" /> : <Mic size={19} />}
+        </button>
         <button type="submit" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:brightness-110">
           搜索
         </button>
       </form>
+      {recognition.phase !== 'idle' && (
+        <div className={`mb-5 rounded-md border px-3 py-2 text-sm ${
+          recognition.phase === 'error'
+            ? 'border-destructive/40 bg-destructive/10 text-destructive'
+            : recognition.phase === 'success'
+              ? 'border-primary/30 bg-primary/10 text-primary'
+              : 'border-border bg-card/70 text-muted-foreground'
+        }`}>
+          <div className="flex items-center gap-2">
+            {(recognition.phase === 'recording' || recognition.phase === 'uploading') && <Loader2 size={15} className="animate-spin text-primary" />}
+            <span>{recognition.message}</span>
+            {recognition.phase === 'recording' && <span className="loading-dots" aria-hidden="true" />}
+          </div>
+          {(recognition.phase === 'recording' || recognition.phase === 'uploading') && (
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary loading-bar-indeterminate" />
+          )}
+        </div>
+      )}
       {/* 最近搜索:仅在未发起搜索时显示(登录用户专属,匿名为空不显示) */}
       {!query && historyItems.length > 0 && (
         <div className="mb-6">
