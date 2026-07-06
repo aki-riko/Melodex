@@ -3,8 +3,24 @@ import { X, Check, Download, Music, RefreshCw, LogIn } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
+import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import { getUserPlaylists, coverProxyUrl, saveToServer } from '../services/musicdl';
 import { importPlaylist, getCollectionSongs } from '../services/collections';
+
+// 自动下载进度状态挂在模块级全局 store(useScopedBulkState),
+// 不随弹窗关闭丢失,且 runForKey 自带同 key 去重锁(防同歌单重复下载并发)。
+const DL_IDLE = { phase: 'idle', done: 0, fail: 0, total: 0, text: '' };
+
+const downloadTaskKey = (source, playlistId) => `${source || 'unknown'}:${playlistId ?? ''}`;
+
+const downloadProgressText = (state) => {
+  if (!state || state.phase === 'idle') return '';
+  if (state.text) return state.text;
+  if (state.phase === 'running') return `下载到服务器 ${state.done + state.fail}/${state.total}`;
+  if (state.phase === 'done') return `已全部下载到服务器 ${state.done}/${state.total}`;
+  if (state.phase === 'fail') return state.total ? `完成 ${state.done}/${state.total}(${state.fail} 首失败)` : '自动下载失败,可在歌单页手动下载';
+  return '';
+};
 
 // 从已登录平台(网易云/QQ/酷狗/汽水)导入个人歌单(引用型:只存引用,打开实时拉曲)。
 // open=false 时不渲染;onNavigate 用于「去登录」跳到设置页;成功后 refresh 侧栏。
@@ -15,9 +31,9 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   const [loading, setLoading] = useState(false);
   const [tabs, setTabs] = useState([]); // [{source, source_name, playlists, error}]
   const [active, setActive] = useState(''); // 当前选中源
-  const [importingId, setImportingId] = useState(null); // 正在导入的歌单 id
-  const [doneIds, setDoneIds] = useState({}); // 已导入的歌单 id → true
-  const [dlProgress, setDlProgress] = useState({}); // 歌单 id → 下载进度文案(后台下载到服务器)
+  const [importingId, setImportingId] = useState(null); // 正在导入的平台歌单 key
+  const [doneIds, setDoneIds] = useState({}); // 已导入的平台歌单 key → true
+  const downloadTasks = useScopedBulkState(DL_IDLE, 'playlist-import-dl');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,41 +64,45 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   const activeTab = tabs.find((t) => t.source === active);
 
   // 导入成功后,后台把整单曲目逐首下载到服务器(实时从平台拉曲 → 逐首 saveToServer)。
-  // 串行下载,失败不打断(用户仍可在歌单页手动重试);进度文案挂在歌单卡片上。
-  const autoDownloadAll = async (playlistId, collectionId) => {
-    if (offline) return;
-    try {
-      setDlProgress((m) => ({ ...m, [playlistId]: '拉取曲目…' }));
-      const data = await getCollectionSongs(collectionId);
-      const list = Array.isArray(data) ? data : (data?.songs || []);
-      const total = list.length;
-      if (total === 0) {
-        setDlProgress((m) => ({ ...m, [playlistId]: '无可下载曲目' }));
-        return;
-      }
-      let done = 0;
-      let fail = 0;
-      for (const song of list) {
-        try {
-          const result = await saveToServer(song);
-          if (result?.saved) done += 1; else fail += 1;
-        } catch {
-          fail += 1;
+  // 串行下载当前歌单,失败不打断(用户仍可在歌单页手动重试);进度文案挂在歌单卡片上。
+  const autoDownloadAll = (taskKey, collectionId) => {
+    if (offline || !taskKey || collectionId == null) return;
+    void downloadTasks.runForKey(taskKey, { ...DL_IDLE, phase: 'loading', text: '拉取曲目…' }, async (update) => {
+      try {
+        const data = await getCollectionSongs(collectionId);
+        const list = Array.isArray(data) ? data : (data?.songs || []);
+        const total = list.length;
+        if (total === 0) {
+          update({ ...DL_IDLE, phase: 'done', text: '无可下载曲目' });
+          return;
         }
-        setDlProgress((m) => ({ ...m, [playlistId]: `下载到服务器 ${done + fail}/${total}` }));
+        let done = 0;
+        let fail = 0;
+        for (const song of list) {
+          try {
+            const result = await saveToServer(song);
+            if (result?.saved) done += 1; else fail += 1;
+          } catch (err) {
+            fail += 1;
+            console.warn('导入歌单自动下载单曲失败', err);
+          }
+          update({ phase: 'running', done, fail, total, text: '' });
+        }
+        update({ phase: fail ? 'fail' : 'done', done, fail, total, text: '' });
+      } catch (err) {
+        console.warn('导入歌单自动下载失败', err);
+        update({ ...DL_IDLE, phase: 'fail', text: '自动下载失败,可在歌单页手动下载' });
       }
-      setDlProgress((m) => ({ ...m, [playlistId]: fail ? `完成 ${done}/${total}(${fail} 首失败)` : `已全部下载到服务器 ${done}/${total}` }));
-    } catch {
-      setDlProgress((m) => ({ ...m, [playlistId]: '自动下载失败,可在歌单页手动下载' }));
-    }
+    });
   };
 
   const doImport = async (playlist) => {
+    const taskKey = downloadTaskKey(active, playlist.id);
     if (offline || importingId) return;
-    setImportingId(playlist.id);
+    setImportingId(taskKey);
     try {
       const r = await importPlaylist({ ...playlist, source: active });
-      setDoneIds((m) => ({ ...m, [playlist.id]: true }));
+      setDoneIds((m) => ({ ...m, [taskKey]: true }));
       if (r?.duplicate) {
         feedback.info(`「${r.name || playlist.name}」已导入过,继续下载到服务器`);
       } else {
@@ -90,7 +110,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
       }
       await refresh();
       // 后台整单下载到服务器(不 await,不阻塞弹窗交互)。
-      if (r?.id != null) autoDownloadAll(playlist.id, r.id);
+      if (r?.id != null) autoDownloadAll(taskKey, r.id);
     } catch (err) {
       feedback.error('导入失败:' + (err?.response?.data?.error || err.message || '未知错误'));
     } finally {
@@ -152,8 +172,13 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
           )}
 
           {!loading && activeTab && !activeTab.error && activeTab.playlists?.map((pl) => {
-            const done = doneIds[pl.id];
-            const busy = importingId === pl.id;
+            const taskKey = downloadTaskKey(activeTab.source, pl.id);
+            const dlState = downloadTasks.getState(taskKey);
+            const dlText = downloadProgressText(dlState);
+            const downloading = dlState.phase === 'loading' || dlState.phase === 'running';
+            const done = doneIds[taskKey] || dlState.phase === 'done';
+            const busy = importingId === taskKey;
+            const buttonLabel = done ? '已导入' : busy ? '导入中' : downloading ? '下载中' : '导入';
             return (
               <div key={pl.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
                 <div className="w-11 h-11 rounded bg-secondary flex-shrink-0 overflow-hidden flex items-center justify-center">
@@ -167,14 +192,14 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
                   <p className="text-xs text-muted-foreground truncate">
                     {pl.track_count > 0 ? `${pl.track_count} 首` : ''}{pl.creator ? `${pl.track_count > 0 ? ' · ' : ''}${pl.creator}` : ''}
                   </p>
-                  {dlProgress[pl.id] && <p className="text-xs text-primary truncate mt-0.5">{dlProgress[pl.id]}</p>}
+                  {dlText && <p className="text-xs text-primary truncate mt-0.5">{dlText}</p>}
                 </div>
-                <button onClick={() => doImport(pl)} disabled={offline || busy || done}
+                <button onClick={() => doImport(pl)} disabled={offline || busy || downloading || done}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium flex-shrink-0 transition-colors ${
                     done ? 'bg-primary/10 text-primary' : 'bg-primary text-primary-foreground disabled:opacity-50'
                   }`}>
-                  {done ? <Check size={15} /> : <Download size={15} className={busy ? 'animate-pulse' : ''} />}
-                  {done ? '已导入' : busy ? '导入中' : '导入'}
+                  {done ? <Check size={15} /> : <Download size={15} className={(busy || downloading) ? 'animate-pulse' : ''} />}
+                  {buttonLabel}
                 </button>
               </div>
             );
