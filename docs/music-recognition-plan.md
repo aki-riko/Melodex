@@ -61,6 +61,8 @@ curl.exe -sS -D - -X POST https://api.audd.io/ \
 
 ## 环境变量
 
+Docker 部署时，根目录 `docker-compose.yml` 已把这些变量透传到 `melodex` 容器；生产只需要在部署机项目目录的 `.env` 里填写，不需要再改 compose 文件。空值表示关闭。
+
 AudD：
 
 ```env
@@ -85,6 +87,48 @@ MUSIC_DL_ACRCLOUD_ACCESS_SECRET=your-access-secret
 MUSIC_DL_RECOGNITION_TIMEOUT=20s
 MUSIC_DL_RECOGNITION_MAX_BYTES=10485760
 ```
+
+## 上线操作
+
+在 NAS 的 Melodex 项目目录执行：
+
+```bash
+cd /mnt/cache/appdata/melodex-src
+cp -n .env.example .env
+```
+
+编辑 `.env`，保留已有 `POSTGRES_*`，再选择一种 provider 填入：
+
+```env
+MUSIC_DL_RECOGNITION_PROVIDER=audd
+MUSIC_DL_AUDD_ENDPOINT=https://api.audd.io/
+MUSIC_DL_AUDD_TOKEN=your-token
+MUSIC_DL_AUDD_RETURN=apple_music,spotify
+```
+
+或：
+
+```env
+MUSIC_DL_RECOGNITION_PROVIDER=acrcloud
+MUSIC_DL_ACRCLOUD_ENDPOINT=https://your-host/v1/identify
+MUSIC_DL_ACRCLOUD_ACCESS_KEY=your-access-key
+MUSIC_DL_ACRCLOUD_ACCESS_SECRET=your-access-secret
+```
+
+然后重建并启动单个应用栈：
+
+```bash
+docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t melodex:latest .
+docker compose up -d
+```
+
+验证容器已收到配置时不要打印密钥，只看变量名：
+
+```bash
+docker exec melodex sh -c 'env | cut -d= -f1 | grep -E "MUSIC_DL_(RECOGNITION|AUDD|ACRCLOUD)"'
+```
+
+登录 Melodex 后访问 `GET /api/v1/recognize/status` 应返回 `enabled:true`。未登录返回 `401` 是正常鉴权行为。
 
 ## 上线风险
 

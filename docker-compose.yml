@@ -45,16 +45,16 @@ services:
       # MUSIC_DL_SUBSONIC_USER: changeme
       # MUSIC_DL_SUBSONIC_PASS: please-set-a-strong-password
       # 听歌识曲(默认关):配 provider + 对应服务密钥后启用。录音不落盘,后端转发给识曲服务。
-      # AudD:
-      # MUSIC_DL_RECOGNITION_PROVIDER: audd
-      # MUSIC_DL_AUDD_ENDPOINT: https://api.audd.io/
-      # MUSIC_DL_AUDD_TOKEN: please-set-a-token
-      # MUSIC_DL_AUDD_RETURN: apple_music,spotify
-      # ACRCloud:
-      # MUSIC_DL_RECOGNITION_PROVIDER: acrcloud
-      # MUSIC_DL_ACRCLOUD_ENDPOINT: https://your-host/v1/identify
-      # MUSIC_DL_ACRCLOUD_ACCESS_KEY: please-set-an-access-key
-      # MUSIC_DL_ACRCLOUD_ACCESS_SECRET: please-set-an-access-secret
+      # 在 .env 填下面变量即可启用;默认空值保持关闭。
+      MUSIC_DL_RECOGNITION_PROVIDER: ${MUSIC_DL_RECOGNITION_PROVIDER:-}
+      MUSIC_DL_RECOGNITION_TIMEOUT: ${MUSIC_DL_RECOGNITION_TIMEOUT:-}
+      MUSIC_DL_RECOGNITION_MAX_BYTES: ${MUSIC_DL_RECOGNITION_MAX_BYTES:-}
+      MUSIC_DL_AUDD_ENDPOINT: ${MUSIC_DL_AUDD_ENDPOINT:-}
+      MUSIC_DL_AUDD_TOKEN: ${MUSIC_DL_AUDD_TOKEN:-}
+      MUSIC_DL_AUDD_RETURN: ${MUSIC_DL_AUDD_RETURN:-}
+      MUSIC_DL_ACRCLOUD_ENDPOINT: ${MUSIC_DL_ACRCLOUD_ENDPOINT:-}
+      MUSIC_DL_ACRCLOUD_ACCESS_KEY: ${MUSIC_DL_ACRCLOUD_ACCESS_KEY:-}
+      MUSIC_DL_ACRCLOUD_ACCESS_SECRET: ${MUSIC_DL_ACRCLOUD_ACCESS_SECRET:-}
 
 volumes:
   postgres_data:
