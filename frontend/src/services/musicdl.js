@@ -91,6 +91,16 @@ export const getRecommend = async (sources = []) => {
   return data; // { tabs: [{source, source_name, playlists:[], error}] }
 };
 
+// 我在各平台创建/收藏的个人歌单(需先在设置里登录对应平台 cookie)。
+// 不缓存(依登录态);未登录的源返回 tab.error。
+export const getUserPlaylists = async (sources = []) => {
+  const params = new URLSearchParams();
+  sources.forEach((s) => params.append('sources', s));
+  const qs = params.toString();
+  const { data } = await client.get(`/api/v1/user_playlists${qs ? `?${qs}` : ''}`);
+  return data; // { tabs: [{source, source_name, playlists:[{id,name,cover,track_count,creator,link}], error}] }
+};
+
 // 歌单分类(各源的分类标签)
 export const getPlaylistCategories = async (sources = []) => {
   const params = new URLSearchParams();

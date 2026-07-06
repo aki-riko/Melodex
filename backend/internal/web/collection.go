@@ -37,6 +37,10 @@ var (
 	albumDetailFuncProvider    = core.GetAlbumDetailFunc
 	parsePlaylistFuncProvider  = core.GetParsePlaylistFunc
 	parseAlbumFuncProvider     = core.GetParseAlbumFunc
+
+	// 可替换以便测试:拉某平台登录用户的个人歌单列表。
+	userPlaylistsFuncProvider     = core.GetUserPlaylistsFunc
+	userPlaylistSourceNamesGetter = core.GetUserPlaylistSourceNames
 )
 
 // Collection stores local entries shown in "My Collections".

@@ -147,6 +147,20 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		c.JSON(200, out)
 	})
 
+	// 我在各平台创建/收藏的个人歌单(需在设置里登录对应平台 cookie)。
+	// 依登录态返回,不缓存:各用户/各登录态的歌单不同,缓存会串。
+	userSecure.GET("/user_playlists", func(c *gin.Context) {
+		sources := filterAvailableSources(c.QueryArray("sources"), userPlaylistSourceNamesGetter())
+		out := jsonPlaylistTabsResponse{Tabs: loadPlaylistTabsJSON(sources, func(src string) ([]model.Playlist, error) {
+			fn := userPlaylistsFuncProvider(src)
+			if fn == nil {
+				return nil, fmt.Errorf("该源不支持个人歌单")
+			}
+			return fn(1, 50)
+		})}
+		c.JSON(200, out)
+	})
+
 	// 歌单分类列表
 	userSecure.GET("/playlist_categories", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), core.GetPlaylistCategorySourceNames())
