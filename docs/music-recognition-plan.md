@@ -52,7 +52,7 @@ curl.exe -sS -D - -X POST https://api.audd.io/ \
 ### 后端
 
 - 新增 `POST /api/v1/recognize`，仅登录用户可用。
-- 新增 `GET /api/v1/recognize/status`，只返回是否启用、provider 和上传限制，不暴露 token/endpoint。
+- 新增 `GET /api/v1/recognize/status`，只返回是否启用、provider、上传限制和限流值，不暴露 token/endpoint。
 - 复用 `allowSameOriginWrite`，要求 `X-Requested-With: XMLHttpRequest`，防止跨站页面借用户登录态消耗识曲额度。
 - 上传文件不落盘，只在内存中短暂转发给 provider。
 - 默认单次上传上限 10MB，可通过 `MUSIC_DL_RECOGNITION_MAX_BYTES` 调整。
@@ -130,7 +130,7 @@ docker compose up -d
 docker exec melodex sh -c 'env | cut -d= -f1 | grep -E "MUSIC_DL_(RECOGNITION|AUDD|ACRCLOUD)"'
 ```
 
-登录 Melodex 后访问 `GET /api/v1/recognize/status` 应返回 `enabled:true`。未登录返回 `401` 是正常鉴权行为。
+登录 Melodex 后访问 `GET /api/v1/recognize/status` 应返回 `enabled:true`，并能看到 `max_bytes`、`timeout`、`rate_limit_per_minute`。未登录返回 `401` 是正常鉴权行为。
 
 ## 上线风险
 

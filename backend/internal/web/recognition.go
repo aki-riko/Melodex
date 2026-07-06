@@ -72,11 +72,12 @@ type recognitionAPIResponse struct {
 }
 
 type recognitionStatusResponse struct {
-	Enabled  bool   `json:"enabled"`
-	Provider string `json:"provider,omitempty"`
-	MaxBytes int64  `json:"max_bytes,omitempty"`
-	Timeout  string `json:"timeout,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Enabled            bool   `json:"enabled"`
+	Provider           string `json:"provider,omitempty"`
+	MaxBytes           int64  `json:"max_bytes,omitempty"`
+	Timeout            string `json:"timeout,omitempty"`
+	RateLimitPerMinute int    `json:"rate_limit_per_minute,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 type recognitionStatusError struct {
@@ -181,18 +182,23 @@ func (cfg recognitionConfig) validate() error {
 
 func jsonRecognitionStatusHandler(c *gin.Context) {
 	cfg := loadRecognitionConfig()
+	rateLimit := envPositiveInt(recognitionRateLimitEnv, defaultRecognitionRateLimitPerMinute)
 	if err := cfg.validate(); err != nil {
 		c.JSON(http.StatusOK, recognitionStatusResponse{
-			Enabled: false,
-			Error:   err.Error(),
+			Enabled:            false,
+			MaxBytes:           cfg.MaxBytes,
+			Timeout:            cfg.Timeout.String(),
+			RateLimitPerMinute: rateLimit,
+			Error:              err.Error(),
 		})
 		return
 	}
 	c.JSON(http.StatusOK, recognitionStatusResponse{
-		Enabled:  true,
-		Provider: cfg.Provider,
-		MaxBytes: cfg.MaxBytes,
-		Timeout:  cfg.Timeout.String(),
+		Enabled:            true,
+		Provider:           cfg.Provider,
+		MaxBytes:           cfg.MaxBytes,
+		Timeout:            cfg.Timeout.String(),
+		RateLimitPerMinute: rateLimit,
 	})
 }
 
