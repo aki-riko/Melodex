@@ -136,6 +136,19 @@ export const inspectQuality = async (song) => {
   return data; // { valid, url, size, bitrate }
 };
 
+// 播放/下载当前源失效时,让后端按歌名+歌手+时长寻找一个可播放的替代源。
+export const switchSource = async (song, { target = '' } = {}) => {
+  const s = normalizeSong(song);
+  const params = new URLSearchParams();
+  params.set('name', s.name || '');
+  params.set('artist', s.artist || '');
+  params.set('source', s.source || '');
+  if (target) params.set('target', target);
+  if (s.duration) params.set('duration', String(s.duration));
+  const { data } = await client.get(`/music/switch_source?${params.toString()}`);
+  return normalizeSong(data);
+};
+
 // 专辑详情(歌曲列表)
 export const getAlbumDetail = async (id, source) => {
   const { data } = await client.get(`/api/v1/album?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
