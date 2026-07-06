@@ -118,6 +118,14 @@ const recognitionErrorMessage = (err) => (
   err?.response?.data?.error || err?.message || '听歌识曲失败,请稍后再试'
 );
 
+const formatRecognitionBytes = (bytes) => {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  if (value >= 1024 * 1024) return `${Math.round(value / 1024 / 1024)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${value} B`;
+};
+
 const hasTitleArtistHit = (song, query) => {
   const q = compactSearchText(query);
   const title = compactSearchText(song?.name);
@@ -570,6 +578,14 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
         if (!blob.size) {
           setRecognition({ phase: 'error', message: '没有录到声音,请再试一次' });
           feedback.error('没有录到声音,请再试一次');
+          return;
+        }
+        const maxBytes = Number(recognitionStatus.data?.max_bytes || 0);
+        if (maxBytes > 0 && blob.size > maxBytes) {
+          const limitText = formatRecognitionBytes(maxBytes);
+          const msg = limitText ? `录音过大,单次上限 ${limitText}` : '录音过大,请缩短后再试';
+          setRecognition({ phase: 'error', message: msg });
+          feedback.error(msg);
           return;
         }
         setRecognition({ phase: 'uploading', message: '正在识别这段声音' });
