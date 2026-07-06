@@ -116,6 +116,18 @@ func putCachedSearch(key string, resp jsonSearchResponse) {
 	maybeGCSearchCache()
 }
 
+func deleteCachedSearchKey(key string) (int64, error) {
+	if db == nil || strings.TrimSpace(key) == "" {
+		return 0, nil
+	}
+	tx := db.Where("key = ?", key).Delete(&searchCacheRow{})
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	searchCacheRefreshInFlight.Delete(key)
+	return tx.RowsAffected, nil
+}
+
 const searchCacheMaxRows = 5000
 
 var searchCacheLastGC time.Time

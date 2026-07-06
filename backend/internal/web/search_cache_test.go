@@ -3,11 +3,15 @@ package web
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/music-lib/model"
 )
 
@@ -80,6 +84,44 @@ func TestSearchCacheRoundTripAndEmptySkip(t *testing.T) {
 	}
 	if len(cached.Songs) != 1 || cached.Songs[0].Cover != "https://x/c.jpg" || cached.Songs[0].Bitrate != 320 {
 		t.Fatalf("cached metadata mismatch: %+v", cached.Songs)
+	}
+}
+
+func TestJSONSearchCacheDeleteClearsRequestedTypes(t *testing.T) {
+	setupUserTestDB(t)
+	keyword := "cache-delete-test"
+	songKey := searchCacheKey("song", keyword, "", defaultSourcesForSearchType("song"))
+	lyricKey := searchCacheKey("lyric", keyword, "", defaultSourcesForSearchType("lyric"))
+	resp := jsonSearchResponse{
+		Type:    "song",
+		Keyword: keyword,
+		Songs:   []model.Song{{ID: "1", Name: "Cached", Source: "qq"}},
+	}
+	putCachedSearch(songKey, resp)
+	putCachedSearch(lyricKey, resp)
+
+	r := gin.New()
+	RegisterJSONAPIRoutes(r, StartOptions{DisableAuth: true})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/search_cache?q="+keyword+"&type=song&type=lyric", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete search cache status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Deleted int64 `json:"deleted"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Deleted != 2 {
+		t.Fatalf("deleted=%d, want 2", body.Deleted)
+	}
+	if _, ok := getCachedSearch(songKey); ok {
+		t.Fatal("song cache should be deleted")
+	}
+	if _, ok := getCachedSearch(lyricKey); ok {
+		t.Fatal("lyric cache should be deleted")
 	}
 }
 

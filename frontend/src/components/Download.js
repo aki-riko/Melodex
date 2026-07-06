@@ -8,6 +8,7 @@ import {
   getLyric,
   getSearchHistory,
   clearSearchHistory,
+  clearSearchCache,
   recognizeAudio,
   getRecognitionStatus,
   saveToServer,
@@ -422,7 +423,7 @@ const SearchSuggestionDropdown = ({ open, loading, groups, activeIndex, onActive
 };
 
 // 搜索面板
-const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
+const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCache, query, state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
   const feedback = useFeedback();
   const closeSuggestionTimerRef = useRef(null);
@@ -691,6 +692,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
   const [historyNotice, setHistoryNotice] = useState('');
+  const [clearingSearchCache, setClearingSearchCache] = useState(false);
 
   const onChipSearch = (kw) => {
     setAutoPlayQuery('');
@@ -725,6 +727,21 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
       feedback.error('搜索历史清空失败,稍后再试');
     }
   };
+  const handleClearSearchCache = async () => {
+    const k = (query || keyword || '').trim();
+    if (!k || clearingSearchCache) return;
+    setClearingSearchCache(true);
+    try {
+      await onClearSearchCache?.(k);
+      feedback.success('搜索缓存已清理,正在重新搜索');
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || '搜索缓存清理失败';
+      feedback.error(msg);
+    } finally {
+      setClearingSearchCache(false);
+    }
+  };
+
   const historyItems = history.data || [];
   const [sortMode, setSortMode] = useState('recommended');
   const SORT_PRESETS = {
@@ -912,6 +929,20 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, query, state, on
           搜索
         </button>
       </form>
+      {query && (
+        <div className="mb-3 flex justify-end">
+          <button
+            type="button"
+            onClick={handleClearSearchCache}
+            disabled={clearingSearchCache || state.isLoading || state.isFetching}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            title="清理当前关键词的搜索缓存并重新搜索"
+          >
+            <RotateCw size={15} className={clearingSearchCache ? 'animate-spin' : ''} />
+            清缓存重搜
+          </button>
+        </div>
+      )}
       {recognition.phase !== 'idle' && (
         <div className={`mb-5 rounded-md border px-3 py-2 text-sm ${
           recognition.phase === 'error'
@@ -1341,6 +1372,18 @@ const Download = ({ downloadRequest }) => {
     setQuery(k);
   };
 
+  const handleClearSearchCache = useCallback(async (kw) => {
+    const k = (kw || query || '').trim();
+    if (!k) return;
+    const types = SEARCH_LINK_RE.test(k) ? ['song'] : ['song', 'lyric'];
+    await clearSearchCache(k, { types });
+    if (k !== query) {
+      setQuery(k);
+      return;
+    }
+    await search.refetch();
+  }, [query, search]);
+
   const handlePlay = (song, list) => play(song, list);
 
   const handleShowLyric = async (song) => {
@@ -1385,6 +1428,7 @@ const Download = ({ downloadRequest }) => {
           setKeyword={setKeyword}
           onSubmit={handleSearch}
           runSearch={runSearch}
+          onClearSearchCache={handleClearSearchCache}
           query={query}
           state={search}
           onPlay={handlePlay}

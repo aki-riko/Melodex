@@ -46,6 +46,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 
 	// 搜索会放大到所有上游音源,加 per-IP 限流(30 次/分钟)防滥用。
 	userSecure.GET("/search", rateLimitMiddleware(searchRateLimiter), jsonSearchHandler)
+	userSecure.DELETE("/search_cache", jsonSearchCacheDeleteHandler)
 	userSecure.GET("/search_suggestions", jsonSearchSuggestionsHandler)
 	userSecure.GET("/recognize/status", jsonRecognitionStatusHandler)
 	userSecure.POST("/recognize", rateLimitMiddleware(recognitionRateLimiter), jsonRecognizeAudioHandler)
@@ -470,6 +471,51 @@ func jsonSearchHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, resp)
+}
+
+func jsonSearchCacheDeleteHandler(c *gin.Context) {
+	keyword := strings.TrimSpace(c.Query("q"))
+	if keyword == "" {
+		c.JSON(400, gin.H{"error": "搜索关键词不能为空"})
+		return
+	}
+	if strings.HasPrefix(keyword, "http") {
+		c.JSON(200, gin.H{"deleted": 0})
+		return
+	}
+
+	exactArtist := strings.TrimSpace(c.Query("exact_artist"))
+	requestedSources := c.QueryArray("sources")
+	types := c.QueryArray("type")
+	if len(types) == 0 {
+		types = []string{"song"}
+	}
+
+	var deleted int64
+	seen := make(map[string]struct{}, len(types))
+	for _, rawType := range types {
+		searchType := strings.TrimSpace(rawType)
+		if searchType == "" {
+			continue
+		}
+		sources := append([]string(nil), requestedSources...)
+		if len(sources) == 0 {
+			sources = defaultSourcesForSearchType(searchType)
+		}
+		key := searchCacheKey(searchType, keyword, exactArtist, sources)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		n, err := deleteCachedSearchKey(key)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		deleted += n
+	}
+
+	c.JSON(200, gin.H{"deleted": deleted})
 }
 
 var searchCacheRefreshInFlight sync.Map
