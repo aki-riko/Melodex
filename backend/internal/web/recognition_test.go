@@ -84,6 +84,50 @@ func TestRecognitionStatusDisabled(t *testing.T) {
 	if resp.Enabled {
 		t.Fatalf("enabled = true, want false")
 	}
+	if resp.RateLimitPerMinute != defaultRecognitionRateLimitPerMinute {
+		t.Fatalf("rate_limit_per_minute = %d, want %d", resp.RateLimitPerMinute, defaultRecognitionRateLimitPerMinute)
+	}
+	if resp.MaxBytes != recognitionDefaultMaxBytes || resp.Timeout != recognitionDefaultTimeout.String() {
+		t.Fatalf("limits = max_bytes:%d timeout:%q, want defaults", resp.MaxBytes, resp.Timeout)
+	}
+}
+
+func TestRecognitionStatusReportsConfiguredLimitsWithoutSecrets(t *testing.T) {
+	clearRecognitionEnv(t)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("status endpoint must not call provider")
+	}))
+	defer provider.Close()
+
+	t.Setenv("MUSIC_DL_RECOGNITION_PROVIDER", "audd")
+	t.Setenv("MUSIC_DL_AUDD_ENDPOINT", provider.URL)
+	t.Setenv("MUSIC_DL_AUDD_TOKEN", "unit-token")
+	t.Setenv("MUSIC_DL_RECOGNITION_MAX_BYTES", "12345")
+	t.Setenv("MUSIC_DL_RECOGNITION_TIMEOUT", "7s")
+	t.Setenv(recognitionRateLimitEnv, "3")
+
+	r := newRecognitionTestRouter()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/recognize/status", nil)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp recognitionStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.Enabled || resp.Provider != recognitionProviderAudD {
+		t.Fatalf("status response = %+v, want enabled audd", resp)
+	}
+	if resp.MaxBytes != 12345 || resp.Timeout != "7s" || resp.RateLimitPerMinute != 3 {
+		t.Fatalf("limits = max_bytes:%d timeout:%q rate:%d, want 12345/7s/3", resp.MaxBytes, resp.Timeout, resp.RateLimitPerMinute)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "unit-token") || strings.Contains(body, provider.URL) {
+		t.Fatalf("status response leaked provider secret or endpoint: %s", body)
+	}
 }
 
 func TestRecognitionStatusRejectsExternalHTTPProviderEndpoint(t *testing.T) {
