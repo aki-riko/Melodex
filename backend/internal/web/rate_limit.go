@@ -2,10 +2,18 @@ package web
 
 import (
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	recognitionRateLimitEnv              = "MUSIC_DL_RECOGNITION_RATE_LIMIT_PER_MINUTE"
+	defaultRecognitionRateLimitPerMinute = 10
 )
 
 // 轻量 per-IP 滑动窗口限流。用于公开且会放大到上游的接口(搜索),
@@ -20,6 +28,18 @@ type rateLimiter struct {
 
 func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 	return &rateLimiter{hits: make(map[string][]int64), limit: limit, window: window}
+}
+
+func envPositiveInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 // allow 返回该 ip 是否在窗口内未超过 limit 次。
@@ -59,7 +79,7 @@ var searchRateLimiter = newRateLimiter(30, time.Minute)
 
 // recognitionRateLimiter:听歌识曲会调用外部付费/限额服务,单独限流防误触发循环
 // 或登录用户高频调用耗尽额度。
-var recognitionRateLimiter = newRateLimiter(10, time.Minute)
+var recognitionRateLimiter = newRateLimiter(envPositiveInt(recognitionRateLimitEnv, defaultRecognitionRateLimitPerMinute), time.Minute)
 
 // rateLimitMiddleware 超限返回 429。
 func rateLimitMiddleware(rl *rateLimiter) gin.HandlerFunc {
