@@ -48,7 +48,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	userSecure.GET("/search", rateLimitMiddleware(searchRateLimiter), jsonSearchHandler)
 	userSecure.GET("/search_suggestions", jsonSearchSuggestionsHandler)
 	userSecure.GET("/recognize/status", jsonRecognitionStatusHandler)
-	userSecure.POST("/recognize", jsonRecognizeAudioHandler)
+	userSecure.POST("/recognize", rateLimitMiddleware(recognitionRateLimiter), jsonRecognizeAudioHandler)
 
 	// 歌单详情:返回歌曲列表
 	userSecure.GET("/playlist", func(c *gin.Context) {

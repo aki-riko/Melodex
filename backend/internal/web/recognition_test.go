@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -137,6 +138,48 @@ func TestRecognizeAudioDisabledWithoutProvider(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "听歌识曲未启用") {
 		t.Fatalf("body = %s, want disabled message", rec.Body.String())
+	}
+}
+
+func TestRecognizeAudioRouteIsRateLimited(t *testing.T) {
+	clearRecognitionEnv(t)
+	setupUserTestDB(t)
+	resetAuthRuntimeForTest()
+	t.Cleanup(resetAuthRuntimeForTest)
+	user, err := createUser("alice", "alicepass1", RoleUser)
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	cookie := mustSession(t, user)
+
+	oldLimiter := recognitionRateLimiter
+	recognitionRateLimiter = newRateLimiter(2, time.Minute)
+	t.Cleanup(func() { recognitionRateLimiter = oldLimiter })
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	RegisterJSONAPIRoutes(r, StartOptions{})
+
+	for i := 0; i < 2; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/recognize", nil)
+		req.Header.Set("X-Requested-With", "XMLHttpRequest")
+		req.Header.Set("Accept", "application/json")
+		req.AddCookie(cookie)
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("request %d status = %d, want %d, body=%s", i+1, rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/recognize", nil)
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("third request status = %d, want %d, body=%s", rec.Code, http.StatusTooManyRequests, rec.Body.String())
 	}
 }
 
