@@ -45,6 +45,16 @@ export const searchMusic = async (keyword, { type = 'song', sources = [], exactA
   return withSongs(data); // { songs, playlists, type, keyword, sources, error }
 };
 
+export const clearSearchCache = async (keyword, { types = ['song'], sources = [], exactArtist = '' } = {}) => {
+  const params = new URLSearchParams();
+  params.set('q', keyword);
+  (types.length ? types : ['song']).forEach((type) => params.append('type', type));
+  if (exactArtist) params.set('exact_artist', exactArtist);
+  sources.forEach((source) => params.append('sources', source));
+  const { data } = await client.delete(`/api/v1/search_cache?${params.toString()}`);
+  return data; // { deleted }
+};
+
 // 输入框补全建议:只读本地搜索历史/缓存,不触发上游搜索或验活。
 export const getSearchSuggestions = async (keyword, { limit = 24 } = {}) => {
   const params = new URLSearchParams();
