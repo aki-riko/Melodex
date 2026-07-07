@@ -31,6 +31,7 @@ const (
 	qqMobileQRAPI    = "https://u.y.qq.com/cgi-bin/musicu.fcg"
 	qqMobileMQTTURL  = "wss://mu.y.qq.com:443/ws/handshake"
 	qqMobileQRTTL    = 15 * time.Minute
+	qqMusicKeySkew   = 30 * time.Minute
 )
 
 type qqMobileQRState struct {
@@ -61,6 +62,29 @@ func CreateWXQRLogin() (*model.QRLoginSession, error) { return defaultQQ.CreateW
 
 func CheckWXQRLogin(key string) (*model.QRLoginResult, error) { return defaultQQ.CheckWXQRLogin(key) }
 
+func RefreshLoginCookie(cookie string) (string, error) { return New(cookie).RefreshLoginCookie() }
+
+func CookieNeedsRefresh(cookie string, now time.Time) bool {
+	cookies := parseCookieString(cookie)
+	if !qqCookieRefreshable(cookies) {
+		return false
+	}
+	createdAt, ok := parseQQCookieUnix(firstNonEmptyQQ(cookies["musickeyCreateTime"], cookies["psrf_musickey_createtime"]))
+	if !ok {
+		return false
+	}
+	keyExpiresIn, ok := parseQQCookieUnix(cookies["keyExpiresIn"])
+	if !ok || keyExpiresIn <= 0 {
+		return false
+	}
+	expiresAt := time.Unix(createdAt+keyExpiresIn, 0)
+	return !now.Before(expiresAt.Add(-qqMusicKeySkew))
+}
+
+func CookieRefreshable(cookie string) bool {
+	return qqCookieRefreshable(parseCookieString(cookie))
+}
+
 func CreateQRLoginByType(loginType string) (*model.QRLoginSession, error) {
 	return defaultQQ.CreateQRLoginByType(loginType)
 }
@@ -89,6 +113,20 @@ func (q *QQ) CheckQRLoginByType(loginType, key string) (*model.QRLoginResult, er
 	default:
 		return q.CheckQRLogin(key)
 	}
+}
+
+func (q *QQ) RefreshLoginCookie() (string, error) {
+	cookies := parseCookieString(q.cookie)
+	refreshed, _, err := fetchQQRefreshLoginCookies(cookies)
+	if err != nil {
+		return "", err
+	}
+	for k, v := range refreshed {
+		cookies[k] = v
+	}
+	q.cookie = joinCookieMap(normalizeQQMusicCookies(cookies))
+	q.isVipCache = nil
+	return q.cookie, nil
 }
 
 func (q *QQ) CreateQRLogin() (*model.QRLoginSession, error) {
@@ -846,6 +884,124 @@ func fetchQQConnectLoginServerCookies(code string) (map[string]string, map[strin
 	return nil, nil, lastErr
 }
 
+func fetchQQRefreshLoginCookies(cookies map[string]string) (map[string]string, map[string]string, error) {
+	if !qqCookieRefreshable(cookies) {
+		return nil, nil, fmt.Errorf("qq cookie is not refreshable")
+	}
+	musicID := firstNonEmptyQQ(cookies["musicid"], cookies["qqmusic_uin"], cookies["str_musicid"], cookies["uin"])
+	musicKey := firstNonEmptyQQ(cookies["musickey"], cookies["qqmusic_key"], cookies["qm_keyst"])
+	refreshKey := strings.TrimSpace(cookies["refresh_key"])
+	refreshToken := strings.TrimSpace(cookies["refresh_token"])
+
+	musicIDValue := interface{}(musicID)
+	if parsed, err := strconv.ParseInt(musicID, 10, 64); err == nil {
+		musicIDValue = parsed
+	}
+	param := map[string]interface{}{
+		"musicid":       musicIDValue,
+		"musickey":      musicKey,
+		"refresh_key":   refreshKey,
+		"refresh_token": refreshToken,
+	}
+	if openID := strings.TrimSpace(cookies["openid"]); openID != "" {
+		param["openid"] = openID
+	}
+	if accessToken := strings.TrimSpace(firstNonEmptyQQ(cookies["access_token"], cookies["wxaccess_token"])); accessToken != "" {
+		param["access_token"] = accessToken
+	}
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"comm": map[string]interface{}{
+			"tmeAppID":     "qqmusic",
+			"tmeLoginType": 2,
+			"g_tk":         5381,
+			"platform":     "yqq",
+			"ct":           24,
+			"cv":           0,
+		},
+		"req": map[string]interface{}{
+			"module": "music.login.LoginServer",
+			"method": "Login",
+			"param":  param,
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	endpoints := []string{
+		"https://u.y.qq.com/cgi-bin/musicu.fcg",
+		"https://szu.y.qq.com/cgi-bin/musicu.fcg",
+		"https://shu.y.qq.com/cgi-bin/musicu.fcg",
+	}
+	var lastErr error
+	for _, apiURL := range endpoints {
+		req, err := http.NewRequest("POST", apiURL, strings.NewReader(string(payload)))
+		if err != nil {
+			return nil, nil, err
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		req.Header.Set("Referer", "https://y.qq.com/")
+		req.Header.Set("Origin", "https://y.qq.com")
+		req.Header.Set("Accept", "*/*")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Cookie", joinCookieMap(cookies))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		responseCookieMap := responseCookies(resp)
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("qq refresh login http status %d", resp.StatusCode)
+			continue
+		}
+
+		var parsed struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Msg     string `json:"msg"`
+			Req     struct {
+				Code    int                    `json:"code"`
+				Message string                 `json:"message"`
+				Msg     string                 `json:"msg"`
+				Data    map[string]interface{} `json:"data"`
+			} `json:"req"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			lastErr = fmt.Errorf("qq refresh login json parse error: %w", err)
+			continue
+		}
+		if parsed.Code != 0 || parsed.Req.Code != 0 {
+			msg := firstNonEmptyQQ(parsed.Req.Message, parsed.Req.Msg, parsed.Message, parsed.Msg)
+			lastErr = fmt.Errorf("qq refresh login api error: %s (code %d, req code %d)", msg, parsed.Code, parsed.Req.Code)
+			continue
+		}
+
+		loginCookies := qqLoginDataCookies(parsed.Req.Data)
+		if len(loginCookies) == 0 || firstNonEmptyQQ(loginCookies["musickey"], loginCookies["qqmusic_key"], loginCookies["qm_keyst"]) == "" {
+			lastErr = fmt.Errorf("qq refresh login returned no musickey; keys=%s", strings.Join(mapKeys(parsed.Req.Data), ","))
+			continue
+		}
+		for k, v := range responseCookieMap {
+			if loginCookies[k] == "" {
+				loginCookies[k] = v
+			}
+		}
+		return normalizeQQMusicCookies(loginCookies), map[string]string{"endpoint": apiURL}, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("qq refresh login failed")
+	}
+	return nil, nil, lastErr
+}
+
 func qqMobileCreateQRCode() (map[string]interface{}, error) {
 	return qqMobileMusicuRequest(
 		"music.login.LoginServer",
@@ -1559,6 +1715,22 @@ func firstNonEmptyQQ(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseQQCookieUnix(raw string) (int64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	return value, err == nil
+}
+
+func qqCookieRefreshable(cookies map[string]string) bool {
+	return firstNonEmptyQQ(cookies["musicid"], cookies["qqmusic_uin"], cookies["str_musicid"], cookies["uin"]) != "" &&
+		firstNonEmptyQQ(cookies["musickey"], cookies["qqmusic_key"], cookies["qm_keyst"]) != "" &&
+		strings.TrimSpace(cookies["refresh_key"]) != "" &&
+		strings.TrimSpace(cookies["refresh_token"]) != ""
 }
 
 func normalizeQQLoginType(loginType string) string {

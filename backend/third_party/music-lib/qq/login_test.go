@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseQQQRCheckExtractsStrongLoginInputs(t *testing.T) {
@@ -77,6 +78,29 @@ func TestQQCredentialFromCookieUsesStrongFields(t *testing.T) {
 	}
 	if key != "ALT" {
 		t.Fatalf("key = %q, want ALT", key)
+	}
+}
+
+func TestCookieNeedsRefreshUsesMusicKeyExpiry(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	cookie := "musicid=12345678; musickey=KEY; refresh_key=REFRESH_KEY; refresh_token=REFRESH_TOKEN; musickeyCreateTime=1699990000; keyExpiresIn=7200"
+	if !CookieNeedsRefresh(cookie, now) {
+		t.Fatal("CookieNeedsRefresh should refresh inside skew window")
+	}
+
+	fresh := "musicid=12345678; musickey=KEY; refresh_key=REFRESH_KEY; refresh_token=REFRESH_TOKEN; musickeyCreateTime=1700000000; keyExpiresIn=7200"
+	if CookieNeedsRefresh(fresh, now) {
+		t.Fatal("CookieNeedsRefresh should keep fresh cookies")
+	}
+}
+
+func TestCookieNeedsRefreshRequiresRefreshMaterial(t *testing.T) {
+	cookie := "musicid=12345678; musickey=KEY; musickeyCreateTime=1699990000; keyExpiresIn=7200"
+	if CookieNeedsRefresh(cookie, time.Unix(1_700_000_000, 0)) {
+		t.Fatal("CookieNeedsRefresh should not refresh without refresh_key/refresh_token")
+	}
+	if CookieRefreshable(cookie) {
+		t.Fatal("CookieRefreshable should require refresh_key/refresh_token")
 	}
 }
 

@@ -58,6 +58,8 @@ type CookieManager struct {
 
 var CM = &CookieManager{cookies: make(map[string]string)}
 
+var qqCookieRefreshMu sync.Mutex
+
 type CookieStatusDetail struct {
 	Source       string          `json:"source"`
 	Saved        bool            `json:"saved"`
@@ -145,6 +147,39 @@ func (m *CookieManager) GetAll() map[string]string {
 	return res
 }
 
+func cookieForSource(source string) string {
+	cookie := CM.Get(source)
+	if normalizeCookieStatusSource(source) != "qq" {
+		return cookie
+	}
+	return refreshQQCookieIfNeeded(cookie)
+}
+
+func refreshQQCookieIfNeeded(cookie string) string {
+	if !qq.CookieNeedsRefresh(cookie, time.Now()) {
+		return cookie
+	}
+
+	qqCookieRefreshMu.Lock()
+	defer qqCookieRefreshMu.Unlock()
+
+	latest := CM.Get("qq")
+	if latest == "" {
+		return cookie
+	}
+	if latest != cookie && !qq.CookieNeedsRefresh(latest, time.Now()) {
+		return latest
+	}
+
+	refreshed, err := qq.RefreshLoginCookie(latest)
+	if err != nil || strings.TrimSpace(refreshed) == "" {
+		return latest
+	}
+	CM.SetAll(map[string]string{"qq": refreshed})
+	CM.Save()
+	return refreshed
+}
+
 func BuildCookieStatusDetail(source, cookie string, verify bool) CookieStatusDetail {
 	source = normalizeCookieStatusSource(source)
 	cookie = strings.TrimSpace(cookie)
@@ -192,7 +227,7 @@ func probeCookieVIPStatus(source, cookie string) (bool, error) {
 	case "netease":
 		return netease.New(cookie).IsVipAccount()
 	case "qq":
-		return qq.New(cookie).IsVipAccount()
+		return qq.New(refreshQQCookieIfNeeded(cookie)).IsVipAccount()
 	case "kugou":
 		return kugou.New(cookie).IsVipAccount()
 	case "bilibili":
@@ -288,7 +323,7 @@ type QRLoginCheckFunc func(string) (*model.QRLoginResult, error)
 type UserPlaylistsFunc func(page, limit int) ([]model.Playlist, error)
 
 func GetSearchFunc(source string) SearchFunc {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).Search
@@ -320,7 +355,7 @@ func GetSearchFunc(source string) SearchFunc {
 }
 
 func GetLyricSearchFunc(source string) SearchFunc {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "qq":
 		return qq.New(c).SearchLyrics
@@ -330,7 +365,7 @@ func GetLyricSearchFunc(source string) SearchFunc {
 }
 
 func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).SearchAlbum
@@ -358,7 +393,7 @@ func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
 }
 
 func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).SearchPlaylist
@@ -390,7 +425,7 @@ func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
 }
 
 func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetAlbumSongs
@@ -418,7 +453,7 @@ func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
 }
 
 func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetPlaylistSongs
@@ -450,7 +485,7 @@ func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
 }
 
 func GetRecommendFunc(source string) func() ([]model.Playlist, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetRecommendedPlaylists
@@ -466,7 +501,7 @@ func GetRecommendFunc(source string) func() ([]model.Playlist, error) {
 }
 
 func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetPlaylistCategories
@@ -490,7 +525,7 @@ func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
 }
 
 func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetCategoryPlaylists
@@ -568,7 +603,7 @@ func GetCookieSourceNames() []string {
 }
 
 func GetUserPlaylistsFunc(source string) UserPlaylistsFunc {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetUserPlaylists
@@ -592,7 +627,7 @@ func GetRecommendSourceNames() []string {
 }
 
 func GetDownloadFunc(source string) func(*model.Song) (string, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetDownloadURL
@@ -624,7 +659,7 @@ func GetDownloadFunc(source string) func(*model.Song) (string, error) {
 }
 
 func GetLyricFunc(source string) func(*model.Song) (string, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).GetLyrics
@@ -656,7 +691,7 @@ func GetLyricFunc(source string) func(*model.Song) (string, error) {
 }
 
 func GetParseFunc(source string) func(string) (*model.Song, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).Parse
@@ -688,7 +723,7 @@ func GetParseFunc(source string) func(string) (*model.Song, error) {
 }
 
 func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.Song, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).ParsePlaylist
@@ -720,7 +755,7 @@ func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.
 }
 
 func GetParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Song, error) {
-	c := CM.Get(source)
+	c := cookieForSource(source)
 	switch source {
 	case "netease":
 		return netease.New(c).ParseAlbum
