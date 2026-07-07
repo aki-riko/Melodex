@@ -16,6 +16,8 @@ func Search(keyword string) ([]model.Song, error) { return defaultQQ.Search(keyw
 
 func Parse(link string) (*model.Song, error) { return defaultQQ.Parse(link) }
 
+var qqSearchGet = utils.Get
+
 // Search searches songs.
 func (q *QQ) Search(keyword string) ([]model.Song, error) {
 	params := url.Values{}
@@ -25,7 +27,7 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 	params.Set("n", "30")
 	apiURL := "http://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp?" + params.Encode()
 
-	body, err := utils.Get(apiURL,
+	body, err := qqSearchGet(apiURL,
 		utils.WithHeader("User-Agent", UserAgent),
 		utils.WithHeader("Referer", SearchReferer),
 		utils.WithHeader("Cookie", q.cookie),
@@ -65,12 +67,19 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 		return nil, fmt.Errorf("qq json parse error: %w", err)
 	}
 
-	isVip, _ := q.IsVipAccount()
+	_, musicKey := qqCredentialFromCookie(q.cookie)
+	canTryPaidTracks := strings.TrimSpace(musicKey) != ""
+	if !canTryPaidTracks {
+		isVip, _ := q.IsVipAccount()
+		canTryPaidTracks = isVip
+	}
 
 	var songs []model.Song
 	for _, item := range resp.Data.Song.List {
-		// Hide VIP-only songs for non-VIP accounts.
-		if !isVip && item.Pay.PayPlay == 1 {
+		// Hide VIP-only songs only when there is no strong credential to try at all.
+		// A single VIP probe can fail for one track even while the saved music key may
+		// unlock the searched target; /music/inspect will do the final per-track check.
+		if !canTryPaidTracks && item.Pay.PayPlay == 1 {
 			continue
 		}
 
