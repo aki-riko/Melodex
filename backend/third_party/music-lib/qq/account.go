@@ -26,8 +26,10 @@ func (q *QQ) IsVipAccount() (bool, error) {
 
 	// Probe a VIP-only song to detect account capability.
 	songMID := "004YZbkL2MNHoY"
-	// Prefer M500 here because standard VIP accounts may not have FLAC access.
-	filename := fmt.Sprintf("M500%s%s.mp3", songMID, songMID)
+	// M500/O801 can be returned for anonymous users, so use M800 as the
+	// lowest practical probe that distinguishes an effective music key.
+	filename := fmt.Sprintf("M800%s%s.mp3", songMID, songMID)
+	uin, musicKey := qqCredentialFromCookie(q.cookie)
 
 	reqData := map[string]interface{}{
 		"comm": map[string]interface{}{
@@ -39,7 +41,7 @@ func (q *QQ) IsVipAccount() (bool, error) {
 			"notice":      0,
 			"platform":    "yqq.json",
 			"needNewCode": 1,
-			"uin":         0,
+			"uin":         uin,
 		},
 		"req_1": map[string]interface{}{
 			"module": "music.vkey.GetVkey",
@@ -48,12 +50,17 @@ func (q *QQ) IsVipAccount() (bool, error) {
 				"guid":      guid,
 				"songmid":   []string{songMID},
 				"songtype":  []int{0},
-				"uin":       "0",
+				"uin":       uin,
 				"loginflag": 1,
 				"platform":  "20",
 				"filename":  []string{filename},
 			},
 		},
+	}
+	if musicKey != "" {
+		reqData["comm"].(map[string]interface{})["g_tk"] = hash33WithSeed(musicKey, 5381)
+		reqData["comm"].(map[string]interface{})["qq"] = uin
+		reqData["comm"].(map[string]interface{})["authst"] = musicKey
 	}
 
 	jsonData, _ := json.Marshal(reqData)
