@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var qqVIPPost = utils.Post
+
 func (q *QQ) IsVipAccount() (bool, error) {
 	if q.isVipCache != nil {
 		return *q.isVipCache, nil
@@ -72,7 +74,7 @@ func (q *QQ) IsVipAccount() (bool, error) {
 		utils.WithRandomIPHeader(),
 	}
 
-	body, err := utils.Post("https://u.y.qq.com/cgi-bin/musicu.fcg", bytes.NewReader(jsonData), headers...)
+	body, err := qqVIPPost("https://u.y.qq.com/cgi-bin/musicu.fcg", bytes.NewReader(jsonData), headers...)
 	if err != nil {
 		return false, err
 	}
@@ -93,11 +95,12 @@ func (q *QQ) IsVipAccount() (bool, error) {
 	}
 
 	// Cache only when the probe result is conclusive.
+	if result.Req1.Code != 0 {
+		return false, fmt.Errorf("api returned error code: %d", result.Req1.Code)
+	}
 	isVip := false
 	if len(result.Req1.Data.MidUrlInfo) > 0 {
 		isVip = result.Req1.Data.MidUrlInfo[0].Purl != ""
-	} else if result.Req1.Code != 0 {
-		return false, fmt.Errorf("api returned error code: %d", result.Req1.Code)
 	}
 
 	q.isVipCache = &isVip

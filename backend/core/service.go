@@ -256,6 +256,11 @@ func cookieCredentialHints(source, cookie string) map[string]bool {
 			"has_musickey":    values["musickey"],
 			"has_qqmusic_key": values["qqmusic_key"],
 			"has_qm_keyst":    values["qm_keyst"],
+			"has_refresh_key": values["refresh_key"],
+			"has_refresh_token": hasAnyCookieName(values,
+				"refresh_token",
+				"psrf_qqrefresh_token",
+			),
 		}
 	case "kugou":
 		return map[string]bool{
