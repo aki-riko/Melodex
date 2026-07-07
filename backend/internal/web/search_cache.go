@@ -19,7 +19,7 @@ const searchCacheTTL = 24 * time.Hour
 const searchCacheMaxAge = 7 * 24 * time.Hour
 const searchCacheDefaultRefreshEvery = 30 * time.Minute
 const searchCacheBackgroundRefreshRows = 20
-const searchRankingCacheVersion = "rank-v3"
+const searchRankingCacheVersion = "rank-v4"
 const lyricSearchCacheVersion = "native-v3"
 
 // searchCacheRow 一行缓存。Key 为查询指纹,Payload 为 jsonSearchResponse 的 JSON。
