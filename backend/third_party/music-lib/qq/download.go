@@ -1,7 +1,6 @@
 package qq
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +12,6 @@ import (
 )
 
 func GetDownloadURL(s *model.Song) (string, error) { return defaultQQ.GetDownloadURL(s) }
-
-var qqMusicuPost = func(jsonData []byte, headers ...utils.RequestOption) ([]byte, error) {
-	return utils.Post("https://u.y.qq.com/cgi-bin/musicu.fcg", bytes.NewReader(jsonData), headers...)
-}
 
 // GetDownloadURL returns a download URL.
 func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
@@ -96,7 +91,9 @@ func (q *QQ) getDownloadURLForPrefixes(songMID, uin, musicKey string, useAuth bo
 		},
 	}
 	if useAuth && strings.TrimSpace(musicKey) != "" {
-		reqData["comm"].(map[string]interface{})["g_tk"] = hash33WithSeed(musicKey, 5381)
+		token := hash33WithSeed(musicKey, 5381)
+		reqData["comm"].(map[string]interface{})["g_tk"] = token
+		reqData["comm"].(map[string]interface{})["g_tk_new_20200303"] = token
 		reqData["comm"].(map[string]interface{})["qq"] = uin
 		reqData["comm"].(map[string]interface{})["authst"] = musicKey
 	}

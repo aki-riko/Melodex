@@ -35,7 +35,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=${TARGETARCH:-$(go env GOARCH)} go build
 
 # ===== 阶段3:运行镜像(含 ffmpeg)=====
 FROM alpine:3.22
-RUN apk --no-cache add ca-certificates tzdata ffmpeg \
+RUN apk --no-cache add ca-certificates tzdata ffmpeg nodejs \
     && ffmpeg -version >/dev/null && ffprobe -version >/dev/null
 ENV TZ=Asia/Shanghai
 RUN adduser -D -s /bin/sh appuser
