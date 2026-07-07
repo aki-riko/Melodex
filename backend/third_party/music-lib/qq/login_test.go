@@ -1,6 +1,7 @@
 package qq
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -139,6 +140,25 @@ func TestQQMobileCookieValueAcceptsMultiplePayloadShapes(t *testing.T) {
 				t.Fatalf("uin/key = %q/%q, want %q/%q", uin, key, tc.wantUIN, tc.wantKey)
 			}
 		})
+	}
+}
+
+func TestQQMobileFailureDetailsClassifiesMQTTDeadline(t *testing.T) {
+	message, extra := qqMobileFailureDetails(context.DeadlineExceeded, map[string]string{"stage": "mqtt_connect"})
+	if !strings.Contains(message, "强登录通道连接超时") {
+		t.Fatalf("message = %q, want MQTT timeout hint", message)
+	}
+	if extra["error_type"] != "network_timeout" {
+		t.Fatalf("error_type = %q, want network_timeout (extra %#v)", extra["error_type"], extra)
+	}
+	if extra["stage"] != "mqtt_connect" {
+		t.Fatalf("stage = %q, want mqtt_connect", extra["stage"])
+	}
+	if extra["last_error"] != context.DeadlineExceeded.Error() {
+		t.Fatalf("last_error = %q, want %q", extra["last_error"], context.DeadlineExceeded.Error())
+	}
+	if !strings.Contains(extra["suggestion"], "mu.y.qq.com:443") {
+		t.Fatalf("suggestion = %q, want endpoint hint", extra["suggestion"])
 	}
 }
 

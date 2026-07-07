@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1600,7 +1601,39 @@ func failQQMobileQRWithExtra(qrcodeID string, err error, extra map[string]string
 		setQQMobileQRFailedWithExtra(qrcodeID, "登录失败", extra)
 		return
 	}
-	setQQMobileQRFailedWithExtra(qrcodeID, err.Error(), extra)
+	message, enriched := qqMobileFailureDetails(err, extra)
+	setQQMobileQRFailedWithExtra(qrcodeID, message, enriched)
+}
+
+func qqMobileFailureDetails(err error, extra map[string]string) (string, map[string]string) {
+	enriched := cloneCookieMap(extra)
+	errText := strings.TrimSpace(err.Error())
+	if errText != "" {
+		enriched["last_error"] = errText
+	}
+	stage := strings.TrimSpace(enriched["stage"])
+	lowerErr := strings.ToLower(errText)
+	if errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(lowerErr, "context deadline exceeded") ||
+		strings.Contains(lowerErr, "i/o timeout") ||
+		strings.Contains(lowerErr, "timeout") {
+		enriched["error_type"] = "network_timeout"
+		switch stage {
+		case "mqtt_connect":
+			enriched["suggestion"] = "检查当前部署环境能否访问 mu.y.qq.com:443, 或暂用 QQ 旧入口/手动 Cookie"
+			return "QQ 音乐强登录通道连接超时,请刷新二维码重试;若持续失败,请检查当前部署环境能否访问 mu.y.qq.com:443,或暂用 QQ 旧入口/手动 Cookie。", enriched
+		case "mqtt_subscribe":
+			enriched["suggestion"] = "检查当前部署环境到 QQ 登录通道的 WebSocket 连接, 或暂用 QQ 旧入口/手动 Cookie"
+			return "QQ 音乐强登录通道订阅超时,请刷新二维码重试;若持续失败,可暂用 QQ 旧入口/手动 Cookie。", enriched
+		default:
+			enriched["suggestion"] = "检查当前部署环境到 QQ 音乐接口的网络连通性"
+			return "QQ 音乐强登录请求超时,请刷新二维码重试;若持续失败,请检查当前部署环境到 QQ 音乐接口的网络连通性。", enriched
+		}
+	}
+	if errText == "" {
+		return "登录失败", enriched
+	}
+	return errText, enriched
 }
 
 func expireQQMobileQR(qrcodeID string) {
