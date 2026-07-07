@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from 'react-query';
 import { QRCodeCanvas } from 'qrcode.react';
-import { AlertTriangle, CheckCircle2, ExternalLink, KeyRound, LogOut, QrCode, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ExternalLink, KeyRound, LogOut, QrCode, RefreshCw, X } from 'lucide-react';
 import {
   getQRSources,
   createQRLogin,
@@ -107,7 +107,7 @@ const credentialBadge = (loggedIn, detail) => {
   }
   if (detail?.error || (detail?.vip_checked && !detail.vip)) {
     return {
-      text: detail?.error ? '待检查' : 'VIP失效',
+      text: detail?.error ? '已保存' : 'VIP失效',
       className: 'border-yellow-500/35 bg-yellow-500/10 text-yellow-300',
       icon: <AlertTriangle size={12} />,
     };
@@ -131,7 +131,7 @@ const actionGridClass = (count) => (
 );
 
 // 二维码登录卡片
-const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, qrSupported = true }) => {
+const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefreshStatus, checkingStatus = false, qrSupported = true }) => {
   const manualSupported = source !== 'qq_wx';
   const badge = credentialBadge(loggedIn, detail);
   const [session, setSession] = useState(null);
@@ -295,10 +295,24 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, qrSupport
               {qrSupported ? '扫码' : '手填'}{manualSupported && qrSupported ? ' / 手填' : ''}
             </p>
           </div>
-          <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}>
-            {badge.icon}
-            {badge.text}
-          </span>
+          <div className="flex flex-shrink-0 items-center gap-1">
+            <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}>
+              {badge.icon}
+              {badge.text}
+            </span>
+            {loggedIn && (
+              <button
+                type="button"
+                onClick={onRefreshStatus}
+                disabled={checkingStatus}
+                className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                title="重新检查登录状态"
+                aria-label={`重新检查 ${sourceLabel(source)} 登录状态`}
+              >
+                <RefreshCw size={13} className={checkingStatus ? 'animate-spin' : ''} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className={`mt-auto grid gap-1.5 pt-3 ${actionGridClass(actionCount)}`}>
@@ -494,6 +508,10 @@ const Settings = () => {
     cookieStatus.refetch();
   };
 
+  const handleRefreshCookieStatus = () => {
+    cookieStatus.refetch();
+  };
+
   const handleLogout = async (source) => {
     await clearCookie(source);
     cookieStatus.refetch();
@@ -537,6 +555,8 @@ const Settings = () => {
                   detail={cookieDetailFor(details, src)}
                   onLoggedIn={handleLoggedIn}
                   onLogout={handleLogout}
+                  onRefreshStatus={handleRefreshCookieStatus}
+                  checkingStatus={cookieStatus.isFetching}
                   qrSupported={qrSupported}
                 />
               );
