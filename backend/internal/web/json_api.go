@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -273,6 +274,9 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 		if err != nil {
 			c.JSON(502, gin.H{"error": err.Error()})
 			return
+		}
+		if result != nil && result.Status != model.QRLoginStatusWaiting {
+			log.Printf("qr login status source=%s status=%s message=%q extra=%v", source, result.Status, result.Message, result.Extra)
 		}
 		if result != nil && result.Status == model.QRLoginStatusSuccess {
 			cookie := qrLoginCookieString(result)

@@ -1,8 +1,8 @@
 const SOURCE_LABELS = {
   netease: '网易云音乐',
   qq: 'QQ音乐',
-  qq_mobile: 'QQ音乐',
-  qq_connect: 'QQ音乐',
+  qq_mobile: 'QQ音乐 · 客户端入口',
+  qq_connect: 'QQ音乐 · QQ入口',
   qq_wx: 'QQ音乐 · 微信入口',
   kugou: '酷狗音乐',
   kuwo: '酷我音乐',
