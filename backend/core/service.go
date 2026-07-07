@@ -553,7 +553,7 @@ func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 	case "netease":
 		return netease.CreateQRLogin
 	case "qq":
-		return qq.CreateQRLogin
+		return qq.CreateMobileQRLogin
 	case "qq_connect":
 		return qq.CreateQRLogin
 	case "qq_mobile":
@@ -576,7 +576,7 @@ func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
 	case "netease":
 		return netease.CheckQRLogin
 	case "qq":
-		return qq.CheckQRLogin
+		return qq.CheckMobileQRLogin
 	case "qq_connect":
 		return qq.CheckQRLogin
 	case "qq_mobile":
@@ -595,7 +595,7 @@ func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
 }
 
 func GetQRLoginSourceNames() []string {
-	return []string{"netease", "qq", "qq_mobile", "qq_wx", "kugou", "bilibili", "soda"}
+	return []string{"netease", "qq", "qq_connect", "qq_wx", "kugou", "bilibili", "soda"}
 }
 
 func GetCookieSourceNames() []string {

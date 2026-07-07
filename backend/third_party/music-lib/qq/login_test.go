@@ -81,6 +81,67 @@ func TestQQCredentialFromCookieUsesStrongFields(t *testing.T) {
 	}
 }
 
+func TestQQMobileCookieValueAcceptsMultiplePayloadShapes(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload map[string]interface{}
+		wantUIN string
+		wantKey string
+	}{
+		{
+			name: "map of cookie objects",
+			payload: map[string]interface{}{
+				"cookies": map[string]interface{}{
+					"qqmusic_uin": map[string]interface{}{"value": "12345678"},
+					"qqmusic_key": map[string]interface{}{"value": "KEY"},
+				},
+			},
+			wantUIN: "12345678",
+			wantKey: "KEY",
+		},
+		{
+			name: "array cookies with aliases",
+			payload: map[string]interface{}{
+				"cookies": []interface{}{
+					map[string]interface{}{"name": "musicid", "value": float64(12345678)},
+					map[string]interface{}{"name": "musickey", "value": "KEY"},
+				},
+			},
+			wantUIN: "12345678",
+			wantKey: "KEY",
+		},
+		{
+			name: "cookie string inside data",
+			payload: map[string]interface{}{
+				"data": map[string]interface{}{
+					"cookie": "qqmusic_uin=12345678; qm_keyst=KEY",
+				},
+			},
+			wantUIN: "12345678",
+			wantKey: "KEY",
+		},
+		{
+			name: "direct credential fields",
+			payload: map[string]interface{}{
+				"musicid":  float64(12345678),
+				"musickey": "KEY",
+			},
+			wantUIN: "12345678",
+			wantKey: "KEY",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uin := qqMobileCookieValue(tc.payload, "qqmusic_uin", "musicid", "uin")
+			key := qqMobileCookieValue(tc.payload, "qqmusic_key", "musickey", "qm_keyst")
+			if uin != tc.wantUIN || key != tc.wantKey {
+				t.Fatalf("uin/key = %q/%q, want %q/%q", uin, key, tc.wantUIN, tc.wantKey)
+			}
+		})
+	}
+}
+
 func TestCookieNeedsRefreshUsesMusicKeyExpiry(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	cookie := "musicid=12345678; musickey=KEY; refresh_key=REFRESH_KEY; refresh_token=REFRESH_TOKEN; musickeyCreateTime=1699990000; keyExpiresIn=7200"
