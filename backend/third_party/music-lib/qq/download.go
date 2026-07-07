@@ -14,6 +14,10 @@ import (
 
 func GetDownloadURL(s *model.Song) (string, error) { return defaultQQ.GetDownloadURL(s) }
 
+var qqMusicuPost = func(jsonData []byte, headers ...utils.RequestOption) ([]byte, error) {
+	return utils.Post("https://u.y.qq.com/cgi-bin/musicu.fcg", bytes.NewReader(jsonData), headers...)
+}
+
 // GetDownloadURL returns a download URL.
 func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 	if s.Source != "qq" {
@@ -28,8 +32,10 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 	uin, musicKey := qqCredentialFromCookie(q.cookie)
 
 	// Request qualities from best to worst and use the first successful one.
-	isVip, _ := q.IsVipAccount()
-	if isVip {
+	// Do not gate this behind IsVipAccount: that probe is only a status hint and
+	// may fail for a single test track even when the saved music key can unlock
+	// the target song.
+	if strings.TrimSpace(musicKey) != "" {
 		prefixes := []string{"AI00", "Q001", "Q000", "F000", "O801", "M800", "M500"} // Master, Atmos5.1, Atmos2.0, FLAC, 640k, 320k, 128k
 		exts := []string{"flac", "flac", "flac", "flac", "ogg", "mp3", "mp3"}
 		if url, err := q.getDownloadURLForPrefixes(songMID, uin, musicKey, true, prefixes, exts); err == nil {
@@ -106,7 +112,7 @@ func (q *QQ) getDownloadURLForPrefixes(songMID, uin, musicKey string, useAuth bo
 		headers = append(headers, utils.WithHeader("Cookie", q.cookie))
 	}
 
-	body, err := utils.Post("https://u.y.qq.com/cgi-bin/musicu.fcg", bytes.NewReader(jsonData), headers...)
+	body, err := qqMusicuPost(jsonData, headers...)
 	if err != nil {
 		return "", err
 	}

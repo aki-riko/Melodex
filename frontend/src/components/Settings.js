@@ -102,7 +102,12 @@ const credentialHint = (source, loggedIn, qrSupported, detail) => {
     return '已保存,但缺 QQ 音乐强凭证(qm_keyst/qqmusic_key),VIP/无损可能失效。';
   }
   if (detail?.vip_checked && detail.vip) return '真实探测:VIP 链路有效。';
-  if (detail?.vip_checked && !detail.vip) return '真实探测:会员链路不可用。平台 Cookie 是会过期的会话凭证,失效后只能重新扫码或手填新的 Cookie。';
+  if (detail?.vip_checked && !detail.vip) {
+    if ((source === 'qq' || isQQCookieAlias(source)) && detail?.hints?.has_music_key) {
+      return '真实探测未确认 VIP;下载时仍会先尝试 QQ 强凭证高音质,失败后再回退普通音质。';
+    }
+    return '真实探测:会员链路不可用。平台 Cookie 是会过期的会话凭证,失效后只能重新扫码或手填新的 Cookie。';
+  }
   return platformHint(source, loggedIn, qrSupported);
 };
 
@@ -115,8 +120,9 @@ const credentialBadge = (loggedIn, detail) => {
     };
   }
   if (detail?.error || (detail?.vip_checked && !detail.vip)) {
+    const hasQQMusicKey = detail?.hints?.has_music_key;
     return {
-      text: detail?.error ? '已保存' : '凭证失效',
+      text: detail?.error ? '探测失败' : hasQQMusicKey ? '探测未过' : '凭证缺失',
       className: 'border-yellow-500/35 bg-yellow-500/10 text-yellow-300',
       icon: <AlertTriangle size={12} />,
     };
