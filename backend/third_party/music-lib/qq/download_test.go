@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,6 +20,79 @@ func TestQQCredentialFromCookieFallsBackToZeroUIN(t *testing.T) {
 	}
 	if key != "KEY" {
 		t.Fatalf("key = %q, want KEY", key)
+	}
+}
+
+func TestQQSecurityPostLiveAnonymous(t *testing.T) {
+	if os.Getenv("QQ_SECURITY_LIVE") != "1" {
+		t.Skip("set QQ_SECURITY_LIVE=1 to run live QQ musics.fcg probe")
+	}
+	if _, err := qqSecurityNodePath(); err != nil {
+		t.Skipf("node unavailable: %v", err)
+	}
+	t.Setenv("MUSIC_DL_QQ_SECURITY_CACHE_DIR", filepath.Join(t.TempDir(), "qq-security-cache"))
+
+	songMID := "002xpBxA13oPjq"
+	reqData := map[string]interface{}{
+		"comm": map[string]interface{}{
+			"cv":          4747474,
+			"ct":          24,
+			"format":      "json",
+			"inCharset":   "utf-8",
+			"outCharset":  "utf-8",
+			"notice":      0,
+			"platform":    "yqq.json",
+			"needNewCode": 1,
+			"uin":         "0",
+		},
+		"req_1": map[string]interface{}{
+			"module": "music.vkey.GetVkey",
+			"method": "UrlGetVkey",
+			"param": map[string]interface{}{
+				"guid":      "1234567890",
+				"songmid":   []string{songMID},
+				"songtype":  []int{0},
+				"uin":       "0",
+				"loginflag": 1,
+				"platform":  "20",
+				"filename":  []string{"M500" + songMID + songMID + ".mp3"},
+			},
+		},
+	}
+	jsonData, err := json.Marshal(reqData)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	body, err := qqSecurityPost(jsonData,
+		utils.WithHeader("User-Agent", UserAgent),
+		utils.WithHeader("Referer", DownloadReferer),
+		utils.WithHeader("Content-Type", "application/json"),
+	)
+	if err != nil {
+		t.Fatalf("qqSecurityPost returned error: %v", err)
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Req1 struct {
+			Code int `json:"code"`
+			Data struct {
+				Retcode    int `json:"retcode"`
+				MidURLInfo []struct {
+					Filename string `json:"filename"`
+				} `json:"midurlinfo"`
+			} `json:"data"`
+		} `json:"req_1"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("response json: %v; body=%s", err, string(body))
+	}
+	if result.Code != 0 || result.Req1.Code != 1000 || result.Req1.Data.Retcode != 104009 {
+		t.Fatalf("unexpected response codes: top=%d req_1=%d retcode=%d body=%s", result.Code, result.Req1.Code, result.Req1.Data.Retcode, string(body))
+	}
+	if len(result.Req1.Data.MidURLInfo) != 1 || result.Req1.Data.MidURLInfo[0].Filename == "" {
+		t.Fatalf("midurlinfo missing: %+v", result.Req1.Data.MidURLInfo)
 	}
 }
 

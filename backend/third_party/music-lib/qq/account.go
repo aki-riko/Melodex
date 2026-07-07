@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-var qqVIPPost = utils.Post
-
 func (q *QQ) IsVipAccount() (bool, error) {
 	if q.isVipCache != nil {
 		return *q.isVipCache, nil
@@ -60,7 +58,9 @@ func (q *QQ) IsVipAccount() (bool, error) {
 		},
 	}
 	if musicKey != "" {
-		reqData["comm"].(map[string]interface{})["g_tk"] = hash33WithSeed(musicKey, 5381)
+		token := hash33WithSeed(musicKey, 5381)
+		reqData["comm"].(map[string]interface{})["g_tk"] = token
+		reqData["comm"].(map[string]interface{})["g_tk_new_20200303"] = token
 		reqData["comm"].(map[string]interface{})["qq"] = uin
 		reqData["comm"].(map[string]interface{})["authst"] = musicKey
 	}

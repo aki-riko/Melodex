@@ -16,6 +16,7 @@ import (
 	"github.com/guohuiyuan/go-music-dl/core"
 	"github.com/guohuiyuan/music-lib/model"
 	"github.com/guohuiyuan/music-lib/soda"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -167,7 +168,8 @@ func qualityResultPayload(result qualityInspectResult) gin.H {
 }
 
 func getCachedQuality(song model.Song, duration int) (qualityInspectResult, bool) {
-	if db == nil || isLocalMusicSource(song.Source) {
+	currentDB := db
+	if currentDB == nil || isLocalMusicSource(song.Source) {
 		return qualityInspectResult{}, false
 	}
 	key, _ := qualityCacheKey(song)
@@ -175,7 +177,7 @@ func getCachedQuality(song model.Song, duration int) (qualityInspectResult, bool
 		return qualityInspectResult{}, false
 	}
 	var row qualityCacheRow
-	if err := db.Where("key = ?", key).Limit(1).Find(&row).Error; err != nil || row.Key == "" {
+	if err := currentDB.Where("key = ?", key).Limit(1).Find(&row).Error; err != nil || row.Key == "" {
 		return qualityInspectResult{}, false
 	}
 	ttl := qualityCacheValidTTL
@@ -183,13 +185,13 @@ func getCachedQuality(song model.Song, duration int) (qualityInspectResult, bool
 		ttl = qualityCacheInvalidTTL
 	}
 	if time.Since(row.CheckedAt) > ttl {
-		db.Where("key = ?", key).Delete(&qualityCacheRow{})
+		currentDB.Where("key = ?", key).Delete(&qualityCacheRow{})
 		return qualityInspectResult{}, false
 	}
 
 	if row.Valid && row.SizeBytes > 0 && row.BitrateNum == 0 && duration > 0 {
 		row.Bitrate, row.BitrateNum = qualityBitrate(row.SizeBytes, duration)
-		_ = db.Model(&qualityCacheRow{}).Where("key = ?", key).Updates(map[string]interface{}{
+		_ = currentDB.Model(&qualityCacheRow{}).Where("key = ?", key).Updates(map[string]interface{}{
 			"bitrate":     row.Bitrate,
 			"bitrate_num": row.BitrateNum,
 		}).Error
@@ -208,7 +210,8 @@ func getCachedQuality(song model.Song, duration int) (qualityInspectResult, bool
 }
 
 func putQualityCache(song model.Song, result qualityInspectResult) {
-	if db == nil || isLocalMusicSource(song.Source) {
+	currentDB := db
+	if currentDB == nil || isLocalMusicSource(song.Source) {
 		return
 	}
 	key, extraHash := qualityCacheKey(song)
@@ -237,14 +240,16 @@ func putQualityCache(song model.Song, result qualityInspectResult) {
 		BitrateNum: result.BitrateNum,
 		CheckedAt:  result.CheckedAt,
 	}
-	_ = db.Clauses(clause.OnConflict{
+	if err := currentDB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"song_id", "source", "extra_hash", "valid", "url",
 			"size_bytes", "size_text", "bitrate", "bitrate_num", "checked_at",
 		}),
-	}).Create(&row).Error
-	maybeGCQualityCache()
+	}).Create(&row).Error; err != nil {
+		return
+	}
+	maybeGCQualityCache(currentDB)
 }
 
 func markQualityCacheInvalid(song model.Song) {
@@ -254,7 +259,8 @@ func markQualityCacheInvalid(song model.Song) {
 }
 
 func warmQualityCache(songs []model.Song, concurrency int) {
-	if db == nil || len(songs) == 0 {
+	currentDB := db
+	if currentDB == nil || len(songs) == 0 {
 		return
 	}
 	if concurrency <= 0 {
@@ -344,20 +350,25 @@ func qualityExtraHash(extra map[string]string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func maybeGCQualityCache() {
+func maybeGCQualityCache(currentDB *gorm.DB) {
+	if currentDB == nil {
+		return
+	}
 	qualityCacheGCMu.Lock()
 	defer qualityCacheGCMu.Unlock()
 	if time.Since(qualityCacheLastGC) < 5*time.Minute {
 		return
 	}
 	qualityCacheLastGC = time.Now()
-	db.Where("checked_at < ? AND valid = ?", time.Now().Add(-qualityCacheInvalidTTL), false).Delete(&qualityCacheRow{})
+	if err := currentDB.Where("checked_at < ? AND valid = ?", time.Now().Add(-qualityCacheInvalidTTL), false).Delete(&qualityCacheRow{}).Error; err != nil {
+		return
+	}
 
 	var n int64
-	if db.Model(&qualityCacheRow{}).Count(&n).Error == nil && n > qualityCacheMaxRows {
+	if currentDB.Model(&qualityCacheRow{}).Count(&n).Error == nil && n > qualityCacheMaxRows {
 		var threshold qualityCacheRow
-		if err := db.Order("checked_at DESC").Offset(qualityCacheMaxRows - 1).Limit(1).Find(&threshold).Error; err == nil && threshold.Key != "" {
-			db.Where("checked_at < ?", threshold.CheckedAt).Delete(&qualityCacheRow{})
+		if err := currentDB.Order("checked_at DESC").Offset(qualityCacheMaxRows - 1).Limit(1).Find(&threshold).Error; err == nil && threshold.Key != "" {
+			currentDB.Where("checked_at < ?", threshold.CheckedAt).Delete(&qualityCacheRow{})
 		}
 	}
 }
