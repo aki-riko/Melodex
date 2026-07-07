@@ -2,7 +2,9 @@ package core
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -178,6 +180,15 @@ func refreshQQCookieIfNeeded(cookie string) string {
 	CM.SetAll(map[string]string{"qq": refreshed})
 	CM.Save()
 	return refreshed
+}
+
+func CookieFingerprintForSource(source string) string {
+	cookie := strings.TrimSpace(cookieForSource(normalizeCookieStatusSource(source)))
+	if cookie == "" {
+		return ""
+	}
+	sum := sha1.Sum([]byte(cookie))
+	return hex.EncodeToString(sum[:])
 }
 
 func BuildCookieStatusDetail(source, cookie string, verify bool) CookieStatusDetail {
