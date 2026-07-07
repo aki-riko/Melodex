@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/guohuiyuan/go-music-dl/core"
 	"github.com/guohuiyuan/music-lib/model"
 )
 
@@ -81,5 +82,81 @@ func TestCachedQualityRecomputesBitrateWhenDurationArrives(t *testing.T) {
 	}
 	if cached.BitrateNum != 320 || cached.Bitrate != "320 kbps" {
 		t.Fatalf("cached bitrate = %q/%d, want 320 kbps/320", cached.Bitrate, cached.BitrateNum)
+	}
+}
+
+func TestQualityCacheKeyIncludesCookieFingerprint(t *testing.T) {
+	baseDir := t.TempDir()
+	t.Setenv("MUSIC_DL_CONFIG_DB", filepath.Join(baseDir, "data", "settings.db"))
+	resetCollectionStateForTest()
+	t.Cleanup(resetCollectionStateForTest)
+	InitDB()
+
+	const sizeBytes = int64(4_000_000)
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-1/%d", sizeBytes))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte{0, 1})
+	}))
+	defer server.Close()
+
+	origProvider := qualityDownloadURLProvider
+	qualityDownloadURLProvider = func(song model.Song) (string, error) {
+		return server.URL + "/track.mp3", nil
+	}
+	defer func() { qualityDownloadURLProvider = origProvider }()
+
+	song := model.Song{ID: "002xpBxA13oPjq", Source: "qq", Duration: 100}
+	core.CM.SetAll(map[string]string{"qq": "qqmusic_uin=123456; qm_keyst=FIRST"})
+	first := inspectSongQualityCached(song, song.Duration)
+	if !first.Valid || first.Cached {
+		t.Fatalf("first result = %#v, want valid non-cached", first)
+	}
+
+	second := inspectSongQualityCached(song, song.Duration)
+	if !second.Valid || !second.Cached {
+		t.Fatalf("second result = %#v, want cached for same cookie", second)
+	}
+
+	core.CM.SetAll(map[string]string{"qq": "qqmusic_uin=123456; qm_keyst=SECOND"})
+	third := inspectSongQualityCached(song, song.Duration)
+	if !third.Valid || third.Cached {
+		t.Fatalf("third result = %#v, want non-cached after cookie changes", third)
+	}
+	if atomic.LoadInt32(&hits) != 2 {
+		t.Fatalf("source hit count = %d, want 2", hits)
+	}
+}
+
+func TestMarkQualityCacheInvalidOverwritesCachedValid(t *testing.T) {
+	baseDir := t.TempDir()
+	t.Setenv("MUSIC_DL_CONFIG_DB", filepath.Join(baseDir, "data", "settings.db"))
+	resetCollectionStateForTest()
+	t.Cleanup(resetCollectionStateForTest)
+	InitDB()
+
+	song := model.Song{ID: "002xpBxA13oPjq", Source: "qq", Duration: 100}
+	core.CM.SetAll(map[string]string{"qq": "qqmusic_uin=123456; qm_keyst=FIRST"})
+	putQualityCache(song, qualityInspectResult{
+		Valid:      true,
+		URL:        "https://example.test/audio.flac",
+		SizeBytes:  4_000_000,
+		SizeText:   "3.8 MB",
+		Bitrate:    "320 kbps",
+		BitrateNum: 320,
+	})
+
+	cached, ok := getCachedQuality(song, song.Duration)
+	if !ok || !cached.Valid {
+		t.Fatalf("cached result = %#v ok=%v, want valid cache before invalidation", cached, ok)
+	}
+
+	markQualityCacheInvalid(song)
+
+	cached, ok = getCachedQuality(song, song.Duration)
+	if !ok || cached.Valid {
+		t.Fatalf("cached result = %#v ok=%v, want invalid cache after invalidation", cached, ok)
 	}
 }

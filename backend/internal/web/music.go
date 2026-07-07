@@ -795,6 +795,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			sodaInst := soda.New(cookie)
 			info, err := sodaInst.GetDownloadInfo(tempSong)
 			if err != nil {
+				markQualityCacheInvalid(*tempSong)
 				c.String(502, "Soda info error")
 				return
 			}
@@ -838,11 +839,13 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 
 		downloadUrl, err := dlFunc(tempSong)
 		if err != nil {
+			markQualityCacheInvalid(*tempSong)
 			c.String(404, "Failed to get URL")
 			return
 		}
 
 		if rangeFetch, handled, rangeErr := core.NewSourceRangeFetch(downloadUrl, source, c.GetHeader("Range")); rangeErr != nil {
+			markQualityCacheInvalid(*tempSong)
 			c.String(502, "Upstream range error")
 			return
 		} else if handled {
@@ -881,10 +884,16 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 
 		resp, err := outboundStreamingHTTPClient.Do(req)
 		if err != nil {
+			markQualityCacheInvalid(*tempSong)
 			c.String(502, "Upstream stream error")
 			return
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode >= http.StatusBadRequest {
+			markQualityCacheInvalid(*tempSong)
+			c.String(resp.StatusCode, "Upstream stream error")
+			return
+		}
 
 		for k, v := range resp.Header {
 			if k != "Transfer-Encoding" && k != "Date" && k != "Access-Control-Allow-Origin" {

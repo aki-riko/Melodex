@@ -247,6 +247,12 @@ func putQualityCache(song model.Song, result qualityInspectResult) {
 	maybeGCQualityCache()
 }
 
+func markQualityCacheInvalid(song model.Song) {
+	result := qualityInvalidResult()
+	result.CheckedAt = time.Now()
+	putQualityCache(song, result)
+}
+
 func warmQualityCache(songs []model.Song, concurrency int) {
 	if db == nil || len(songs) == 0 {
 		return
@@ -312,7 +318,8 @@ func qualityCacheKey(song model.Song) (string, string) {
 		return "", ""
 	}
 	extraHash := qualityExtraHash(song.Extra)
-	raw := strings.Join([]string{strings.ToLower(source), id, extraHash}, "\x00")
+	credentialHash := core.CookieFingerprintForSource(source)
+	raw := strings.Join([]string{strings.ToLower(source), id, extraHash, credentialHash}, "\x00")
 	sum := sha1.Sum([]byte(raw))
 	return hex.EncodeToString(sum[:]), extraHash
 }
