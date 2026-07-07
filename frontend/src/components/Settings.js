@@ -17,6 +17,7 @@ import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
 
 const SOURCE_NOTES = {
+  qq_mobile: '客户端入口尝试换取 QQ 音乐强凭证;如果一直失败,请使用 QQ音乐 默认入口或手填完整 Cookie。',
   qq_wx: '微信入口共用 QQ 音乐凭证;登录成功后会更新 QQ 音乐 Cookie。退出或手填 Cookie 请使用 QQ音乐卡片。',
 };
 
@@ -24,6 +25,8 @@ const SOURCE_NOTES = {
 const COOKIE_HELP = {
   netease: { url: 'https://music.163.com', key: 'MUSIC_U' },
   qq: { url: 'https://y.qq.com', key: 'qm_keyst' },
+  qq_mobile: { url: 'https://y.qq.com', key: 'qm_keyst' },
+  qq_connect: { url: 'https://y.qq.com', key: 'qm_keyst' },
   qq_wx: { url: 'https://y.qq.com', key: 'qm_keyst' },
   kugou: { url: 'https://www.kugou.com', key: 'kg_mid / token' },
   kuwo: { url: 'https://www.kuwo.cn', key: 'kw_token' },
@@ -43,7 +46,7 @@ const STATUS_TEXT = {
 const qrLoginNote = (source, result) => {
   if (!result || result.status !== 'success') return '';
   const extra = result.extra || {};
-  if (source === 'qq') {
+  if (source === 'qq' || source === 'qq_mobile' || source === 'qq_connect') {
     if (extra.credential_source === 'qq_connect_login' || extra.credential_source === 'qq_mobile_qr') {
       return '已换取 QQ 音乐强凭证,可用于 VIP/无损链路。';
     }
@@ -80,10 +83,14 @@ const platformHint = (source, loggedIn, qrSupported) => {
   return '优先扫码登录;需要无损时可改用完整 Cookie。';
 };
 
-const cookieDetailFor = (details, source) => details?.[source] || (source === 'qq_wx' ? details?.qq : null) || {};
+const isQQCookieAlias = (source) => source === 'qq_wx' || source === 'qq_mobile' || source === 'qq_connect';
+
+const cookieDetailFor = (details, source) => details?.[source] || (isQQCookieAlias(source) ? details?.qq : null) || {};
+
+const loggedInFor = (status, source) => !!(status?.[source] || (isQQCookieAlias(source) && status?.qq));
 
 const missingQQStrongCredential = (source, detail) => (
-  (source === 'qq' || source === 'qq_wx') && detail?.saved && detail?.hints?.has_music_key === false
+  (source === 'qq' || isQQCookieAlias(source)) && detail?.saved && detail?.hints?.has_music_key === false
 );
 
 const credentialHint = (source, loggedIn, qrSupported, detail) => {
@@ -282,7 +289,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
           const r = await checkQRLogin(source, s.key);
           if (loginRunRef.current !== runID) return;
           setStatus(r.status);
-          setStatusNote(qrLoginNote(source, r));
+          setStatusNote(qrLoginNote(source, r) || r.message || '');
           if (r.status === 'success') {
             stopPoll();
             onLoggedIn();
@@ -582,7 +589,7 @@ const Settings = () => {
                 <QRLoginCard
                   key={src}
                   source={src}
-                  loggedIn={!!status[src]}
+                  loggedIn={loggedInFor(status, src)}
                   detail={cookieDetailFor(details, src)}
                   onLoggedIn={handleLoggedIn}
                   onLogout={handleLogout}
