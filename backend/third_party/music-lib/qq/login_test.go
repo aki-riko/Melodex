@@ -82,6 +82,48 @@ func TestQQCredentialFromCookieUsesStrongFields(t *testing.T) {
 	}
 }
 
+func TestNormalizeQQMusicCookiesBackfillsStrongCredentialAliases(t *testing.T) {
+	got := normalizeQQMusicCookies(map[string]string{
+		"uin":      "12345678",
+		"qm_keyst": "KEY",
+	})
+	want := map[string]string{
+		"uin":         "12345678",
+		"musicid":     "12345678",
+		"qqmusic_uin": "12345678",
+		"musickey":    "KEY",
+		"qqmusic_key": "KEY",
+		"qm_keyst":    "KEY",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("got[%q] = %q, want %q (full map %#v)", k, got[k], v, got)
+		}
+	}
+}
+
+func TestNewNormalizesSavedQQStrongCookieAliases(t *testing.T) {
+	q := New("uin=12345678; qm_keyst=KEY")
+	uin, key := qqCredentialFromCookie(q.cookie)
+	if uin != "12345678" {
+		t.Fatalf("uin = %q, want 12345678 (cookie %q)", uin, q.cookie)
+	}
+	if key != "KEY" {
+		t.Fatalf("key = %q, want KEY (cookie %q)", key, q.cookie)
+	}
+	for _, part := range []string{"musicid=12345678", "qqmusic_uin=12345678", "musickey=KEY", "qqmusic_key=KEY", "qm_keyst=KEY"} {
+		if !strings.Contains(q.cookie, part) {
+			t.Fatalf("normalized cookie %q missing %q", q.cookie, part)
+		}
+	}
+}
+
+func TestNewKeepsEmptyQQCookieEmpty(t *testing.T) {
+	if q := New(""); q.cookie != "" {
+		t.Fatalf("empty cookie normalized to %q", q.cookie)
+	}
+}
+
 func TestQQMobileCookieValueAcceptsMultiplePayloadShapes(t *testing.T) {
 	cases := []struct {
 		name    string

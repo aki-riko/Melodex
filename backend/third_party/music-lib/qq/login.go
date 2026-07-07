@@ -2043,19 +2043,37 @@ func mapKeys(data map[string]interface{}) []string {
 }
 
 func normalizeQQMusicCookies(cookies map[string]string) map[string]string {
-	result := make(map[string]string, len(cookies)+4)
+	result := make(map[string]string, len(cookies)+6)
 	for k, v := range cookies {
 		result[k] = v
 	}
-	if result["uin"] == "" {
-		result["uin"] = firstNonEmptyQQ(result["ptui_loginuin"], result["luin"], result["pt2gguin"], result["superuin"], result["p_uin"], result["musicid"], result["userid"], result["wxuin"])
+
+	musicID := firstNonEmptyQQ(result["musicid"], result["qqmusic_uin"], result["str_musicid"], result["uin"], result["ptui_loginuin"], result["luin"], result["pt2gguin"], result["superuin"], result["p_uin"], result["userid"], result["wxuin"])
+	if musicID != "" {
+		if result["musicid"] == "" {
+			result["musicid"] = musicID
+		}
+		if result["qqmusic_uin"] == "" {
+			result["qqmusic_uin"] = musicID
+		}
+		if result["uin"] == "" {
+			result["uin"] = musicID
+		}
 	}
-	if result["qqmusic_key"] == "" {
-		result["qqmusic_key"] = firstNonEmptyQQ(result["p_skey"], result["skey"], result["musickey"])
+
+	musicKey := firstNonEmptyQQ(result["musickey"], result["qqmusic_key"], result["qm_keyst"], result["p_skey"], result["skey"])
+	if musicKey != "" {
+		if result["musickey"] == "" {
+			result["musickey"] = musicKey
+		}
+		if result["qqmusic_key"] == "" {
+			result["qqmusic_key"] = musicKey
+		}
+		if result["qm_keyst"] == "" {
+			result["qm_keyst"] = musicKey
+		}
 	}
-	if result["qm_keyst"] == "" {
-		result["qm_keyst"] = result["qqmusic_key"]
-	}
+
 	return result
 }
 

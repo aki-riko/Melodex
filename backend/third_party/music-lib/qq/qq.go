@@ -25,7 +25,13 @@ type QQ struct {
 	isVipCache *bool
 }
 
-func New(cookie string) *QQ { return &QQ{cookie: cookie} }
+func New(cookie string) *QQ {
+	cookie = strings.TrimSpace(cookie)
+	if cookie != "" {
+		cookie = joinCookieMap(normalizeQQMusicCookies(parseCookieString(cookie)))
+	}
+	return &QQ{cookie: cookie}
+}
 
 var defaultQQ = New("")
 
