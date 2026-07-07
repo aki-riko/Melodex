@@ -2,6 +2,7 @@ package qq
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -132,5 +133,29 @@ func TestSearchFiltersVIPOnlyTracksWithoutMusicKey(t *testing.T) {
 	}
 	if songs[0].ID != "FREEMID" {
 		t.Fatalf("song ID = %q, want FREEMID", songs[0].ID)
+	}
+}
+
+func TestIsVipAccountReturnsAPIErrorWhenProbeRejected(t *testing.T) {
+	origPost := qqVIPPost
+	defer func() { qqVIPPost = origPost }()
+
+	qqVIPPost = func(apiURL string, body io.Reader, opts ...utils.RequestOption) ([]byte, error) {
+		if !strings.Contains(apiURL, "musicu.fcg") {
+			t.Fatalf("apiURL = %q, want musicu.fcg", apiURL)
+		}
+		return []byte(`{"req_1":{"code":104009,"data":{"midurlinfo":[{"purl":""}]}}}`), nil
+	}
+
+	q := New("uin=12345678; qm_keyst=KEY")
+	vip, err := q.IsVipAccount()
+	if err == nil || !strings.Contains(err.Error(), "104009") {
+		t.Fatalf("err = %v, want 104009", err)
+	}
+	if vip {
+		t.Fatal("vip = true, want false")
+	}
+	if q.isVipCache != nil {
+		t.Fatal("rejected probe should not be cached as a conclusive VIP result")
 	}
 }
