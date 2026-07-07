@@ -140,10 +140,13 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
   const [sodaSMS, setSodaSMS] = useState(null);
   const [sodaSMSCode, setSodaSMSCode] = useState('');
   const [sodaSMSBusy, setSodaSMSBusy] = useState(false);
+  const [loginBusy, setLoginBusy] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [manualCookie, setManualCookie] = useState('');
   const [manualMsg, setManualMsg] = useState('');
   const pollRef = useRef(null);
+  const loginBusyRef = useRef(false);
+  const loginRunRef = useRef(0);
 
   const submitManual = async () => {
     if (!manualCookie.trim()) return;
@@ -167,7 +170,10 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
   };
 
   const closeQRSession = () => {
+    loginRunRef.current += 1;
+    loginBusyRef.current = false;
     stopPoll();
+    setLoginBusy(false);
     setSession(null);
     setStatus('');
     setStatusNote('');
@@ -175,7 +181,11 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
     setSodaSMSCode('');
   };
 
-  useEffect(() => () => stopPoll(), []);
+  useEffect(() => () => {
+    loginRunRef.current += 1;
+    loginBusyRef.current = false;
+    stopPoll();
+  }, []);
 
   const rememberSodaSMS = (result) => {
     const extra = result?.extra || {};
@@ -248,19 +258,29 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
   };
 
   const startLogin = async () => {
-    if (!qrSupported) return;
+    if (!qrSupported || loginBusyRef.current) return;
+    const runID = loginRunRef.current + 1;
+    loginRunRef.current = runID;
+    loginBusyRef.current = true;
     stopPoll();
+    setLoginBusy(true);
     setStatus('');
     setStatusNote('');
     setSodaSMS(null);
     setSodaSMSCode('');
     try {
       const s = await createQRLogin(source);
+      if (loginRunRef.current !== runID) return;
       setSession(s);
       setStatus('waiting');
-      pollRef.current = setInterval(async () => {
+      const timer = setInterval(async () => {
+        if (loginRunRef.current !== runID) {
+          clearInterval(timer);
+          return;
+        }
         try {
           const r = await checkQRLogin(source, s.key);
+          if (loginRunRef.current !== runID) return;
           setStatus(r.status);
           setStatusNote(qrLoginNote(source, r));
           if (r.status === 'success') {
@@ -272,12 +292,20 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             stopPoll();
           }
         } catch (e) {
+          if (loginRunRef.current !== runID) return;
           setStatusNote(e?.message || '登录状态检查失败,稍后会自动重试');
         }
       }, 2000);
+      pollRef.current = timer;
     } catch (e) {
+      if (loginRunRef.current !== runID) return;
       setStatus('failed');
       setStatusNote(e?.message || '二维码创建失败');
+    } finally {
+      if (loginRunRef.current === runID) {
+        loginBusyRef.current = false;
+        setLoginBusy(false);
+      }
     }
   };
 
@@ -319,11 +347,12 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
           {qrSupported && (
             <button
               onClick={startLogin}
-              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-primary bg-primary px-2 text-xs font-semibold text-primary-foreground transition-colors hover:brightness-95"
+              disabled={loginBusy}
+              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-primary bg-primary px-2 text-xs font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               title={`${sourceLabel(source)}扫码登录`}
             >
               <QrCode size={14} />
-              <span className="truncate">{session ? '刷新' : '扫码'}</span>
+              <span className="truncate">{loginBusy ? '生成中' : session ? '刷新' : '扫码'}</span>
             </button>
           )}
           {manualSupported && (
@@ -430,10 +459,11 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
               <div className="mt-4 flex gap-2">
                 <button
                   onClick={startLogin}
-                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+                  disabled={loginBusy}
+                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <QrCode size={17} />
-                  刷新二维码
+                  {loginBusy ? '生成中' : '刷新二维码'}
                 </button>
                 <button
                   onClick={closeQRSession}
