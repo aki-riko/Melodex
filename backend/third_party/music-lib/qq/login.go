@@ -306,6 +306,7 @@ func (q *QQ) CreateMobileQRLogin() (*model.QRLoginSession, error) {
 		ExpiresAt: expiresAt,
 		Extra: map[string]string{
 			"login_type": "mobile",
+			"stage":      "created",
 		},
 	})
 	go q.waitQQMobileQRLogin(qrcodeID, expiresAt)
@@ -1084,9 +1085,10 @@ func (q *QQ) waitQQMobileQRLogin(qrcodeID string, expiresAt time.Time) {
 	err = cm.AwaitConnection(connectCtx)
 	connectCancel()
 	if err != nil {
-		failQQMobileQR(qrcodeID, err)
+		failQQMobileQRWithExtra(qrcodeID, err, map[string]string{"stage": "mqtt_connect"})
 		return
 	}
+	setQQMobileQRExtra(qrcodeID, map[string]string{"stage": "mqtt_connected"})
 
 	topic := "management.qrcode_login/" + qrcodeID
 	subCtx, subCancel := context.WithTimeout(ctx, 20*time.Second)
@@ -1101,9 +1103,10 @@ func (q *QQ) waitQQMobileQRLogin(qrcodeID string, expiresAt time.Time) {
 	})
 	subCancel()
 	if err != nil {
-		failQQMobileQR(qrcodeID, err)
+		failQQMobileQRWithExtra(qrcodeID, err, map[string]string{"stage": "mqtt_subscribe"})
 		return
 	}
+	setQQMobileQRExtra(qrcodeID, map[string]string{"stage": "mqtt_subscribed", "mqtt_topic": "management.qrcode_login"})
 
 	for {
 		select {
@@ -1120,37 +1123,43 @@ func (q *QQ) waitQQMobileQRLogin(qrcodeID string, expiresAt time.Time) {
 }
 
 func (q *QQ) handleQQMobileQRMessage(qrcodeID string, packet *paho.Publish) bool {
-	messageType := ""
-	if packet != nil && packet.Properties != nil {
-		messageType = packet.Properties.User.Get("type")
+	payload, payloadErr := qqMobilePayloadMap(packet)
+	messageType := qqMobileMessageType(packet, payload)
+	messageExtra := qqMobileMessageExtra(packet, payload)
+	if messageType != "" {
+		messageExtra["last_event"] = messageType
 	}
+	if payloadErr != nil {
+		messageExtra["payload_error"] = payloadErr.Error()
+	}
+	setQQMobileQRExtra(qrcodeID, messageExtra)
+
 	switch messageType {
 	case "scanned":
 		markQQMobileQRScanned(qrcodeID)
 	case "canceled":
-		setQQMobileQRFailed(qrcodeID, "用户取消登录")
+		setQQMobileQRFailedWithExtra(qrcodeID, "用户取消登录", messageExtra)
 		return true
 	case "timeout":
 		expireQQMobileQR(qrcodeID)
 		return true
 	case "loginFailed":
-		setQQMobileQRFailed(qrcodeID, "登录失败")
+		setQQMobileQRFailedWithExtra(qrcodeID, firstNonEmptyQQ(qqMobilePayloadText(payload, "message", "msg", "error", "err_msg"), "登录失败"), messageExtra)
 		return true
 	case "cookies":
-		var payload map[string]interface{}
-		if err := json.Unmarshal(packet.Payload, &payload); err != nil {
-			setQQMobileQRFailed(qrcodeID, "登录消息解析失败")
+		if payloadErr != nil {
+			setQQMobileQRFailedWithExtra(qrcodeID, "登录消息解析失败: "+payloadErr.Error(), messageExtra)
 			return true
 		}
-		uin := nestedCookieValue(payload, "qqmusic_uin")
-		token := nestedCookieValue(payload, "qqmusic_key")
+		uin := qqMobileCookieValue(payload, "qqmusic_uin", "musicid", "musicId", "uin", "userid", "user_id")
+		token := qqMobileCookieValue(payload, "qqmusic_key", "musickey", "qm_keyst", "music_key", "strMusicKey", "token")
 		if uin == "" || token == "" {
-			setQQMobileQRFailed(qrcodeID, "登录消息缺少 qqmusic_uin/qqmusic_key")
+			setQQMobileQRFailedWithExtra(qrcodeID, "登录消息缺少 QQ 音乐强凭证字段", messageExtra)
 			return true
 		}
 		cookies, extra, err := qqMobileLoginWithQRCode(qrcodeID, uin, token)
 		if err != nil {
-			failQQMobileQR(qrcodeID, err)
+			failQQMobileQRWithExtra(qrcodeID, err, messageExtra)
 			return true
 		}
 		completeQQMobileQR(qrcodeID, cookies, extra)
@@ -1518,6 +1527,23 @@ func updateQQMobileQR(qrcodeID string, state *qqMobileQRState) {
 	}
 }
 
+func setQQMobileQRExtra(qrcodeID string, extra map[string]string) {
+	qqMobileQRMu.Lock()
+	defer qqMobileQRMu.Unlock()
+	if state := qqMobileQRPending[qrcodeID]; state != nil {
+		if state.Extra == nil {
+			state.Extra = map[string]string{}
+		}
+		for k, v := range extra {
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			if k != "" && v != "" {
+				state.Extra[k] = v
+			}
+		}
+	}
+}
+
 func markQQMobileQRScanned(qrcodeID string) {
 	qqMobileQRMu.Lock()
 	defer qqMobileQRMu.Unlock()
@@ -1540,6 +1566,10 @@ func completeQQMobileQR(qrcodeID string, cookies map[string]string, extra map[st
 }
 
 func setQQMobileQRFailed(qrcodeID, message string) {
+	setQQMobileQRFailedWithExtra(qrcodeID, message, nil)
+}
+
+func setQQMobileQRFailedWithExtra(qrcodeID, message string, extra map[string]string) {
 	qqMobileQRMu.Lock()
 	defer qqMobileQRMu.Unlock()
 	if state := qqMobileQRPending[qrcodeID]; state != nil && state.Status != model.QRLoginStatusSuccess {
@@ -1548,15 +1578,29 @@ func setQQMobileQRFailed(qrcodeID, message string) {
 		if state.Message == "" {
 			state.Message = "登录失败"
 		}
+		if state.Extra == nil {
+			state.Extra = map[string]string{}
+		}
+		for k, v := range extra {
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			if k != "" && v != "" {
+				state.Extra[k] = v
+			}
+		}
 	}
 }
 
 func failQQMobileQR(qrcodeID string, err error) {
+	failQQMobileQRWithExtra(qrcodeID, err, nil)
+}
+
+func failQQMobileQRWithExtra(qrcodeID string, err error, extra map[string]string) {
 	if err == nil {
-		setQQMobileQRFailed(qrcodeID, "登录失败")
+		setQQMobileQRFailedWithExtra(qrcodeID, "登录失败", extra)
 		return
 	}
-	setQQMobileQRFailed(qrcodeID, err.Error())
+	setQQMobileQRFailedWithExtra(qrcodeID, err.Error(), extra)
 }
 
 func expireQQMobileQR(qrcodeID string) {
@@ -1608,6 +1652,296 @@ func nestedCookieValue(payload map[string]interface{}, name string) string {
 		return ""
 	}
 	return strings.TrimSpace(stringFromInterface(item["value"]))
+}
+
+func qqMobilePayloadMap(packet *paho.Publish) (map[string]interface{}, error) {
+	if packet == nil || len(packet.Payload) == 0 {
+		return map[string]interface{}{}, nil
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(packet.Payload, &payload); err != nil {
+		return map[string]interface{}{}, err
+	}
+	return payload, nil
+}
+
+func qqMobileMessageType(packet *paho.Publish, payload map[string]interface{}) string {
+	if packet != nil && packet.Properties != nil {
+		if value := normalizeQQMobileEvent(packet.Properties.User.Get("type")); value != "" {
+			return value
+		}
+	}
+	if value := normalizeQQMobileEvent(qqMobilePayloadText(payload, "type", "event", "status", "action", "messageType")); value != "" {
+		return value
+	}
+	if qqMobileCookieValue(payload, "qqmusic_key", "musickey", "qm_keyst") != "" {
+		return "cookies"
+	}
+	return ""
+}
+
+func normalizeQQMobileEvent(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "_", "")
+	value = strings.ReplaceAll(value, "-", "")
+	switch value {
+	case "scanned", "scan", "qrscanned":
+		return "scanned"
+	case "canceled", "cancelled", "cancel":
+		return "canceled"
+	case "timeout", "expired":
+		return "timeout"
+	case "loginfailed", "failed", "fail":
+		return "loginFailed"
+	case "cookies", "cookie", "login", "success":
+		return "cookies"
+	default:
+		return ""
+	}
+}
+
+func qqMobileMessageExtra(packet *paho.Publish, payload map[string]interface{}) map[string]string {
+	extra := map[string]string{"stage": "mqtt_message"}
+	if packet != nil {
+		if packet.Topic != "" {
+			extra["topic"] = safeQQMobileTopic(packet.Topic)
+		}
+		if packet.Properties != nil {
+			if props := qqMobileUserPropertyNames(packet.Properties.User); len(props) > 0 {
+				extra["user_properties"] = strings.Join(props, ",")
+			}
+		}
+	}
+	if len(payload) > 0 {
+		extra["payload_keys"] = strings.Join(mapKeys(payload), ",")
+	}
+	if names := qqMobileCookieNames(payload); len(names) > 0 {
+		extra["cookie_names"] = strings.Join(names, ",")
+	}
+	return extra
+}
+
+func safeQQMobileTopic(topic string) string {
+	before, _, ok := strings.Cut(topic, "/")
+	if ok {
+		return before
+	}
+	return topic
+}
+
+func qqMobileUserPropertyNames(props paho.UserProperties) []string {
+	names := make([]string, 0, len(props))
+	seen := map[string]bool{}
+	for _, prop := range props {
+		key := strings.TrimSpace(prop.Key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		names = append(names, key)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func qqMobilePayloadText(payload map[string]interface{}, keys ...string) string {
+	if payload == nil {
+		return ""
+	}
+	if value := stringFromMapCaseInsensitive(payload, keys...); value != "" {
+		return value
+	}
+	if data, _ := payload["data"].(map[string]interface{}); data != nil {
+		return stringFromMapCaseInsensitive(data, keys...)
+	}
+	return ""
+}
+
+func qqMobileCookieValue(payload map[string]interface{}, names ...string) string {
+	if payload == nil {
+		return ""
+	}
+	if value := qqMobileCookieValueFromMap(payload, names...); value != "" {
+		return value
+	}
+	if data, _ := payload["data"].(map[string]interface{}); data != nil {
+		if value := qqMobileCookieValueFromMap(data, names...); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func qqMobileCookieValueFromMap(data map[string]interface{}, names ...string) string {
+	if value := stringFromMapCaseInsensitive(data, names...); value != "" {
+		return value
+	}
+	for _, key := range []string{"cookie", "Cookie", "cookie_string", "cookieString"} {
+		if cookie := strings.TrimSpace(stringFromInterface(data[key])); cookie != "" {
+			parsed := parseCookieString(cookie)
+			for _, name := range names {
+				if value := firstCookieValue(parsed, name); value != "" {
+					return value
+				}
+			}
+		}
+	}
+	cookies := data["cookies"]
+	if cookies == nil {
+		cookies = data["cookieMap"]
+	}
+	switch v := cookies.(type) {
+	case map[string]interface{}:
+		for _, name := range names {
+			if value := qqMobileCookieValueFromAny(mapValueCaseInsensitive(v, name)); value != "" {
+				return value
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			itemMap, _ := item.(map[string]interface{})
+			if itemMap == nil {
+				continue
+			}
+			name := stringFromMapCaseInsensitive(itemMap, "name", "key")
+			if !matchesCookieName(name, names...) {
+				continue
+			}
+			if value := qqMobileCookieValueFromAny(mapValueCaseInsensitive(itemMap, "value")); value != "" {
+				return value
+			}
+		}
+	case string:
+		parsed := parseCookieString(v)
+		for _, name := range names {
+			if value := firstCookieValue(parsed, name); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func qqMobileCookieValueFromAny(value interface{}) string {
+	if nested, _ := value.(map[string]interface{}); nested != nil {
+		return firstNonEmptyQQ(
+			stringFromMapCaseInsensitive(nested, "value", "val", "cookie_value", "cookieValue"),
+			stringFromInterface(value),
+		)
+	}
+	return strings.TrimSpace(stringFromInterface(value))
+}
+
+func qqMobileCookieNames(payload map[string]interface{}) []string {
+	names := map[string]bool{}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			names[name] = true
+		}
+	}
+	var scan func(map[string]interface{})
+	scan = func(data map[string]interface{}) {
+		if data == nil {
+			return
+		}
+		for _, key := range []string{"cookie", "Cookie", "cookie_string", "cookieString"} {
+			if cookie := strings.TrimSpace(stringFromInterface(data[key])); cookie != "" {
+				for name := range parseCookieString(cookie) {
+					add(name)
+				}
+			}
+		}
+		cookies := data["cookies"]
+		if cookies == nil {
+			cookies = data["cookieMap"]
+		}
+		switch v := cookies.(type) {
+		case map[string]interface{}:
+			for key := range v {
+				add(key)
+			}
+		case []interface{}:
+			for _, item := range v {
+				itemMap, _ := item.(map[string]interface{})
+				add(stringFromMapCaseInsensitive(itemMap, "name", "key"))
+			}
+		case string:
+			for name := range parseCookieString(v) {
+				add(name)
+			}
+		}
+	}
+	scan(payload)
+	if data, _ := payload["data"].(map[string]interface{}); data != nil {
+		scan(data)
+	}
+	result := make([]string, 0, len(names))
+	for name := range names {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func stringFromMapCaseInsensitive(data map[string]interface{}, keys ...string) string {
+	if data == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := strings.TrimSpace(stringFromInterface(data[key])); value != "" {
+			return value
+		}
+	}
+	for _, key := range keys {
+		for actual, value := range data {
+			if strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(key)) {
+				if text := strings.TrimSpace(stringFromInterface(value)); text != "" {
+					return text
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func mapValueCaseInsensitive(data map[string]interface{}, key string) interface{} {
+	if data == nil {
+		return nil
+	}
+	if value, ok := data[key]; ok {
+		return value
+	}
+	for actual, value := range data {
+		if strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(key)) {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstCookieValue(cookies map[string]string, name string) string {
+	if cookies == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(cookies[name]); value != "" {
+		return value
+	}
+	for actual, value := range cookies {
+		if strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(name)) {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func matchesCookieName(name string, names ...string) bool {
+	for _, candidate := range names {
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(candidate)) {
+			return true
+		}
+	}
+	return false
 }
 
 func stringFromMap(data map[string]interface{}, keys ...string) string {

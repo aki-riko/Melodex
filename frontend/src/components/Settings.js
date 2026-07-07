@@ -17,7 +17,9 @@ import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
 
 const SOURCE_NOTES = {
-  qq_mobile: '客户端入口尝试换取 QQ 音乐强凭证;如果一直失败,请使用 QQ音乐 默认入口或手填完整 Cookie。',
+  qq: 'QQ 音乐客户端强登录入口,用于换取 qm_keyst/qqmusic_key 等强凭证。',
+  qq_connect: '旧 QQ 入口可作为备用,但通常拿不到 QQ 音乐强凭证。',
+  qq_mobile: '客户端入口尝试换取 QQ 音乐强凭证;如果一直失败,请使用手填完整 Cookie。',
   qq_wx: '微信入口共用 QQ 音乐凭证;登录成功后会更新 QQ 音乐 Cookie。退出或手填 Cookie 请使用 QQ音乐卡片。',
 };
 
