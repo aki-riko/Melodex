@@ -94,8 +94,8 @@ func (q *QQ) IsVipAccount() (bool, error) {
 
 	// Cache only when the probe result is conclusive.
 	isVip := false
-	if len(result.Req1.Data.MidUrlInfo) > 0 && result.Req1.Data.MidUrlInfo[0].Purl != "" {
-		isVip = true
+	if len(result.Req1.Data.MidUrlInfo) > 0 {
+		isVip = result.Req1.Data.MidUrlInfo[0].Purl != ""
 	} else if result.Req1.Code != 0 {
 		return false, fmt.Errorf("api returned error code: %d", result.Req1.Code)
 	}

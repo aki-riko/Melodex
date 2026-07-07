@@ -8,6 +8,7 @@ import (
 	"github.com/guohuiyuan/music-lib/model"
 	"github.com/guohuiyuan/music-lib/utils"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -24,28 +25,33 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 		songMID = s.Extra["songmid"]
 	}
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	guid := fmt.Sprintf("%d", r.Int63n(9000000000)+1000000000)
 	uin, musicKey := qqCredentialFromCookie(q.cookie)
 
 	// Request qualities from best to worst and use the first successful one.
-	var prefixes []string
-	var exts []string
-
-	isVip := false
-	if musicKey != "" {
-		isVip = true
-	} else {
-		isVip, _ = q.IsVipAccount()
-	}
+	isVip, _ := q.IsVipAccount()
 	if isVip {
-		prefixes = []string{"AI00", "Q001", "Q000", "F000", "O801", "M800", "M500"} // Master, Atmos5.1, Atmos2.0, FLAC, 640k, 320k, 128k
-		exts = []string{"flac", "flac", "flac", "flac", "ogg", "mp3", "mp3"}
-	} else {
-		prefixes = []string{"M800", "M500"} // Non-VIPs typically only reach 128kbps natively unless the track is free 320k
-		exts = []string{"mp3", "mp3"}
+		prefixes := []string{"AI00", "Q001", "Q000", "F000", "O801", "M800", "M500"} // Master, Atmos5.1, Atmos2.0, FLAC, 640k, 320k, 128k
+		exts := []string{"flac", "flac", "flac", "flac", "ogg", "mp3", "mp3"}
+		if url, err := q.getDownloadURLForPrefixes(songMID, uin, musicKey, true, prefixes, exts); err == nil {
+			return url, nil
+		}
 	}
 
+	// If the saved QQ music key is expired or the account is not VIP, sending it
+	// can make QQ return no purl even for tracks that anonymous users can play.
+	return q.getDownloadURLForPrefixes(songMID, uin, "", false, []string{"M800", "M500"}, []string{"mp3", "mp3"})
+}
+
+func (q *QQ) getDownloadURLForPrefixes(songMID, uin, musicKey string, useAuth bool, prefixes, exts []string) (string, error) {
+	if len(prefixes) == 0 || len(prefixes) != len(exts) {
+		return "", errors.New("invalid qq quality request")
+	}
+	if strings.TrimSpace(uin) == "" {
+		uin = "0"
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	guid := fmt.Sprintf("%d", r.Int63n(9000000000)+1000000000)
 	var filenames []string
 	var songmids []string
 	var songtypes []int
@@ -83,7 +89,7 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 			},
 		},
 	}
-	if musicKey != "" {
+	if useAuth && strings.TrimSpace(musicKey) != "" {
 		reqData["comm"].(map[string]interface{})["g_tk"] = hash33WithSeed(musicKey, 5381)
 		reqData["comm"].(map[string]interface{})["qq"] = uin
 		reqData["comm"].(map[string]interface{})["authst"] = musicKey
@@ -94,8 +100,10 @@ func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 		utils.WithHeader("User-Agent", UserAgent),
 		utils.WithHeader("Referer", DownloadReferer),
 		utils.WithHeader("Content-Type", "application/json"),
-		utils.WithHeader("Cookie", q.cookie),
 		utils.WithRandomIPHeader(),
+	}
+	if useAuth {
+		headers = append(headers, utils.WithHeader("Cookie", q.cookie))
 	}
 
 	body, err := utils.Post("https://u.y.qq.com/cgi-bin/musicu.fcg", bytes.NewReader(jsonData), headers...)
