@@ -93,7 +93,7 @@ const credentialHint = (source, loggedIn, qrSupported, detail) => {
     return '已保存,但缺 QQ 音乐强凭证(qm_keyst/qqmusic_key),VIP/无损可能失效。';
   }
   if (detail?.vip_checked && detail.vip) return '真实探测:VIP 链路有效。';
-  if (detail?.vip_checked && !detail.vip) return '真实探测:VIP 链路不可用,请重新扫码或手填完整 Cookie。';
+  if (detail?.vip_checked && !detail.vip) return '真实探测:会员链路不可用。平台 Cookie 是会过期的会话凭证,失效后只能重新扫码或手填新的 Cookie。';
   return platformHint(source, loggedIn, qrSupported);
 };
 
@@ -107,7 +107,7 @@ const credentialBadge = (loggedIn, detail) => {
   }
   if (detail?.error || (detail?.vip_checked && !detail.vip)) {
     return {
-      text: detail?.error ? '已保存' : 'VIP失效',
+      text: detail?.error ? '已保存' : '凭证失效',
       className: 'border-yellow-500/35 bg-yellow-500/10 text-yellow-300',
       icon: <AlertTriangle size={12} />,
     };
@@ -467,6 +467,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                   <p>2. 按 F12 打开开发者工具,进入「网络/Network」</p>
                   <p>3. 刷新页面,点任一请求,在「标头/Headers」里找到 <code className="rounded bg-card px-1">Cookie:</code></p>
                   <p>4. 复制整段 Cookie 值,确认包含 <code className="rounded bg-card px-1">{COOKIE_HELP[source].key}</code></p>
+                  <p>5. Cookie 是会过期的会话凭证,失效后需要重新扫码或重新粘贴新的 Cookie。</p>
                 </div>
               )}
               <textarea
