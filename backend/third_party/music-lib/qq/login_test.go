@@ -217,13 +217,23 @@ func TestCookieNeedsRefreshUsesMusicKeyExpiry(t *testing.T) {
 	}
 }
 
+func TestCookieNeedsRefreshWithRefreshKeyOnlyAndMissingExpiry(t *testing.T) {
+	cookie := "musicid=12345678; musickey=KEY; refresh_key=REFRESH_KEY"
+	if !CookieRefreshable(cookie) {
+		t.Fatal("CookieRefreshable should allow QQ cookies with refresh_key only")
+	}
+	if !CookieNeedsRefresh(cookie, time.Unix(1_700_000_000, 0)) {
+		t.Fatal("CookieNeedsRefresh should refresh when expiry metadata is missing")
+	}
+}
+
 func TestCookieNeedsRefreshRequiresRefreshMaterial(t *testing.T) {
 	cookie := "musicid=12345678; musickey=KEY; musickeyCreateTime=1699990000; keyExpiresIn=7200"
 	if CookieNeedsRefresh(cookie, time.Unix(1_700_000_000, 0)) {
-		t.Fatal("CookieNeedsRefresh should not refresh without refresh_key/refresh_token")
+		t.Fatal("CookieNeedsRefresh should not refresh without refresh_key")
 	}
 	if CookieRefreshable(cookie) {
-		t.Fatal("CookieRefreshable should require refresh_key/refresh_token")
+		t.Fatal("CookieRefreshable should require refresh_key")
 	}
 }
 

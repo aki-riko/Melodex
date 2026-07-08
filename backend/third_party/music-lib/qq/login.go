@@ -72,11 +72,11 @@ func CookieNeedsRefresh(cookie string, now time.Time) bool {
 	}
 	createdAt, ok := parseQQCookieUnix(firstNonEmptyQQ(cookies["musickeyCreateTime"], cookies["psrf_musickey_createtime"]))
 	if !ok {
-		return false
+		return true
 	}
 	keyExpiresIn, ok := parseQQCookieUnix(cookies["keyExpiresIn"])
 	if !ok || keyExpiresIn <= 0 {
-		return false
+		return true
 	}
 	expiresAt := time.Unix(createdAt+keyExpiresIn, 0)
 	return !now.Before(expiresAt.Add(-qqMusicKeySkew))
@@ -2114,8 +2114,7 @@ func parseQQCookieUnix(raw string) (int64, bool) {
 func qqCookieRefreshable(cookies map[string]string) bool {
 	return firstNonEmptyQQ(cookies["musicid"], cookies["qqmusic_uin"], cookies["str_musicid"], cookies["uin"]) != "" &&
 		firstNonEmptyQQ(cookies["musickey"], cookies["qqmusic_key"], cookies["qm_keyst"]) != "" &&
-		strings.TrimSpace(cookies["refresh_key"]) != "" &&
-		strings.TrimSpace(cookies["refresh_token"]) != ""
+		strings.TrimSpace(cookies["refresh_key"]) != ""
 }
 
 func normalizeQQLoginType(loginType string) string {
