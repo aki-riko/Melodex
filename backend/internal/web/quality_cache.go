@@ -24,7 +24,7 @@ const (
 	qualityCacheValidTTL   = 7 * 24 * time.Hour
 	qualityCacheInvalidTTL = time.Hour
 	qualityCacheMaxRows    = 20000
-	qqQualityProbeVersion  = "qq-vkey-ag1"
+	qqQualityProbeVersion  = "qq-vkey-ag1-refreshkey"
 )
 
 type qualityCacheRow struct {
