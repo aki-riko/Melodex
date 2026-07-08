@@ -24,6 +24,7 @@ const (
 	qualityCacheValidTTL   = 7 * 24 * time.Hour
 	qualityCacheInvalidTTL = time.Hour
 	qualityCacheMaxRows    = 20000
+	qqQualityProbeVersion  = "qq-vkey-ag1"
 )
 
 type qualityCacheRow struct {
@@ -325,9 +326,18 @@ func qualityCacheKey(song model.Song) (string, string) {
 	}
 	extraHash := qualityExtraHash(song.Extra)
 	credentialHash := core.CookieFingerprintForSource(source)
-	raw := strings.Join([]string{strings.ToLower(source), id, extraHash, credentialHash}, "\x00")
+	raw := strings.Join([]string{strings.ToLower(source), id, extraHash, credentialHash, qualityProbeVersion(source)}, "\x00")
 	sum := sha1.Sum([]byte(raw))
 	return hex.EncodeToString(sum[:]), extraHash
+}
+
+func qualityProbeVersion(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "qq", "qq_wx":
+		return qqQualityProbeVersion
+	default:
+		return ""
+	}
 }
 
 func qualityExtraHash(extra map[string]string) string {
