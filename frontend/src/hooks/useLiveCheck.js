@@ -4,7 +4,7 @@ import { songIdentityKey } from '../utils/songIdentity';
 
 // 并发验活:对一批歌曲限并发探测真实可用性,返回每首的状态与进度。
 // 状态:undefined=未验, 'pending'=验中, 'ok'=可用(带 size/bitrate), 'dead'=死链
-export function useLiveCheck(rawSongs, { enabled = true, concurrency = 6 } = {}) {
+export function useLiveCheck(rawSongs, { enabled = true, concurrency = 3 } = {}) {
   const [status, setStatus] = useState({}); // key -> {state, size?, bitrate?}
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const runIdRef = useRef(0);

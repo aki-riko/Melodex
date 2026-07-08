@@ -4,10 +4,12 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -152,6 +154,50 @@ func TestSearchCacheStaleEntryStillReadableForRefresh(t *testing.T) {
 	}
 	if len(entry.Response.Songs) != 1 || entry.Response.Songs[0].Name != "旧缓存" {
 		t.Fatalf("stale payload mismatch: %+v", entry.Response.Songs)
+	}
+}
+
+func TestJSONSearchSkipWarmDoesNotInspectCachedResults(t *testing.T) {
+	setupUserTestDB(t)
+	keyword := "skip-warm-test"
+	cacheKey := searchCacheKey("song", keyword, "", []string{"qq"})
+	putCachedSearch(cacheKey, jsonSearchResponse{
+		Type:    "song",
+		Keyword: keyword,
+		Sources: []string{"qq"},
+		Songs: []model.Song{
+			{ID: "song-1", Name: "限速测试", Artist: "Tester", Source: "qq", Duration: 100},
+		},
+	})
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Range", "bytes 0-1/4000000")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte{0, 1})
+	}))
+	defer server.Close()
+
+	origProvider := qualityDownloadURLProvider
+	qualityDownloadURLProvider = func(song model.Song) (string, error) {
+		return server.URL + "/track.mp3", nil
+	}
+	defer func() { qualityDownloadURLProvider = origProvider }()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	RegisterJSONAPIRoutes(r, StartOptions{DisableAuth: true})
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/search?q=%s&type=song&sources=qq&skip_warm=1", keyword), nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("search status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("skip_warm should not inspect cached search results, got %d source hits", got)
 	}
 }
 
