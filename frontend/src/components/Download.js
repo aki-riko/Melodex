@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useQuery } from 'react-query';
 import {
   searchMusic,
-  getSearchSuggestions,
   getRecommend,
   getPlaylistDetail,
   getLyric,
@@ -33,12 +32,10 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { useLiveCheck } from '../hooks/useLiveCheck';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
-import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
 
 const TABS = [
@@ -50,8 +47,6 @@ const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
 const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
 const COMBINED_SEARCH_RESULT_LIMIT = 80;
-const SEARCH_SUGGESTION_MIN_LENGTH = 2;
-const SEARCH_SUGGESTION_DEBOUNCE_MS = 260;
 const SEARCH_LINK_RE = /^(https?:\/\/|www\.)/i;
 const RECOGNITION_RECORD_MS = 10000;
 const RECOGNITION_MIME_TYPES = [
@@ -99,17 +94,6 @@ const combinedSearchKey = (song) => {
   return title ? `${source}:${title}:${artist}:${duration}` : songIdentityKey(song);
 };
 
-const useDebouncedValue = (value, delay) => {
-  const [debounced, setDebounced] = useState(value);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delay);
-    return () => window.clearTimeout(timer);
-  }, [value, delay]);
-
-  return debounced;
-};
-
 const pickRecognitionMimeType = () => {
   if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') return '';
   return RECOGNITION_MIME_TYPES.find((type) => window.MediaRecorder.isTypeSupported(type)) || '';
@@ -133,95 +117,6 @@ const hasTitleArtistHit = (song, query) => {
   if (!q || title.length < 2 || !q.includes(title)) return false;
   const artists = artistParts(song?.artist);
   return artists.length === 0 || artists.some((artist) => q.includes(artist));
-};
-
-const suggestionValue = (song) => {
-  const name = String(song?.name || '').trim();
-  const artist = String(song?.artist || '').trim();
-  return artist ? `${name} ${artist}` : name;
-};
-
-const songMetaText = (song, extra = []) => (
-  [song?.artist, song?.album, sourceLabel(song?.source), ...extra]
-    .filter(Boolean)
-    .join(' · ')
-);
-
-const addSuggestion = (bucket, seen, item) => {
-  const key = `${item.kind}:${compactSearchText(item.value)}:${compactSearchText(item.detail)}`;
-  if (!item.value || seen.has(key)) return;
-  seen.add(key);
-  bucket.push(item);
-};
-
-const buildSearchSuggestionGroups = (keyword, songs = [], keywords = []) => {
-  const q = compactSearchText(keyword);
-  if (q.length < SEARCH_SUGGESTION_MIN_LENGTH) return [];
-
-  const titleItems = [];
-  const artistItems = [];
-  const relatedItems = [];
-  const titleSeen = new Set();
-  const artistSeen = new Set();
-  const relatedSeen = new Set();
-
-  keywords.forEach((value) => {
-    const text = String(value || '').trim();
-    if (!text || !compactSearchText(text).includes(q)) return;
-    const target = /\s/.test(text) ? artistItems : titleItems;
-    const seen = /\s/.test(text) ? artistSeen : titleSeen;
-    addSuggestion(target, seen, {
-      kind: 'keyword',
-      value: text,
-      label: text,
-      detail: '最近搜索',
-    });
-  });
-
-  songs.forEach((song) => {
-    const name = String(song?.name || '').trim();
-    if (!name) return;
-    const artist = String(song?.artist || '').trim();
-    const nameText = compactSearchText(name);
-    const artistText = compactSearchText(artist);
-    const combinedText = `${nameText}${artistText}`;
-    const titleMatches = nameText.includes(q) || q.includes(nameText);
-    const artistMatches = artistText.includes(q) || combinedText.includes(q);
-
-    if (titleMatches && titleItems.length < 5) {
-      addSuggestion(titleItems, titleSeen, {
-        kind: 'title',
-        value: suggestionValue(song),
-        label: name,
-        detail: songMetaText(song),
-      });
-    }
-
-    if ((titleMatches || artistMatches) && artist && artistItems.length < 6) {
-      addSuggestion(artistItems, artistSeen, {
-        kind: 'artist',
-        value: `${name} ${artist}`,
-        label: name,
-        detail: artist,
-        badge: sourceLabel(song.source),
-      });
-    }
-
-    if (!titleMatches && relatedItems.length < 5) {
-      addSuggestion(relatedItems, relatedSeen, {
-        kind: 'related',
-        value: suggestionValue(song),
-        label: name,
-        detail: songMetaText(song),
-      });
-    }
-  });
-
-  return [
-    { key: 'title', label: '歌名', items: titleItems },
-    { key: 'artist', label: '歌名 + 歌手', items: artistItems },
-    { key: 'related', label: '相关歌曲', items: relatedItems },
-  ].filter((group) => group.items.length > 0);
 };
 
 const mergeSearchSongs = (query, songSongs = [], lyricSongs = []) => {
@@ -359,131 +254,21 @@ const QueryRefreshProgress = ({ active, className = '' }) => {
   );
 };
 
-const SearchSuggestionDropdown = ({ open, loading, groups, activeIndex, onActive, onPick }) => {
-  if (!open) return null;
-  let optionIndex = -1;
-
-  return (
-    <div
-      className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-md border border-border bg-card shadow-2xl"
-      onMouseDown={(e) => e.preventDefault()}
-    >
-      {loading && groups.length === 0 ? (
-        <div className="px-4 py-3 text-sm text-muted-foreground">
-          正在补全<span className="loading-dots" aria-hidden="true" />
-        </div>
-      ) : groups.length > 0 ? (
-        <div className="max-h-96 overflow-y-auto py-2 app-scroll" role="listbox" id="download-search-suggestions">
-          {groups.map((group) => (
-            <div key={group.key} className="py-1">
-              <div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {group.label}
-              </div>
-              {group.items.map((item) => {
-                optionIndex += 1;
-                const selected = optionIndex === activeIndex;
-                return (
-                  <button
-                    key={`${group.key}-${item.value}-${item.detail}`}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    onMouseEnter={() => onActive(optionIndex)}
-                    onClick={() => onPick(item)}
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                      selected ? 'bg-secondary' : 'hover:bg-secondary'
-                    }`}
-                  >
-                    <Search size={16} className="flex-shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-grow">
-                      <span className="block truncate text-sm font-medium text-foreground">{item.label}</span>
-                      {item.detail && <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>}
-                    </span>
-                    {item.badge && (
-                      <span className="max-w-24 flex-shrink-0 truncate rounded bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-          {loading && (
-            <div className="px-3 pt-1 text-xs text-muted-foreground">
-              更新中<span className="loading-dots" aria-hidden="true" />
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="px-4 py-3 text-sm text-muted-foreground">暂无补全建议</div>
-      )}
-    </div>
-  );
-};
-
 // 搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCache, query, state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
   const feedback = useFeedback();
-  const closeSuggestionTimerRef = useRef(null);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [autoPlayQuery, setAutoPlayQuery] = useState('');
   const recognitionRef = useRef({ recorder: null, stream: null, chunks: [], timer: null, failed: false });
   const mountedRef = useRef(true);
   const [recognition, setRecognition] = useState({ phase: 'idle', message: '' });
   const rawSuggestionKeyword = keyword.trim();
   const clearCacheKeyword = (rawSuggestionKeyword || query || '').trim();
-  const debouncedSuggestionKeyword = useDebouncedValue(rawSuggestionKeyword, SEARCH_SUGGESTION_DEBOUNCE_MS);
-  const canSuggest = rawSuggestionKeyword.length >= SEARCH_SUGGESTION_MIN_LENGTH && !SEARCH_LINK_RE.test(rawSuggestionKeyword);
-  const suggestionSearch = useQuery(
-    ['musicdl-search-suggestions', debouncedSuggestionKeyword],
-    async () => {
-      const localData = await getSearchSuggestions(debouncedSuggestionKeyword, { limit: 24 });
-      return {
-        keywords: localData.keywords || [],
-        songs: localData.songs || [],
-      };
-    },
-    {
-      enabled: suggestionsOpen && debouncedSuggestionKeyword.length >= SEARCH_SUGGESTION_MIN_LENGTH && !SEARCH_LINK_RE.test(debouncedSuggestionKeyword),
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      staleTime: 5 * 60 * 1000,
-    }
-  );
   const recognitionStatus = useQuery(['musicdl-recognition-status'], getRecognitionStatus, {
     refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
   });
   const recognitionDisabled = recognitionStatus.data && recognitionStatus.data.enabled === false;
-  const suggestionGroups = useMemo(
-    () => buildSearchSuggestionGroups(
-      debouncedSuggestionKeyword,
-      suggestionSearch.data?.songs || [],
-      suggestionSearch.data?.keywords || []
-    ),
-    [debouncedSuggestionKeyword, suggestionSearch.data]
-  );
-  const flatSuggestions = useMemo(
-    () => suggestionGroups.flatMap((group) => group.items),
-    [suggestionGroups]
-  );
-  const showSuggestions = suggestionsOpen && canSuggest;
-  const suggestionsLoading = showSuggestions && (
-    rawSuggestionKeyword !== debouncedSuggestionKeyword || suggestionSearch.isLoading || suggestionSearch.isFetching
-  );
-  // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
-  const { status, progress } = useLiveCheck(allSongs, { concurrency: 3 });
-
-  useEffect(() => {
-    setActiveSuggestion(-1);
-  }, [rawSuggestionKeyword, suggestionsOpen]);
-
-  useEffect(() => () => {
-    if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
-  }, []);
 
   const cleanupRecognitionResources = useCallback(() => {
     const current = recognitionRef.current;
@@ -599,8 +384,6 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
             feedback.error('识别到了结果,但没有可搜索的歌名');
             return;
           }
-          setSuggestionsOpen(false);
-          setActiveSuggestion(-1);
           setKeyword(nextQuery);
           setAutoPlayQuery(nextQuery);
           if (runSearch) runSearch(nextQuery);
@@ -626,52 +409,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
     }
   };
 
-  const openSuggestions = () => {
-    if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
-    setSuggestionsOpen(true);
-  };
-
-  const closeSuggestionsSoon = () => {
-    if (closeSuggestionTimerRef.current) window.clearTimeout(closeSuggestionTimerRef.current);
-    closeSuggestionTimerRef.current = window.setTimeout(() => setSuggestionsOpen(false), 120);
-  };
-
-  const pickSuggestion = (item) => {
-    const value = (item?.value || '').trim();
-    if (!value) return;
-    setSuggestionsOpen(false);
-    setActiveSuggestion(-1);
-    setAutoPlayQuery(value);
-    if (runSearch) runSearch(value);
-  };
-
-  const handleSuggestionKeyDown = (event) => {
-    if (event.key === 'Escape') {
-      setSuggestionsOpen(false);
-      setActiveSuggestion(-1);
-      return;
-    }
-    if (!showSuggestions || flatSuggestions.length === 0) return;
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setActiveSuggestion((idx) => (idx + 1) % flatSuggestions.length);
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setActiveSuggestion((idx) => (idx <= 0 ? flatSuggestions.length - 1 : idx - 1));
-      return;
-    }
-    if (event.key === 'Enter' && activeSuggestion >= 0) {
-      event.preventDefault();
-      pickSuggestion(flatSuggestions[activeSuggestion]);
-    }
-  };
-
   const handleFormSubmit = (event) => {
     setAutoPlayQuery('');
-    setSuggestionsOpen(false);
-    setActiveSuggestion(-1);
     onSubmit(event);
   };
 
@@ -739,37 +478,34 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
   const [sortMode, setSortMode] = useState('recommended');
   const SORT_PRESETS = {
     recommended: { field: 'relevance', order: 'desc', label: '推荐排序', hint: '优先匹配原唱和来源顺序' },
-    quality: { field: 'quality', order: 'desc', label: '高音质优先', hint: '按真实码率靠前' },
+    quality: { field: 'quality', order: 'desc', label: '高音质优先', hint: '按搜索返回音质预估' },
     compact: { field: 'size', order: 'asc', label: '文件更小', hint: '适合省空间和流量' },
   };
 
-  // 只保留已验活为 ok 的(验活中/未验先不显示,死链永久隐藏)
-  const liveSongs = allSongs.filter((s) => status[songIdentityKey(s)]?.state === 'ok');
   const originalIndex = new Map(allSongs.map((s, i) => [songIdentityKey(s), i]));
 
   // 各排序维度的取值
   const fieldValue = (s, field) => {
-    const live = status[songIdentityKey(s)];
-    if (field === 'size') return live?.sizeBytes || s.size || 0;
-    if (field === 'quality') return live?.bitrateNum || 0;
+    if (field === 'size') return s.size || 0;
+    if (field === 'quality') return Number(s.bitrate || 0) || 0;
     // 相关性:信任后端综合排序(上游名次+翻唱降权+原唱信号,前端看不到这些),
     // 用返回序的相反数(origIdx 越小越靠前)。不再前端重算 relevanceScore。
     if (field === 'relevance') return -(originalIndex.get(songIdentityKey(s)) ?? 0);
     return originalIndex.get(songIdentityKey(s)) ?? 0;
   };
 
-  // 默认给用户三种稳定排序:推荐 / 高音质 / 文件更小。
-  const songs = liveSongs
+  // 搜索页不再自动验活:先展示候选,用户点“验”/播放/下载时再解析单首。
+  const songs = allSongs
     .map((s, i) => ({ s, i }))
     .sort((a, b) => {
       const preset = SORT_PRESETS[sortMode] || SORT_PRESETS.recommended;
       const cmp = fieldValue(a.s, preset.field) - fieldValue(b.s, preset.field);
       if (cmp !== 0) return preset.order === 'asc' ? cmp : -cmp;
       // 排序键全相等(如同名"炽心"相关性同分)时,隐式按真实音质降序——
-      // 正版通常有无损会靠前;音质相同再回退原序。
+      // 未手动验活前只能使用搜索返回的预估码率;音质相同再回退原序。
       if (preset.field !== 'quality') {
-        const qa = status[songIdentityKey(a.s)]?.bitrateNum || 0;
-        const qb = status[songIdentityKey(b.s)]?.bitrateNum || 0;
+        const qa = Number(a.s.bitrate || 0) || 0;
+        const qb = Number(b.s.bitrate || 0) || 0;
         if (qa !== qb) return qb - qa;
       }
       return a.i - b.i;
@@ -787,9 +523,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       return;
     }
 
-    const liveCheckFinished = progress.total > 0 && progress.done >= progress.total;
     const searchFinishedWithoutSongs = !state.isLoading && allSongs.length === 0;
-    if (state.isError || state.data?.error || liveCheckFinished || searchFinishedWithoutSongs) {
+    if (state.isError || state.data?.error || searchFinishedWithoutSongs) {
       setAutoPlayQuery('');
     }
   }, [
@@ -797,8 +532,6 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
     autoPlayQuery,
     hasCurrentSearchResult,
     onPlay,
-    progress.done,
-    progress.total,
     query,
     songs,
     state.data?.error,
@@ -811,7 +544,6 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       sortMode === mode ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
     }`;
 
-  const checking = progress.total > 0 && progress.done < progress.total;
   const searchStage = (() => {
     if (!query && !state.isLoading) return null;
     if (state.isLoading) {
@@ -838,30 +570,15 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
         tone: 'error',
       };
     }
-    if (checking) {
+    if (hasCurrentSearchResult && songs.length > 0) {
       return {
-        title: '正在筛选可播放结果',
-        detail: '候选歌曲会逐首检查,不可播放或受限结果会被自动隐藏。',
-        icon: Loader2,
-        loading: true,
-      };
-    }
-    if (progress.total > 0 && songs.length > 0) {
-      return {
-        title: '已筛出可播放歌曲',
-        detail: `当前有 ${songs.length} 首可以直接播放或保存。`,
+        title: '已找到候选歌曲',
+        detail: `当前有 ${songs.length} 首候选。不会自动验活,需要时点单首“验”。`,
         icon: Check,
         tone: 'success',
       };
     }
-    if (progress.total > 0 && songs.length === 0) {
-      return {
-        title: '没有可播放的结果',
-        detail: '这些结果可能暂时不可用,也可能受版权或会员权限限制。',
-        icon: AlertCircle,
-      };
-    }
-    if (query && progress.total === 0) {
+    if (query && hasCurrentSearchResult && songs.length === 0) {
       return {
         title: '没有找到结果',
         detail: '可以换成“歌手 歌名”,或粘贴歌曲/歌单链接再试。',
@@ -878,28 +595,12 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
           <input
             type="text"
             value={keyword}
-            onFocus={openSuggestions}
-            onBlur={closeSuggestionsSoon}
             onChange={(e) => {
               setAutoPlayQuery('');
               setKeyword(e.target.value);
-              openSuggestions();
             }}
-            onKeyDown={handleSuggestionKeyDown}
             placeholder="输入歌名 / 歌手 / 歌词，或粘贴链接…"
             className="w-full rounded-md border border-border bg-card px-4 py-3 font-medium outline-none transition-colors focus:border-primary"
-            aria-autocomplete="list"
-            aria-expanded={showSuggestions}
-            aria-haspopup="listbox"
-            aria-controls="download-search-suggestions"
-          />
-          <SearchSuggestionDropdown
-            open={showSuggestions}
-            loading={suggestionsLoading}
-            groups={suggestionGroups}
-            activeIndex={activeSuggestion}
-            onActive={setActiveSuggestion}
-            onPick={pickSuggestion}
           />
         </div>
         <button
@@ -986,7 +687,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       )}
       <CacheRefreshNotice data={state.data} />
       <QueryRefreshProgress active={state.isFetching && !!state.data && !state.isLoading && !searchStage?.loading && !(state.data?.cached && state.data?.refreshing)} />
-      <SearchStatusPanel stage={searchStage} progress={progress} available={songs.length} total={allSongs.length} />
+      <SearchStatusPanel stage={searchStage} available={songs.length} total={allSongs.length} />
       {songs.length > 0 && (
         <div className="mb-4 flex flex-wrap items-stretch gap-2">
           {Object.entries(SORT_PRESETS).map(([mode, preset]) => (
@@ -1009,7 +710,6 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
             onTogglePlayback={onTogglePlayback}
             onPlay={(s) => onPlay(s, songs)}
             onShowLyric={onShowLyric}
-            liveInfo={status[songIdentityKey(song)]}
             lyricQuery={query}
           />
         ))}

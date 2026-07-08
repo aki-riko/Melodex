@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Pause, Download, FileText, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload, Ellipsis, Heart } from 'lucide-react';
-import { getStreamUrl, saveToServer, coverProxyUrl, getFavoriteStatus, toggleFavorite } from '../services/musicdl';
+import { getStreamUrl, saveToServer, coverProxyUrl, getFavoriteStatus, toggleFavorite, inspectQuality } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CHANGED } from '../services/offlineAudio';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -166,7 +166,6 @@ const SongRow = ({
   removeHint = '只从当前歌单移除',
 }) => {
   const rowSong = useMemo(() => normalizeSong(song), [song]);
-  const q = realQualityOf(liveInfo, rowSong);
   const instrumentalLabel = instrumentalLabelOf(rowSong);
   const { setAddTarget } = useCollections();
   const { user, offline } = useAuth();
@@ -175,10 +174,14 @@ const SongRow = ({
   const [cacheState, setCacheState] = useState('');
   const [favorited, setFavorited] = useState(false);
   const [favBusy, setFavBusy] = useState(false);
+  const [inspectState, setInspectState] = useState('');
+  const [manualLiveInfo, setManualLiveInfo] = useState(null);
   const [openMenu, setOpenMenu] = useState(false);
   const menuRef = useRef(null);
   const cacheable = canCacheSong(rowSong);
-  const sizeLabel = liveInfo?.size || fmtSize(rowSong.size);
+  const effectiveLiveInfo = manualLiveInfo || liveInfo;
+  const q = realQualityOf(effectiveLiveInfo, rowSong);
+  const sizeLabel = effectiveLiveInfo?.size || fmtSize(rowSong.size);
   const rowKey = songIdentityKey(rowSong);
   const favoriteCacheKey = `${userId}:${rowKey}`;
   const albumTitle = rowSong.album || '—';
@@ -188,6 +191,11 @@ const SongRow = ({
   const showPausedCoverPlayButton = isPlaying && isPaused;
   const CoverActionIcon = isActivelyPlaying ? Pause : Play;
   const coverActionLabel = isActivelyPlaying ? '暂停' : '播放';
+
+  useEffect(() => {
+    setInspectState('');
+    setManualLiveInfo(null);
+  }, [rowKey]);
 
   useEffect(() => {
     if (!openMenu) return undefined;
@@ -270,6 +278,35 @@ const SongRow = ({
     } catch (err) {
       console.warn('下载到 NAS 失败', err);
       setDlState('fail');
+    }
+  };
+
+  const handleInspect = async (e) => {
+    e.stopPropagation();
+    if (offline || inspectState === 'checking') return;
+    setInspectState('checking');
+    try {
+      const r = await inspectQuality(rowSong);
+      if (r && r.valid) {
+        const brNum = Number(r.bitrate_num || r.bitrateNum) || parseInt(String(r.bitrate || '').replace(/[^0-9]/g, ''), 10) || 0;
+        const sizeBytes = Number(r.size_bytes || r.sizeBytes) || 0;
+        setManualLiveInfo({
+          state: 'ok',
+          size: r.size,
+          sizeBytes,
+          bitrate: r.bitrate,
+          bitrateNum: brNum,
+          cached: !!r.cached,
+        });
+        setInspectState('ok');
+      } else {
+        setManualLiveInfo({ state: 'dead' });
+        setInspectState('fail');
+      }
+    } catch (err) {
+      console.warn('手动验活失败', err);
+      setManualLiveInfo({ state: 'dead' });
+      setInspectState('fail');
     }
   };
 
@@ -381,6 +418,9 @@ const SongRow = ({
             {rowSong.is_vip && statusBadge('VIP', 'bg-primary text-primary-foreground')}
             {q && statusBadge(q.label, q.cls)}
             {instrumentalLabel && statusBadge(instrumentalLabel, 'bg-amber-500/15 text-amber-600 dark:text-amber-400')}
+            {inspectState === 'checking' && statusBadge('验证中', 'bg-muted text-muted-foreground')}
+            {inspectState === 'ok' && statusBadge('已验', 'bg-primary/10 text-primary')}
+            {inspectState === 'fail' && statusBadge('不可播', 'bg-destructive/10 text-destructive')}
             <span className="text-[11px] whitespace-nowrap">{sourceLabel(rowSong.source)}</span>
             {sizeLabel && <span className="text-[11px] whitespace-nowrap">{sizeLabel}</span>}
             {cacheState === 'done' && statusBadge('本机', 'bg-primary/10 text-primary')}
@@ -406,6 +446,15 @@ const SongRow = ({
           disabled={offline || favBusy}
           active={favorited}
           busy={favBusy}
+        />
+        <ActionButton
+          icon={inspectState === 'ok' ? Check : RotateCw}
+          title={offline ? '离线状态无法验活' : inspectState === 'ok' ? '重新验音质/可播' : inspectState === 'fail' ? '重试验音质/可播' : '验音质/可播'}
+          onClick={handleInspect}
+          disabled={offline || inspectState === 'checking'}
+          active={inspectState === 'ok'}
+          danger={inspectState === 'fail'}
+          busy={inspectState === 'checking'}
         />
         <ActionButton
           icon={dlState === 'done' ? Check : dlState === 'fail' ? RotateCw : Download}
@@ -458,6 +507,15 @@ const SongRow = ({
         {openMenu && (
           <MenuPanel>
             <MenuItem icon={Play} label="播放" hint="立即播放这首歌" onClick={playFromMenu} />
+            <MenuItem
+              icon={inspectState === 'ok' ? Check : RotateCw}
+              label={inspectState === 'ok' ? '重新验音质/可播' : inspectState === 'fail' ? '重试验音质/可播' : '验音质/可播'}
+              hint="只检查当前这一首"
+              onClick={runMenuAction(handleInspect)}
+              disabled={offline || inspectState === 'checking'}
+              busy={inspectState === 'checking'}
+              danger={inspectState === 'fail'}
+            />
             {cacheable && (
               <MenuItem
                 icon={cacheState === 'done' ? Check : cacheState === 'fail' ? RotateCw : HardDriveDownload}
