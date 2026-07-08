@@ -175,6 +175,9 @@ func refreshQQCookieIfNeeded(cookie string) string {
 
 	refreshed, err := qq.RefreshLoginCookie(latest)
 	if err != nil || strings.TrimSpace(refreshed) == "" {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "QQ cookie refresh failed: %v\n", err)
+		}
 		return latest
 	}
 	CM.SetAll(map[string]string{"qq": refreshed})
