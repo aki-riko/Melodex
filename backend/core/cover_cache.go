@@ -80,7 +80,7 @@ func GetCachedCover(url, source string) ([]byte, string, error) {
 		}
 	}
 
-	data, contentType, err := FetchBytesWithMime(url, source)
+	data, contentType, err := FetchResourceBytesWithMime(url, source)
 	if err != nil || len(data) == 0 {
 		return data, contentType, err
 	}

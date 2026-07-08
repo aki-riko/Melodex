@@ -988,8 +988,9 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		if saveLocal && !allowSaveLocalRequest(c) {
 			return
 		}
-		// 用 core.FetchBytesWithMime(带 CheckRedirect SSRF 闭环)而非 utils.Get(跟随重定向不校验)
-		resp, _, err := core.FetchBytesWithMime(u, c.Query("source"))
+		// 用 core.FetchResourceBytesWithMime(带 CheckRedirect SSRF 闭环)而非 utils.Get(跟随重定向不校验)。
+		// 封面是图片资源,不能走音频 Range 探测,否则支持 Range 的图片 CDN 会被误判为非音频。
+		resp, _, err := core.FetchResourceBytesWithMime(u, c.Query("source"))
 		if err == nil {
 			filename := fmt.Sprintf("%s - %s.jpg", c.Query("name"), c.Query("artist"))
 			if saveLocal {

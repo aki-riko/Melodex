@@ -1,8 +1,11 @@
 package core
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -61,6 +64,42 @@ func TestIsLikelyImage(t *testing.T) {
 		if got := isLikelyImage(c.ct, c.data); got != c.want {
 			t.Fatalf("%s: isLikelyImage(%q,...) = %v, want %v", c.name, c.ct, got, c.want)
 		}
+	}
+}
+
+func TestGetCachedCoverDoesNotUseAudioRangeProbe(t *testing.T) {
+	dir := t.TempDir()
+	orig := coverCacheRoot
+	coverCacheRoot = func() string { return filepath.Join(dir, "covers") }
+	t.Cleanup(func() { coverCacheRoot = orig })
+
+	image := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xD9}
+	var sawRange atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		if r.Header.Get("Range") != "" {
+			sawRange.Store(true)
+			w.Header().Set("Content-Range", "bytes 0-13/14")
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write(image)
+			return
+		}
+		_, _ = w.Write(image)
+	}))
+	t.Cleanup(server.Close)
+
+	data, contentType, err := GetCachedCover(server.URL+"/cover.jpg", "kugou")
+	if err != nil {
+		t.Fatalf("GetCachedCover returned error: %v", err)
+	}
+	if sawRange.Load() {
+		t.Fatal("cover fetch should not use audio Range probe")
+	}
+	if contentType != "image/jpeg" {
+		t.Fatalf("contentType = %q, want image/jpeg", contentType)
+	}
+	if string(data) != string(image) {
+		t.Fatalf("data mismatch: got %x want %x", data, image)
 	}
 }
 
