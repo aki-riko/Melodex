@@ -73,6 +73,8 @@ func (k *Kuwo) Search(keyword string) ([]model.Song, error) {
 		size := parseSizeFromMInfo(item.MInfo)
 		bitrate := parseBitrateFromMInfo(item.MInfo)
 
+		cover := normalizeKuwoImageURL(item.HtsMVPic)
+
 		songs = append(songs, model.Song{
 			Source:   "kuwo",
 			ID:       cleanID,
@@ -82,7 +84,7 @@ func (k *Kuwo) Search(keyword string) ([]model.Song, error) {
 			Duration: duration,
 			Size:     size,
 			Bitrate:  bitrate,
-			Cover:    item.HtsMVPic,
+			Cover:    cover,
 			Link:     fmt.Sprintf("http://www.kuwo.cn/play_detail/%s", cleanID),
 			Extra: map[string]string{
 				"rid": cleanID,

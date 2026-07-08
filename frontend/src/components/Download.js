@@ -69,15 +69,39 @@ const hasExactLyricHit = (song, query) => {
   return compactSearchText(match).includes(q);
 };
 
-const mergeSongData = (base, incoming) => ({
-  ...incoming,
-  ...base,
-  extra: {
-    ...(incoming?.extra || {}),
-    ...(base?.extra || {}),
-    lyric_match: (base?.extra?.lyric_match || incoming?.extra?.lyric_match || ''),
-  },
-});
+const textOr = (primary, fallback) => {
+  const text = String(primary ?? '').trim();
+  return text || String(fallback ?? '').trim();
+};
+
+const numberOr = (primary, fallback) => {
+  const value = Number(primary || 0);
+  return value > 0 ? value : (Number(fallback || 0) || 0);
+};
+
+const mergeSongData = (base, incoming) => {
+  const merged = {
+    ...incoming,
+    ...base,
+    name: textOr(base?.name, incoming?.name),
+    artist: textOr(base?.artist, incoming?.artist),
+    album: textOr(base?.album, incoming?.album),
+    album_id: textOr(base?.album_id, incoming?.album_id),
+    cover: textOr(base?.cover, incoming?.cover),
+    link: textOr(base?.link, incoming?.link),
+    ext: textOr(base?.ext, incoming?.ext),
+    duration: numberOr(base?.duration, incoming?.duration),
+    size: numberOr(base?.size, incoming?.size),
+    bitrate: numberOr(base?.bitrate, incoming?.bitrate),
+    is_vip: Boolean(base?.is_vip || incoming?.is_vip),
+    extra: {
+      ...(incoming?.extra || {}),
+      ...(base?.extra || {}),
+      lyric_match: (base?.extra?.lyric_match || incoming?.extra?.lyric_match || ''),
+    },
+  };
+  return merged;
+};
 
 const artistParts = (artist) => String(artist || '')
   .split(/[、,，/&\s-]+/)
