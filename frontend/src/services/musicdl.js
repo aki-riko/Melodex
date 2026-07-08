@@ -34,11 +34,12 @@ client.interceptors.response.use(
 );
 
 // 多源搜索。type: song | lyric | playlist | album
-export const searchMusic = async (keyword, { type = 'song', sources = [], exactArtist = '' } = {}) => {
+export const searchMusic = async (keyword, { type = 'song', sources = [], exactArtist = '', skipWarm = false } = {}) => {
   const params = new URLSearchParams();
   params.set('q', keyword);
   params.set('type', type);
   if (exactArtist) params.set('exact_artist', exactArtist);
+  if (skipWarm) params.set('skip_warm', '1');
   sources.forEach((s) => params.append('sources', s));
 
   const { data } = await client.get(`/api/v1/search?${params.toString()}`);

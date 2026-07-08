@@ -260,8 +260,8 @@ const searchSongsAndLyrics = async (keyword) => {
   const query = keyword.trim();
   const isLink = SEARCH_LINK_RE.test(query);
   const requests = [
-    searchMusic(query, { type: 'song' }),
-    ...(isLink ? [] : [searchMusic(query, { type: 'lyric' })]),
+    searchMusic(query, { type: 'song', skipWarm: true }),
+    ...(isLink ? [] : [searchMusic(query, { type: 'lyric', skipWarm: true })]),
   ];
   const [songResult, lyricResult] = await Promise.allSettled(requests);
   const songData = songResult?.status === 'fulfilled' ? songResult.value : null;
@@ -440,18 +440,10 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
   const suggestionSearch = useQuery(
     ['musicdl-search-suggestions', debouncedSuggestionKeyword],
     async () => {
-      const [localResult, onlineResult] = await Promise.allSettled([
-        getSearchSuggestions(debouncedSuggestionKeyword, { limit: 24 }),
-        searchMusic(debouncedSuggestionKeyword, { type: 'song' }),
-      ]);
-      const localData = localResult.status === 'fulfilled' ? localResult.value : {};
-      const onlineData = onlineResult.status === 'fulfilled' ? onlineResult.value : {};
+      const localData = await getSearchSuggestions(debouncedSuggestionKeyword, { limit: 24 });
       return {
         keywords: localData.keywords || [],
-        songs: [
-          ...(localData.songs || []),
-          ...(onlineData.songs || []),
-        ],
+        songs: localData.songs || [],
       };
     },
     {
@@ -483,7 +475,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
     rawSuggestionKeyword !== debouncedSuggestionKeyword || suggestionSearch.isLoading || suggestionSearch.isFetching
   );
   // 自动验活:并发探测真实可用性,死链隐藏,存活的带上真实 size/bitrate
-  const { status, progress } = useLiveCheck(allSongs);
+  const { status, progress } = useLiveCheck(allSongs, { concurrency: 3 });
 
   useEffect(() => {
     setActiveSuggestion(-1);

@@ -407,6 +407,7 @@ func jsonSearchHandler(c *gin.Context) {
 	searchType := c.DefaultQuery("type", "song")
 	exactArtist := strings.TrimSpace(c.Query("exact_artist"))
 	sources := c.QueryArray("sources")
+	skipWarm, _ := strconv.ParseBool(c.DefaultQuery("skip_warm", "false"))
 
 	if len(sources) == 0 {
 		sources = defaultSourcesForSearchType(searchType)
@@ -434,7 +435,7 @@ func jsonSearchHandler(c *gin.Context) {
 		resp.Playlists = playlists
 		resp.Type = finalType
 		resp.Error = errMsg
-		if isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
+		if !skipWarm && isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
 			warmQualityCache(resp.Songs, 6)
 		}
 		if errMsg != "" {
@@ -453,9 +454,9 @@ func jsonSearchHandler(c *gin.Context) {
 			}
 			recordSearchHistory(currentUserID(c), keyword, cached.Type)
 			if !entry.Fresh {
-				refreshSearchCacheAsync(cacheKey, searchType, keyword, exactArtist, sources)
+				refreshSearchCacheAsync(cacheKey, searchType, keyword, exactArtist, sources, !skipWarm)
 			}
-			if isTrackSearchType(cached.Type) && len(cached.Songs) > 0 {
+			if !skipWarm && isTrackSearchType(cached.Type) && len(cached.Songs) > 0 {
 				warmQualityCache(cached.Songs, 6)
 			}
 			c.JSON(200, cached)
@@ -467,7 +468,7 @@ func jsonSearchHandler(c *gin.Context) {
 		// 写缓存(排序/过滤后的最终结果)+ 记搜索历史。
 		putCachedSearch(cacheKey, resp)
 		recordSearchHistory(currentUserID(c), keyword, resp.Type)
-		if isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
+		if !skipWarm && isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
 			warmQualityCache(resp.Songs, 6)
 		}
 		c.JSON(200, resp)
@@ -552,7 +553,7 @@ func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources
 	return resp
 }
 
-func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sources []string) {
+func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sources []string, warmQuality bool) {
 	if strings.TrimSpace(key) == "" || strings.TrimSpace(keyword) == "" {
 		return
 	}
@@ -563,7 +564,7 @@ func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sourc
 		defer searchCacheRefreshInFlight.Delete(key)
 		resp := buildKeywordSearchResponse(keyword, searchType, exactArtist, sources)
 		putCachedSearch(key, resp)
-		if isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
+		if warmQuality && isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
 			warmQualityCache(resp.Songs, 6)
 		}
 	}()

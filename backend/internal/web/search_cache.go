@@ -180,6 +180,6 @@ func refreshStaleSearchCacheRows(limit int) {
 		if strings.TrimSpace(resp.Keyword) == "" || strings.HasPrefix(strings.TrimSpace(resp.Keyword), "http") {
 			continue
 		}
-		refreshSearchCacheAsync(row.Key, resp.Type, resp.Keyword, resp.ExactArtist, resp.Sources)
+		refreshSearchCacheAsync(row.Key, resp.Type, resp.Keyword, resp.ExactArtist, resp.Sources, false)
 	}
 }
