@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import {
   searchMusic,
   getRecommend,
@@ -59,6 +59,8 @@ const RECOGNITION_MIME_TYPES = [
 
 // 搜索结果相关性排序已下沉到后端(/api/v1/search 综合排序:上游名次+翻唱降权+
 // 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
+
+const searchQueryKey = (keyword) => ['musicdl-search', 'combined', keyword];
 
 const compactSearchText = (value) => String(value || '').replace(/[\s/\\|,，.。;；:：!！?？、'"“”‘’《》<>()[\]【】{}-]+/g, '').toLocaleLowerCase();
 
@@ -649,7 +651,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
         <button
           type="button"
           onClick={handleClearSearchCache}
-          disabled={!clearCacheKeyword || clearingSearchCache || state.isLoading || state.isFetching}
+          disabled={!clearCacheKeyword || clearingSearchCache || state.isLoading}
           className="flex h-12 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
           title={clearCacheKeyword ? `清理「${clearCacheKeyword}」的搜索缓存并重新搜索` : '输入关键词后清理搜索缓存'}
         >
@@ -1021,6 +1023,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
 
 const Download = ({ downloadRequest }) => {
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState('search');
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
@@ -1042,7 +1045,7 @@ const Download = ({ downloadRequest }) => {
 
   // 歌名 + 歌词合并搜索
   const search = useQuery(
-    ['musicdl-search', 'combined', query],
+    searchQueryKey(query),
     () => searchSongsAndLyrics(query),
     {
       enabled: tab === 'search' && !!query,
@@ -1089,13 +1092,17 @@ const Download = ({ downloadRequest }) => {
     const k = (kw || query || '').trim();
     if (!k) return;
     const types = SEARCH_LINK_RE.test(k) ? ['song'] : ['song', 'lyric'];
+    const targetKey = searchQueryKey(k);
+    await queryClient.cancelQueries(targetKey, { exact: true });
     await clearSearchCache(k, { types });
     if (k !== query) {
+      queryClient.removeQueries(targetKey, { exact: true });
       setQuery(k);
       return;
     }
+    await queryClient.invalidateQueries(targetKey, { exact: true });
     await search.refetch();
-  }, [query, search]);
+  }, [query, queryClient, search]);
 
   const handlePlay = (song, list) => play(song, list);
 
