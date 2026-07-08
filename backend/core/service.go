@@ -1580,6 +1580,13 @@ func FetchBytesWithMime(urlStr string, source string) ([]byte, string, error) {
 	return fetchBytesSingle(urlStr, source)
 }
 
+// FetchResourceBytesWithMime 获取封面等非音频资源。
+// 它保留 BuildSourceRequest 的来源请求头和重定向 SSRF 校验,但跳过音频专用
+// Range 探测,避免支持 Range 的图片 CDN 被误判为"不是音频"。
+func FetchResourceBytesWithMime(urlStr string, source string) ([]byte, string, error) {
+	return fetchBytesSingle(urlStr, source)
+}
+
 // ssrfCheckRedirect 在 HTTP 重定向时校验每一跳目标 IP,拒绝跳向内网/环回/云元数据,
 // 闭合"原始 URL 校验通过但被 302 重定向到内网"的 SSRF 绕过。最多 10 跳。
 func ssrfCheckRedirect(req *http.Request, via []*http.Request) error {

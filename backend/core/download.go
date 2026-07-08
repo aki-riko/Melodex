@@ -74,7 +74,7 @@ func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics b
 	var coverData []byte
 	var coverMime string
 	if withCover && strings.TrimSpace(normalized.Cover) != "" {
-		coverData, coverMime, _ = FetchBytesWithMime(normalized.Cover, normalized.Source)
+		coverData, coverMime, _ = FetchResourceBytesWithMime(normalized.Cover, normalized.Source)
 		// 国内源(尤其咪咕)封面常为 webp,而 ID3/FLAC 封面被多数播放器/刮削器
 		// 仅识别 JPEG/PNG。这里把非 JPEG/PNG 的封面转成 JPEG,保证封面能被识别。
 		if len(coverData) > 0 {

@@ -130,7 +130,7 @@ func proxyOnlineCover(c *gin.Context, coverURL, source string) {
 		respondSubsonicError(c, errSubsonicNotFound)
 		return
 	}
-	data, contentType, err := core.FetchBytesWithMime(coverURL, source)
+	data, contentType, err := core.FetchResourceBytesWithMime(coverURL, source)
 	if err != nil || len(data) == 0 {
 		respondSubsonicError(c, errSubsonicNotFound)
 		return
@@ -155,7 +155,6 @@ func stripClientIDPrefix(id string) string {
 	}
 	return id
 }
-
 
 // encodeNameID 把名称编码成稳定的 url-safe id 片段。
 func encodeNameID(name string) string {
