@@ -162,27 +162,49 @@ func refreshQQCookieIfNeeded(cookie string) string {
 		return cookie
 	}
 
+	refreshed, err := refreshQQCookie(cookie, false)
+	if err != nil {
+		logQQCookieRefreshFailure(err)
+		return cookie
+	}
+	return refreshed
+}
+
+func refreshQQCookieAfterReject(cookie string) (string, error) {
+	return refreshQQCookie(cookie, true)
+}
+
+func refreshQQCookie(cookie string, force bool) (string, error) {
 	qqCookieRefreshMu.Lock()
 	defer qqCookieRefreshMu.Unlock()
 
 	latest := CM.Get("qq")
 	if latest == "" {
-		return cookie
+		return cookie, fmt.Errorf("qq cookie is empty")
 	}
-	if latest != cookie && !qq.CookieNeedsRefresh(latest, time.Now()) {
-		return latest
+	if !force && latest != cookie && !qq.CookieNeedsRefresh(latest, time.Now()) {
+		return latest, nil
+	}
+	if !qq.CookieRefreshable(latest) {
+		return latest, fmt.Errorf("qq cookie is not refreshable")
 	}
 
 	refreshed, err := qq.RefreshLoginCookie(latest)
 	if err != nil || strings.TrimSpace(refreshed) == "" {
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "QQ cookie refresh failed: %v\n", err)
+		if err == nil {
+			err = fmt.Errorf("qq refresh returned empty cookie")
 		}
-		return latest
+		return latest, err
 	}
 	CM.SetAll(map[string]string{"qq": refreshed})
 	CM.Save()
-	return refreshed
+	return refreshed, nil
+}
+
+func logQQCookieRefreshFailure(err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "QQ cookie refresh failed: %v\n", err)
+	}
 }
 
 func CookieFingerprintForSource(source string) string {
@@ -241,7 +263,17 @@ func probeCookieVIPStatus(source, cookie string) (bool, error) {
 	case "netease":
 		return netease.New(cookie).IsVipAccount()
 	case "qq":
-		return qq.New(refreshQQCookieIfNeeded(cookie)).IsVipAccount()
+		current := refreshQQCookieIfNeeded(cookie)
+		vip, err := qq.New(current).IsVipAccount()
+		if err == nil || !qq.CookieRefreshable(current) {
+			return vip, err
+		}
+		refreshed, refreshErr := refreshQQCookieAfterReject(current)
+		if refreshErr != nil {
+			logQQCookieRefreshFailure(refreshErr)
+			return vip, err
+		}
+		return qq.New(refreshed).IsVipAccount()
 	case "kugou":
 		return kugou.New(cookie).IsVipAccount()
 	case "bilibili":
@@ -651,7 +683,18 @@ func GetDownloadFunc(source string) func(*model.Song) (string, error) {
 	case "netease":
 		return netease.New(c).GetDownloadURL
 	case "qq":
-		return qq.New(c).GetDownloadURL
+		return func(song *model.Song) (string, error) {
+			url, err := qq.New(c).GetDownloadURL(song)
+			if err == nil || !qq.CookieRefreshable(c) {
+				return url, err
+			}
+			refreshed, refreshErr := refreshQQCookieAfterReject(c)
+			if refreshErr != nil {
+				logQQCookieRefreshFailure(refreshErr)
+				return url, err
+			}
+			return qq.New(refreshed).GetDownloadURL(song)
+		}
 	case "kugou":
 		return kugou.New(c).GetDownloadURL
 	case "kuwo":
