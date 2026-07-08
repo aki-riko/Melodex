@@ -1,12 +1,16 @@
 package web
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/guohuiyuan/go-music-dl/core"
 	"github.com/guohuiyuan/music-lib/model"
@@ -130,6 +134,60 @@ func TestQualityCacheKeyIncludesCookieFingerprint(t *testing.T) {
 	}
 }
 
+func TestQualityCacheKeySkipsLegacyQQProbeCache(t *testing.T) {
+	baseDir := t.TempDir()
+	t.Setenv("MUSIC_DL_CONFIG_DB", filepath.Join(baseDir, "data", "settings.db"))
+	resetCollectionStateForTest()
+	t.Cleanup(resetCollectionStateForTest)
+	InitDB()
+
+	const sizeBytes = int64(4_000_000)
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-1/%d", sizeBytes))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte{0, 1})
+	}))
+	defer server.Close()
+
+	origProvider := qualityDownloadURLProvider
+	qualityDownloadURLProvider = func(song model.Song) (string, error) {
+		return server.URL + "/track.mp3", nil
+	}
+	defer func() { qualityDownloadURLProvider = origProvider }()
+
+	song := model.Song{ID: "002t0xbC4DCGdE", Source: "qq", Duration: 100, Extra: map[string]string{"songmid": "002t0xbC4DCGdE"}}
+	core.CM.SetAll(map[string]string{"qq": "qqmusic_uin=123456; qm_keyst=FIRST"})
+
+	oldKey, extraHash := legacyQualityCacheKeyForTest(song)
+	newKey, _ := qualityCacheKey(song)
+	if oldKey == newKey {
+		t.Fatal("legacy and current QQ quality cache keys should differ after probe upgrade")
+	}
+
+	if err := db.Create(&qualityCacheRow{
+		Key:       oldKey,
+		SongID:    song.ID,
+		Source:    song.Source,
+		ExtraHash: extraHash,
+		Valid:     false,
+		SizeText:  "-",
+		Bitrate:   "-",
+		CheckedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("seed legacy quality cache row: %v", err)
+	}
+
+	result := inspectSongQualityCached(song, song.Duration)
+	if !result.Valid || result.Cached {
+		t.Fatalf("result = %#v, want fresh valid result instead of legacy invalid cache", result)
+	}
+	if atomic.LoadInt32(&hits) != 1 {
+		t.Fatalf("source hit count = %d, want 1", hits)
+	}
+}
+
 func TestMarkQualityCacheInvalidOverwritesCachedValid(t *testing.T) {
 	baseDir := t.TempDir()
 	t.Setenv("MUSIC_DL_CONFIG_DB", filepath.Join(baseDir, "data", "settings.db"))
@@ -159,4 +217,17 @@ func TestMarkQualityCacheInvalidOverwritesCachedValid(t *testing.T) {
 	if !ok || cached.Valid {
 		t.Fatalf("cached result = %#v ok=%v, want invalid cache after invalidation", cached, ok)
 	}
+}
+
+func legacyQualityCacheKeyForTest(song model.Song) (string, string) {
+	source := strings.TrimSpace(song.Source)
+	id := strings.TrimSpace(song.ID)
+	if source == "" || id == "" {
+		return "", ""
+	}
+	extraHash := qualityExtraHash(song.Extra)
+	credentialHash := core.CookieFingerprintForSource(source)
+	raw := strings.Join([]string{strings.ToLower(source), id, extraHash, credentialHash}, "\x00")
+	sum := sha1.Sum([]byte(raw))
+	return hex.EncodeToString(sum[:]), extraHash
 }
