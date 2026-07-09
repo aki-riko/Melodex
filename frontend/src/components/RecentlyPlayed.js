@@ -33,7 +33,9 @@ export default function RecentlyPlayed() {
     const total = list.length;
     let done = 0;
     let fail = 0;
-    await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
+    // runForKey 在同 key 已在下载时立即返回 false 且不执行 worker,
+    // 此时 done/fail 仍为 0,不能弹 toast(否则误报"已下载 0 首")。
+    const started = await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
       for (const song of list) {
         try {
           const result = await saveToServer(song);
@@ -46,6 +48,7 @@ export default function RecentlyPlayed() {
       }
       update({ phase: fail ? 'fail' : 'done', done, fail, total });
     });
+    if (!started) return;
     if (fail) feedback.error(`下载完成,${fail} 首失败(多为死链/需登录)`);
     else feedback.success(`已全部下载到服务器 ${done} 首`);
   };
