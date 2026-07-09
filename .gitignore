@@ -23,3 +23,8 @@ _merge_src/
 
 # 部署期本地覆盖(含真实凭据,禁止提交)
 docker-compose.override.yml
+
+# 调试产物:Playwright/浏览器 profile 缓存(含 Cookies/Login Data 等敏感文件,禁止提交)
+output/
+.playwright-cli/
+.playwright-mcp/
