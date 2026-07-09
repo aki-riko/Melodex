@@ -754,8 +754,18 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 				return
 			}
 
+			// 音质升级时删除了同名低音质旧文件,清理其下载归属记录避免孤儿。
+			for _, removed := range result.RemovedPaths {
+				if rel := relPathUnderDir(settings.DownloadDir, removed); rel != "" {
+					if err := deleteDownloadRecordsByPath(rel); err != nil {
+						log.Printf("[download] 清理旧音质归属记录失败 rel=%q: %v", rel, err)
+					}
+				}
+			}
+
 			// 登记下载归属(共享目录 + 归属表方案):本地库据此按用户隔离。
 			// userID=0(桌面模式异常/未登录)时 recordDownload 内部跳过,不影响下载本身。
+			// 跳过或正常写入都要登记:即便复用已存在文件,当前用户也应获得归属。
 			if rel := relPathUnderDir(settings.DownloadDir, result.SavedPath); rel != "" {
 				if err := recordDownload(currentUserID(c), rel, source, id, name, artist); err != nil {
 					log.Printf("[download] 登记下载归属失败 user=%d rel=%q: %v", currentUserID(c), rel, err)

@@ -22,6 +22,41 @@ type DownloadedSong struct {
 	Filename    string
 	SavedPath   string
 	Warning     string
+	// Skipped 为 true 表示因已存在同名的同等或更高音质文件而未写入新文件,
+	// SavedPath 指向已存在的那个文件。
+	Skipped bool
+	// RemovedPaths 是本次「音质升级」删除的同名低音质旧文件的绝对路径,
+	// 上层据此清理下载归属记录(download_records),避免孤儿。
+	RemovedPaths []string
+}
+
+// audioQualityRank 返回音频格式的音质优先级,数字越大音质越高(无损优先)。
+// 用于跨格式去重:同一首歌只保留最高音质的一份。
+func audioQualityRank(ext string) int {
+	switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ext, "."))) {
+	case "flac", "wav":
+		return 5 // 无损
+	case "m4a", "aac":
+		return 3 // 高码率有损
+	case "ogg":
+		return 2
+	case "mp3":
+		return 1
+	case "wma":
+		return 0
+	default:
+		return 1 // 未知按 mp3 档处理
+	}
+}
+
+// isAudioExt 判断扩展名是否属于已知音频格式。
+func isAudioExt(ext string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ext, "."))) {
+	case "flac", "wav", "m4a", "aac", "ogg", "mp3", "wma":
+		return true
+	default:
+		return false
+	}
 }
 
 func DownloadSongData(song *model.Song, withCover bool, withLyrics bool) (*DownloadedSong, error) {
@@ -144,13 +179,71 @@ func saveDownloadedSongToFile(result *DownloadedSong, outDir string) (*Downloade
 	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 		return nil, err
 	}
+
+	// 跨格式音质去重:扫描同目录下同名(仅扩展名不同)的已存在音频文件。
+	// 已有同等或更高音质 → 跳过写入,返回已存在文件;
+	// 已有更低音质 → 写入新文件后删除旧的低音质文件(音质升级)。
+	newRank := audioQualityRank(result.Ext)
+	existing, scanErr := findSameNameAudioFiles(filePath)
+	if scanErr == nil {
+		for _, ex := range existing {
+			exRank := audioQualityRank(strings.TrimPrefix(filepath.Ext(ex), "."))
+			if exRank >= newRank {
+				// 已有同等或更高音质,不重复写入,直接复用已存在文件。
+				result.Filename = filepath.Base(ex)
+				result.SavedPath = ex
+				result.Skipped = true
+				return result, nil
+			}
+		}
+	}
+
 	if err := os.WriteFile(filePath, result.Data, 0644); err != nil {
 		return nil, err
+	}
+
+	// 新文件音质更高,删除同名的低音质旧文件并上报路径供上层清理归属记录。
+	for _, ex := range existing {
+		if ex == filePath {
+			continue
+		}
+		if err := os.Remove(ex); err == nil {
+			result.RemovedPaths = append(result.RemovedPaths, ex)
+		}
 	}
 
 	result.Filename = fileName
 	result.SavedPath = filePath
 	return result, nil
+}
+
+// findSameNameAudioFiles 返回与 filePath 同名(去扩展名后相同)但扩展名不同的
+// 已存在音频文件绝对路径列表。仅在同一目录内查找,不递归。
+func findSameNameAudioFiles(filePath string) ([]string, error) {
+	dir := filepath.Dir(filePath)
+	base := filepath.Base(filePath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var matches []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name == base {
+			continue // 同名同格式,由 WriteFile 覆盖处理,不算跨格式重复
+		}
+		nameExt := filepath.Ext(name)
+		nameStem := strings.TrimSuffix(name, nameExt)
+		if nameStem == stem && isAudioExt(nameExt) {
+			matches = append(matches, filepath.Join(dir, name))
+		}
+	}
+	return matches, nil
 }
 
 func BuildDownloadFilename(song *model.Song, ext string, filenameTemplate string) string {
