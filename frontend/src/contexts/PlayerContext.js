@@ -391,7 +391,9 @@ export const PlayerProvider = ({ children }) => {
       recordPlayHistory(cur);
       // 开关开启时,把正在播放(即活的)的歌静默下载到服务器。
       // 用 songIdentityKey 去重,同一首本会话只下一次,避免重复拉流覆盖。
-      if (cur && loadAutoDownloadOnPlay()) {
+      // 跳过 source==='local' 的本地库歌曲——它已在服务器磁盘上,
+      // 且 local 不是有效下载源,下载会走无意义请求并失败。
+      if (cur && cur.source !== 'local' && loadAutoDownloadOnPlay()) {
         const dlKey = songIdentityKey(cur);
         if (dlKey && !autoDownloadedRef.current.has(dlKey)) {
           autoDownloadedRef.current.add(dlKey);
