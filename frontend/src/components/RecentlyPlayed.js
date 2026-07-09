@@ -1,21 +1,62 @@
 import React from 'react';
 import { useQuery, useQueryClient } from 'react-query';
-import { Play, Clock, Trash2 } from 'lucide-react';
+import { Play, Clock, Trash2, Download, Check, RotateCw } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { getPlayHistory, clearPlayHistory } from '../services/musicdl';
+import { getPlayHistory, clearPlayHistory, saveToServer } from '../services/musicdl';
+import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
+
+const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 
 // 最近播放页:列出按用户隔离的播放历史(后端 played_at 降序,封顶 500)。
 // 播放任意一首会以整张历史为队列;支持清空 / 删单条。
 export default function RecentlyPlayed() {
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
+  const { offline } = useAuth();
   const feedback = useFeedback();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery(['play-history'], getPlayHistory, { staleTime: 0 });
   const songs = data || [];
+  const downloadTasks = useScopedBulkState(IDLE_BULK_DOWNLOAD, 'recent-download');
+  const taskKey = 'recent:all';
+  const bulkDownload = downloadTasks.getState(taskKey);
+
+  // 把最近播放里能播的歌全部下载到服务器(NAS)。逐首 saveToServer:
+  // 活的成功计入 done,死链下载失败计入 fail —— 天然实现"只落活的"。
+  const handleDownloadAll = async () => {
+    if (!songs.length || offline || bulkDownload.phase === 'running') return;
+    const list = songs.slice();
+    const total = list.length;
+    let done = 0;
+    let fail = 0;
+    await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
+      for (const song of list) {
+        try {
+          const result = await saveToServer(song);
+          if (result?.saved) done += 1;
+          else fail += 1;
+        } catch {
+          fail += 1;
+        }
+        update({ phase: 'running', done, fail, total });
+      }
+      update({ phase: fail ? 'fail' : 'done', done, fail, total });
+    });
+    if (fail) feedback.error(`下载完成,${fail} 首失败(多为死链/需登录)`);
+    else feedback.success(`已全部下载到服务器 ${done} 首`);
+  };
+
+  const bulkDownloadLabel = (() => {
+    if (bulkDownload.phase === 'running') return `下载到服务器 ${bulkDownload.done + bulkDownload.fail}/${bulkDownload.total}`;
+    if (bulkDownload.phase === 'done') return '已下载到服务器';
+    if (bulkDownload.phase === 'fail') return '重试下载到服务器';
+    return '全部下载到服务器';
+  })();
+  const BulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
 
   const handleClearAll = async () => {
     if (!songs.length) return;
@@ -55,6 +96,16 @@ export default function RecentlyPlayed() {
               className="flex items-center gap-2 px-5 py-2 rounded-full bg-primary text-primary-foreground font-semibold disabled:opacity-50">
               <Play size={18} fill="currentColor" />播放全部
             </button>
+            <button onClick={handleDownloadAll}
+              disabled={!songs.length || offline || bulkDownload.phase === 'running'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+                bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
+                : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
+              title={offline ? '离线状态无法下载到服务器' : '把最近播放里能播的歌全部下载到服务器(NAS)'}>
+              <BulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
+              {bulkDownloadLabel}
+            </button>
             <button onClick={handleClearAll}
               disabled={!songs.length}
               className="flex items-center gap-2 px-4 py-2 rounded-full text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
@@ -62,6 +113,15 @@ export default function RecentlyPlayed() {
               <Trash2 size={18} />
             </button>
           </div>
+          {bulkDownload.phase !== 'idle' && (
+            <div className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs ${
+              bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'}`}>
+              <span>
+                已完成 {bulkDownload.done}/{bulkDownload.total}
+                {bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}
+              </span>
+            </div>
+          )}
         </div>
       </div>
       {isLoading && (
