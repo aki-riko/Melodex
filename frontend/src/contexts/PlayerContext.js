@@ -16,6 +16,7 @@ import {
   saveStopAfterTrackPreference,
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
+import { loadAutoDownloadOnPlay } from './playerAutoDownload.js';
 
 const PlayerContext = createContext(null);
 
@@ -83,6 +84,8 @@ export const PlayerProvider = ({ children }) => {
   const coverObjectUrlRef = useRef('');
   const playSeqRef = useRef(0);
   const recordedPlaySeqRef = useRef('');
+  // 本会话已自动下载过的歌 key,避免同一首反复播放重复拉流(后端下载不幂等、每次覆盖)。
+  const autoDownloadedRef = useRef(new Set());
 
   useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
   useEffect(() => { sleepTimerRef.current = sleepTimer; }, [sleepTimer]);
@@ -386,6 +389,18 @@ export const PlayerProvider = ({ children }) => {
     if (!offline && seq && recordedPlaySeqRef.current !== seq) {
       recordedPlaySeqRef.current = seq;
       recordPlayHistory(cur);
+      // 开关开启时,把正在播放(即活的)的歌静默下载到服务器。
+      // 用 songIdentityKey 去重,同一首本会话只下一次,避免重复拉流覆盖。
+      if (cur && loadAutoDownloadOnPlay()) {
+        const dlKey = songIdentityKey(cur);
+        if (dlKey && !autoDownloadedRef.current.has(dlKey)) {
+          autoDownloadedRef.current.add(dlKey);
+          saveToServer(cur).catch(() => {
+            // 静默失败(死链/需登录):从已下集合移除,下次播放可重试。
+            autoDownloadedRef.current.delete(dlKey);
+          });
+        }
+      }
     }
   }, [nowPlaying, offline]);
 

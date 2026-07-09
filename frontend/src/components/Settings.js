@@ -14,6 +14,7 @@ import {
 } from '../services/musicdl';
 import { useAuth } from '../contexts/AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
+import { loadAutoDownloadOnPlay, saveAutoDownloadOnPlay } from '../contexts/playerAutoDownload';
 import LoadingState from './LoadingState';
 
 const SOURCE_NOTES = {
@@ -150,6 +151,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
   const manualSupported = source !== 'qq_wx';
   const badge = credentialBadge(loggedIn, detail);
   const [session, setSession] = useState(null);
+  const [autoDownloadOnPlay, setAutoDownloadOnPlay] = useState(() => loadAutoDownloadOnPlay());
   const [status, setStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [sodaSMS, setSodaSMS] = useState(null);
@@ -610,6 +612,33 @@ const Settings = () => {
           </div>
         </section>
       )}
+
+      <section>
+        <h3 className="text-xl font-semibold mb-4">播放偏好</h3>
+        <div className="flex items-center justify-between gap-4 p-4 border border-border rounded-md bg-card">
+          <div className="min-w-0">
+            <p className="font-semibold">播放时自动下载到服务器</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              开启后,每首开始播放(即可正常播放)的歌会自动下载到服务器。同一首本次会话只下一次。
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={autoDownloadOnPlay}
+            onClick={() => {
+              const next = !autoDownloadOnPlay;
+              setAutoDownloadOnPlay(next);
+              saveAutoDownloadOnPlay(next);
+            }}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+              autoDownloadOnPlay ? 'bg-primary' : 'bg-secondary'}`}
+            title="播放时自动下载到服务器"
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              autoDownloadOnPlay ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      </section>
 
       <section>
         <div className="flex items-center justify-between mb-4">
