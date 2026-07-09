@@ -13,3 +13,6 @@ backend/internal/web/frontend_dist/assets
 _merge_src
 **/.playwright-mcp
 *.md
+# 测试文件不参与构建(Dockerfile 只 go build 不 go test),
+# 排除后可避免工作区里损坏/空的 _test.go 崩掉 go build(曾因 NAS 残留 0 字节 zz_probe_test.go 编译失败)。
+**/*_test.go
