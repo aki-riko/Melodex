@@ -183,7 +183,13 @@ func saveDownloadedSongToFile(result *DownloadedSong, outDir string) (*Downloade
 	// 跨格式音质去重:扫描同目录下同名(仅扩展名不同)的已存在音频文件。
 	// 已有同等或更高音质 → 跳过写入,返回已存在文件;
 	// 已有更低音质 → 写入新文件后删除旧的低音质文件(音质升级)。
-	newRank := audioQualityRank(result.Ext)
+	// 音质档以 result.Ext 为准;为空时回退到落盘文件名的扩展名,
+	// 避免 Ext 缺失时错判音质导致无损被有损覆盖跳过。
+	newExt := strings.TrimSpace(result.Ext)
+	if newExt == "" {
+		newExt = filepath.Ext(fileName)
+	}
+	newRank := audioQualityRank(newExt)
 	existing, scanErr := findSameNameAudioFiles(filePath)
 	if scanErr == nil {
 		for _, ex := range existing {
