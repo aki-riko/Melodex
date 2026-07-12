@@ -127,6 +127,74 @@ func existingDownloadStatusForUser(userID uint, admin bool, downloadDir string) 
 	return items, nil
 }
 
+// existingDownloadRelPathForPlayback 为 Web 播放器解析当前用户可见的服务器副本。
+// 匹配语义必须与前端“服务器”标记一致:
+//   - 先按 source + song_id 精确身份匹配;
+//   - 精确身份未命中时,再按完整歌名 + 完整歌手规范化等值匹配。
+//
+// 每个候选都会实时校验磁盘文件,拒绝孤儿记录、越界路径、目录与符号链接逃逸。
+// 普通用户只查询自己的记录;管理员沿用本地曲库规则,可使用任意用户的服务器副本。
+func existingDownloadRelPathForPlayback(userID uint, admin bool, downloadDir, source, songID, name, artist string) (string, error) {
+	if !admin && userID == 0 {
+		return "", nil
+	}
+
+	visibleRecords := func() *gorm.DB {
+		query := db.Order("created_at DESC, id DESC")
+		if !admin {
+			query = query.Where("user_id = ?", userID)
+		}
+		return query
+	}
+
+	source = strings.TrimSpace(source)
+	songID = strings.TrimSpace(songID)
+	if source != "" && songID != "" {
+		var exact []DownloadRecord
+		if err := visibleRecords().Where("source = ? AND song_id = ?", source, songID).Find(&exact).Error; err != nil {
+			return "", err
+		}
+		if rel := firstExistingDownloadRelPath(exact, downloadDir); rel != "" {
+			return rel, nil
+		}
+	}
+
+	nameKey := normalizeDownloadMatchText(name)
+	artistKey := normalizeDownloadMatchText(artist)
+	if nameKey == "" || artistKey == "" {
+		return "", nil
+	}
+
+	var candidates []DownloadRecord
+	if err := visibleRecords().Where("name <> '' AND artist <> ''").Find(&candidates).Error; err != nil {
+		return "", err
+	}
+	for _, record := range candidates {
+		if normalizeDownloadMatchText(record.Name) != nameKey || normalizeDownloadMatchText(record.Artist) != artistKey {
+			continue
+		}
+		rel := normalizeRelPath(record.RelPath)
+		if downloadRecordFileExists(downloadDir, rel) {
+			return rel, nil
+		}
+	}
+	return "", nil
+}
+
+func firstExistingDownloadRelPath(records []DownloadRecord, downloadDir string) string {
+	for _, record := range records {
+		rel := normalizeRelPath(record.RelPath)
+		if downloadRecordFileExists(downloadDir, rel) {
+			return rel
+		}
+	}
+	return ""
+}
+
+func normalizeDownloadMatchText(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(value), " "))
+}
+
 // moveDownloadRecordsToPath 在音质升级替换文件扩展名时迁移所有用户的归属。
 // 共享旧文件的其他用户也必须继续指向新文件,不能只保留本次下载者。
 func moveDownloadRecordsToPath(oldRelPath, newRelPath string) error {
@@ -173,6 +241,16 @@ func downloadRecordFileExists(downloadDir, relPath string) bool {
 	}
 	targetAbs, err := filepath.Abs(filepath.Join(rootAbs, filepath.FromSlash(relPath)))
 	if err != nil || !isPathInside(rootAbs, targetAbs) || !isLocalMusicAudioFile(targetAbs) {
+		return false
+	}
+	// 词法路径位于 DownloadDir 内还不够:祖先目录可能是指向目录外的符号链接。
+	// 解析真实路径后再次做 containment 校验;最终节点符号链接由下面的 Lstat 拒绝。
+	resolvedRoot, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return false
+	}
+	resolvedTarget, err := filepath.EvalSymlinks(targetAbs)
+	if err != nil || !isPathInside(resolvedRoot, resolvedTarget) {
 		return false
 	}
 	info, err := os.Lstat(targetAbs)

@@ -154,6 +154,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **排序**:多级排序(相关/音质/大小可叠加,①②③优先级+↑↓+清除)。默认 relevance 降序。relevance=相关性评分(见能力边界);音质用验活真实 bitrateNum;同名同分隐式按音质降序。
 - **歌曲行**(SongRow):显示 音质标签(验活真实值,无损/高品/Nk)+ 源 + 时长 + 真实大小;按钮 验/词/播放/下载。"验"=手动 inspect;自动验活的结果经 `liveInfo` prop 直接显示(effectiveReal=手动验优先,否则用 liveInfo)。
 - **下载**:点「下载」= 下到 NAS(saveToServer,见关键设计点),状态 下载中/✓已下载/✗重试。服务器状态不是会话内临时值:`ServerDownloadsContext` 启动读取 `/music/downloads`,精确按 source+song_id、再以完整歌名+完整歌手等值回退；侧栏「已下载」(`#local`)列出服务器文件。下载响应只有 `saved:true,recorded:true` 才算可持久恢复成功；成功事件还必须校验后端返回的 `recorded_user_id` 与当前 user_id 一致,防慢请求在换账号后串状态。
+- **服务器副本播放优先**(2026-07):Web 播放仍请求原歌曲 `/music/download?...&stream=1`,但后端在访问在线源前先按当前用户可见的 DownloadRecord 解析 NAS 文件(先 source+song_id,再完整歌名+歌手等值回退),命中即用本地 `ServeContent`/Range 发流并返回 `X-Melodex-Playback-Source: server`；无命中才走在线源/自动换源。禁止直接复用 Subsonic 的全局目录匹配(不含 Web 用户归属)。`PlayerContext` 对已有“服务器”状态的歌曲跳过“播放时自动下载”,避免重复拉流并重写正在播放的同名文件；手动下载/音质升级不受影响。
 - **登录**(Settings):每源卡片 扫码登录(QRLoginCard;二维码 image_url 直接 `<img>`,url 文本则 QRCodeCanvas 画)+ 退出 + **手动填 Cookie**(带各源网址+F12教程+关键字段,COOKIE_HELP 映射)。登录态让验活/下载走 VIP 链路拿高音质。
 - **播放**:全局常驻 PlayerContext,切页不停;播放失败自动跳下一首。
 - **歌词**:SongRow"词"按钮拉 LRC。

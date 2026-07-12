@@ -9,6 +9,7 @@ import { songIdentityKey } from '../utils/songIdentity';
 import { normalizeSong } from '../utils/songFields';
 import { ensurePlaybackSession } from './playerAuth.js';
 import { MODES, isCurrentAudioEvent, pickNextSong } from './playerQueue.js';
+import { useServerDownloads } from './ServerDownloadsContext';
 import {
   createSleepTimer,
   getSleepTimerRemainingMs,
@@ -16,7 +17,7 @@ import {
   saveStopAfterTrackPreference,
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
-import { loadAutoDownloadOnPlay } from './playerAutoDownload.js';
+import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
 
 const PlayerContext = createContext(null);
 
@@ -77,6 +78,7 @@ export const PlayerProvider = ({ children }) => {
   useEffect(() => { modeRef.current = mode; localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
   const { user, offline } = useAuth();
+  const { isDownloaded: isServerDownloaded } = useServerDownloads();
   const userId = user?.id || 0;
   const resumeRef = useRef(null);   // 待恢复的进度秒数(audio 加载完成后 seek 到这里)
   const restoredRef = useRef(false); // 防重复恢复
@@ -391,9 +393,9 @@ export const PlayerProvider = ({ children }) => {
       recordPlayHistory(cur);
       // 开关开启时,把正在播放(即活的)的歌静默下载到服务器。
       // 用 songIdentityKey 去重,同一首本会话只下一次,避免重复拉流覆盖。
-      // 跳过 source==='local' 的本地库歌曲——它已在服务器磁盘上,
-      // 且 local 不是有效下载源,下载会走无意义请求并失败。
-      if (cur && cur.source !== 'local' && loadAutoDownloadOnPlay()) {
+      // 本地来源或“服务器”状态已命中的歌曲直接跳过,避免无意义请求,
+      // 更不能在 ServeContent 播放期间重写同一物理文件。
+      if (shouldAutoDownloadOnPlay(cur, isServerDownloaded)) {
         const dlKey = songIdentityKey(cur);
         if (dlKey && !autoDownloadedRef.current.has(dlKey)) {
           autoDownloadedRef.current.add(dlKey);
@@ -408,7 +410,7 @@ export const PlayerProvider = ({ children }) => {
         }
       }
     }
-  }, [nowPlaying, offline]);
+  }, [isServerDownloaded, nowPlaying, offline]);
 
   // 播放结束:repeat 重播当前,否则跳下一首
   const handleEnded = useCallback((event) => {

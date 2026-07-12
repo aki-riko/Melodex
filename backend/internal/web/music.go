@@ -747,6 +747,28 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		settings := core.GetWebSettings()
 		tempSong := &model.Song{ID: id, Source: source, Name: name, Artist: artist, Album: album, Cover: coverURL, Extra: extra}
 
+		// Web 播放本地优先:只要当前用户的“服务器”状态能命中真实文件,
+		// 就直接从 NAS 发流,不再依赖可能已失效的 QQ/网易/酷我等在线地址。
+		// 仅拦截 stream=1;显式下载/音质升级仍走原下载链路。
+		if streamPlayback {
+			rel, resolveErr := existingDownloadRelPathForPlayback(
+				currentUserID(c),
+				currentUserIsAdmin(c),
+				localMusicDownloadDir(),
+				source,
+				id,
+				name,
+				artist,
+			)
+			if resolveErr != nil {
+				log.Printf("[stream] 查询服务器副本失败 user=%d: %v", currentUserID(c), resolveErr)
+			} else if rel != "" {
+				c.Header("X-Melodex-Playback-Source", "server")
+				serveLocalMusicDownload(c, encodeLocalMusicID(rel), false)
+				return
+			}
+		}
+
 		if saveLocal {
 			result, err := core.SaveSongToFileWithTemplate(tempSong, settings.DownloadDir, embedMeta, embedMeta, settings.DownloadFilenameTemplate)
 			if err != nil {
