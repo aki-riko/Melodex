@@ -109,7 +109,7 @@ func corsMiddleware() gin.HandlerFunc {
 			// 非同源且非白名单:不设任何 Allow-Origin → 浏览器拦截跨站读取。
 		}
 		c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
-		c.Header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+		c.Header("Access-Control-Allow-Headers", "Origin, X-Requested-With, X-Melodex-Expected-User-ID, Content-Type, Accept, Authorization")
 		c.Header("Access-Control-Expose-Headers", "Content-Length, Cache-Control, Content-Language, Content-Type")
 		if method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)

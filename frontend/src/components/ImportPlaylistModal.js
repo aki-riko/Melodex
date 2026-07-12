@@ -4,14 +4,22 @@ import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
-import { getUserPlaylists, coverProxyUrl, saveToServer, serverSaveSucceeded } from '../services/musicdl';
+import { getUserPlaylists, coverProxyUrl } from '../services/musicdl';
+import {
+  runServerDownloadBatch,
+  SERVER_DOWNLOAD_BULK_IDLE,
+  serverDownloadBatchProcessed,
+  serverDownloadBatchSummary,
+} from '../services/serverDownloadBatch';
 import { importPlaylist, getCollectionSongs } from '../services/collections';
 
 // 自动下载进度状态挂在模块级全局 store(useScopedBulkState),
 // 不随弹窗关闭丢失,且 runForKey 自带同 key 去重锁(防同歌单重复下载并发)。
-const DL_IDLE = { phase: 'idle', done: 0, fail: 0, total: 0, text: '' };
+const DL_IDLE = { ...SERVER_DOWNLOAD_BULK_IDLE, text: '' };
 
-const downloadTaskKey = (source, playlistId) => `${source || 'unknown'}:${playlistId ?? ''}`;
+const downloadTaskKey = (userId, source, playlistId) => (
+  `user:${userId || 0}:${source || 'unknown'}:${playlistId ?? ''}`
+);
 
 const normalizedPlaylistName = (name) => (name || '').trim().toLocaleLowerCase();
 
@@ -26,9 +34,13 @@ const findSameNameMergeTarget = (collections, playlistName) => {
 const downloadProgressText = (state) => {
   if (!state || state.phase === 'idle') return '';
   if (state.text) return state.text;
-  if (state.phase === 'running') return `下载到服务器 ${state.done + state.fail}/${state.total}`;
-  if (state.phase === 'done') return `已全部下载到服务器 ${state.done}/${state.total}`;
-  if (state.phase === 'fail') return state.total ? `完成 ${state.done}/${state.total}(${state.fail} 首失败)` : '自动下载失败,可在歌单页手动下载';
+  if (state.phase === 'running') return `下载到服务器 ${serverDownloadBatchProcessed(state)}/${state.total}`;
+  if (state.phase === 'done' && !state.done && state.skipped) return `无需重复下载，已跳过 ${state.skipped} 首`;
+  if (state.phase === 'done') return `下载完成：${serverDownloadBatchSummary(state)}`;
+  if (state.authChanged) return serverDownloadBatchSummary(state);
+  if (state.phase === 'fail') return state.statusError
+    ? '读取已下载状态失败，可在歌单页重试'
+    : `下载完成：${serverDownloadBatchSummary(state)}`;
   return '';
 };
 
@@ -36,7 +48,7 @@ const downloadProgressText = (state) => {
 // open=false 时不渲染;onNavigate 用于「去登录」跳到设置页;成功后 refresh 侧栏。
 export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   const { collections, refresh } = useCollections();
-  const { offline } = useAuth();
+  const { user, offline } = useAuth();
   const feedback = useFeedback();
   const [loading, setLoading] = useState(false);
   const [tabs, setTabs] = useState([]); // [{source, source_name, playlists, error}]
@@ -88,19 +100,10 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
           update({ ...DL_IDLE, phase: 'done', text: '无可下载曲目' });
           return;
         }
-        let done = 0;
-        let fail = 0;
-        for (const song of list) {
-          try {
-            const result = await saveToServer(song);
-            if (serverSaveSucceeded(result)) done += 1; else fail += 1;
-          } catch (err) {
-            fail += 1;
-            console.warn('导入歌单自动下载单曲失败', err);
-          }
-          update({ phase: 'running', done, fail, total, text: '' });
-        }
-        update({ phase: fail ? 'fail' : 'done', done, fail, total, text: '' });
+        await runServerDownloadBatch(list, {
+          expectedUserId: user?.id,
+          onProgress: (progress) => update({ ...progress, text: '' }),
+        });
       } catch (err) {
         console.warn('导入歌单自动下载失败', err);
         update({ ...DL_IDLE, phase: 'fail', text: '自动下载失败,可在歌单页手动下载' });
@@ -109,7 +112,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   };
 
   const performImport = async (playlist, { source = active, mergeInto = null } = {}) => {
-    const taskKey = downloadTaskKey(source, playlist.id);
+    const taskKey = downloadTaskKey(user?.id, source, playlist.id);
     if (offline || importingId) return;
     setImportingId(taskKey);
     try {
@@ -134,7 +137,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
 
   const doImport = async (playlist) => {
     const source = active;
-    const taskKey = downloadTaskKey(source, playlist.id);
+    const taskKey = downloadTaskKey(user?.id, source, playlist.id);
     if (offline || importingId) return;
     const target = findSameNameMergeTarget(collections, playlist.name);
     if (target) {
@@ -238,7 +241,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
           )}
 
           {!loading && activeTab && !activeTab.error && activeTab.playlists?.map((pl) => {
-            const taskKey = downloadTaskKey(activeTab.source, pl.id);
+            const taskKey = downloadTaskKey(user?.id, activeTab.source, pl.id);
             const dlState = downloadTasks.getState(taskKey);
             const dlText = downloadProgressText(dlState);
             const downloading = dlState.phase === 'loading' || dlState.phase === 'running';

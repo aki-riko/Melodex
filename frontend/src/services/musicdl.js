@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { normalizeSong, normalizeSongs, songWritePayload } from '../utils/songFields';
+import { serverSaveSucceeded } from '../utils/serverDownloads';
+
+export { serverSaveSucceeded };
 
 // 后端基址:开发期由 .env 的 VITE_MUSICDL_API 指定(见 .env.development.local 指向本地后端);
 // 生产/同源部署(如 Docker 内后端托管前端)留空 → axios 走相对路径,自动用当前 origin。
@@ -19,8 +22,6 @@ const withSongs = (data, key = 'songs') => (
 );
 
 export const SERVER_DOWNLOADS_CHANGED = 'melodex:server-downloads-changed';
-
-export const serverSaveSucceeded = (result) => !!result?.saved && result?.recorded !== false;
 
 const notifyServerDownloadsChanged = (detail) => {
   if (typeof window === 'undefined') return;
@@ -216,10 +217,15 @@ export const getDownloadUrl = (song) =>
 
 // 下载到服务器(NAS):存到后端 data/downloads,带完整刮削(embed),本地音乐库可见。
 // 后端 download 用 c.Query 读参数(走 URL),且要求 POST + 同源 + X-Requested-With(防 CSRF)。
-export const saveToServer = async (song) => {
+export const saveToServer = async (song, { expectedUserId } = {}) => {
   const qs = buildDownloadParams(song, { embed: '1', save_local: '1' });
+  const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+  if (Number(expectedUserId) > 0) {
+    // 仅用于让后端确认“当前会话仍是批次启动用户”，后端不会据此选择归属。
+    headers['X-Melodex-Expected-User-ID'] = String(expectedUserId);
+  }
   const { data } = await client.post(`/music/download?${qs}`, null, {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    headers,
   });
   if (serverSaveSucceeded(data)) {
     notifyServerDownloadsChanged({

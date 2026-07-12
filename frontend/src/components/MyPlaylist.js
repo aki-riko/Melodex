@@ -7,14 +7,17 @@ import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
-import { saveToServer, serverSaveSucceeded } from '../services/musicdl';
+import {
+  runServerDownloadBatch,
+  SERVER_DOWNLOAD_BULK_IDLE,
+  serverDownloadBatchSummary,
+} from '../services/serverDownloadBatch';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
 
-const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
 
 // 自建歌单详情页:侧栏点歌单 → 派发 {collectionId,name} → 这里加载歌曲并播放/移除。
@@ -26,7 +29,7 @@ export default function MyPlaylist() {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
   const loadSeqRef = useRef(0);
-  const downloadTasks = useScopedBulkState(IDLE_BULK_DOWNLOAD, 'collection-download');
+  const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'collection-download');
   const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'collection-cache');
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const { user, offline } = useAuth();
@@ -37,7 +40,9 @@ export default function MyPlaylist() {
   const currentName = meta?.name || currentCollection?.name || '歌单';
   const collectionKind = meta?.kind || currentCollection?.kind;
   const canDeleteCollection = !offline && Boolean(collectionKind) && collectionKind !== 'favorite';
-  const taskKey = meta?.collectionId != null ? `collection:${meta.collectionId}` : '';
+  const taskKey = userId > 0 && meta?.collectionId != null
+    ? `user:${userId}:collection:${meta.collectionId}`
+    : '';
   const bulkDownload = downloadTasks.getState(taskKey);
   const bulkCache = cacheTasks.getState(taskKey);
 
@@ -142,21 +147,16 @@ export default function MyPlaylist() {
     setNotice('');
     const playlistSongs = songs.slice();
     const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
-      for (const song of playlistSongs) {
-        try {
-          const result = await saveToServer(song);
-          if (serverSaveSucceeded(result)) done += 1;
-          else fail += 1;
-        } catch {
-          fail += 1;
-        }
-        update({ phase: 'running', done, fail, total });
-      }
-
-      update({ phase: fail ? 'fail' : 'done', done, fail, total });
+    await downloadTasks.runForKey(taskKey, {
+      ...SERVER_DOWNLOAD_BULK_IDLE,
+      phase: 'running',
+      total,
+    }, async (update) => {
+      const result = await runServerDownloadBatch(playlistSongs, {
+        expectedUserId: userId,
+        onProgress: update,
+      });
+      if (result.statusError) setNotice('读取服务器已下载状态失败，未开始下载，请重试');
     });
   };
 
@@ -284,10 +284,7 @@ export default function MyPlaylist() {
               bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
             }`}>
               <p className="font-medium text-foreground">服务器下载</p>
-              <p>
-                已完成 {bulkDownload.done}/{bulkDownload.total}
-                {bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}
-              </p>
+              <p>{serverDownloadBatchSummary(bulkDownload)}</p>
             </div>
           )}
           {bulkCache.phase !== 'idle' && (

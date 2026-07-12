@@ -10,9 +10,12 @@ import {
   clearSearchCache,
   recognizeAudio,
   getRecognitionStatus,
-  saveToServer,
-  serverSaveSucceeded,
 } from '../services/musicdl';
+import {
+  runServerDownloadBatch,
+  SERVER_DOWNLOAD_BULK_IDLE,
+  serverDownloadBatchSummary,
+} from '../services/serverDownloadBatch';
 import {
   AlertCircle,
   Check,
@@ -44,7 +47,6 @@ const TABS = [
   { key: 'discover', label: '推荐歌单' },
 ];
 
-const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
 const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
 const COMBINED_SEARCH_RESULT_LIMIT = 80;
@@ -812,19 +814,21 @@ const playlistBulkLabel = (state, idleLabel, runningLabel, doneLabel, retryLabel
   return idleLabel;
 };
 
-const BulkStatusCard = ({ title, state, cache }) => {
+const BulkStatusCard = ({ title, state, cache, serverDownload }) => {
   if (state.phase === 'idle') return null;
   return (
     <div className={`rounded-md border px-3 py-2 text-sm ${
       state.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
     }`}>
       <p className="font-medium text-foreground">{title}</p>
-      <p>
-        {cache ? `新增 ${state.done}` : `已完成 ${state.done}/${state.total}`}
-        {cache && state.skipped ? ` · 已有 ${state.skipped}` : ''}
-        {cache && state.total ? ` · 共 ${state.total}` : ''}
-        {state.fail ? ` · 失败 ${state.fail}` : ''}
-      </p>
+      {serverDownload ? <p>{serverDownloadBatchSummary(state)}</p> : (
+        <p>
+          {cache ? `新增 ${state.done}` : `已完成 ${state.done}/${state.total}`}
+          {cache && state.skipped ? ` · 已有 ${state.skipped}` : ''}
+          {cache && state.total ? ` · 共 ${state.total}` : ''}
+          {state.fail ? ` · 失败 ${state.fail}` : ''}
+        </p>
+      )}
     </div>
   );
 };
@@ -836,8 +840,8 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
   const { create, addSong } = useCollections();
   const feedback = useFeedback();
   const userId = user?.id || 0;
-  const taskKey = `${meta.source}:${meta.id}`;
-  const downloadTasks = useScopedBulkState(IDLE_BULK_DOWNLOAD, 'recommended-playlist-download');
+  const taskKey = `user:${userId}:${meta.source}:${meta.id}`;
+  const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'recommended-playlist-download');
   const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'recommended-playlist-cache');
   const copyTasks = useScopedBulkState(IDLE_BULK_COPY, 'recommended-playlist-copy');
   const bulkDownload = downloadTasks.getState(taskKey);
@@ -848,20 +852,16 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
     if (!songs.length || offline || bulkDownload.phase === 'running') return;
     const playlistSongs = songs.slice();
     const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
-      for (const song of playlistSongs) {
-        try {
-          const result = await saveToServer(song);
-          if (serverSaveSucceeded(result)) done += 1;
-          else fail += 1;
-        } catch {
-          fail += 1;
-        }
-        update({ phase: 'running', done, fail, total });
-      }
-      update({ phase: fail ? 'fail' : 'done', done, fail, total });
+    await downloadTasks.runForKey(taskKey, {
+      ...SERVER_DOWNLOAD_BULK_IDLE,
+      phase: 'running',
+      total,
+    }, async (update) => {
+      const result = await runServerDownloadBatch(playlistSongs, {
+        expectedUserId: userId,
+        onProgress: update,
+      });
+      if (result.statusError) feedback.error('读取服务器已下载状态失败，未开始下载，请重试');
     });
   };
 
@@ -994,7 +994,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
       <CacheRefreshNotice data={state.data} />
       {hasBulkStatus && (
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
-          <BulkStatusCard title="服务器下载" state={bulkDownload} />
+          <BulkStatusCard title="服务器下载" state={bulkDownload} serverDownload />
           <BulkStatusCard title="本机缓存" state={bulkCache} cache />
           <BulkStatusCard title="加入我的歌单" state={bulkCopy} />
         </div>

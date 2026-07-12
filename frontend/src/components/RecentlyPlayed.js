@@ -5,56 +5,65 @@ import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { getPlayHistory, clearPlayHistory, saveToServer, serverSaveSucceeded } from '../services/musicdl';
+import { getPlayHistory, clearPlayHistory } from '../services/musicdl';
+import {
+  runServerDownloadBatch,
+  SERVER_DOWNLOAD_BULK_IDLE,
+  serverDownloadBatchProcessed,
+  serverDownloadBatchSummary,
+} from '../services/serverDownloadBatch';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
-
-const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 
 // 最近播放页:列出按用户隔离的播放历史(后端 played_at 降序,封顶 500)。
 // 播放任意一首会以整张历史为队列;支持清空 / 删单条。
 export default function RecentlyPlayed() {
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
-  const { offline } = useAuth();
+  const { user, offline } = useAuth();
   const feedback = useFeedback();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery(['play-history'], getPlayHistory, { staleTime: 0 });
   const songs = data || [];
-  const downloadTasks = useScopedBulkState(IDLE_BULK_DOWNLOAD, 'recent-download');
-  const taskKey = 'recent:all';
+  const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'recent-download');
+  const taskKey = `user:${user?.id || 0}:recent:all`;
   const bulkDownload = downloadTasks.getState(taskKey);
 
-  // 把最近播放里能播的歌全部下载到服务器(NAS)。逐首 saveToServer:
-  // 活的成功计入 done,死链下载失败计入 fail —— 天然实现"只落活的"。
+  // 批量前读取当前账号的服务器下载记录，已存在和精确重复项直接跳过。
+  // 真正的死链仍在保存时计入 fail，不额外做全歌单验活，避免请求量翻倍。
   const handleDownloadAll = async () => {
     if (!songs.length || offline || bulkDownload.phase === 'running') return;
     const list = songs.slice();
     const total = list.length;
-    let done = 0;
-    let fail = 0;
+    let finalResult = null;
     // runForKey 在同 key 已在下载时立即返回 false 且不执行 worker,
-    // 此时 done/fail 仍为 0,不能弹 toast(否则误报"已下载 0 首")。
-    const started = await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
-      for (const song of list) {
-        try {
-          const result = await saveToServer(song);
-          if (serverSaveSucceeded(result)) done += 1;
-          else fail += 1;
-        } catch {
-          fail += 1;
-        }
-        update({ phase: 'running', done, fail, total });
-      }
-      update({ phase: fail ? 'fail' : 'done', done, fail, total });
+    // 此时不能弹 toast，否则会误报本次任务结果。
+    const started = await downloadTasks.runForKey(taskKey, {
+      ...SERVER_DOWNLOAD_BULK_IDLE,
+      phase: 'running',
+      total,
+    }, async (update) => {
+      finalResult = await runServerDownloadBatch(list, {
+        expectedUserId: user?.id,
+        onProgress: update,
+      });
     });
     if (!started) return;
-    if (fail) feedback.error(`下载完成,${fail} 首失败(多为死链/需登录)`);
-    else feedback.success(`已全部下载到服务器 ${done} 首`);
+    if (finalResult?.statusError) {
+      feedback.error('读取服务器已下载状态失败，未开始下载，请重试');
+    } else if (finalResult?.authChanged || finalResult?.aborted) {
+      feedback.error(serverDownloadBatchSummary(finalResult));
+    } else if (finalResult?.fail) {
+      feedback.error(`下载完成：${serverDownloadBatchSummary(finalResult)}`);
+    } else if (!finalResult?.done && finalResult?.skipped) {
+      feedback.info(`无需重复下载，已跳过 ${finalResult.skipped} 首`);
+    } else {
+      feedback.success(`下载完成：${serverDownloadBatchSummary(finalResult)}`);
+    }
   };
 
   const bulkDownloadLabel = (() => {
-    if (bulkDownload.phase === 'running') return `下载到服务器 ${bulkDownload.done + bulkDownload.fail}/${bulkDownload.total}`;
+    if (bulkDownload.phase === 'running') return `下载到服务器 ${serverDownloadBatchProcessed(bulkDownload)}/${bulkDownload.total}`;
     if (bulkDownload.phase === 'done') return '已下载到服务器';
     if (bulkDownload.phase === 'fail') return '重试下载到服务器';
     return '全部下载到服务器';
@@ -119,10 +128,7 @@ export default function RecentlyPlayed() {
           {bulkDownload.phase !== 'idle' && (
             <div className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs ${
               bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'}`}>
-              <span>
-                已完成 {bulkDownload.done}/{bulkDownload.total}
-                {bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}
-              </span>
+              <span>{serverDownloadBatchSummary(bulkDownload)}</span>
             </div>
           )}
         </div>
