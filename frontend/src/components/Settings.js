@@ -151,7 +151,6 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
   const manualSupported = source !== 'qq_wx';
   const badge = credentialBadge(loggedIn, detail);
   const [session, setSession] = useState(null);
-  const [autoDownloadOnPlay, setAutoDownloadOnPlay] = useState(() => loadAutoDownloadOnPlay());
   const [status, setStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [sodaSMS, setSodaSMS] = useState(null);
@@ -545,6 +544,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
 
 const Settings = () => {
   const { isAdmin } = useAuth();
+  const [autoDownloadOnPlay, setAutoDownloadOnPlay] = useState(() => loadAutoDownloadOnPlay());
   const qrSources = useQuery(['qr-sources'], getQRSources, { enabled: isAdmin });
   const cookieStatus = useQuery(['cookie-status'], getCookieStatus, {
     enabled: isAdmin,
