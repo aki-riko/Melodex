@@ -13,6 +13,7 @@ import {
   serverDownloadBatchSummary,
   shouldAbortServerDownloadBatch,
 } from '../src/utils/serverDownloadBatch.js';
+import { shouldAutoDownloadOnPlay } from '../src/contexts/playerAutoDownload.js';
 
 assert.equal(serverDownloadStatusKey(' qq ', ' 002l8AAo4GpCaf '), 'qq\u0000002l8AAo4GpCaf');
 assert.equal(serverDownloadStatusKey('qq', ''), '');
@@ -55,6 +56,15 @@ const invalidSong = { source: 'qq', id: '', name: '缺少 ID', artist: '歌手' 
 const batchSongs = [realSong, localSong, legacyLocalSong, localMusicSong, pendingQQ, pendingQQDuplicate, pendingNetease, pendingKugou, invalidSong];
 
 assert.equal(serverDownloadSongKey(realSong), 'qq\u0000002l8AAo4GpCaf');
+
+const enabledStorage = { getItem: () => '1' };
+const disabledStorage = { getItem: () => '0' };
+assert.equal(shouldAutoDownloadOnPlay(realSong, () => true, enabledStorage), false);
+assert.equal(shouldAutoDownloadOnPlay(pendingQQ, () => false, enabledStorage), true);
+assert.equal(shouldAutoDownloadOnPlay(localSong, () => false, enabledStorage), false);
+assert.equal(shouldAutoDownloadOnPlay(legacyLocalSong, () => false, enabledStorage), false);
+assert.equal(shouldAutoDownloadOnPlay(localMusicSong, () => false, enabledStorage), false);
+assert.equal(shouldAutoDownloadOnPlay(pendingQQ, () => false, disabledStorage), false);
 
 const plan = planServerDownloadBatch(batchSongs, [realDownloaded]);
 assert.deepEqual(plan.pending, [pendingQQ, pendingNetease, pendingKugou]);
