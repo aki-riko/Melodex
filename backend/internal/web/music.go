@@ -754,11 +754,14 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 				return
 			}
 
-			// 音质升级时删除了同名低音质旧文件,清理其下载归属记录避免孤儿。
+			savedRel := relPathUnderDir(settings.DownloadDir, result.SavedPath)
+
+			// 音质升级时删除了同名低音质旧文件,把所有用户的归属迁移到新文件。
+			// 不能直接删除旧路径记录:共享旧文件的其他用户也应继续看到升级后的版本。
 			for _, removed := range result.RemovedPaths {
 				if rel := relPathUnderDir(settings.DownloadDir, removed); rel != "" {
-					if err := deleteDownloadRecordsByPath(rel); err != nil {
-						log.Printf("[download] 清理旧音质归属记录失败 rel=%q: %v", rel, err)
+					if err := moveDownloadRecordsToPath(rel, savedRel); err != nil {
+						log.Printf("[download] 迁移旧音质归属记录失败 old=%q new=%q: %v", rel, savedRel, err)
 					}
 				}
 			}
@@ -766,17 +769,30 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			// 登记下载归属(共享目录 + 归属表方案):本地库据此按用户隔离。
 			// userID=0(桌面模式异常/未登录)时 recordDownload 内部跳过,不影响下载本身。
 			// 跳过或正常写入都要登记:即便复用已存在文件,当前用户也应获得归属。
-			if rel := relPathUnderDir(settings.DownloadDir, result.SavedPath); rel != "" {
-				if err := recordDownload(currentUserID(c), rel, source, id, name, artist); err != nil {
-					log.Printf("[download] 登记下载归属失败 user=%d rel=%q: %v", currentUserID(c), rel, err)
+			userID := currentUserID(c)
+			recorded := false
+			if savedRel != "" && userID > 0 {
+				if err := recordDownload(userID, savedRel, source, id, name, artist); err != nil {
+					log.Printf("[download] 登记下载归属失败 user=%d rel=%q: %v", userID, savedRel, err)
+				} else {
+					recorded = true
 				}
+			}
+			// 下载目录已变化,让“已下载”页面下次进入时同步扫描真实文件,
+			// 避免 stale-while-revalidate 快照导致刚下载的歌要刷新两次才出现。
+			invalidateLocalMusicScanCache()
+			recordedUserID := uint(0)
+			if recorded {
+				recordedUserID = userID
 			}
 
 			payload := gin.H{
-				"status":   "ok",
-				"saved":    true,
-				"path":     result.SavedPath,
-				"filename": result.Filename,
+				"status":           "ok",
+				"saved":            true,
+				"recorded":         recorded,
+				"recorded_user_id": recordedUserID,
+				"path":             result.SavedPath,
+				"filename":         result.Filename,
 			}
 			if result.Warning != "" {
 				payload["warning"] = result.Warning

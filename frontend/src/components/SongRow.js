@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Pause, Download, FileText, Check, RotateCw, ListPlus, Music, Trash2, HardDriveDownload, Ellipsis, Heart } from 'lucide-react';
-import { getStreamUrl, saveToServer, coverProxyUrl, getFavoriteStatus, toggleFavorite, inspectQuality } from '../services/musicdl';
+import { getStreamUrl, saveToServer, serverSaveSucceeded, coverProxyUrl, getFavoriteStatus, toggleFavorite, inspectQuality } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CHANGED } from '../services/offlineAudio';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useServerDownloads } from '../contexts/ServerDownloadsContext';
 import { formatDuration } from '../utils/format';
 import { sourceLabel } from '../utils/sourceLabels';
 import { normalizeSong } from '../utils/songFields';
@@ -169,6 +170,7 @@ const SongRow = ({
   const instrumentalLabel = instrumentalLabelOf(rowSong);
   const { setAddTarget } = useCollections();
   const { user, offline } = useAuth();
+  const { isDownloaded } = useServerDownloads();
   const userId = user?.id || 0;
   const [dlState, setDlState] = useState('');
   const [cacheState, setCacheState] = useState('');
@@ -183,6 +185,7 @@ const SongRow = ({
   const q = realQualityOf(effectiveLiveInfo, rowSong);
   const sizeLabel = effectiveLiveInfo?.size || fmtSize(rowSong.size);
   const rowKey = songIdentityKey(rowSong);
+  const downloadedToServer = isDownloaded(rowSong);
   const favoriteCacheKey = `${userId}:${rowKey}`;
   const albumTitle = rowSong.album || '—';
   const lyricMatch = rowSong.extra && typeof rowSong.extra === 'object' ? rowSong.extra.lyric_match : '';
@@ -191,6 +194,10 @@ const SongRow = ({
   const showPausedCoverPlayButton = isPlaying && isPaused;
   const CoverActionIcon = isActivelyPlaying ? Pause : Play;
   const coverActionLabel = isActivelyPlaying ? '暂停' : '播放';
+
+  useEffect(() => {
+    setDlState(downloadedToServer ? 'done' : '');
+  }, [downloadedToServer, rowKey]);
 
   useEffect(() => {
     setInspectState('');
@@ -274,7 +281,7 @@ const SongRow = ({
     setDlState('saving');
     try {
       const r = await saveToServer(rowSong);
-      setDlState(r && r.saved ? 'done' : 'fail');
+      setDlState(serverSaveSucceeded(r) ? 'done' : 'fail');
     } catch (err) {
       console.warn('下载到 NAS 失败', err);
       setDlState('fail');
@@ -336,7 +343,7 @@ const SongRow = ({
       favoriteStatusCache.set(favoriteCacheKey, next);
       if (next && rowSong.source !== 'local') {
         saveToServer(rowSong)
-          .then((r) => { if (r?.saved) setDlState('done'); })
+          .then((r) => { if (serverSaveSucceeded(r)) setDlState('done'); })
           .catch((err) => console.warn('收藏后下载到 NAS 失败', err));
       }
     } catch (err) {

@@ -24,7 +24,7 @@ const GROUPS = [
   {
     title: '曲库',
     items: [
-      { key: 'Local', label: '服务器曲库', icon: Download, primary: true, mobileLabel: '曲库' },
+      { key: 'Local', label: '已下载', icon: Download, primary: true, mobileLabel: '已下载' },
       { key: 'Offline', label: '离线音乐', icon: HardDriveDownload, primary: true, mobileLabel: '离线' },
       { key: 'Recent', label: '最近播放', icon: Clock },
     ],

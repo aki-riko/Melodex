@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import SleepTimerControl from '../components/SleepTimerControl';
-import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, recordPlayHistory, switchSource as switchSongSource, getMe } from '../services/musicdl';
+import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, switchSource as switchSongSource, getMe } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
@@ -397,10 +397,14 @@ export const PlayerProvider = ({ children }) => {
         const dlKey = songIdentityKey(cur);
         if (dlKey && !autoDownloadedRef.current.has(dlKey)) {
           autoDownloadedRef.current.add(dlKey);
-          saveToServer(cur).catch(() => {
-            // 静默失败(死链/需登录):从已下集合移除,下次播放可重试。
-            autoDownloadedRef.current.delete(dlKey);
-          });
+          saveToServer(cur)
+            .then((result) => {
+              if (!serverSaveSucceeded(result)) autoDownloadedRef.current.delete(dlKey);
+            })
+            .catch(() => {
+              // 静默失败(死链/需登录):从已下集合移除,下次播放可重试。
+              autoDownloadedRef.current.delete(dlKey);
+            });
         }
       }
     }

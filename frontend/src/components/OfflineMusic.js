@@ -202,7 +202,7 @@ export default function OfflineMusic() {
     if (!records.length) return;
     const ok = await feedback.confirm({
       title: '清空本机缓存?',
-      body: '只清空当前账号在此浏览器/PWA 的离线缓存,不会删除服务器曲库。',
+      body: '只清空当前账号在此浏览器/PWA 的离线缓存,不会删除服务器的「已下载」文件。',
       confirmLabel: '清空缓存',
       danger: true,
     });
@@ -303,7 +303,7 @@ export default function OfflineMusic() {
       <div className="mb-4 grid gap-2 md:grid-cols-3">
         <div className="rounded-md border border-border bg-card/70 px-3 py-2">
           <p className="text-sm font-medium text-foreground">本机缓存</p>
-          <p className="mt-1 text-xs text-muted-foreground">只保存在当前浏览器/PWA,不会进入服务器曲库。</p>
+          <p className="mt-1 text-xs text-muted-foreground">只保存在当前浏览器/PWA,不会进入服务器的「已下载」列表。</p>
         </div>
         <div className="rounded-md border border-border bg-card/70 px-3 py-2">
           <p className="text-sm font-medium text-foreground">占用空间</p>

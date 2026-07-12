@@ -137,6 +137,23 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 		})
 	})
 
+	// 已下载状态列表:供 React 在刷新/重新进入网页后恢复每首歌的“服务器”标记。
+	// 只返回当前用户可见且磁盘仍存在的记录,避免孤儿 DownloadRecord 误报。
+	api.GET("/downloads", func(c *gin.Context) {
+		downloads, err := existingDownloadStatusForUser(currentUserID(c), currentUserIsAdmin(c), localMusicDownloadDir())
+		if err != nil {
+			log.Printf("[downloads] 查询下载记录失败 user=%d: %v", currentUserID(c), err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "读取已下载列表失败"})
+			return
+		}
+
+		c.Header("Cache-Control", "private, no-store")
+		c.JSON(http.StatusOK, gin.H{
+			"downloads": downloads,
+			"total":     len(downloads),
+		})
+	})
+
 	localMusicCoverHandler := func(c *gin.Context) {
 		track, err := localMusicTrackByID(c.Query("id"))
 		if err != nil {
