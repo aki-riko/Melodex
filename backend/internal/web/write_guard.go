@@ -3,10 +3,13 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+const expectedSaveUserHeader = "X-Melodex-Expected-User-ID"
 
 func wantsSaveLocal(c *gin.Context) bool {
 	return c != nil && strings.TrimSpace(c.Query("save_local")) == "1"
@@ -49,6 +52,34 @@ func allowSaveLocalRequest(c *gin.Context) bool {
 	// attachUserOptional,故未登录用户也能到达此 handler——这里强制要求登录,
 	// 否则写入的文件无归属、谁都认领不了。桌面模式已注入本地用户,自然通过。
 	if !requireUserForWrite(c) {
+		return false
+	}
+	if !requireExpectedSaveUser(c) {
+		return false
+	}
+	return true
+}
+
+// requireExpectedSaveUser 将批量任务启动时的用户 ID 与当前已认证会话做一致性比较。
+// 该请求头只用于断言，绝不用于选择下载归属；真正的 userID 始终取 gin.Context。
+func requireExpectedSaveUser(c *gin.Context) bool {
+	raw := strings.TrimSpace(c.GetHeader(expectedSaveUserHeader))
+	if raw == "" {
+		return true
+	}
+	expected, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || expected == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "invalid expected user",
+			"code":  "invalid_expected_user",
+		})
+		return false
+	}
+	if uint64(currentUserID(c)) != expected {
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+			"error": "登录账号已变化，批量下载已停止",
+			"code":  "user_changed",
+		})
 		return false
 	}
 	return true

@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { useQuery } from 'react-query';
 import { Check, Download, HardDriveDownload, ListPlus, Music, Play, RotateCw } from 'lucide-react';
-import { getPlaylistDetail, getLyric, saveToServer, serverSaveSucceeded } from '../services/musicdl';
+import { getPlaylistDetail, getLyric } from '../services/musicdl';
+import {
+  runServerDownloadBatch,
+  SERVER_DOWNLOAD_BULK_IDLE,
+  serverDownloadBatchSummary,
+} from '../services/serverDownloadBatch';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,7 +17,6 @@ import LoadingState from './LoadingState';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 
-const IDLE_BULK_DOWNLOAD = { phase: 'idle', done: 0, fail: 0, total: 0 };
 const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
 const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
 
@@ -23,11 +27,11 @@ const PlaylistSongs = ({ meta, onBack }) => {
   const { create, addSong } = useCollections();
   const feedback = useFeedback();
   const [lyric, setLyric] = useState(null);
-  const downloadTasks = useScopedBulkState(IDLE_BULK_DOWNLOAD, 'recommended-playlist-download');
+  const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'recommended-playlist-download');
   const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'recommended-playlist-cache');
   const copyTasks = useScopedBulkState(IDLE_BULK_COPY, 'recommended-playlist-copy');
   const userId = user?.id || 0;
-  const taskKey = `${meta.source}:${meta.id}`;
+  const taskKey = `user:${userId}:${meta.source}:${meta.id}`;
   const state = useQuery(
     ['pl-detail', meta.id, meta.source],
     () => getPlaylistDetail(meta.id, meta.source),
@@ -54,20 +58,16 @@ const PlaylistSongs = ({ meta, onBack }) => {
     if (!songs.length || offline || bulkDownload.phase === 'running') return;
     const playlistSongs = songs.slice();
     const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    await downloadTasks.runForKey(taskKey, { phase: 'running', done, fail, total }, async (update) => {
-      for (const song of playlistSongs) {
-        try {
-          const result = await saveToServer(song);
-          if (serverSaveSucceeded(result)) done += 1;
-          else fail += 1;
-        } catch {
-          fail += 1;
-        }
-        update({ phase: 'running', done, fail, total });
-      }
-      update({ phase: fail ? 'fail' : 'done', done, fail, total });
+    await downloadTasks.runForKey(taskKey, {
+      ...SERVER_DOWNLOAD_BULK_IDLE,
+      phase: 'running',
+      total,
+    }, async (update) => {
+      const result = await runServerDownloadBatch(playlistSongs, {
+        expectedUserId: userId,
+        onProgress: update,
+      });
+      if (result.statusError) feedback.error('读取服务器已下载状态失败，未开始下载，请重试');
     });
   };
 
@@ -226,10 +226,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
               bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
             }`}>
               <p className="font-medium text-foreground">服务器下载</p>
-              <p>
-                已完成 {bulkDownload.done}/{bulkDownload.total}
-                {bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}
-              </p>
+              <p>{serverDownloadBatchSummary(bulkDownload)}</p>
             </div>
           )}
           {bulkCache.phase !== 'idle' && (

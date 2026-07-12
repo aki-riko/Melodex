@@ -218,14 +218,19 @@ func TestAllowSaveLocalRequestRequiresPostAndSameOriginXHR(t *testing.T) {
 		origin     string
 		xrw        string
 		withUser   bool
+		expected   string
 		wantStatus int
 		wantAllow  bool
+		wantCode   string
 	}{
 		{name: "get rejected", method: http.MethodGet, xrw: "XMLHttpRequest", wantStatus: http.StatusMethodNotAllowed},
 		{name: "missing xhr rejected", method: http.MethodPost, wantStatus: http.StatusForbidden},
 		{name: "cross origin rejected", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "https://evil.example", wantStatus: http.StatusForbidden},
 		{name: "same origin but unauthenticated rejected", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", wantStatus: http.StatusUnauthorized},
 		{name: "same origin authenticated allowed", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", withUser: true, wantAllow: true},
+		{name: "matching expected user allowed", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", withUser: true, expected: "1", wantAllow: true},
+		{name: "changed user rejected", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", withUser: true, expected: "2", wantStatus: http.StatusConflict, wantCode: "user_changed"},
+		{name: "invalid expected user rejected", method: http.MethodPost, xrw: "XMLHttpRequest", origin: "http://example.test", withUser: true, expected: "not-a-user", wantStatus: http.StatusBadRequest, wantCode: "invalid_expected_user"},
 	}
 
 	for _, tt := range tests {
@@ -238,6 +243,9 @@ func TestAllowSaveLocalRequestRequiresPostAndSameOriginXHR(t *testing.T) {
 			}
 			if tt.xrw != "" {
 				req.Header.Set("X-Requested-With", tt.xrw)
+			}
+			if tt.expected != "" {
+				req.Header.Set(expectedSaveUserHeader, tt.expected)
 			}
 			c.Request = req
 			if tt.withUser {
@@ -252,7 +260,30 @@ func TestAllowSaveLocalRequestRequiresPostAndSameOriginXHR(t *testing.T) {
 			if !tt.wantAllow && rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}
+			if tt.wantCode != "" && !strings.Contains(rec.Body.String(), `"code":"`+tt.wantCode+`"`) {
+				t.Fatalf("body = %s, want code %q", rec.Body.String(), tt.wantCode)
+			}
 		})
+	}
+}
+
+func TestCORSAllowsExpectedSaveUserHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(corsMiddleware())
+	router.OPTIONS("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodOptions, "http://example.test/test", nil)
+	req.Header.Set("Origin", "http://example.test")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	allowed := rec.Header().Get("Access-Control-Allow-Headers")
+	if !strings.Contains(allowed, expectedSaveUserHeader) {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want %q", allowed, expectedSaveUserHeader)
 	}
 }
 
