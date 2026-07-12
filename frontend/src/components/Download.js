@@ -11,6 +11,7 @@ import {
   recognizeAudio,
   getRecognitionStatus,
   saveToServer,
+  serverSaveSucceeded,
 } from '../services/musicdl';
 import {
   AlertCircle,
@@ -853,7 +854,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
       for (const song of playlistSongs) {
         try {
           const result = await saveToServer(song);
-          if (result?.saved) done += 1;
+          if (serverSaveSucceeded(result)) done += 1;
           else fail += 1;
         } catch {
           fail += 1;
@@ -951,7 +952,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器曲库'}>
+              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器的「已下载」列表'}>
               <DownloadBulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {downloadLabel}
             </button>

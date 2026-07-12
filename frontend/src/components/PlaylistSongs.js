@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from 'react-query';
 import { Check, Download, HardDriveDownload, ListPlus, Music, Play, RotateCw } from 'lucide-react';
-import { getPlaylistDetail, getLyric, saveToServer } from '../services/musicdl';
+import { getPlaylistDetail, getLyric, saveToServer, serverSaveSucceeded } from '../services/musicdl';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -60,7 +60,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
       for (const song of playlistSongs) {
         try {
           const result = await saveToServer(song);
-          if (result?.saved) done += 1;
+          if (serverSaveSucceeded(result)) done += 1;
           else fail += 1;
         } catch {
           fail += 1;
@@ -175,7 +175,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器曲库'}>
+              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器的「已下载」列表'}>
               <DownloadIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {downloadLabel}
             </button>

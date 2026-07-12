@@ -4,7 +4,7 @@ import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
-import { getUserPlaylists, coverProxyUrl, saveToServer } from '../services/musicdl';
+import { getUserPlaylists, coverProxyUrl, saveToServer, serverSaveSucceeded } from '../services/musicdl';
 import { importPlaylist, getCollectionSongs } from '../services/collections';
 
 // 自动下载进度状态挂在模块级全局 store(useScopedBulkState),
@@ -93,7 +93,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
         for (const song of list) {
           try {
             const result = await saveToServer(song);
-            if (result?.saved) done += 1; else fail += 1;
+            if (serverSaveSucceeded(result)) done += 1; else fail += 1;
           } catch (err) {
             fail += 1;
             console.warn('导入歌单自动下载单曲失败', err);

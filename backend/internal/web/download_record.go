@@ -1,10 +1,12 @@
 package web
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -23,6 +25,18 @@ type DownloadRecord struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// downloadStatusItem 是给前端恢复“已下载到服务器”状态的最小视图。
+// 不暴露 user_id:普通用户只能查询自己的记录,管理员虽可见全部服务器曲库,
+// 也不需要知道每条记录具体属于哪个用户。
+type downloadStatusItem struct {
+	Source       string    `json:"source"`
+	SongID       string    `json:"song_id"`
+	Name         string    `json:"name"`
+	Artist       string    `json:"artist"`
+	RelPath      string    `json:"rel_path"`
+	DownloadedAt time.Time `json:"downloaded_at"`
+}
+
 // recordDownload 登记一条下载归属(幂等:同用户同文件不重复)。
 // relPath 为空则跳过(无法关联磁盘文件的下载不登记)。
 func recordDownload(userID uint, relPath, source, songID, name, artist string) error {
@@ -31,14 +45,20 @@ func recordDownload(userID uint, relPath, source, songID, name, artist string) e
 		return nil
 	}
 	rec := DownloadRecord{
-		UserID:  userID,
-		RelPath: relPath,
-		Source:  strings.TrimSpace(source),
-		SongID:  strings.TrimSpace(songID),
-		Name:    strings.TrimSpace(name),
-		Artist:  strings.TrimSpace(artist),
+		UserID:    userID,
+		RelPath:   relPath,
+		Source:    strings.TrimSpace(source),
+		SongID:    strings.TrimSpace(songID),
+		Name:      strings.TrimSpace(name),
+		Artist:    strings.TrimSpace(artist),
+		CreatedAt: time.Now(),
 	}
-	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&rec).Error
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "rel_path"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"source", "song_id", "name", "artist", "created_at",
+		}),
+	}).Create(&rec).Error
 }
 
 // downloadedRelPathsForUser 返回某用户下载过的全部相对路径集合(本地库过滤用)。
@@ -52,6 +72,111 @@ func downloadedRelPathsForUser(userID uint) (map[string]struct{}, error) {
 		set[normalizeRelPath(r.RelPath)] = struct{}{}
 	}
 	return set, nil
+}
+
+// existingDownloadStatusForUser 返回当前用户可见、且磁盘文件仍实际存在的下载记录。
+// 管理员与本地曲库语义一致:可见全部记录;普通用户只见自己的记录。
+//
+// DownloadRecord 可能因人工移动/删除文件留下孤儿记录。状态恢复必须与本地音乐
+// 实时文件状态相交,不能复用本地曲库 stale-while-revalidate 快照,否则刚下载后
+// 立刻刷新仍可能漏掉新文件。
+func existingDownloadStatusForUser(userID uint, admin bool, downloadDir string) ([]downloadStatusItem, error) {
+	if !admin && userID == 0 {
+		return []downloadStatusItem{}, nil
+	}
+
+	var records []DownloadRecord
+	query := db.Order("created_at DESC, id DESC")
+	if !admin {
+		query = query.Where("user_id = ?", userID)
+	}
+	if err := query.Find(&records).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]downloadStatusItem, 0, len(records))
+	seen := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		rel := normalizeRelPath(record.RelPath)
+		if !downloadRecordFileExists(downloadDir, rel) {
+			continue
+		}
+
+		// 同一歌曲可能因历史音质升级留下多条记录。前端只需要一个状态项,
+		// 优先按 source+song_id 去重;旧数据缺身份时退回 rel_path。
+		recordSource := strings.TrimSpace(record.Source)
+		recordSongID := strings.TrimSpace(record.SongID)
+		statusKey := rel
+		if recordSource != "" && recordSongID != "" {
+			statusKey = recordSource + "\x00" + recordSongID
+		}
+		if _, ok := seen[statusKey]; ok {
+			continue
+		}
+		seen[statusKey] = struct{}{}
+
+		items = append(items, downloadStatusItem{
+			Source:       recordSource,
+			SongID:       recordSongID,
+			Name:         strings.TrimSpace(record.Name),
+			Artist:       strings.TrimSpace(record.Artist),
+			RelPath:      rel,
+			DownloadedAt: record.CreatedAt,
+		})
+	}
+	return items, nil
+}
+
+// moveDownloadRecordsToPath 在音质升级替换文件扩展名时迁移所有用户的归属。
+// 共享旧文件的其他用户也必须继续指向新文件,不能只保留本次下载者。
+func moveDownloadRecordsToPath(oldRelPath, newRelPath string) error {
+	oldRelPath = normalizeRelPath(oldRelPath)
+	newRelPath = normalizeRelPath(newRelPath)
+	if oldRelPath == "" || newRelPath == "" || oldRelPath == newRelPath {
+		return nil
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		var records []DownloadRecord
+		if err := tx.Where("rel_path = ?", oldRelPath).Find(&records).Error; err != nil {
+			return err
+		}
+		for _, record := range records {
+			oldID := record.ID
+			record.ID = 0
+			record.RelPath = newRelPath
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "user_id"}, {Name: "rel_path"}},
+				DoNothing: true,
+			}).Create(&record).Error; err != nil {
+				return err
+			}
+			if err := tx.Delete(&DownloadRecord{}, oldID).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// downloadRecordFileExists 对单条记录做实时、只读、安全的文件检查。
+// 使用 Lstat 拒绝目录和符号链接,并验证目标仍位于 DownloadDir 内。
+func downloadRecordFileExists(downloadDir, relPath string) bool {
+	relPath = normalizeRelPath(relPath)
+	if relPath == "" {
+		return false
+	}
+
+	rootAbs, err := filepath.Abs(strings.TrimSpace(downloadDir))
+	if err != nil {
+		return false
+	}
+	targetAbs, err := filepath.Abs(filepath.Join(rootAbs, filepath.FromSlash(relPath)))
+	if err != nil || !isPathInside(rootAbs, targetAbs) || !isLocalMusicAudioFile(targetAbs) {
+		return false
+	}
+	info, err := os.Lstat(targetAbs)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // deleteDownloadRecordsByPath 删除某文件的所有归属记录(文件被物理删除时调用)。

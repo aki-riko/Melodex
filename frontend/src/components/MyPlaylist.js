@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
-import { saveToServer } from '../services/musicdl';
+import { saveToServer, serverSaveSucceeded } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
@@ -120,7 +120,7 @@ export default function MyPlaylist() {
     setMoreOpen(false);
     const ok = await feedback.confirm({
       title: `删除歌单「${currentName}」?`,
-      body: '只删除歌单记录,不会删除服务器曲库里的歌曲文件。',
+      body: '只删除歌单记录,不会删除服务器「已下载」里的歌曲文件。',
       confirmLabel: '删除歌单',
       danger: true,
     });
@@ -148,7 +148,7 @@ export default function MyPlaylist() {
       for (const song of playlistSongs) {
         try {
           const result = await saveToServer(song);
-          if (result?.saved) done += 1;
+          if (serverSaveSucceeded(result)) done += 1;
           else fail += 1;
         } catch {
           fail += 1;

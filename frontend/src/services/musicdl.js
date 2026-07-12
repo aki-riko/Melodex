@@ -18,6 +18,15 @@ const withSongs = (data, key = 'songs') => (
   data && Array.isArray(data[key]) ? { ...data, [key]: normalizeSongs(data[key]) } : data
 );
 
+export const SERVER_DOWNLOADS_CHANGED = 'melodex:server-downloads-changed';
+
+export const serverSaveSucceeded = (result) => !!result?.saved && result?.recorded !== false;
+
+const notifyServerDownloadsChanged = (detail) => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(SERVER_DOWNLOADS_CHANGED, { detail }));
+};
+
 // 全局 401 拦截:会话过期/失效时派发事件,由 AuthProvider 监听并切回登录页。
 // 排除鉴权自身接口(/auth/*、/me),避免登录失败时误触发(它们自行处理 401)。
 client.interceptors.response.use(
@@ -212,7 +221,14 @@ export const saveToServer = async (song) => {
   const { data } = await client.post(`/music/download?${qs}`, null, {
     headers: { 'X-Requested-With': 'XMLHttpRequest' },
   });
-  return data; // { status:'ok', saved:true, path, filename, warning? }
+  if (serverSaveSucceeded(data)) {
+    notifyServerDownloadsChanged({
+      action: 'saved',
+      song: normalizeSong(song),
+      userId: data.recorded_user_id,
+    });
+  }
+  return data; // { status:'ok', saved:true, recorded:true, recorded_user_id, path, filename, warning? }
 };
 
 export const apiBase = API_BASE;
@@ -537,9 +553,17 @@ export const getLocalMusic = async ({ offset = 0, limit = 100, refresh = false }
   return withSongs(data, 'tracks'); // { download_dir, exists, tracks, total, has_more, ... }
 };
 
+// 当前用户可见、且服务器磁盘上仍存在的下载记录。
+// 用于刷新/重新进入网页后恢复 SongRow 的“服务器”状态。
+export const getServerDownloads = async () => {
+  const { data } = await client.get('/music/downloads');
+  return data; // { downloads:[{source,song_id,name,artist,rel_path,downloaded_at}], total }
+};
+
 // 删除本地音乐
 export const deleteLocalMusic = async (id) => {
   const { data } = await client.delete(`/music/local_music?id=${encodeURIComponent(id)}`);
+  notifyServerDownloadsChanged({ action: 'refresh' });
   return data;
 };
 
@@ -550,5 +574,6 @@ export const uploadLocalMusic = async (file) => {
   const { data } = await client.post('/music/local_music/upload', form, {
     headers: { 'X-Requested-With': 'XMLHttpRequest' },
   });
+  notifyServerDownloadsChanged({ action: 'refresh' });
   return data;
 };

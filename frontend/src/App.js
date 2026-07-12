@@ -16,6 +16,7 @@ import { onDownloadSearch } from './services/downloadBus';
 import { PlayerProvider, PlayerBar } from './contexts/PlayerContext';
 import { CollectionsProvider } from './contexts/CollectionsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ServerDownloadsProvider } from './contexts/ServerDownloadsContext';
 import { FeedbackProvider } from './contexts/FeedbackContext';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import FAQ from './components/FAQ';
@@ -140,9 +141,11 @@ function AuthedApp() {
   }
   return (
     <CollectionsProvider>
-      <PlayerProvider>
-        <AppShell />
-      </PlayerProvider>
+      <ServerDownloadsProvider>
+        <PlayerProvider>
+          <AppShell />
+        </PlayerProvider>
+      </ServerDownloadsProvider>
     </CollectionsProvider>
   );
 }

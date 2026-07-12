@@ -5,7 +5,7 @@ import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { getPlayHistory, clearPlayHistory, saveToServer } from '../services/musicdl';
+import { getPlayHistory, clearPlayHistory, saveToServer, serverSaveSucceeded } from '../services/musicdl';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
@@ -39,7 +39,7 @@ export default function RecentlyPlayed() {
       for (const song of list) {
         try {
           const result = await saveToServer(song);
-          if (result?.saved) done += 1;
+          if (serverSaveSucceeded(result)) done += 1;
           else fail += 1;
         } catch {
           fail += 1;
