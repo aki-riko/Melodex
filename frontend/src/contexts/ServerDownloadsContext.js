@@ -5,13 +5,12 @@ import { useAuth } from './AuthContext';
 import { normalizeSong } from '../utils/songFields';
 import {
   serverDownloadEventBelongsToUser,
+  serverDownloadMatchesKnownKeys,
   serverDownloadStatusKey,
   serverDownloadTitleArtistKey,
 } from '../utils/serverDownloads';
 
 const ServerDownloadsContext = createContext(null);
-
-const isLocalSource = (source) => source === 'local' || source === 'local_music';
 
 export function ServerDownloadsProvider({ children }) {
   const { user, offline } = useAuth();
@@ -84,13 +83,7 @@ export function ServerDownloadsProvider({ children }) {
 
   const isDownloaded = useCallback((song) => {
     const normalized = normalizeSong(song);
-    if (isLocalSource(normalized.source)) return true;
-    const key = serverDownloadStatusKey(normalized.source, normalized.id);
-    if (key && downloadedKeys.has(key)) return true;
-    // 同一物理歌曲可能从另一音源复用/升级。精确身份优先；仅在精确身份未命中时,
-    // 用完整歌名+完整歌手的规范化等值匹配恢复状态,不做包含/相似度等模糊猜测。
-    const fallbackKey = serverDownloadTitleArtistKey(normalized.name, normalized.artist);
-    return !!fallbackKey && downloadedTitleArtistKeys.has(fallbackKey);
+    return serverDownloadMatchesKnownKeys(normalized, downloadedKeys, downloadedTitleArtistKeys);
   }, [downloadedKeys, downloadedTitleArtistKeys]);
 
   const value = useMemo(() => ({

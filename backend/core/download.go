@@ -159,6 +159,12 @@ func SaveSongToFileWithTemplate(song *model.Song, outDir string, withCover bool,
 	return saveDownloadedSongToFile(result, outDir)
 }
 
+// SaveDownloadedSongDataToFile 将已完成下载与元数据处理的数据写入磁盘。
+// Web 层可在真正落盘前根据 DownloadRecord 调整文件名，避免同名不同版本互相覆盖。
+func SaveDownloadedSongDataToFile(result *DownloadedSong, outDir string) (*DownloadedSong, error) {
+	return saveDownloadedSongToFile(result, outDir)
+}
+
 func saveDownloadedSongToFile(result *DownloadedSong, outDir string) (*DownloadedSong, error) {
 	if result == nil {
 		return nil, errors.New("download result is nil")

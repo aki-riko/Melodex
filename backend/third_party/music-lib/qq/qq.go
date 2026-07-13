@@ -25,6 +25,36 @@ type QQ struct {
 	isVipCache *bool
 }
 
+type qqAlbumSongInfo struct {
+	Mid      string `json:"mid"`
+	Name     string `json:"name"`
+	Title    string `json:"title"`
+	Interval int    `json:"interval"`
+	Singer   []struct {
+		Name string `json:"name"`
+	} `json:"singer"`
+	Album struct {
+		ID   int64  `json:"id"`
+		Mid  string `json:"mid"`
+		Name string `json:"name"`
+	} `json:"album"`
+	File struct {
+		Size128MP3 int64 `json:"size_128mp3"`
+		Size320MP3 int64 `json:"size_320mp3"`
+		SizeFlac   int64 `json:"size_flac"`
+	} `json:"file"`
+	Pay struct {
+		PayPlay int `json:"pay_play"`
+	} `json:"pay"`
+}
+
+func qqAlbumSongDisplayName(song qqAlbumSongInfo) string {
+	if title := strings.TrimSpace(song.Title); title != "" {
+		return title
+	}
+	return strings.TrimSpace(song.Name)
+}
+
 func New(cookie string) *QQ {
 	cookie = strings.TrimSpace(cookie)
 	if cookie != "" {
@@ -156,27 +186,7 @@ func (q *QQ) fetchAlbumDetail(id string) (*model.Playlist, []model.Song, error) 
 				Data struct {
 					TotalNum int `json:"totalNum"`
 					SongList []struct {
-						SongInfo struct {
-							Mid      string `json:"mid"`
-							Name     string `json:"name"`
-							Interval int    `json:"interval"`
-							Singer   []struct {
-								Name string `json:"name"`
-							} `json:"singer"`
-							Album struct {
-								ID   int64  `json:"id"`
-								Mid  string `json:"mid"`
-								Name string `json:"name"`
-							} `json:"album"`
-							File struct {
-								Size128MP3 int64 `json:"size_128mp3"`
-								Size320MP3 int64 `json:"size_320mp3"`
-								SizeFlac   int64 `json:"size_flac"`
-							} `json:"file"`
-							Pay struct {
-								PayPlay int `json:"pay_play"`
-							} `json:"pay"`
-						} `json:"songInfo"`
+						SongInfo qqAlbumSongInfo `json:"songInfo"`
 					} `json:"songList"`
 				} `json:"data"`
 			} `json:"album"`
@@ -233,7 +243,7 @@ func (q *QQ) fetchAlbumDetail(id string) (*model.Playlist, []model.Song, error) 
 			songs = append(songs, model.Song{
 				Source:   "qq",
 				ID:       songInfo.Mid,
-				Name:     songInfo.Name,
+				Name:     qqAlbumSongDisplayName(songInfo),
 				Artist:   joinQQNames(pageArtistNames),
 				Album:    songInfo.Album.Name,
 				AlbumID:  songInfo.Album.Mid,

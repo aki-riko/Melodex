@@ -4,11 +4,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/guohuiyuan/go-music-dl/core"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+var serverDownloadIdentityLocks sync.Map
 
 // DownloadRecord 记录「某用户下载了某个文件」。下载共享同一磁盘目录
 // (DownloadDir 全局),靠这张归属表实现本地库的按用户隔离:
@@ -157,6 +161,9 @@ func existingDownloadRelPathForPlayback(userID uint, admin bool, downloadDir, so
 		if rel := firstExistingDownloadRelPath(exact, downloadDir); rel != "" {
 			return rel, nil
 		}
+		// 有完整平台身份时只接受精确命中。跨平台或同平台不同 ID 即使同名同歌手，
+		// 也可能是原唱、伴奏、Live、重制版，继续按标题回退会发生串歌。
+		return "", nil
 	}
 
 	nameKey := normalizeDownloadMatchText(name)
@@ -179,6 +186,62 @@ func existingDownloadRelPathForPlayback(userID uint, admin bool, downloadDir, so
 		}
 	}
 	return "", nil
+}
+
+func lockServerDownloadIdentity(source, songID, name, artist string) func() {
+	key := normalizeDownloadMatchText(name) + "\x00" + normalizeDownloadMatchText(artist)
+	if strings.Trim(key, "\x00") == "" {
+		key = strings.TrimSpace(source) + "\x00" + strings.TrimSpace(songID)
+	}
+	value, _ := serverDownloadIdentityLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// hasConflictingDownloadIdentity 检查共享目录中是否已有同名同歌手、但平台身份不同的真实文件。
+// 这类记录不能继续复用相同文件名，否则批量下载的后一个版本会覆盖前一个版本。
+func hasConflictingDownloadIdentity(downloadDir, source, songID, name, artist string) (bool, error) {
+	nameKey := normalizeDownloadMatchText(name)
+	artistKey := normalizeDownloadMatchText(artist)
+	if nameKey == "" || artistKey == "" {
+		return false, nil
+	}
+
+	var records []DownloadRecord
+	if err := db.Where("name <> '' AND artist <> ''").Find(&records).Error; err != nil {
+		return false, err
+	}
+	for _, record := range records {
+		if normalizeDownloadMatchText(record.Name) != nameKey || normalizeDownloadMatchText(record.Artist) != artistKey {
+			continue
+		}
+		if strings.TrimSpace(record.Source) == strings.TrimSpace(source) && strings.TrimSpace(record.SongID) == strings.TrimSpace(songID) {
+			continue
+		}
+		if downloadRecordFileExists(downloadDir, record.RelPath) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func filenameTemplateWithSongIdentity(filenameTemplate string) string {
+	template := strings.TrimSpace(filenameTemplate)
+	if template == "" {
+		template = core.DefaultDownloadFilenameTemplate
+	}
+	if strings.Contains(template, "{id}") {
+		return template
+	}
+	suffix := " [{source}-{id}]"
+	if strings.Contains(template, ".{ext}") {
+		return strings.Replace(template, ".{ext}", suffix+".{ext}", 1)
+	}
+	if strings.Contains(template, "{ext}") {
+		return strings.Replace(template, "{ext}", suffix+"{ext}", 1)
+	}
+	return template + suffix
 }
 
 func firstExistingDownloadRelPath(records []DownloadRecord, downloadDir string) string {
