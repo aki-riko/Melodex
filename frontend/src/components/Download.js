@@ -4,10 +4,12 @@ import {
   searchMusic,
   getRecommend,
   getPlaylistDetail,
+  getAlbumDetail,
   getLyric,
   getSearchHistory,
   clearSearchHistory,
   clearSearchCache,
+  coverProxyUrl,
   recognizeAudio,
   getRecognitionStatus,
 } from '../services/musicdl';
@@ -41,6 +43,7 @@ import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
 import LoadingState from './LoadingState';
+import SearchAlbumRow from './SearchAlbumRow';
 
 const TABS = [
   { key: 'search', label: '搜索下载' },
@@ -180,35 +183,46 @@ const mergeSearchSongs = (query, songSongs = [], lyricSongs = []) => {
   return merged.map((key) => byKey.get(key));
 };
 
-const searchSongsAndLyrics = async (keyword) => {
+const searchSongsLyricsAndAlbums = async (keyword) => {
   const query = keyword.trim();
   const isLink = SEARCH_LINK_RE.test(query);
   const requests = [
-    searchMusic(query, { type: 'song', skipWarm: true }),
-    ...(isLink ? [] : [searchMusic(query, { type: 'lyric', skipWarm: true })]),
+    ['song', searchMusic(query, { type: 'song', skipWarm: true })],
+    ...(isLink ? [] : [
+      ['lyric', searchMusic(query, { type: 'lyric', skipWarm: true })],
+      ['album', searchMusic(query, { type: 'album', skipWarm: true })],
+    ]),
   ];
-  const [songResult, lyricResult] = await Promise.allSettled(requests);
-  const songData = songResult?.status === 'fulfilled' ? songResult.value : null;
-  const lyricData = lyricResult?.status === 'fulfilled' ? lyricResult.value : null;
-  const failures = [songResult, lyricResult]
-    .filter((result) => result && result.status === 'rejected')
+  const results = await Promise.allSettled(requests.map(([, request]) => request));
+  const resultByType = Object.fromEntries(requests.map(([type], index) => [type, results[index]]));
+  const dataFor = (type) => (
+    resultByType[type]?.status === 'fulfilled' ? resultByType[type].value : null
+  );
+  const songData = dataFor('song');
+  const lyricData = dataFor('lyric');
+  const albumData = dataFor('album');
+  const failures = results
+    .filter((result) => result.status === 'rejected')
     .map((result) => result.reason?.message || String(result.reason));
 
-  if (!songData && !lyricData) {
+  if (!songData && !lyricData && !albumData) {
     throw new Error(failures[0] || '搜索失败');
   }
 
   const songs = mergeSearchSongs(query, songData?.songs || [], lyricData?.songs || []).slice(0, COMBINED_SEARCH_RESULT_LIMIT);
+  const albums = albumData?.playlists || [];
+  const hasResults = songs.length > 0 || albums.length > 0;
   return {
-    ...(songData || lyricData || {}),
+    ...(songData || lyricData || albumData || {}),
     type: 'combined',
     keyword: query,
     songs,
+    albums,
     playlists: songData?.playlists || [],
-    cached: !!(songData?.cached || lyricData?.cached),
-    refreshing: !!(songData?.refreshing || lyricData?.refreshing),
-    cached_at: songData?.cached_at || lyricData?.cached_at,
-    error: songs.length === 0 ? (songData?.error || lyricData?.error || failures[0] || '') : '',
+    cached: !!(songData?.cached || lyricData?.cached || albumData?.cached),
+    refreshing: !!(songData?.refreshing || lyricData?.refreshing || albumData?.refreshing),
+    cached_at: songData?.cached_at || lyricData?.cached_at || albumData?.cached_at,
+    error: hasResults ? '' : (songData?.error || lyricData?.error || albumData?.error || failures[0] || ''),
   };
 };
 
@@ -284,8 +298,9 @@ const QueryRefreshProgress = ({ active, className = '' }) => {
 };
 
 // 搜索面板
-const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCache, query, state, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
+const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCache, query, state, onOpenAlbum, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
+  const albums = state.data?.albums || [];
   const feedback = useFeedback();
   const [autoPlayQuery, setAutoPlayQuery] = useState('');
   const recognitionRef = useRef({ recorder: null, stream: null, chunks: [], timer: null, failed: false });
@@ -599,10 +614,10 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
         tone: 'error',
       };
     }
-    if (hasCurrentSearchResult && songs.length > 0) {
+    if (hasCurrentSearchResult && (songs.length > 0 || albums.length > 0)) {
       return {
-        title: '已找到候选歌曲',
-        detail: `当前有 ${songs.length} 首候选。不会自动验活,需要时点单首“验”。`,
+        title: '已找到搜索结果',
+        detail: `${albums.length ? `${albums.length} 张专辑 · ` : ''}${songs.length} 首候选歌曲。歌曲不会自动验活,需要时点单首“验”。`,
         icon: Check,
         tone: 'success',
       };
@@ -717,6 +732,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       <CacheRefreshNotice data={state.data} />
       <QueryRefreshProgress active={state.isFetching && !!state.data && !state.isLoading && !searchStage?.loading && !(state.data?.cached && state.data?.refreshing)} />
       <SearchStatusPanel stage={searchStage} available={songs.length} total={allSongs.length} />
+      <SearchAlbumRow albums={albums} onOpen={onOpenAlbum} />
       {songs.length > 0 && (
         <div className="mb-4 flex flex-wrap items-stretch gap-2">
           {Object.entries(SORT_PRESETS).map(([mode, preset]) => (
@@ -727,22 +743,26 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
           ))}
         </div>
       )}
-      <SongListHeader />
-      <div className="space-y-0.5 pb-32">
-        {songs.map((song, idx) => (
-          <SongRow
-            key={songIdentityKey(song)}
-            song={song}
-            index={idx}
-            isPlaying={isPlaying(song)}
-            isPaused={isPaused}
-            onTogglePlayback={onTogglePlayback}
-            onPlay={(s) => onPlay(s, songs)}
-            onShowLyric={onShowLyric}
-            lyricQuery={query}
-          />
-        ))}
-      </div>
+      {songs.length > 0 && (
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5 pb-32">
+            {songs.map((song, idx) => (
+              <SongRow
+                key={songIdentityKey(song)}
+                song={song}
+                index={idx}
+                isPlaying={isPlaying(song)}
+                isPaused={isPaused}
+                onTogglePlayback={onTogglePlayback}
+                onPlay={(s) => onPlay(s, songs)}
+                onShowLyric={onShowLyric}
+                lyricQuery={query}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -833,14 +853,16 @@ const BulkStatusCard = ({ title, state, cache, serverDownload }) => {
   );
 };
 
-// 歌单详情面板
-const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
+// 远端歌单/专辑详情面板
+const RemoteCollectionDetailPane = ({ meta, kind = 'playlist', state, onBack, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const songs = state.data?.songs || [];
   const { user, offline } = useAuth();
   const { create, addSong } = useCollections();
   const feedback = useFeedback();
   const userId = user?.id || 0;
-  const taskKey = `user:${userId}:${meta.source}:${meta.id}`;
+  const isAlbum = kind === 'album';
+  const contentLabel = isAlbum ? '专辑' : '推荐歌单';
+  const taskKey = `user:${userId}:${kind}:${meta.source}:${meta.id}`;
   const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'recommended-playlist-download');
   const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'recommended-playlist-cache');
   const copyTasks = useScopedBulkState(IDLE_BULK_COPY, 'recommended-playlist-copy');
@@ -898,7 +920,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
     let fail = 0;
     await copyTasks.runForKey(taskKey, { phase: 'running', done, fail, total, collectionId: null }, async (update) => {
       try {
-        const collection = await create(meta.name || '推荐歌单');
+        const collection = await create(meta.name || contentLabel);
         const collectionId = collection?.id;
         if (collectionId == null) throw new Error('collection id missing');
         for (const song of playlistSongs) {
@@ -927,17 +949,25 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
   const CacheBulkIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
   const CopyBulkIcon = bulkCopy.phase === 'done' ? Check : bulkCopy.phase === 'fail' ? RotateCw : ListPlus;
   const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle' || bulkCopy.phase !== 'idle';
+  const [detailCoverFailed, setDetailCoverFailed] = useState(false);
+  useEffect(() => setDetailCoverFailed(false), [meta.cover, meta.id, meta.source]);
+  const detailCover = detailCoverFailed ? '' : coverProxyUrl(meta);
 
   return (
     <div className="pb-32">
-      <button onClick={onBack} className="mb-4 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/80">← 返回推荐歌单</button>
+      <button onClick={onBack} className="mb-4 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/80">← {isAlbum ? '返回搜索结果' : '返回推荐歌单'}</button>
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center rounded-lg bg-secondary">
-          <Music size={42} className="text-muted-foreground" />
+        <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary">
+          {detailCover ? (
+            <img src={detailCover} alt="" className="h-full w-full object-cover" onError={() => setDetailCoverFailed(true)} />
+          ) : (
+            <Music size={42} className="text-muted-foreground" />
+          )}
         </div>
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">推荐歌单</p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">{contentLabel}</p>
           <h3 className="truncate text-3xl font-black">{meta.name}</h3>
+          {meta.creator && <p className="mt-1 truncate text-sm text-muted-foreground">{meta.creator}</p>}
           <p className="mt-1 text-sm text-muted-foreground">{songs.length} 首</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button onClick={() => songs.length && onPlay(songs[0], songs)}
@@ -952,7 +982,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
                 : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器的「已下载」列表'}>
+              title={offline ? '离线状态无法下载到服务器' : `把这张${contentLabel}下载到服务器的「已下载」列表`}>
               <DownloadBulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
               {downloadLabel}
             </button>
@@ -963,7 +993,7 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
                 : bulkCache.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
               }`}
-              title={offline ? '离线状态无法缓存新歌曲' : '把这张推荐歌单缓存到当前浏览器/PWA'}>
+              title={offline ? '离线状态无法缓存新歌曲' : `把这张${contentLabel}缓存到当前浏览器/PWA`}>
               <CacheBulkIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
               {cacheLabel}
             </button>
@@ -984,12 +1014,13 @@ const PlaylistDetailPane = ({ meta, state, onBack, onPlay, onTogglePlayback, onS
       <QueryRefreshProgress active={state.isFetching && songs.length > 0 && !(state.data?.cached && state.data?.refreshing)} />
       {state.isLoading && songs.length === 0 && (
         <LoadingState
-          title="加载歌单"
-          detail="正在读取歌单歌曲和封面信息"
+          title={`加载${contentLabel}`}
+          detail={`正在读取${contentLabel}歌曲和封面信息`}
           rows={6}
           className="mb-4"
         />
       )}
+      {state.isError && <p className="text-destructive font-bold mb-4">加载{contentLabel}失败:{String(state.error?.message || state.error)}</p>}
       {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
       <CacheRefreshNotice data={state.data} />
       {hasBulkStatus && (
@@ -1029,6 +1060,7 @@ const Download = ({ downloadRequest }) => {
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
   const [openPlaylist, setOpenPlaylist] = useState(null); // {id, source, name}
+  const [openAlbum, setOpenAlbum] = useState(null); // {id, source, name, cover, creator}
   const [lyric, setLyric] = useState(null); // {song, text}
 
   // 来自发现页「在国内源下载」的预填搜索词:切到搜索 Tab 并自动搜索。
@@ -1038,16 +1070,17 @@ const Download = ({ downloadRequest }) => {
     if (kw) {
       setTab('search');
       setOpenPlaylist(null);
+      setOpenAlbum(null);
       setKeyword(kw);
       setQuery(kw);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadRequest?.ts]);
 
-  // 歌名 + 歌词合并搜索
+  // 歌名 + 歌词 + 专辑合并搜索
   const search = useQuery(
     searchQueryKey(query),
-    () => searchSongsAndLyrics(query),
+    () => searchSongsLyricsAndAlbums(query),
     {
       enabled: tab === 'search' && !!query,
       keepPreviousData: true,
@@ -1075,6 +1108,14 @@ const Download = ({ downloadRequest }) => {
   );
   useCachedRefresh(playlistDetail, !!openPlaylist);
 
+  // 搜索结果中的专辑详情
+  const albumDetail = useQuery(
+    ['musicdl-album', openAlbum?.id, openAlbum?.source],
+    () => getAlbumDetail(openAlbum.id, openAlbum.source),
+    { enabled: tab === 'search' && !!openAlbum, refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 }
+  );
+  useCachedRefresh(albumDetail, tab === 'search' && !!openAlbum);
+
   const handleSearch = (e) => {
     e.preventDefault();
     const k = keyword.trim();
@@ -1092,7 +1133,7 @@ const Download = ({ downloadRequest }) => {
   const handleClearSearchCache = useCallback(async (kw) => {
     const k = (kw || query || '').trim();
     if (!k) return;
-    const types = SEARCH_LINK_RE.test(k) ? ['song'] : ['song', 'lyric'];
+    const types = SEARCH_LINK_RE.test(k) ? ['song'] : ['song', 'lyric', 'album'];
     const targetKey = searchQueryKey(k);
     await queryClient.cancelQueries(targetKey, { exact: true });
     await clearSearchCache(k, { types });
@@ -1131,6 +1172,7 @@ const Download = ({ downloadRequest }) => {
             onClick={() => {
               setTab(t.key);
               setOpenPlaylist(null);
+              setOpenAlbum(null);
             }}
             className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
               tab === t.key
@@ -1143,7 +1185,7 @@ const Download = ({ downloadRequest }) => {
         ))}
       </div>
 
-      {tab === 'search' && (
+      {tab === 'search' && !openAlbum && (
         <SearchPane
           keyword={keyword}
           setKeyword={setKeyword}
@@ -1152,6 +1194,21 @@ const Download = ({ downloadRequest }) => {
           onClearSearchCache={handleClearSearchCache}
           query={query}
           state={search}
+          onOpenAlbum={setOpenAlbum}
+          onPlay={handlePlay}
+          onTogglePlayback={togglePlay}
+          onShowLyric={handleShowLyric}
+          isPlaying={isPlaying}
+          isPaused={isPaused}
+        />
+      )}
+
+      {tab === 'search' && openAlbum && (
+        <RemoteCollectionDetailPane
+          meta={openAlbum}
+          kind="album"
+          state={albumDetail}
+          onBack={() => setOpenAlbum(null)}
           onPlay={handlePlay}
           onTogglePlayback={togglePlay}
           onShowLyric={handleShowLyric}
@@ -1165,7 +1222,7 @@ const Download = ({ downloadRequest }) => {
       )}
 
       {tab === 'discover' && openPlaylist && (
-        <PlaylistDetailPane
+        <RemoteCollectionDetailPane
           meta={openPlaylist}
           state={playlistDetail}
           onBack={() => setOpenPlaylist(null)}
