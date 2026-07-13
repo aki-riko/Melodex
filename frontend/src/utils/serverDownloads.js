@@ -25,6 +25,14 @@ const LOCAL_SOURCES = new Set(['local', 'local-file', 'local_music']);
 
 export const serverDownloadSongKey = (song) => serverDownloadStatusKey(songSource(song), songID(song));
 
+export const serverDownloadMatchesKnownKeys = (song, exactKeys, titleArtistKeys) => {
+  if (LOCAL_SOURCES.has(String(songSource(song) || '').trim())) return true;
+  const exactKey = serverDownloadSongKey(song);
+  if (exactKey) return exactKeys?.has(exactKey) === true;
+  const fallbackKey = serverDownloadTitleArtistKey(song?.name ?? song?.Name, song?.artist ?? song?.Artist);
+  return !!fallbackKey && titleArtistKeys?.has(fallbackKey) === true;
+};
+
 const existingDownloadKeys = (downloads) => new Set(
   (Array.isArray(downloads) ? downloads : [])
     .map((item) => serverDownloadStatusKey(item?.source, item?.song_id))

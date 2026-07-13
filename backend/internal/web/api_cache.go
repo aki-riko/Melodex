@@ -17,7 +17,7 @@ import (
 const (
 	apiCacheNamespaceRecommend         = "recommend"
 	apiCacheNamespacePlaylistDetail    = "playlist_detail"
-	apiCacheNamespaceAlbumDetail       = "album_detail"
+	apiCacheNamespaceAlbumDetail       = "album_detail:v2"
 	apiCacheNamespacePlaylistCategory  = "playlist_categories"
 	apiCacheNamespaceCategoryPlaylists = "category_playlists"
 )

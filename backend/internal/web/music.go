@@ -770,9 +770,29 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		}
 
 		if saveLocal {
-			result, err := core.SaveSongToFileWithTemplate(tempSong, settings.DownloadDir, embedMeta, embedMeta, settings.DownloadFilenameTemplate)
+			result, err := core.DownloadSongDataWithTemplate(tempSong, embedMeta, embedMeta, settings.DownloadFilenameTemplate)
 			if err != nil {
 				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+				return
+			}
+
+			// 下载本身并发执行；只在落盘与登记阶段按“歌名+歌手”串行化。
+			// 这样同名不同 ID 的原唱/伴奏即使并发完成，也能让后到者看到前一条记录，
+			// 自动使用带 source+id 的独立文件名，避免覆盖。
+			unlockIdentity := lockServerDownloadIdentity(source, id, name, artist)
+			defer unlockIdentity()
+			conflict, conflictErr := hasConflictingDownloadIdentity(settings.DownloadDir, source, id, name, artist)
+			if conflictErr != nil {
+				log.Printf("[download] 检查同名版本冲突失败 source=%q id=%q: %v", source, id, conflictErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "检查同名版本冲突失败"})
+				return
+			}
+			if conflict {
+				result.Filename = core.BuildDownloadFilename(tempSong, result.Ext, filenameTemplateWithSongIdentity(settings.DownloadFilenameTemplate))
+			}
+			result, err = core.SaveDownloadedSongDataToFile(result, settings.DownloadDir)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   planServerDownloadBatch,
   serverDownloadEventBelongsToUser,
+  serverDownloadMatchesKnownKeys,
   serverDownloadSongKey,
   serverDownloadStatusKey,
   serverDownloadTitleArtistKey,
@@ -56,6 +57,14 @@ const invalidSong = { source: 'qq', id: '', name: '缺少 ID', artist: '歌手' 
 const batchSongs = [realSong, localSong, legacyLocalSong, localMusicSong, pendingQQ, pendingQQDuplicate, pendingNetease, pendingKugou, invalidSong];
 
 assert.equal(serverDownloadSongKey(realSong), 'qq\u0000002l8AAo4GpCaf');
+
+const originalIdentity = { source: 'qq', id: '001MPeqh1mdABU', name: '凝眸', artist: '王心凌, 张远' };
+const accompanimentIdentity = { source: 'qq', id: '0003q6YO4Xvxj6', name: '凝眸', artist: '王心凌, 张远' };
+const accompanimentExactKeys = new Set([serverDownloadSongKey(accompanimentIdentity)]);
+const sharedTitleKeys = new Set([serverDownloadTitleArtistKey('凝眸', '王心凌, 张远')]);
+assert.equal(serverDownloadMatchesKnownKeys(originalIdentity, accompanimentExactKeys, sharedTitleKeys), false);
+assert.equal(serverDownloadMatchesKnownKeys(accompanimentIdentity, accompanimentExactKeys, sharedTitleKeys), true);
+assert.equal(serverDownloadMatchesKnownKeys({ name: '凝眸', artist: '王心凌, 张远' }, new Set(), sharedTitleKeys), true);
 
 const enabledStorage = { getItem: () => '1' };
 const disabledStorage = { getItem: () => '0' };

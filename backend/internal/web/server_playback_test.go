@@ -86,7 +86,7 @@ func TestStreamPlaybackPrefersOwnedServerDownload(t *testing.T) {
 	}
 }
 
-func TestStreamPlaybackFallsBackToSameTitleArtistAcrossSources(t *testing.T) {
+func TestServerPlaybackDoesNotFallbackAcrossSourcesWithoutExactIdentity(t *testing.T) {
 	setupUserTestDB(t)
 
 	alice, err := createUser("alice-cross-source", "alicepass1", RoleUser)
@@ -107,15 +107,103 @@ func TestStreamPlaybackFallsBackToSameTitleArtistAcrossSources(t *testing.T) {
 		t.Fatalf("record migu download: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, serverStreamURL("002XiILV3rtslm", "qq", "炽心", "希林娜依高"), nil)
-	rec := httptest.NewRecorder()
-	musicRouterForUser(alice.ID, RoleUser).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK || rec.Header().Get("X-Melodex-Playback-Source") != "server" {
-		t.Fatalf("cross-source stream status=%d source=%q body=%q", rec.Code, rec.Header().Get("X-Melodex-Playback-Source"), rec.Body.String())
+	got, err := existingDownloadRelPathForPlayback(
+		alice.ID,
+		false,
+		downloadDir,
+		"qq",
+		"002XiILV3rtslm",
+		"炽心",
+		"希林娜依高",
+	)
+	if err != nil {
+		t.Fatalf("resolve QQ identity: %v", err)
 	}
-	if !bytes.Equal(rec.Body.Bytes(), audio) {
-		t.Fatalf("cross-source body=%q, want local bytes %q", rec.Body.Bytes(), audio)
+	if got != "" {
+		t.Fatalf("QQ identity incorrectly reused cross-source path %q", got)
+	}
+}
+
+func TestServerPlaybackDoesNotFallbackAcrossDifferentIDsFromSameSource(t *testing.T) {
+	setupUserTestDB(t)
+
+	alice, err := createUser("alice-versioned-playback", "alicepass1", RoleUser)
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+
+	downloadDir := t.TempDir()
+	withLocalMusicDownloadDir(t, downloadDir)
+
+	// 真实生产失败输入:QQ 专辑解析曾把以下两个版本都压成“凝眸 / 王心凌, 张远”。
+	// 原唱请求 001MPeqh1mdABU 因同名回退，错误播放了后下载的和声伴奏 0003q6YO4Xvxj6。
+	rel := "凝眸 - 王心凌, 张远.flac"
+	if err := os.WriteFile(filepath.Join(downloadDir, rel), []byte("harmony-instrumental"), 0644); err != nil {
+		t.Fatalf("write accompaniment fixture: %v", err)
+	}
+	if err := recordDownload(alice.ID, rel, "qq", "0003q6YO4Xvxj6", "凝眸", "王心凌, 张远"); err != nil {
+		t.Fatalf("record accompaniment: %v", err)
+	}
+
+	got, err := existingDownloadRelPathForPlayback(
+		alice.ID,
+		false,
+		downloadDir,
+		"qq",
+		"001MPeqh1mdABU",
+		"凝眸",
+		"王心凌, 张远",
+	)
+	if err != nil {
+		t.Fatalf("resolve original: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("original resolved accompaniment path %q", got)
+	}
+}
+
+func TestConflictingDownloadIdentityUsesDistinctFilenameTemplate(t *testing.T) {
+	setupUserTestDB(t)
+
+	alice, err := createUser("alice-variant-download", "alicepass1", RoleUser)
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	downloadDir := t.TempDir()
+	withLocalMusicDownloadDir(t, downloadDir)
+
+	originalRel := "凝眸 - 王心凌, 张远.flac"
+	if err := os.WriteFile(filepath.Join(downloadDir, originalRel), []byte("original-duet"), 0644); err != nil {
+		t.Fatalf("write original fixture: %v", err)
+	}
+	if err := recordDownload(alice.ID, originalRel, "qq", "001MPeqh1mdABU", "凝眸", "王心凌, 张远"); err != nil {
+		t.Fatalf("record original: %v", err)
+	}
+
+	conflict, err := hasConflictingDownloadIdentity(downloadDir, "qq", "000UWY2q4fCksJ", "凝眸", "王心凌, 张远")
+	if err != nil {
+		t.Fatalf("check accompaniment conflict: %v", err)
+	}
+	if !conflict {
+		t.Fatal("same-title accompaniment should conflict with original identity")
+	}
+	crossSourceConflict, err := hasConflictingDownloadIdentity(downloadDir, "kuwo", "431545677", "凝眸", "王心凌, 张远")
+	if err != nil {
+		t.Fatalf("check cross-source conflict: %v", err)
+	}
+	if !crossSourceConflict {
+		t.Fatal("same-title different-source identity should also use a distinct file")
+	}
+	if got := filenameTemplateWithSongIdentity("{name} - {artist}"); got != "{name} - {artist} [{source}-{id}]" {
+		t.Fatalf("identity filename template = %q", got)
+	}
+
+	conflict, err = hasConflictingDownloadIdentity(downloadDir, "qq", "001MPeqh1mdABU", "凝眸", "王心凌, 张远")
+	if err != nil {
+		t.Fatalf("check exact identity: %v", err)
+	}
+	if conflict {
+		t.Fatal("same source/song_id must remain an upgrade, not a variant conflict")
 	}
 }
 
