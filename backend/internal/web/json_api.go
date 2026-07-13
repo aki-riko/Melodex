@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -452,6 +453,7 @@ func jsonSearchHandler(c *gin.Context) {
 				Refreshing: !entry.Fresh || entry.Refreshing,
 				CachedAt:   &entry.CreatedAt,
 			}
+			applyAlbumSourcePreference(&cached)
 			recordSearchHistory(currentUserID(c), keyword, cached.Type)
 			if !entry.Fresh {
 				refreshSearchCacheAsync(cacheKey, searchType, keyword, exactArtist, sources, !skipWarm)
@@ -550,7 +552,52 @@ func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources
 	if isTrackSearchType(resp.Type) && exactArtist != "" && len(resp.Songs) > 0 {
 		resp.Songs = filterSongsByExactArtist(resp.Songs, exactArtist)
 	}
+	applyAlbumSourcePreference(&resp)
 	return resp
+}
+
+// applyAlbumSourcePreference 让已保存平台凭据的专辑优先展示。
+// 搜索缓存全局共享且有效期较长，因此每次响应（包括缓存命中）都按当前凭据重新排序；
+// 同一凭据分组内按请求源顺序排列，同一来源内部保留上游原始名次。
+func applyAlbumSourcePreference(resp *jsonSearchResponse) {
+	if resp == nil || resp.Type != "album" || len(resp.Playlists) < 2 {
+		return
+	}
+	prioritizeAlbumsBySource(resp.Playlists, resp.Sources, core.CM.GetAll())
+}
+
+func prioritizeAlbumsBySource(albums []model.Playlist, sources []string, cookies map[string]string) {
+	if len(albums) < 2 {
+		return
+	}
+
+	sourceOrder := make(map[string]int, len(sources))
+	for index, source := range sources {
+		if _, exists := sourceOrder[source]; !exists {
+			sourceOrder[source] = index
+		}
+	}
+	unknownSourceRank := len(sources)
+
+	sort.SliceStable(albums, func(i, j int) bool {
+		leftSource := strings.TrimSpace(albums[i].Source)
+		rightSource := strings.TrimSpace(albums[j].Source)
+		leftCredentialed := strings.TrimSpace(cookies[leftSource]) != ""
+		rightCredentialed := strings.TrimSpace(cookies[rightSource]) != ""
+		if leftCredentialed != rightCredentialed {
+			return leftCredentialed
+		}
+
+		leftRank, ok := sourceOrder[leftSource]
+		if !ok {
+			leftRank = unknownSourceRank
+		}
+		rightRank, ok := sourceOrder[rightSource]
+		if !ok {
+			rightRank = unknownSourceRank
+		}
+		return leftRank < rightRank
+	})
 }
 
 func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sources []string, warmQuality bool) {
