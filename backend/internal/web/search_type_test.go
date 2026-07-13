@@ -31,6 +31,51 @@ func TestDefaultSourcesForSearchType(t *testing.T) {
 	}
 }
 
+func TestPrioritizeAlbumsBySourcePutsCredentialedSourceFirst(t *testing.T) {
+	albums := []model.Playlist{
+		{ID: "kg-1", Name: "永夜星河 影视原声大碟", Source: "kugou"},
+		{ID: "kw-1", Name: "永夜星河", Source: "kuwo"},
+		{ID: "qq-1", Name: "永夜星河 影视原声大碟", Source: "qq"},
+		{ID: "qq-2", Name: "永夜星河", Source: "qq"},
+		{ID: "ne-1", Name: "永夜星河 影视原声大碟", Source: "netease"},
+	}
+
+	prioritizeAlbumsBySource(
+		albums,
+		[]string{"netease", "qq", "kugou", "kuwo"},
+		map[string]string{"qq": "saved credential"},
+	)
+
+	wantIDs := []string{"qq-1", "qq-2", "ne-1", "kg-1", "kw-1"}
+	gotIDs := make([]string, 0, len(albums))
+	for _, album := range albums {
+		gotIDs = append(gotIDs, album.ID)
+	}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("prioritized album IDs = %v, want %v", gotIDs, wantIDs)
+	}
+}
+
+func TestPrioritizeAlbumsBySourceUsesRequestedOrderWithoutCredentials(t *testing.T) {
+	albums := []model.Playlist{
+		{ID: "kg-1", Source: "kugou"},
+		{ID: "qq-1", Source: "qq"},
+		{ID: "ne-1", Source: "netease"},
+		{ID: "qq-2", Source: "qq"},
+	}
+
+	prioritizeAlbumsBySource(albums, []string{"netease", "qq", "kugou"}, nil)
+
+	wantIDs := []string{"ne-1", "qq-1", "qq-2", "kg-1"}
+	gotIDs := make([]string, 0, len(albums))
+	for _, album := range albums {
+		gotIDs = append(gotIDs, album.ID)
+	}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("album IDs without credentials = %v, want %v", gotIDs, wantIDs)
+	}
+}
+
 func TestSearchPlaceholderForType(t *testing.T) {
 	tests := []struct {
 		searchType string
