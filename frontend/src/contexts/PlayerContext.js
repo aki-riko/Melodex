@@ -18,13 +18,7 @@ import {
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
 import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
-import {
-  fadeAudioVolume,
-  pauseAudioImmediately,
-  resumeAudioImmediately,
-  shouldResumePlayback,
-  shouldUsePlaybackFade,
-} from './playerVolumeFade.js';
+import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
 
 const PlayerContext = createContext(null);
 
@@ -278,45 +272,6 @@ export const PlayerProvider = ({ children }) => {
     startVolumeFade(audio, volumeRef.current, 'play');
   }, [nowPlaying, startVolumeFade]);
 
-  const pauseImmediately = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return false;
-    cancelPlaybackFade();
-    playbackIntentRef.current = 'pause';
-    const paused = pauseAudioImmediately(audio, volumeRef.current);
-    playbackIntentRef.current = '';
-    return paused;
-  }, [cancelPlaybackFade]);
-
-  const resumeImmediately = useCallback(async () => {
-    const audio = audioRef.current;
-    if (!audio || !nowPlaying) return false;
-    cancelPlaybackFade();
-    playbackIntentRef.current = 'play';
-    try {
-      await resumeAudioImmediately(audio, volumeRef.current);
-    } catch (err) {
-      if (playbackIntentRef.current === 'play') playbackIntentRef.current = '';
-      throw err;
-    }
-    if (playbackIntentRef.current !== 'play') {
-      pauseAudioImmediately(audio, volumeRef.current);
-      return false;
-    }
-    playbackIntentRef.current = '';
-    return true;
-  }, [cancelPlaybackFade, nowPlaying]);
-
-  const pauseFromExternalControl = useCallback(() => {
-    const hasFocus = typeof document !== 'undefined' && document.hasFocus();
-    return shouldUsePlaybackFade(hasFocus) ? pauseWithFade() : pauseImmediately();
-  }, [pauseImmediately, pauseWithFade]);
-
-  const resumeFromExternalControl = useCallback(() => {
-    const hasFocus = typeof document !== 'undefined' && document.hasFocus();
-    return shouldUsePlaybackFade(hasFocus) ? resumeWithFade() : resumeImmediately();
-  }, [resumeImmediately, resumeWithFade]);
-
   const clearSleepTimer = useCallback(() => {
     sleepTimerRef.current = null;
     setSleepTimer(null);
@@ -324,10 +279,10 @@ export const PlayerProvider = ({ children }) => {
   }, []);
 
   const stopPlaybackForSleepTimer = useCallback((message = '睡眠定时已停止播放。') => {
-    pauseFromExternalControl();
+    pauseWithFade();
     clearSleepTimer();
     setNotice(message);
-  }, [clearSleepTimer, pauseFromExternalControl]);
+  }, [clearSleepTimer, pauseWithFade]);
 
   const startSleepTimer = useCallback((minutes) => {
     const timer = createSleepTimer(minutes);
@@ -656,12 +611,12 @@ export const PlayerProvider = ({ children }) => {
         console.warn(`MediaSession ${action} 执行失败`, err);
       }
     };
-    // 前台保留淡入淡出;窗口失焦时绕开会被限流的 requestAnimationFrame,保证全局按键有效。
-    navigator.mediaSession.setActionHandler('play', safe('play', resumeFromExternalControl));
-    navigator.mediaSession.setActionHandler('pause', safe('pause', pauseFromExternalControl));
+    // 渐变使用后台安全的定时器调度,前后台媒体键都保留淡入淡出。
+    navigator.mediaSession.setActionHandler('play', safe('play', resumeWithFade));
+    navigator.mediaSession.setActionHandler('pause', safe('pause', pauseWithFade));
     navigator.mediaSession.setActionHandler('previoustrack', safe('previoustrack', prev));
     navigator.mediaSession.setActionHandler('nexttrack', safe('nexttrack', next));
-    navigator.mediaSession.setActionHandler('stop', safe('stop', pauseFromExternalControl));
+    navigator.mediaSession.setActionHandler('stop', safe('stop', pauseWithFade));
     try {
       navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
       navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
@@ -669,7 +624,7 @@ export const PlayerProvider = ({ children }) => {
     } catch (err) {
       console.debug('当前浏览器不支持部分 MediaSession seek 动作', err);
     }
-  }, [cachedCover, next, nowPlaying, offline, pauseFromExternalControl, prev, resumeFromExternalControl, seek]);
+  }, [cachedCover, next, nowPlaying, offline, pauseWithFade, prev, resumeWithFade, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {
