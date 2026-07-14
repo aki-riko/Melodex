@@ -45,7 +45,7 @@ Melodex/
 
 ## 多用户隔离 + 两级 RBAC(2026-06 新增)
 
-Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**。生产 tsp.9li.life 前面已有 Authentik SSO 守门,但后端拿不到 SSO 身份,故**自建多账号**(不依赖 SSO,可脱离 SSO 部署)。
+Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**。生产 music.9li.life 前面已有 Authentik SSO 守门,但后端拿不到 SSO 身份,故**自建多账号**(不依赖 SSO,可脱离 SSO 部署)。
 
 ### 数据模型(`backend/internal/web`,settings.db)
 - **User 表**(`users.go`):username 唯一(大小写不敏感)/bcrypt 密码哈希/role(admin|user)/disabled。完整 CRUD + **最后管理员保护**(不能删/降级/禁用最后一个 admin)。
@@ -116,7 +116,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **曲库浏览**:getMusicFolders/getIndexes/getArtists/getArtist/getAlbumList2/getAlbum 全部读 `scanLocalMusicTracksCached` 快照聚合(艺人按首字母分组,专辑空名归「未知专辑」)。getCoverArt:本地读 `readLocalMusicCover` 嵌入图,在线代理 cover URL(复用 `isPublicHTTPURL` SSRF 防护 + `core.FetchBytesWithMime`)。
 - **共享存储**:下载落 `settings.DownloadDir`(与现有下载同目录);Navidrome 若同时跑可扫同一目录(本 facade 与 Navidrome 互不依赖,二选一即可)。
 
-### 部署鉴权(生产 tsp.9li.life)
+### 部署鉴权(生产 music.9li.life)
 - `/rest` 路径要在 NPM **放行 Authentik SSO**(`auth_request off`,与 PWA 静态资源同理),仅靠 Subsonic 自身 user/pass 认证——Subsonic 客户端不会过 SSO 登录页。
 - env 在 `docker-compose.yml` 配(已留注释模板,默认注释掉)。
 
@@ -190,7 +190,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 ## 部署(NAS,Unraid x86_64)
 
 - 代码在 NAS `/mnt/cache/appdata/melodex-src`,Docker compose 运行,端口 **8329**。
-- 访问 `https://tsp.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
+- 访问 `https://music.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
 - **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@192.168.1.99:28022/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:22-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)。
 - 部署流程:NAS 上 `git pull origin master` → `docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t melodex:latest .` → `docker compose up -d`。
 - **安全相关 env(2026-06 审计后新增,反代部署建议配)**:

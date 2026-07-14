@@ -79,7 +79,7 @@ func searchPlaceholderForType(searchType string) string {
 }
 
 // corsAllowedOrigins 来自 env MUSIC_DL_CORS_ORIGINS(逗号分隔的完整 Origin,如
-// https://tsp.9li.life,http://localhost:3000)。生产前端与后端同源,通常无需配置。
+// https://music.9li.life,http://localhost:3000)。生产前端与后端同源,通常无需配置。
 func corsAllowedOrigins() map[string]bool {
 	set := map[string]bool{}
 	for _, o := range strings.Split(os.Getenv("MUSIC_DL_CORS_ORIGINS"), ",") {
