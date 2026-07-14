@@ -8,6 +8,21 @@ export const shouldResumePlayback = (audioPaused, currentIntent = '') => {
 
 const clampVolume = (value) => Math.min(1, Math.max(0, Number(value) || 0));
 
+export const pauseAudioImmediately = (audio, restoreVolume) => {
+  if (!audio) return false;
+  audio.pause();
+  audio.volume = clampVolume(restoreVolume);
+  return true;
+};
+
+export const resumeAudioImmediately = async (audio, restoreVolume) => {
+  if (!audio) return false;
+  // MediaSession 回调可能在页面后台触发,不能等待 requestAnimationFrame 淡入。
+  audio.volume = clampVolume(restoreVolume);
+  await audio.play();
+  return true;
+};
+
 const requestFrame = (callback) => {
   if (typeof globalThis.requestAnimationFrame === 'function') {
     return globalThis.requestAnimationFrame(callback);
