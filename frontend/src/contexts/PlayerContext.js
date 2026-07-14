@@ -18,6 +18,7 @@ import {
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
 import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
+import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
 
 const PlayerContext = createContext(null);
 
@@ -75,6 +76,9 @@ export const PlayerProvider = ({ children }) => {
   const nowPlayingRef = useRef(null);
   const sleepTimerRef = useRef(null);
   const sleepStopAfterTrackRef = useRef(loadStopAfterTrackPreference());
+  const volumeRef = useRef(volume);
+  const playbackFadeCancelRef = useRef(null);
+  const playbackIntentRef = useRef('');
   useEffect(() => { modeRef.current = mode; localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
   const { user, offline } = useAuth();
@@ -106,6 +110,28 @@ export const PlayerProvider = ({ children }) => {
     if (!coverObjectUrlRef.current) return;
     URL.revokeObjectURL(coverObjectUrlRef.current);
     coverObjectUrlRef.current = '';
+  }, []);
+
+  const cancelPlaybackFade = useCallback(() => {
+    playbackFadeCancelRef.current?.();
+    playbackFadeCancelRef.current = null;
+    playbackIntentRef.current = '';
+  }, []);
+
+  const startVolumeFade = useCallback((audio, targetVolume, intent, onComplete) => {
+    playbackFadeCancelRef.current?.();
+    playbackIntentRef.current = intent;
+    let completed = false;
+    const cancel = fadeAudioVolume(audio, targetVolume, {
+      onComplete: () => {
+        if (playbackIntentRef.current !== intent) return;
+        completed = true;
+        playbackFadeCancelRef.current = null;
+        playbackIntentRef.current = '';
+        onComplete?.();
+      },
+    });
+    if (!completed) playbackFadeCancelRef.current = cancel;
   }, []);
 
   const loadAudioForSong = useCallback(async (song, { autoplay = true, seq: requestedSeq, preferCache = true } = {}) => {
@@ -145,6 +171,8 @@ export const PlayerProvider = ({ children }) => {
       if (coverUrl) URL.revokeObjectURL(coverUrl);
       return;
     }
+    cancelPlaybackFade();
+    audio.volume = volumeRef.current;
 
     if (!src && !offline) {
       src = getStreamUrl(song);
@@ -173,22 +201,28 @@ export const PlayerProvider = ({ children }) => {
     coverObjectUrlRef.current = coverUrl;
     setCachedCover({ url: coverUrl, mime: coverMime });
     if (autoplay) audio.play().catch(() => {});
-  }, [offline, revokeCoverObjectUrl, revokeObjectUrl, userId]);
+  }, [cancelPlaybackFade, offline, revokeCoverObjectUrl, revokeObjectUrl, userId]);
 
   useEffect(() => () => {
     playSeqRef.current += 1;
+    cancelPlaybackFade();
     revokeObjectUrl();
     revokeCoverObjectUrl();
-  }, [revokeCoverObjectUrl, revokeObjectUrl]);
+  }, [cancelPlaybackFade, revokeCoverObjectUrl, revokeObjectUrl]);
 
   // 音量/静音应用到 audio 元素,并持久化音量。
   useEffect(() => {
+    volumeRef.current = volume;
     if (audioRef.current) {
-      audioRef.current.volume = volume;
       audioRef.current.muted = muted;
+      if (playbackIntentRef.current === 'play' && !audioRef.current.paused) {
+        startVolumeFade(audioRef.current, volume, 'play');
+      } else if (playbackIntentRef.current !== 'pause') {
+        audioRef.current.volume = volume;
+      }
     }
     localStorage.setItem(VOLUME_KEY, String(volume));
-  }, [volume, muted]);
+  }, [muted, startVolumeFade, volume]);
 
   const setVolume = useCallback((v) => {
     const nv = Math.min(1, Math.max(0, v));
@@ -198,6 +232,46 @@ export const PlayerProvider = ({ children }) => {
 
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
 
+  const pauseWithFade = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playbackIntentRef.current === 'play' && audio.paused) {
+      cancelPlaybackFade();
+      audio.volume = volumeRef.current;
+      return;
+    }
+    if (audio.paused) return;
+    startVolumeFade(audio, 0, 'pause', () => {
+      audio.pause();
+      audio.volume = volumeRef.current;
+    });
+  }, [cancelPlaybackFade, startVolumeFade]);
+
+  const resumeWithFade = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio || !nowPlaying) return;
+
+    playbackFadeCancelRef.current?.();
+    playbackFadeCancelRef.current = null;
+    playbackIntentRef.current = 'play';
+    audio.volume = 0;
+    try {
+      await audio.play();
+    } catch {
+      if (playbackIntentRef.current === 'play') {
+        playbackIntentRef.current = '';
+        audio.volume = volumeRef.current;
+      }
+      return;
+    }
+    if (playbackIntentRef.current !== 'play') {
+      audio.pause();
+      audio.volume = volumeRef.current;
+      return;
+    }
+    startVolumeFade(audio, volumeRef.current, 'play');
+  }, [nowPlaying, startVolumeFade]);
+
   const clearSleepTimer = useCallback(() => {
     sleepTimerRef.current = null;
     setSleepTimer(null);
@@ -205,11 +279,10 @@ export const PlayerProvider = ({ children }) => {
   }, []);
 
   const stopPlaybackForSleepTimer = useCallback((message = '睡眠定时已停止播放。') => {
-    const audio = audioRef.current;
-    if (audio) audio.pause();
+    pauseWithFade();
     clearSleepTimer();
     setNotice(message);
-  }, [clearSleepTimer]);
+  }, [clearSleepTimer, pauseWithFade]);
 
   const startSleepTimer = useCallback((minutes) => {
     const timer = createSleepTimer(minutes);
@@ -351,8 +424,12 @@ export const PlayerProvider = ({ children }) => {
   const togglePlay = useCallback(() => {
     const a = audioRef.current;
     if (!a || !nowPlaying) return;
-    if (a.paused) a.play().catch(() => {}); else a.pause();
-  }, [nowPlaying]);
+    if (shouldResumePlayback(a.paused, playbackIntentRef.current)) {
+      resumeWithFade();
+    } else {
+      pauseWithFade();
+    }
+  }, [nowPlaying, pauseWithFade, resumeWithFade]);
 
   const seek = useCallback((sec) => {
     if (audioRef.current) audioRef.current.currentTime = sec;
@@ -456,6 +533,7 @@ export const PlayerProvider = ({ children }) => {
       if (!authenticated) {
         if (seqAtError !== playSeqRef.current || songIdentityKey(nowPlayingRef.current || {}) !== curKey) return;
         try {
+          cancelPlaybackFade();
           audio.pause();
           audio.removeAttribute('src');
           audio.load();
@@ -506,7 +584,7 @@ export const PlayerProvider = ({ children }) => {
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
     }
-  }, [loadAudioForSong, nowPlaying, offline, startPlay, userId]);
+  }, [cancelPlaybackFade, loadAudioForSong, nowPlaying, offline, startPlay, userId]);
 
   // MediaSession:PC 全局媒体键 / 锁屏 / 通知栏 / 蓝牙耳机控制 + 元数据
   useEffect(() => {
@@ -524,17 +602,17 @@ export const PlayerProvider = ({ children }) => {
       });
     }
     const safe = (fn) => () => { try { fn(); } catch { /* ignore */ } };
-    navigator.mediaSession.setActionHandler('play', safe(togglePlay));
-    navigator.mediaSession.setActionHandler('pause', safe(togglePlay));
+    navigator.mediaSession.setActionHandler('play', safe(resumeWithFade));
+    navigator.mediaSession.setActionHandler('pause', safe(pauseWithFade));
     navigator.mediaSession.setActionHandler('previoustrack', safe(prev));
     navigator.mediaSession.setActionHandler('nexttrack', safe(next));
-    navigator.mediaSession.setActionHandler('stop', safe(() => { const a = audioRef.current; if (a) a.pause(); }));
+    navigator.mediaSession.setActionHandler('stop', safe(pauseWithFade));
     try {
       navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
       navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
       navigator.mediaSession.setActionHandler('seekbackward', (d) => seek(Math.max(0, (audioRef.current?.currentTime || 0) - (d.seekOffset || 10))));
     } catch { /* 部分浏览器不支持 seek 动作 */ }
-  }, [cachedCover, offline, nowPlaying, togglePlay, prev, next, seek]);
+  }, [cachedCover, offline, nowPlaying, pauseWithFade, prev, next, resumeWithFade, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {

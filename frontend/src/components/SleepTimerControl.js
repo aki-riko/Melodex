@@ -104,7 +104,7 @@ const SleepTimerControl = ({
                   className="mt-0.5 h-4 w-4 flex-shrink-0 accent-primary"
                 />
                 <span className="min-w-0">
-                  <span className="block text-sm font-medium text-foreground">播完整首歌后停止</span>
+                  <span className="block text-sm font-medium text-foreground">定时到点后,播完当前歌曲再停止</span>
                 </span>
               </label>
             </div>
