@@ -6,6 +6,8 @@ export const shouldResumePlayback = (audioPaused, currentIntent = '') => {
   return Boolean(audioPaused);
 };
 
+export const shouldUsePlaybackFade = (documentHasFocus) => Boolean(documentHasFocus);
+
 const clampVolume = (value) => Math.min(1, Math.max(0, Number(value) || 0));
 
 export const pauseAudioImmediately = (audio, restoreVolume) => {

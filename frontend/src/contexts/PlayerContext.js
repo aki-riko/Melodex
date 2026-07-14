@@ -23,6 +23,7 @@ import {
   pauseAudioImmediately,
   resumeAudioImmediately,
   shouldResumePlayback,
+  shouldUsePlaybackFade,
 } from './playerVolumeFade.js';
 
 const PlayerContext = createContext(null);
@@ -306,6 +307,16 @@ export const PlayerProvider = ({ children }) => {
     return true;
   }, [cancelPlaybackFade, nowPlaying]);
 
+  const pauseFromExternalControl = useCallback(() => {
+    const hasFocus = typeof document !== 'undefined' && document.hasFocus();
+    return shouldUsePlaybackFade(hasFocus) ? pauseWithFade() : pauseImmediately();
+  }, [pauseImmediately, pauseWithFade]);
+
+  const resumeFromExternalControl = useCallback(() => {
+    const hasFocus = typeof document !== 'undefined' && document.hasFocus();
+    return shouldUsePlaybackFade(hasFocus) ? resumeWithFade() : resumeImmediately();
+  }, [resumeImmediately, resumeWithFade]);
+
   const clearSleepTimer = useCallback(() => {
     sleepTimerRef.current = null;
     setSleepTimer(null);
@@ -313,10 +324,10 @@ export const PlayerProvider = ({ children }) => {
   }, []);
 
   const stopPlaybackForSleepTimer = useCallback((message = '睡眠定时已停止播放。') => {
-    pauseImmediately();
+    pauseFromExternalControl();
     clearSleepTimer();
     setNotice(message);
-  }, [clearSleepTimer, pauseImmediately]);
+  }, [clearSleepTimer, pauseFromExternalControl]);
 
   const startSleepTimer = useCallback((minutes) => {
     const timer = createSleepTimer(minutes);
@@ -645,12 +656,12 @@ export const PlayerProvider = ({ children }) => {
         console.warn(`MediaSession ${action} 执行失败`, err);
       }
     };
-    // 全局媒体键必须同步脱离页面动画帧:后台标签页会暂停/限流 requestAnimationFrame。
-    navigator.mediaSession.setActionHandler('play', safe('play', resumeImmediately));
-    navigator.mediaSession.setActionHandler('pause', safe('pause', pauseImmediately));
+    // 前台保留淡入淡出;窗口失焦时绕开会被限流的 requestAnimationFrame,保证全局按键有效。
+    navigator.mediaSession.setActionHandler('play', safe('play', resumeFromExternalControl));
+    navigator.mediaSession.setActionHandler('pause', safe('pause', pauseFromExternalControl));
     navigator.mediaSession.setActionHandler('previoustrack', safe('previoustrack', prev));
     navigator.mediaSession.setActionHandler('nexttrack', safe('nexttrack', next));
-    navigator.mediaSession.setActionHandler('stop', safe('stop', pauseImmediately));
+    navigator.mediaSession.setActionHandler('stop', safe('stop', pauseFromExternalControl));
     try {
       navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
       navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
@@ -658,7 +669,7 @@ export const PlayerProvider = ({ children }) => {
     } catch (err) {
       console.debug('当前浏览器不支持部分 MediaSession seek 动作', err);
     }
-  }, [cachedCover, next, nowPlaying, offline, pauseImmediately, prev, resumeImmediately, seek]);
+  }, [cachedCover, next, nowPlaying, offline, pauseFromExternalControl, prev, resumeFromExternalControl, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {
