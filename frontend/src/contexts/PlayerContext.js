@@ -18,7 +18,12 @@ import {
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
 import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
-import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
+import {
+  fadeAudioVolume,
+  pauseAudioImmediately,
+  resumeAudioImmediately,
+  shouldResumePlayback,
+} from './playerVolumeFade.js';
 
 const PlayerContext = createContext(null);
 
@@ -272,6 +277,35 @@ export const PlayerProvider = ({ children }) => {
     startVolumeFade(audio, volumeRef.current, 'play');
   }, [nowPlaying, startVolumeFade]);
 
+  const pauseImmediately = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return false;
+    cancelPlaybackFade();
+    playbackIntentRef.current = 'pause';
+    const paused = pauseAudioImmediately(audio, volumeRef.current);
+    playbackIntentRef.current = '';
+    return paused;
+  }, [cancelPlaybackFade]);
+
+  const resumeImmediately = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio || !nowPlaying) return false;
+    cancelPlaybackFade();
+    playbackIntentRef.current = 'play';
+    try {
+      await resumeAudioImmediately(audio, volumeRef.current);
+    } catch (err) {
+      if (playbackIntentRef.current === 'play') playbackIntentRef.current = '';
+      throw err;
+    }
+    if (playbackIntentRef.current !== 'play') {
+      pauseAudioImmediately(audio, volumeRef.current);
+      return false;
+    }
+    playbackIntentRef.current = '';
+    return true;
+  }, [cancelPlaybackFade, nowPlaying]);
+
   const clearSleepTimer = useCallback(() => {
     sleepTimerRef.current = null;
     setSleepTimer(null);
@@ -279,10 +313,10 @@ export const PlayerProvider = ({ children }) => {
   }, []);
 
   const stopPlaybackForSleepTimer = useCallback((message = '睡眠定时已停止播放。') => {
-    pauseWithFade();
+    pauseImmediately();
     clearSleepTimer();
     setNotice(message);
-  }, [clearSleepTimer, pauseWithFade]);
+  }, [clearSleepTimer, pauseImmediately]);
 
   const startSleepTimer = useCallback((minutes) => {
     const timer = createSleepTimer(minutes);
@@ -601,18 +635,30 @@ export const PlayerProvider = ({ children }) => {
           : [],
       });
     }
-    const safe = (fn) => () => { try { fn(); } catch { /* ignore */ } };
-    navigator.mediaSession.setActionHandler('play', safe(resumeWithFade));
-    navigator.mediaSession.setActionHandler('pause', safe(pauseWithFade));
-    navigator.mediaSession.setActionHandler('previoustrack', safe(prev));
-    navigator.mediaSession.setActionHandler('nexttrack', safe(next));
-    navigator.mediaSession.setActionHandler('stop', safe(pauseWithFade));
+    const safe = (action, fn) => () => {
+      try {
+        const pending = fn();
+        if (pending && typeof pending.catch === 'function') {
+          pending.catch((err) => console.warn(`MediaSession ${action} 执行失败`, err));
+        }
+      } catch (err) {
+        console.warn(`MediaSession ${action} 执行失败`, err);
+      }
+    };
+    // 全局媒体键必须同步脱离页面动画帧:后台标签页会暂停/限流 requestAnimationFrame。
+    navigator.mediaSession.setActionHandler('play', safe('play', resumeImmediately));
+    navigator.mediaSession.setActionHandler('pause', safe('pause', pauseImmediately));
+    navigator.mediaSession.setActionHandler('previoustrack', safe('previoustrack', prev));
+    navigator.mediaSession.setActionHandler('nexttrack', safe('nexttrack', next));
+    navigator.mediaSession.setActionHandler('stop', safe('stop', pauseImmediately));
     try {
       navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
       navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
       navigator.mediaSession.setActionHandler('seekbackward', (d) => seek(Math.max(0, (audioRef.current?.currentTime || 0) - (d.seekOffset || 10))));
-    } catch { /* 部分浏览器不支持 seek 动作 */ }
-  }, [cachedCover, offline, nowPlaying, pauseWithFade, prev, next, resumeWithFade, seek]);
+    } catch (err) {
+      console.debug('当前浏览器不支持部分 MediaSession seek 动作', err);
+    }
+  }, [cachedCover, next, nowPlaying, offline, pauseImmediately, prev, resumeImmediately, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {
