@@ -1,5 +1,5 @@
 export const SLEEP_STOP_AFTER_TRACK_KEY = 'melodex_sleep_stop_after_track';
-export const SLEEP_TIMER_PRESETS_MINUTES = [1, 15, 30, 45, 60, 90];
+export const SLEEP_TIMER_PRESETS_MINUTES = [15, 30, 45, 60, 90, 120];
 
 export const loadStopAfterTrackPreference = (storage = globalThis.localStorage) => {
   try {
