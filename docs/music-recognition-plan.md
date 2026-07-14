@@ -134,7 +134,7 @@ docker exec melodex sh -c 'env | cut -d= -f1 | grep -E "MUSIC_DL_(RECOGNITION|AU
 
 ## 上线风险
 
-- 浏览器麦克风权限必须在 HTTPS 或 localhost 下使用；生产 `https://tsp.9li.life` 满足条件。
+- 浏览器麦克风权限必须在 HTTPS 或 localhost 下使用；生产 `https://music.9li.life` 满足条件。
 - iOS Safari/部分 Android Chromium 的录音格式可能不同，后端按 multipart 透传给 provider，由 provider 做格式兼容。
 - 识曲服务是外部付费/限额服务，必须保留登录态和同源保护。
 - `POST /api/v1/recognize` 有单独 per-IP 限流；provider 额度较小或多人共用时，优先调低 `MUSIC_DL_RECOGNITION_RATE_LIMIT_PER_MINUTE`。
