@@ -36,6 +36,7 @@
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
+    "test:wake": "node scripts/appWakePolicy.test.mjs",
     "test:player": "node scripts/playerQueue.test.mjs && node scripts/audioProbe.test.mjs",
     "test:downloads": "node scripts/serverDownloads.test.mjs",
     "preview": "vite preview"

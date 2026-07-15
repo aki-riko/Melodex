@@ -9,6 +9,7 @@ import {
   serverDownloadStatusKey,
   serverDownloadTitleArtistKey,
 } from '../utils/serverDownloads';
+import { serverDownloadsQueryOptions } from './appWakePolicy.js';
 
 const ServerDownloadsContext = createContext(null);
 
@@ -17,12 +18,11 @@ export function ServerDownloadsProvider({ children }) {
   const userId = user?.id || 0;
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => ['server-downloads', String(userId)], [userId]);
-  const downloadsQuery = useQuery(queryKey, getServerDownloads, {
-    enabled: userId > 0 && !offline,
-    staleTime: 60 * 1000,
-    refetchOnReconnect: true,
-    refetchOnWindowFocus: true,
-  });
+  const downloadsQuery = useQuery(
+    queryKey,
+    getServerDownloads,
+    serverDownloadsQueryOptions({ userId, offline }),
+  );
 
   useEffect(() => {
     const onChanged = async (event) => {
