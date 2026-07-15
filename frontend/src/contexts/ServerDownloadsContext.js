@@ -9,7 +9,7 @@ import {
   serverDownloadStatusKey,
   serverDownloadTitleArtistKey,
 } from '../utils/serverDownloads';
-import { serverDownloadsQueryOptions } from './appWakePolicy.js';
+import { createWakeReconciler, serverDownloadsQueryOptions } from './appWakePolicy.js';
 
 const ServerDownloadsContext = createContext(null);
 
@@ -23,6 +23,29 @@ export function ServerDownloadsProvider({ children }) {
     getServerDownloads,
     serverDownloadsQueryOptions({ userId, offline }),
   );
+
+  useEffect(() => {
+    if (userId <= 0 || offline) return undefined;
+
+    const reconciler = createWakeReconciler({
+      isVisible: () => document.visibilityState === 'visible',
+      isOnline: () => navigator.onLine !== false,
+      reconcile: () => { downloadsQuery.refetch(); },
+    });
+    const onVisibilityChange = () => reconciler.onVisibilityChange();
+    const onOnline = () => reconciler.onOnline();
+    const onOffline = () => reconciler.onOffline();
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      reconciler.cancel();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [downloadsQuery.refetch, offline, userId]);
 
   useEffect(() => {
     const onChanged = async (event) => {
