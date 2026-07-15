@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getMe, login as apiLogin, logout as apiLogout, setupAdmin, register as apiRegister } from '../services/musicdl';
+import { authSnapshotsEqual } from './appWakePolicy.js';
 
 const AuthContext = createContext(null);
 const LAST_USER_KEY = 'melodex_last_known_user';
@@ -61,12 +62,12 @@ export const AuthProvider = ({ children }) => {
         } else {
           clearLastKnown();
         }
-        setState(nextState);
+        setState((current) => (authSnapshotsEqual(current, nextState) ? current : nextState));
       } catch (e) {
         const status = e?.response?.status || 0;
         const cached = (!e?.response || status >= 500) ? loadLastKnown() : null;
         if (cached?.user?.id) {
-          setState({
+          const nextState = {
             loading: false,
             authenticated: true,
             user: cached.user,
@@ -74,10 +75,20 @@ export const AuthProvider = ({ children }) => {
             allowRegistration: false,
             desktop: !!cached.desktop,
             offline: true,
-          });
+          };
+          setState((current) => (authSnapshotsEqual(current, nextState) ? current : nextState));
           return;
         }
-        setState((s) => ({ ...s, loading: false, authenticated: false, user: null, offline: false }));
+        setState((current) => {
+          const nextState = {
+            ...current,
+            loading: false,
+            authenticated: false,
+            user: null,
+            offline: false,
+          };
+          return authSnapshotsEqual(current, nextState) ? current : nextState;
+        });
       }
     })();
 
