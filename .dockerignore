@@ -4,6 +4,8 @@ frontend/build
 frontend/.env
 frontend/.env.*.local
 backend/data
+# Compose 运行期持久化目录(下载、数据库、缓存),禁止进入镜像构建上下文。
+data
 backend/music-dl
 backend/music-dl.exe
 backend/*.exe
