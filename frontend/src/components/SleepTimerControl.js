@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, X } from 'lucide-react';
+import { Clock, Menu, X } from 'lucide-react';
 import { SLEEP_TIMER_PRESETS_MINUTES, formatSleepTimerRemaining } from '../contexts/playerSleepTimer.js';
 
 const panelAlignClass = {
@@ -18,6 +18,8 @@ const SleepTimerControl = ({
   onCancel,
   align = 'right',
   className = '',
+  variant = 'default',
+  extraActions = [],
 }) => {
   const [open, setOpen] = useState(false);
   const remainingText = formatSleepTimerRemaining(remainingMs);
@@ -27,6 +29,10 @@ const SleepTimerControl = ({
       ? '定时已到点,播完本首后停止'
       : `睡眠定时剩余 ${remainingText}`
     : '睡眠定时';
+  const isMobileMenu = variant === 'mobileMenu';
+  const triggerTitle = isMobileMenu
+    ? active ? `播放器菜单,${title}` : '播放器菜单'
+    : title;
 
   const chooseMinutes = (minutes) => {
     onStart(minutes);
@@ -43,15 +49,18 @@ const SleepTimerControl = ({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`inline-flex h-9 min-w-[2.25rem] items-center justify-center gap-1.5 rounded-full px-2 text-xs font-medium transition-colors ${
+        className={`${isMobileMenu
+          ? 'flex h-12 w-12 items-center justify-center rounded-full'
+          : 'inline-flex h-9 min-w-[2.25rem] items-center justify-center gap-1.5 rounded-full px-2 text-xs font-medium'
+        } transition-colors ${
           active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
         }`}
-        title={title}
-        aria-label={title}
+        title={triggerTitle}
+        aria-label={triggerTitle}
         aria-expanded={open}
       >
-        <Clock size={18} />
-        {active && <span className="tabular-nums">{stateLabel}</span>}
+        {isMobileMenu ? <Menu size={26} /> : <Clock size={18} />}
+        {!isMobileMenu && active && <span className="tabular-nums">{stateLabel}</span>}
       </button>
 
       {open && (
@@ -59,6 +68,25 @@ const SleepTimerControl = ({
           <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)} />
           <div className={`absolute bottom-full z-[90] mb-3 w-72 ${panelAlignClass[align] || panelAlignClass.right}`}>
             <div className="rounded-lg border border-border bg-card p-3 text-left shadow-2xl">
+              {extraActions.length > 0 && (
+                <div className="mb-3 border-b border-border pb-2">
+                  {extraActions.map(({ key, icon: ActionIcon, label, hint, onClick }) => (
+                    <button
+                      key={key || label}
+                      type="button"
+                      onClick={() => {
+                        onClick?.();
+                        setOpen(false);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-secondary"
+                    >
+                      {ActionIcon && <ActionIcon size={19} className="flex-shrink-0 text-muted-foreground" />}
+                      <span className="min-w-0 flex-grow text-sm font-medium text-foreground">{label}</span>
+                      {hint && <span className="flex-shrink-0 text-xs text-muted-foreground">{hint}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-foreground">睡眠定时</p>
