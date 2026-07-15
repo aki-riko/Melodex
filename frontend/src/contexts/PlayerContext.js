@@ -1218,9 +1218,6 @@ export const PlayerBar = () => {
               <span>{fmtTime(progress.dur)}</span>
             </div>
           </div>
-          <div className="mt-4 flex justify-center px-8">
-            <SleepTimerControl {...sleepTimerControlProps} align="center" />
-          </div>
           {/* 控制按钮 */}
           <div className="flex items-center justify-between px-10 mt-6">
             <button onClick={cycleMode}
@@ -1239,10 +1236,18 @@ export const PlayerBar = () => {
             <button onClick={next} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="下一首">
               <SkipForward size={32} fill="currentColor" />
             </button>
-            <button onClick={() => setQueueOpen((o) => !o)}
-              className={`flex h-12 w-12 items-center justify-center rounded-full ${queueOpen ? 'text-primary' : 'text-muted-foreground'}`} aria-label="播放列表">
-              <ListMusic size={26} />
-            </button>
+            <SleepTimerControl
+              {...sleepTimerControlProps}
+              align="right"
+              variant="mobileMenu"
+              extraActions={[{
+                key: 'queue',
+                icon: ListMusic,
+                label: '播放队列',
+                hint: `${queue.length} 首`,
+                onClick: () => setQueueOpen(true),
+              }]}
+            />
           </div>
         </div>
       )}
