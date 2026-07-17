@@ -211,6 +211,11 @@ const buildDownloadParams = (song, extra = {}) => {
 export const getStreamUrl = (song) =>
   `${API_BASE}/music/download?${buildDownloadParams(song, { stream: '1' })}`;
 
+// 锁屏连续播放分段：后端统一输出可追加到同一 MediaSource 的 FLAC/fMP4。
+// 与普通 stream URL 分开，避免不支持 MSE 的浏览器受到影响。
+export const getPlaybackSegmentUrl = (song) =>
+  `${API_BASE}/music/playback_segment?${buildDownloadParams(song)}`;
+
 // 直接下载 URL(浏览器下载;embed=1 写入 ID3 元数据与封面)
 export const getDownloadUrl = (song) =>
   `${API_BASE}/music/download?${buildDownloadParams(song, { embed: '1' })}`;
