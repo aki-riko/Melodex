@@ -90,6 +90,7 @@ export const PlayerProvider = ({ children }) => {
   const audioRef = useRef(null);
   const playbackPageIDRef = useRef('');
   const playbackBundleRef = useRef('');
+  const playbackDeviceInfoRef = useRef('');
   const queueRef = useRef([]); // 当前播放队列(ref,供 next/prev 等回调读取免闭包陈旧)
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
   const switchTriedRef = useRef(new Set()); // 同一首歌只自动换源一次,避免坏源之间来回重试
@@ -143,6 +144,7 @@ export const PlayerProvider = ({ children }) => {
     standbyAudio: null,
     mediaSessionState: globalThis.navigator?.mediaSession?.playbackState || '',
     wasDiscarded: Boolean(globalThis.document?.wasDiscarded),
+    deviceInfo: playbackDeviceInfoRef.current,
   }), []);
 
   useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
@@ -392,6 +394,27 @@ export const PlayerProvider = ({ children }) => {
       console.warn('普通流播放回退失败', fallbackError || error);
     });
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) return undefined;
+    const userAgentData = globalThis.navigator?.userAgentData;
+    if (!userAgentData?.getHighEntropyValues) return undefined;
+    userAgentData.getHighEntropyValues(['model', 'platformVersion']).then((values) => {
+      if (cancelled) return;
+      playbackDeviceInfoRef.current = `model=${values.model || ''};platform_version=${values.platformVersion || ''}`;
+      reportPlaybackDiagnostic(buildPlayerDiagnostic({
+        event: 'device_info',
+        audio: audioRef.current,
+        song: nowPlayingRef.current,
+        mode: modeRef.current,
+        queueLength: queueRef.current.length,
+      }));
+    }).catch((err) => {
+      console.debug('读取设备诊断信息失败', err);
+    });
+    return () => { cancelled = true; };
+  }, [buildPlayerDiagnostic, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -1099,6 +1122,14 @@ export const PlayerProvider = ({ children }) => {
       });
     }
     const safe = (action, fn) => () => {
+      reportPlaybackDiagnostic(buildPlayerDiagnostic({
+        event: 'media_session_action',
+        audio: audioRef.current,
+        song: nowPlayingRef.current,
+        reason: `action=${action}`,
+        mode: modeRef.current,
+        queueLength: queueRef.current.length,
+      }));
       try {
         const pending = fn();
         if (pending && typeof pending.catch === 'function') {
@@ -1121,7 +1152,7 @@ export const PlayerProvider = ({ children }) => {
     } catch (err) {
       console.debug('当前浏览器不支持部分 MediaSession seek 动作', err);
     }
-  }, [cachedCover, next, nowPlaying, offline, pauseWithFade, prev, progress.cur, resumeWithFade, seek]);
+  }, [buildPlayerDiagnostic, cachedCover, next, nowPlaying, offline, pauseWithFade, prev, progress.cur, resumeWithFade, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {

@@ -146,6 +146,9 @@ assert.deepEqual(
     mode: 'loop',
     queueLength: 3,
     visibilityState: 'hidden',
+    userActivation: { isActive: false, hasBeenActive: true },
+    pageElapsedMs: 901000,
+    deviceInfo: 'model=test-phone;platform_version=15',
   }),
   {
     event: 'ended_transition',
@@ -173,6 +176,11 @@ assert.deepEqual(
     standby_audio_slot: '',
     media_session_state: '',
     was_discarded: false,
+    user_activation_supported: true,
+    user_activation_active: false,
+    user_activation_has_been_active: true,
+    page_elapsed_ms: 901000,
+    device_info: 'model=test-phone;platform_version=15',
   },
   '锁屏续播诊断应包含当前/下一首和媒体状态且不依赖 React state',
 );

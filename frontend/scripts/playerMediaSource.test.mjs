@@ -9,6 +9,7 @@ import {
   shouldApplyBufferBackpressure,
   supportsContinuousMediaSource,
 } from '../src/contexts/playerMediaSource.js';
+import { buildPlaybackDiagnostic } from '../src/contexts/playerPlayback.js';
 
 const songs = [
   { source: 'qq', id: 'a', name: '凝眸（对唱版）', duration: 219 },
@@ -55,5 +56,25 @@ assert.deepEqual(
   { cur: 10, dur: 32 },
   '缺少歌曲时长时应使用实际追加区间',
 );
+
+const diagnostic = buildPlaybackDiagnostic({
+  event: 'media_session_action',
+  audio: {
+    currentTime: Number.NaN,
+    duration: Number.POSITIVE_INFINITY,
+    buffered: { length: 1, end: () => Number.POSITIVE_INFINITY },
+  },
+  userActivation: { isActive: false, hasBeenActive: true },
+  pageElapsedMs: 901234.5,
+  deviceInfo: 'model=test-phone;platform_version=15',
+});
+assert.equal(diagnostic.current_time, 0, 'NaN 播放时间不得进入诊断 JSON');
+assert.equal(diagnostic.duration, 0, 'MediaSource 的 Infinity duration 必须归一化为 0');
+assert.equal(diagnostic.buffered_end, 0, '非有限缓冲终点不得进入诊断 JSON');
+assert.equal(diagnostic.user_activation_supported, true);
+assert.equal(diagnostic.user_activation_active, false);
+assert.equal(diagnostic.user_activation_has_been_active, true);
+assert.equal(diagnostic.page_elapsed_ms, 901234.5);
+assert.equal(diagnostic.device_info, 'model=test-phone;platform_version=15');
 
 console.log('playerMediaSource tests passed');
