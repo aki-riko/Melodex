@@ -43,6 +43,11 @@ export const lastBufferedEnd = (audio) => {
   }
 };
 
+const finitePlaybackNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
 export const buildPlaybackDiagnostic = ({
   event,
   audio,
@@ -58,6 +63,9 @@ export const buildPlaybackDiagnostic = ({
   standbyAudio = null,
   mediaSessionState = globalThis.navigator?.mediaSession?.playbackState || '',
   wasDiscarded = Boolean(globalThis.document?.wasDiscarded),
+  userActivation = globalThis.navigator?.userActivation,
+  pageElapsedMs = globalThis.performance?.now?.(),
+  deviceInfo = '',
 }) => ({
   event,
   source: song?.source || '',
@@ -70,9 +78,9 @@ export const buildPlaybackDiagnostic = ({
   reason: String(reason || '').slice(0, 160),
   mode,
   queue_length: queueLength,
-  current_time: Number(audio?.currentTime || 0),
-  duration: Number(audio?.duration || 0),
-  buffered_end: lastBufferedEnd(audio),
+  current_time: finitePlaybackNumber(audio?.currentTime),
+  duration: finitePlaybackNumber(audio?.duration),
+  buffered_end: finitePlaybackNumber(lastBufferedEnd(audio)),
   paused: Boolean(audio?.paused),
   ended: Boolean(audio?.ended),
   ready_state: Number(audio?.readyState || 0),
@@ -84,6 +92,11 @@ export const buildPlaybackDiagnostic = ({
   standby_audio_slot: standbyAudio?.dataset?.audioSlot || '',
   media_session_state: mediaSessionState,
   was_discarded: wasDiscarded,
+  user_activation_supported: Boolean(userActivation),
+  user_activation_active: Boolean(userActivation?.isActive),
+  user_activation_has_been_active: Boolean(userActivation?.hasBeenActive),
+  page_elapsed_ms: finitePlaybackNumber(pageElapsedMs),
+  device_info: String(deviceInfo || '').slice(0, 160),
 });
 
 // 锁屏/后台切歌必须在 ended 或 MediaSession 回调的同一调用栈里启动。

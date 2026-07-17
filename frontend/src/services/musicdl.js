@@ -374,8 +374,9 @@ export const reportPlaybackDiagnostic = async (payload) => {
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       timeout: 5000,
     });
-  } catch {
-    // 诊断通道不可反向干扰播放器。
+  } catch (err) {
+    // 诊断通道不可反向干扰播放器，但保留控制台证据便于定位服务端拒绝原因。
+    console.debug('播放诊断上报失败', err);
   }
 };
 

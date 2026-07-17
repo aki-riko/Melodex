@@ -53,6 +53,38 @@ func TestPlaybackDiagnosticAcceptsLifecycleObservationEvent(t *testing.T) {
 	}
 }
 
+func TestPlaybackDiagnosticAcceptsMediaSessionActionObservation(t *testing.T) {
+	r := newPlaybackDiagnosticTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/music/playback_diagnostics", strings.NewReader(`{
+		"event":"media_session_action","reason":"action=pause",
+		"user_activation_supported":true,"user_activation_active":false,
+		"user_activation_has_been_active":true,"page_elapsed_ms":901234
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+}
+
+func TestPlaybackDiagnosticAcceptsMSEObservationEvent(t *testing.T) {
+	r := newPlaybackDiagnosticTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/music/playback_diagnostics", strings.NewReader(`{
+		"event":"mse_segment_ready","source_kind":"media_source","duration":0
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+}
+
 func TestPlaybackDiagnosticRejectsMissingXHRHeader(t *testing.T) {
 	r := newPlaybackDiagnosticTestRouter()
 	req := httptest.NewRequest(http.MethodPost, "/music/playback_diagnostics", strings.NewReader(`{"event":"ended_ignored"}`))
