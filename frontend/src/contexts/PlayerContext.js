@@ -21,6 +21,7 @@ import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
 import { beginPlaybackTransition, buildPlaybackDiagnostic, resolveCurrentPlaybackSong } from './playerPlayback.js';
 import { prepareNextAudioBlob, preparedAudioForTransition } from './playerPrefetch.js';
+import { resumeUnexpectedBackgroundPause, shouldRecoverUnexpectedBackgroundPause } from './playerPauseRecovery.js';
 
 const PlayerContext = createContext(null);
 
@@ -97,6 +98,7 @@ export const PlayerProvider = ({ children }) => {
   const preparedNextRef = useRef(null);
   const prefetchControllerRef = useRef(null);
   const prefetchSeqRef = useRef(0);
+  const recoveredUnexpectedPauseSeqRef = useRef('');
   // 本会话已自动下载过的歌 key,避免同一首反复播放重复拉流(后端下载不幂等、每次覆盖)。
   const autoDownloadedRef = useRef(new Set());
 
@@ -610,22 +612,63 @@ export const PlayerProvider = ({ children }) => {
     }
   }, [isServerDownloaded, nowPlaying, offline, prepareFollowingSong]);
 
-  const handlePause = useCallback((event) => {
-    const audio = event?.currentTarget || audioRef.current;
-    const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
-    const reason = pauseReasonRef.current || (audio?.ended ? 'ended' : 'unexpected');
-    pauseReasonRef.current = '';
-    setIsPaused(true);
-    savePlayback(audio?.currentTime || 0);
+  const reportPauseRecoveryDiagnostic = useCallback((event, audio, song, reason) => {
     reportPlaybackDiagnostic(buildPlaybackDiagnostic({
-      event: 'pause',
+      event,
       audio,
-      song: cur,
+      song,
       reason,
       mode: modeRef.current,
       queueLength: queueRef.current.length,
     }));
-  }, [nowPlaying, savePlayback]);
+  }, []);
+
+  const recoverBackgroundPause = useCallback((audio, song, playSeq) => {
+    recoveredUnexpectedPauseSeqRef.current = playSeq;
+    reportPauseRecoveryDiagnostic('background_pause_recovery', audio, song, 'attempt');
+    resumeUnexpectedBackgroundPause(audio).then((resumed) => {
+      if (audio?.dataset?.playSeq !== playSeq) return;
+      setIsPaused(!resumed);
+      reportPauseRecoveryDiagnostic(
+        resumed ? 'background_pause_recovered' : 'background_pause_rejected',
+        audio,
+        song,
+        resumed ? 'play_resolved' : 'still_paused',
+      );
+    }).catch((err) => {
+      if (audio?.dataset?.playSeq !== playSeq) return;
+      setIsPaused(true);
+      setNotice('后台播放被系统暂停，自动恢复失败，请在锁屏播放器点一次播放。');
+      reportPauseRecoveryDiagnostic(
+        'background_pause_rejected',
+        audio,
+        song,
+        `${err?.name || 'Error'}:${err?.message || ''}`,
+      );
+    });
+  }, [reportPauseRecoveryDiagnostic]);
+
+  const handlePause = useCallback((event) => {
+    const audio = event?.currentTarget || audioRef.current;
+    const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
+    const reason = pauseReasonRef.current || (audio?.ended ? 'ended' : 'unexpected');
+    const playSeq = audio?.dataset?.playSeq || '';
+    pauseReasonRef.current = '';
+    savePlayback(audio?.currentTime || 0);
+    reportPauseRecoveryDiagnostic('pause', audio, cur, reason);
+    const shouldRecover = shouldRecoverUnexpectedBackgroundPause({
+      reason,
+      sourceKind: audio?.dataset?.sourceKind || '',
+      ended: Boolean(audio?.ended),
+      playSeq,
+      recoveredPlaySeq: recoveredUnexpectedPauseSeqRef.current,
+    });
+    if (!shouldRecover) {
+      setIsPaused(true);
+      return;
+    }
+    recoverBackgroundPause(audio, cur, playSeq);
+  }, [nowPlaying, recoverBackgroundPause, reportPauseRecoveryDiagnostic, savePlayback]);
 
   const handleBufferEvent = useCallback((event) => {
     const audio = event?.currentTarget || audioRef.current;

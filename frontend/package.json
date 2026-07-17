@@ -37,7 +37,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:wake": "node scripts/appWakePolicy.test.mjs && node scripts/swForceReload.test.mjs && node scripts/pwaUpdatePolicy.test.mjs",
-    "test:player": "node scripts/playerQueue.test.mjs && node scripts/playerPrefetch.test.mjs && node scripts/audioProbe.test.mjs",
+    "test:player": "node scripts/playerQueue.test.mjs && node scripts/playerPrefetch.test.mjs && node scripts/playerPauseRecovery.test.mjs && node scripts/audioProbe.test.mjs",
     "test:downloads": "node scripts/serverDownloads.test.mjs",
     "preview": "vite preview"
   },

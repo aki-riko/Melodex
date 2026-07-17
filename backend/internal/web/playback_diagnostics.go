@@ -11,17 +11,20 @@ import (
 const playbackDiagnosticMaxBytes = 8 * 1024
 
 var allowedPlaybackDiagnosticEvents = map[string]struct{}{
-	"autoplay_rejected": {},
-	"ended_ignored":     {},
-	"ended_transition":  {},
-	"pause":             {},
-	"prefetch_consumed": {},
-	"prefetch_failed":   {},
-	"prefetch_ready":    {},
-	"queue_exhausted":   {},
-	"stalled":           {},
-	"suspend":           {},
-	"waiting":           {},
+	"autoplay_rejected":          {},
+	"background_pause_recovered": {},
+	"background_pause_recovery":  {},
+	"background_pause_rejected":  {},
+	"ended_ignored":              {},
+	"ended_transition":           {},
+	"pause":                      {},
+	"prefetch_consumed":          {},
+	"prefetch_failed":            {},
+	"prefetch_ready":             {},
+	"queue_exhausted":            {},
+	"stalled":                    {},
+	"suspend":                    {},
+	"waiting":                    {},
 }
 
 type playbackDiagnosticRequest struct {
