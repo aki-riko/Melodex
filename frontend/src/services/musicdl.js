@@ -362,6 +362,18 @@ export const recordPlayHistory = async (song) => {
   }
 };
 
+// 锁屏续播的低频诊断事件。仅记录音频状态与歌曲 ID，失败不影响播放。
+export const reportPlaybackDiagnostic = async (payload) => {
+  try {
+    await client.post('/music/playback_diagnostics', payload, {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      timeout: 5000,
+    });
+  } catch {
+    // 诊断通道不可反向干扰播放器。
+  }
+};
+
 // 取最近播放列表(按 played_at 降序)。
 export const getPlayHistory = async () => {
   try {

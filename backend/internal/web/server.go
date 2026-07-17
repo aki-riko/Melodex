@@ -551,6 +551,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	RegisterLocalMusicRoutes(userAPI)
 	RegisterSearchHistoryRoutes(userAPI)
 	RegisterPlayHistoryRoutes(userAPI)
+	RegisterPlaybackDiagnosticRoutes(userAPI)
 	RegisterFavoriteRoutes(userAPI)
 	RegisterUpdateRoutes(userAPI)
 
