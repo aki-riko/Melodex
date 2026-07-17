@@ -7,6 +7,31 @@ export const shouldPreferPlaybackCache = ({
 // state 只作为首次恢复等极短窗口的兜底。
 export const resolveCurrentPlaybackSong = (refSong, stateSong = null) => refSong || stateSong || null;
 
+// 连续播放必须直接在同一个媒体元素上替换源，不能先 removeAttribute('src')
+// 再 load 空源；后者会让 Chromium 移除当前播放器并短暂释放 MediaSession。
+export const replaceAudioSource = (audio, {
+  src,
+  playSeq,
+  songKey,
+  sourceKind,
+  objectUrl = '',
+  revokeObjectURL = globalThis.URL?.revokeObjectURL?.bind(globalThis.URL),
+} = {}) => {
+  if (!audio || !src) return false;
+  const previousObjectUrl = audio.dataset?.objectUrl || '';
+  if (audio.dataset) {
+    delete audio.dataset.objectUrl;
+    audio.dataset.playSeq = String(playSeq);
+    audio.dataset.songKey = songKey;
+    audio.dataset.sourceKind = sourceKind;
+  }
+  audio.src = src;
+  if (objectUrl && audio.dataset) audio.dataset.objectUrl = objectUrl;
+  audio.load();
+  if (previousObjectUrl && previousObjectUrl !== objectUrl) revokeObjectURL?.(previousObjectUrl);
+  return true;
+};
+
 export const lastBufferedEnd = (audio) => {
   const ranges = audio?.buffered;
   const count = Number(ranges?.length || 0);
@@ -27,6 +52,12 @@ export const buildPlaybackDiagnostic = ({
   mode = '',
   queueLength = 0,
   visibilityState = globalThis.document?.visibilityState || 'unknown',
+  pageID = '',
+  bundle = '',
+  activeAudio = null,
+  standbyAudio = null,
+  mediaSessionState = globalThis.navigator?.mediaSession?.playbackState || '',
+  wasDiscarded = Boolean(globalThis.document?.wasDiscarded),
 }) => ({
   event,
   source: song?.source || '',
@@ -46,6 +77,13 @@ export const buildPlaybackDiagnostic = ({
   ended: Boolean(audio?.ended),
   ready_state: Number(audio?.readyState || 0),
   network_state: Number(audio?.networkState || 0),
+  page_id: pageID,
+  bundle,
+  audio_slot: audio?.dataset?.audioSlot || '',
+  active_audio_slot: activeAudio?.dataset?.audioSlot || '',
+  standby_audio_slot: standbyAudio?.dataset?.audioSlot || '',
+  media_session_state: mediaSessionState,
+  was_discarded: wasDiscarded,
 });
 
 // 锁屏/后台切歌必须在 ended 或 MediaSession 回调的同一调用栈里启动。

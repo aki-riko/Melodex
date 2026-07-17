@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { isCurrentAudioEvent, pickNextSong } from '../src/contexts/playerQueue.js';
 import {
   createSleepTimer,
@@ -20,6 +21,7 @@ import {
   beginPlaybackTransition,
   buildPlaybackDiagnostic,
   lastBufferedEnd,
+  replaceAudioSource,
   resolveCurrentPlaybackSong,
   shouldPreferPlaybackCache,
 } from '../src/contexts/playerPlayback.js';
@@ -164,10 +166,56 @@ assert.deepEqual(
     ended: true,
     ready_state: 4,
     network_state: 1,
+    page_id: '',
+    bundle: '',
+    audio_slot: '',
+    active_audio_slot: '',
+    standby_audio_slot: '',
+    media_session_state: '',
+    was_discarded: false,
   },
   '锁屏续播诊断应包含当前/下一首和媒体状态且不依赖 React state',
 );
 assert.equal(lastBufferedEnd({ buffered: { length: 0 } }), 0, '没有缓冲区间时应记录0');
+
+const sourceSteps = [];
+const revokedObjectUrls = [];
+const persistentAudio = {
+  dataset: { objectUrl: 'blob:previous' },
+  src: '/old',
+  load() { sourceSteps.push(`load:${this.src}`); },
+  removeAttribute() { sourceSteps.push('removeAttribute'); },
+};
+assert.equal(replaceAudioSource(persistentAudio, {
+  src: '/music/download?id=2&source=qq&stream=1',
+  playSeq: 10,
+  songKey: songIdentityKey(songs[1]),
+  sourceKind: 'network',
+  revokeObjectURL: (url) => revokedObjectUrls.push(url),
+}), true, '同一个 audio 应能直接替换到下一首流地址');
+assert.deepEqual(
+  sourceSteps,
+  ['load:/music/download?id=2&source=qq&stream=1'],
+  '切歌只能加载一次新源，不得先加载空源释放 MediaSession',
+);
+assert.equal(persistentAudio.dataset.playSeq, '10', '切歌应同步更新播放序号');
+assert.equal(persistentAudio.dataset.sourceKind, 'network', '切歌应记录当前来源类型');
+assert.deepEqual(revokedObjectUrls, ['blob:previous'], '新源接管后应释放上一首 Object URL');
+
+const playerContextSource = await readFile(
+  new URL('../src/contexts/PlayerContext.js', import.meta.url),
+  'utf8',
+);
+assert.equal(
+  (playerContextSource.match(/<audio\b/g) || []).length,
+  1,
+  '播放器必须只挂载一个 audio 元素，避免 Android 音频焦点交接',
+);
+assert.doesNotMatch(
+  playerContextSource,
+  /standbyAudioRef|bindPrimaryAudio|bindSecondaryAudio|handoffAudioElement/,
+  '播放器不得恢复双 audio 主备交接架构',
+);
 
 const storage = new Map();
 const mockStorage = {
