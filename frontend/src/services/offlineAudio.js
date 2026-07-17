@@ -1,4 +1,4 @@
-import { coverProxyUrl, getDownloadUrl } from './musicdl';
+import { coverProxyUrl, getDownloadUrl, getStreamUrl } from './musicdl';
 import { normalizeSongIdentity, songExtraHash, songIdentityKey } from '../utils/songIdentity';
 import { normalizeSong } from '../utils/songFields';
 import { audioBlobLooksPlayable } from '../utils/audioProbe';
@@ -244,6 +244,25 @@ export const getPlayableCachedSong = async (song, userId = 0, { deleteInvalid = 
     emitChanged({ action: 'delete', key: record.key, userId: userKey(userId), reason: 'invalid-audio' });
   }
   return null;
+};
+
+// 仅在内存中完整抓取一首音频，供锁屏时预取下一首；不写 IndexedDB。
+// 使用 stream=1 可继续命中当前用户可见的 NAS 服务器副本，避免重复访问上游。
+export const fetchPlayableAudioBlob = async (song, { signal } = {}) => {
+  const normalized = normalizeOfflineSong(song);
+  if (!normalized.id || !normalized.source) throw new Error('歌曲缺少来源或 ID');
+
+  const response = await fetch(getStreamUrl(song), {
+    credentials: 'include',
+    signal,
+  });
+  if (!response.ok) throw new Error(`预取失败:HTTP ${response.status}`);
+
+  const mime = response.headers.get('content-type') || 'application/octet-stream';
+  const blob = await responseToBlob(response, mime);
+  if (!blob.size) throw new Error('预取失败:音频为空');
+  if (!(await audioBlobLooksPlayable(blob, mime))) throw new Error('预取失败:响应不是可播放音频');
+  return { blob, mime: blob.type || mime };
 };
 
 export const isSongCached = async (song, userId = 0) => {
