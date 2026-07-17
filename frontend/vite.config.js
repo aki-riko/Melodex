@@ -34,7 +34,6 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
-        importScripts: ['sw-force-reload.js'],
         runtimeCaching: [
           {
             // 封面图等图片:缓存优先,加速二次加载

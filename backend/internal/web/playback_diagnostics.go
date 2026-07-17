@@ -18,6 +18,9 @@ var allowedPlaybackDiagnosticEvents = map[string]struct{}{
 	"ended_ignored":              {},
 	"ended_transition":           {},
 	"pause":                      {},
+	"page_loaded":                {},
+	"play_resolved":              {},
+	"playing":                    {},
 	"prefetch_consumed":          {},
 	"prefetch_failed":            {},
 	"prefetch_ready":             {},
@@ -46,6 +49,13 @@ type playbackDiagnosticRequest struct {
 	Ended        bool    `json:"ended"`
 	ReadyState   int     `json:"ready_state"`
 	NetworkState int     `json:"network_state"`
+	PageID       string  `json:"page_id"`
+	Bundle       string  `json:"bundle"`
+	AudioSlot    string  `json:"audio_slot"`
+	ActiveSlot   string  `json:"active_audio_slot"`
+	StandbySlot  string  `json:"standby_audio_slot"`
+	MediaState   string  `json:"media_session_state"`
+	WasDiscarded bool    `json:"was_discarded"`
 }
 
 func cleanPlaybackDiagnosticText(value string, max int) string {
@@ -76,9 +86,16 @@ func RegisterPlaybackDiagnosticRoutes(api *gin.RouterGroup) {
 		}
 
 		log.Printf(
-			"player-diagnostic user_id=%d event=%s source=%s song_id=%s next_source=%s next_song_id=%s seq=%s source_kind=%s visibility=%s reason=%s mode=%s queue=%d time=%.1f/%.1f buffered_end=%.1f paused=%t ended=%t ready=%d network=%d",
+			"player-diagnostic user_id=%d event=%s page_id=%s bundle=%s audio_slot=%s active_slot=%s standby_slot=%s media_state=%s discarded=%t source=%s song_id=%s next_source=%s next_song_id=%s seq=%s source_kind=%s visibility=%s reason=%s mode=%s queue=%d time=%.1f/%.1f buffered_end=%.1f paused=%t ended=%t ready=%d network=%d ua=%s",
 			currentUserID(c),
 			req.Event,
+			cleanPlaybackDiagnosticText(req.PageID, 80),
+			cleanPlaybackDiagnosticText(req.Bundle, 120),
+			cleanPlaybackDiagnosticText(req.AudioSlot, 24),
+			cleanPlaybackDiagnosticText(req.ActiveSlot, 24),
+			cleanPlaybackDiagnosticText(req.StandbySlot, 24),
+			cleanPlaybackDiagnosticText(req.MediaState, 24),
+			req.WasDiscarded,
 			cleanPlaybackDiagnosticText(req.Source, 32),
 			cleanPlaybackDiagnosticText(req.SongID, 160),
 			cleanPlaybackDiagnosticText(req.NextSource, 32),
@@ -96,6 +113,7 @@ func RegisterPlaybackDiagnosticRoutes(api *gin.RouterGroup) {
 			req.Ended,
 			req.ReadyState,
 			req.NetworkState,
+			cleanPlaybackDiagnosticText(c.Request.UserAgent(), 180),
 		)
 		c.Status(http.StatusNoContent)
 	})

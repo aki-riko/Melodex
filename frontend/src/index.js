@@ -7,7 +7,8 @@ import { scheduleServiceWorkerUpdates } from './pwaUpdatePolicy.js';
 
 registerSW({
   immediate: true,
-  // 页面重载统一由 sw-force-reload.js 的 activate 生命周期执行，避免双重刷新。
+  // 新 SW 可以接管后续请求，但不得在播放期间强制导航当前 PWA 窗口。
+  // 当前页面继续运行已加载的版本，用户下次正常打开时再进入新 bundle。
   onNeedReload: () => {},
   onRegisteredSW: (_swUrl, registration) => {
     scheduleServiceWorkerUpdates(registration, {

@@ -19,11 +19,14 @@ import {
 } from './playerSleepTimer.js';
 import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
-import { beginPlaybackTransition, buildPlaybackDiagnostic, resolveCurrentPlaybackSong } from './playerPlayback.js';
+import {
+  beginPlaybackTransition,
+  buildPlaybackDiagnostic,
+  replaceAudioSource,
+  resolveCurrentPlaybackSong,
+} from './playerPlayback.js';
 import {
   createPreparedAudio,
-  handoffAudioElement,
-  isPreparedStandbyAudio,
   preparedAudioForTransition,
 } from './playerPrefetch.js';
 import {
@@ -81,9 +84,8 @@ export const PlayerProvider = ({ children }) => {
   const [sleepRemainingMs, setSleepRemainingMs] = useState(0);
   const [sleepStopAfterTrack, setSleepStopAfterTrackState] = useState(loadStopAfterTrackPreference);
   const audioRef = useRef(null);
-  const standbyAudioRef = useRef(null);
-  const primaryAudioElementRef = useRef(null);
-  const secondaryAudioElementRef = useRef(null);
+  const playbackPageIDRef = useRef('');
+  const playbackBundleRef = useRef('');
   const queueRef = useRef([]); // 当前播放队列(ref,供 next/prev 等回调读取免闭包陈旧)
   const triedRef = useRef(new Set()); // 本次已试过的死链,避免循环
   const switchTriedRef = useRef(new Set()); // 同一首歌只自动换源一次,避免坏源之间来回重试
@@ -114,6 +116,27 @@ export const PlayerProvider = ({ children }) => {
   // 本会话已自动下载过的歌 key,避免同一首反复播放重复拉流(后端下载不幂等、每次覆盖)。
   const autoDownloadedRef = useRef(new Set());
 
+  if (!playbackPageIDRef.current) {
+    playbackPageIDRef.current = globalThis.crypto?.randomUUID?.()
+      || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+  if (!playbackBundleRef.current && globalThis.document) {
+    playbackBundleRef.current = [...document.scripts]
+      .map((script) => script.src || '')
+      .find((src) => /\/assets\/index-[^/]+\.js(?:\?|$)/.test(src))
+      ?.split('/').pop() || '';
+  }
+
+  const buildPlayerDiagnostic = useCallback((options) => buildPlaybackDiagnostic({
+    ...options,
+    pageID: playbackPageIDRef.current,
+    bundle: playbackBundleRef.current,
+    activeAudio: audioRef.current,
+    standbyAudio: null,
+    mediaSessionState: globalThis.navigator?.mediaSession?.playbackState || '',
+    wasDiscarded: Boolean(globalThis.document?.wasDiscarded),
+  }), []);
+
   useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
   useEffect(() => { sleepTimerRef.current = sleepTimer; }, [sleepTimer]);
   useEffect(() => {
@@ -138,29 +161,6 @@ export const PlayerProvider = ({ children }) => {
     audio.removeAttribute('src');
     audio.load();
   }, [revokeAudioObjectUrl]);
-
-  const registerAudioElement = useCallback((slotRef, node) => {
-    const previous = slotRef.current;
-    slotRef.current = node;
-    if (!node) {
-      if (audioRef.current === previous) audioRef.current = null;
-      if (standbyAudioRef.current === previous) standbyAudioRef.current = null;
-      return;
-    }
-    node.volume = volumeRef.current;
-    node.muted = mutedRef.current;
-    if (!audioRef.current) audioRef.current = node;
-    else if (audioRef.current !== node && !standbyAudioRef.current) standbyAudioRef.current = node;
-  }, []);
-
-  const bindPrimaryAudio = useCallback(
-    (node) => registerAudioElement(primaryAudioElementRef, node),
-    [registerAudioElement],
-  );
-  const bindSecondaryAudio = useCallback(
-    (node) => registerAudioElement(secondaryAudioElementRef, node),
-    [registerAudioElement],
-  );
 
   const revokeCoverObjectUrl = useCallback(() => {
     if (!coverObjectUrlRef.current) return;
@@ -204,18 +204,18 @@ export const PlayerProvider = ({ children }) => {
     let objectUrl = '';
     let coverUrl = '';
     let coverMime = '';
-    let targetAudio = preparedAudio?.audio || null;
 
     try {
-      if (preparedAudio?.audio) {
-        sourceKind = preparedAudio.sourceKind || 'stream_preload';
-        objectUrl = preparedAudio.objectUrl || '';
+      if (preparedAudio?.blob) {
+        objectUrl = URL.createObjectURL(preparedAudio.blob);
+        src = objectUrl;
+        sourceKind = 'cache_preload';
         if (preparedAudio.coverBlob) {
           coverUrl = URL.createObjectURL(preparedAudio.coverBlob);
           coverMime = preparedAudio.coverMime || preparedAudio.coverBlob.type || 'image/jpeg';
         }
       }
-      const cached = !targetAudio && preferCache ? await getPlayableCachedSong(song, userId) : null;
+      const cached = !src && preferCache ? await getPlayableCachedSong(song, userId) : null;
       if (cached?.blob) {
         objectUrl = URL.createObjectURL(cached.blob);
         src = objectUrl;
@@ -230,10 +230,7 @@ export const PlayerProvider = ({ children }) => {
       // IndexedDB 不可用或读取失败时,在线模式退回流播放;离线模式保持本机缓存边界。
     }
 
-    const audio = targetAudio
-      || (autoplay ? standbyAudioRef.current : audioRef.current)
-      || audioRef.current
-      || standbyAudioRef.current;
+    const audio = audioRef.current;
     if (!audio) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       if (coverUrl) URL.revokeObjectURL(coverUrl);
@@ -248,48 +245,47 @@ export const PlayerProvider = ({ children }) => {
     audio.volume = volumeRef.current;
     audio.muted = muted;
 
-    if (!targetAudio && !src && !offline) {
+    if (!src && !offline) {
       src = getStreamUrl(song);
       sourceKind = 'network';
     }
 
     revokeCoverObjectUrl();
     setCachedCover({ url: '', mime: '' });
-    if (!targetAudio && !src) {
+    if (!src) {
       resetAudioElement(audio);
       setIsPaused(true);
       setNotice(`「${song.name}」还没有缓存到本机,离线模式无法播放。`);
       return;
     }
-    audio.dataset.playSeq = String(seq);
-    audio.dataset.songKey = songKey;
-    audio.dataset.sourceKind = sourceKind;
-    if (!targetAudio) {
-      resetAudioElement(audio);
-      audio.dataset.playSeq = String(seq);
-      audio.dataset.songKey = songKey;
-      audio.dataset.sourceKind = sourceKind;
-      pauseReasonRef.current = 'source_change';
-      audio.src = src;
-      if (objectUrl) audio.dataset.objectUrl = objectUrl;
-      audio.load();
-    }
+    pauseReasonRef.current = 'source_change';
+    replaceAudioSource(audio, {
+      src,
+      playSeq: seq,
+      songKey,
+      sourceKind,
+      objectUrl,
+    });
     coverObjectUrlRef.current = coverUrl;
     setCachedCover({ url: coverUrl, mime: coverMime });
     if (autoplay) {
       try {
         await audio.play();
+        if (seq === playSeqRef.current) {
+          reportPlaybackDiagnostic(buildPlayerDiagnostic({
+            event: 'play_resolved',
+            audio,
+            song,
+            mode: modeRef.current,
+            queueLength: queueRef.current.length,
+          }));
+        }
       } catch (err) {
         if (seq === playSeqRef.current) {
-          const handoff = handoffAudioElement(audioRef.current, audio);
-          if (handoff) {
-            audioRef.current = handoff.activeAudio;
-            standbyAudioRef.current = handoff.standbyAudio;
-          }
           setIsPaused(true);
           setNotice(`「${song.name}」未能自动续播,请在锁屏播放器点一次播放。`);
         }
-        reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+        reportPlaybackDiagnostic(buildPlayerDiagnostic({
           event: 'autoplay_rejected',
           audio,
           song,
@@ -300,15 +296,27 @@ export const PlayerProvider = ({ children }) => {
         console.warn('自动续播失败', err);
       }
     }
-  }, [cancelPlaybackFade, muted, offline, resetAudioElement, revokeCoverObjectUrl, userId]);
+  }, [buildPlayerDiagnostic, cancelPlaybackFade, muted, offline, resetAudioElement, revokeCoverObjectUrl, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const navigationType = globalThis.performance?.getEntriesByType?.('navigation')?.[0]?.type || '';
+    reportPlaybackDiagnostic(buildPlayerDiagnostic({
+      event: 'page_loaded',
+      audio: audioRef.current,
+      song: nowPlayingRef.current,
+      reason: `navigation=${navigationType}`,
+      mode: modeRef.current,
+      queueLength: queueRef.current.length,
+    }));
+  }, [buildPlayerDiagnostic, userId]);
 
   useEffect(() => () => {
     playSeqRef.current += 1;
     prefetchSeqRef.current += 1;
     prefetchControllerRef.current?.abort();
     cancelPlaybackFade();
-    resetAudioElement(primaryAudioElementRef.current);
-    resetAudioElement(secondaryAudioElementRef.current);
+    resetAudioElement(audioRef.current);
     revokeCoverObjectUrl();
   }, [cancelPlaybackFade, resetAudioElement, revokeCoverObjectUrl]);
 
@@ -316,15 +324,15 @@ export const PlayerProvider = ({ children }) => {
   useEffect(() => {
     volumeRef.current = volume;
     mutedRef.current = muted;
-    const elements = [primaryAudioElementRef.current, secondaryAudioElementRef.current].filter(Boolean);
-    elements.forEach((audio) => {
+    const audio = audioRef.current;
+    if (audio) {
       audio.muted = muted;
-      if (audio === audioRef.current && playbackIntentRef.current === 'play' && !audio.paused) {
+      if (playbackIntentRef.current === 'play' && !audio.paused) {
         startVolumeFade(audio, volume, 'play');
       } else if (playbackIntentRef.current !== 'pause') {
         audio.volume = volume;
       }
-    });
+    }
     localStorage.setItem(VOLUME_KEY, String(volume));
   }, [muted, startVolumeFade, volume]);
 
@@ -532,23 +540,18 @@ export const PlayerProvider = ({ children }) => {
     prefetchControllerRef.current = null;
     preparedNextRef.current = null;
 
-    const standby = standbyAudioRef.current;
-    if (!standby || standby === audioRef.current) return;
-    resetAudioElement(standby);
+    // 在线播放保持一个常驻 audio；不要用第二个媒体元素预载，避免 Android
+    // Chromium 为多个播放器反复申请音频焦点。后台切歌会在 ended 同一调用栈
+    // 直接给这个 audio 换流地址。这里只为纯离线模式提前读取 IndexedDB Blob。
+    if (!offline) return;
 
     const nextSong = modeRef.current === 'repeat' ? cur : pickNext(cur, true, true);
     if (!nextSong) return;
 
-    standby.volume = volumeRef.current;
-    standby.muted = muted;
-
     const storePrepared = (prepared, reason) => {
-      if (prefetchSeq !== prefetchSeqRef.current || standby !== standbyAudioRef.current) {
-        if (prepared?.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
-        return;
-      }
+      if (prefetchSeq !== prefetchSeqRef.current) return;
       preparedNextRef.current = prepared;
-      reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+      reportPlaybackDiagnostic(buildPlayerDiagnostic({
         event: 'prefetch_ready',
         audio: audioRef.current,
         song: cur,
@@ -559,54 +562,23 @@ export const PlayerProvider = ({ children }) => {
       }));
     };
 
-    if (!offline) {
-      try {
-        standby.src = getStreamUrl(nextSong);
-        standby.load();
-        const prepared = createPreparedAudio({
-          currentSong: cur,
-          nextSong,
-          mode: modeRef.current,
-          audio: standby,
-          sourceKind: 'stream_preload',
-        });
-        storePrepared(prepared, 'kind=stream_preload;state=source_configured');
-      } catch (err) {
-        reportPlaybackDiagnostic(buildPlaybackDiagnostic({
-          event: 'prefetch_failed',
-          audio: audioRef.current,
-          song: cur,
-          nextSong,
-          reason: `${err?.name || 'Error'}:${err?.message || ''}`,
-          mode: modeRef.current,
-          queueLength: queueRef.current.length,
-        }));
-      }
-      return;
-    }
-
     const controller = new AbortController();
     prefetchControllerRef.current = controller;
     getPlayableCachedSong(nextSong, userId).then((cached) => {
       if (!cached?.blob || controller.signal.aborted) return;
-      if (prefetchSeq !== prefetchSeqRef.current || standby !== standbyAudioRef.current) return;
-      const objectUrl = URL.createObjectURL(cached.blob);
-      standby.src = objectUrl;
-      standby.dataset.objectUrl = objectUrl;
-      standby.load();
+      if (prefetchSeq !== prefetchSeqRef.current) return;
       storePrepared(createPreparedAudio({
         currentSong: cur,
         nextSong,
         mode: modeRef.current,
-        audio: standby,
-        sourceKind: 'cache_preload',
-        objectUrl,
+        blob: cached.blob,
+        mime: cached.mime || cached.blob.type || '',
         coverBlob: cached.coverBlob || null,
         coverMime: cached.coverMime || '',
       }), `kind=cache_preload;state=source_configured;bytes=${cached.blob.size}`);
     }).catch((err) => {
       if (controller.signal.aborted || err?.name === 'AbortError') return;
-      reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+      reportPlaybackDiagnostic(buildPlayerDiagnostic({
         event: 'prefetch_failed',
         audio: audioRef.current,
         song: cur,
@@ -617,7 +589,7 @@ export const PlayerProvider = ({ children }) => {
       }));
       console.warn('离线预载下一首失败', err);
     });
-  }, [muted, offline, pickNext, resetAudioElement, userId]);
+  }, [buildPlayerDiagnostic, offline, pickNext, userId]);
 
   // 手动下一首/上一首
   const next = useCallback(() => {
@@ -683,19 +655,18 @@ export const PlayerProvider = ({ children }) => {
     }
   }, [nowPlaying]);
 
-  const promoteAudioElement = useCallback((audio) => {
-    const handoff = handoffAudioElement(audioRef.current, audio);
-    if (!handoff) return;
-    audioRef.current = handoff.activeAudio;
-    standbyAudioRef.current = handoff.standbyAudio;
-  }, []);
-
   const handlePlaying = useCallback((event) => {
     const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     const audio = event?.currentTarget || audioRef.current;
     if (!isCurrentAudioEvent(audio, playSeqRef.current, cur)) return;
-    promoteAudioElement(audio);
     setIsPaused(false);
+    reportPlaybackDiagnostic(buildPlayerDiagnostic({
+      event: 'playing',
+      audio,
+      song: cur,
+      mode: modeRef.current,
+      queueLength: queueRef.current.length,
+    }));
     const seq = audio?.dataset?.playSeq || '';
     pauseReasonRef.current = '';
     if (seq && prefetchedPlaySeqRef.current !== seq) {
@@ -724,7 +695,7 @@ export const PlayerProvider = ({ children }) => {
         }
       }
     }
-  }, [isServerDownloaded, nowPlaying, offline, prepareFollowingSong, promoteAudioElement]);
+  }, [buildPlayerDiagnostic, isServerDownloaded, nowPlaying, offline, prepareFollowingSong]);
 
   const handlePlay = useCallback((event) => {
     const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
@@ -734,7 +705,7 @@ export const PlayerProvider = ({ children }) => {
   }, [nowPlaying]);
 
   const reportPauseRecoveryDiagnostic = useCallback((event, audio, song, reason) => {
-    reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+    reportPlaybackDiagnostic(buildPlayerDiagnostic({
       event,
       audio,
       song,
@@ -742,7 +713,7 @@ export const PlayerProvider = ({ children }) => {
       mode: modeRef.current,
       queueLength: queueRef.current.length,
     }));
-  }, []);
+  }, [buildPlayerDiagnostic]);
 
   const recoverBackgroundPause = useCallback((audio, song, playSeq) => {
     recoveredUnexpectedPauseSeqRef.current = playSeq;
@@ -797,21 +768,21 @@ export const PlayerProvider = ({ children }) => {
     const audio = event?.currentTarget || audioRef.current;
     const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     if (!isCurrentAudioEvent(audio, playSeqRef.current, cur)) return;
-    reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+    reportPlaybackDiagnostic(buildPlayerDiagnostic({
       event: event.type,
       audio,
       song: cur,
       mode: modeRef.current,
       queueLength: queueRef.current.length,
     }));
-  }, [nowPlaying]);
+  }, [buildPlayerDiagnostic, nowPlaying]);
 
   // 播放结束:repeat 重播当前,否则跳下一首
   const handleEnded = useCallback((event) => {
     const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     const audio = event?.currentTarget || audioRef.current;
     if (!isCurrentAudioEvent(audio, playSeqRef.current, cur)) {
-      reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+      reportPlaybackDiagnostic(buildPlayerDiagnostic({
         event: 'ended_ignored',
         audio,
         song: cur,
@@ -838,7 +809,7 @@ export const PlayerProvider = ({ children }) => {
         ? plannedForMode.song
         : pickNext(cur, true, true); // auto 续播:order 到尾则停
     const preparedAudio = preparedAudioForTransition(plannedForMode, cur, n, modeRef.current);
-    reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+    reportPlaybackDiagnostic(buildPlayerDiagnostic({
       event: n ? 'ended_transition' : 'queue_exhausted',
       audio,
       song: cur,
@@ -847,40 +818,25 @@ export const PlayerProvider = ({ children }) => {
       queueLength: queueRef.current.length,
     }));
     if (preparedAudio) {
-      reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+      reportPlaybackDiagnostic(buildPlayerDiagnostic({
         event: 'prefetch_consumed',
         audio,
         song: cur,
         nextSong: n,
-        reason: `kind=${preparedAudio.sourceKind || 'standby_audio'}`,
+        reason: `kind=cache_preload;bytes=${preparedAudio.blob?.size || 0}`,
         mode: modeRef.current,
         queueLength: queueRef.current.length,
       }));
     }
     if (n) startPlay(n, { preparedAudio });
     else setIsPaused(true);
-  }, [clearSleepTimer, nowPlaying, pickNext, savePlayback, startPlay]);
+  }, [buildPlayerDiagnostic, clearSleepTimer, nowPlaying, pickNext, savePlayback, startPlay]);
 
   // audio 报错(死链/无法播放)→ 先自动换源,失败后再跳下一首没试过的
   const handleError = useCallback(async (event) => {
     const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     if (!cur) return;
     const audio = event?.currentTarget || audioRef.current;
-    const prepared = preparedNextRef.current;
-    if (isPreparedStandbyAudio(prepared, audio, audioRef.current)) {
-      preparedNextRef.current = null;
-      reportPlaybackDiagnostic(buildPlaybackDiagnostic({
-        event: 'prefetch_failed',
-        audio: audioRef.current,
-        song: cur,
-        nextSong: prepared.song,
-        reason: `media_error=${audio?.error?.code || 0}`,
-        mode: modeRef.current,
-        queueLength: queueRef.current.length,
-      }));
-      resetAudioElement(audio);
-      return;
-    }
     const seqAtError = playSeqRef.current;
     if (!isCurrentAudioEvent(audio, seqAtError, cur)) return;
     const curKey = songIdentityKey(cur);
@@ -901,7 +857,7 @@ export const PlayerProvider = ({ children }) => {
       return;
     }
 
-    if (!offline && ['network', 'stream_preload'].includes(audio?.dataset?.sourceKind)) {
+    if (!offline && audio?.dataset?.sourceKind === 'network') {
       const authenticated = await ensurePlaybackSession(getMe);
       if (!authenticated) {
         if (seqAtError !== playSeqRef.current || songIdentityKey(nowPlayingRef.current || {}) !== curKey) return;
@@ -958,7 +914,7 @@ export const PlayerProvider = ({ children }) => {
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
     }
-  }, [cancelPlaybackFade, loadAudioForSong, nowPlaying, offline, resetAudioElement, startPlay, userId]);
+  }, [buildPlayerDiagnostic, cancelPlaybackFade, loadAudioForSong, nowPlaying, offline, startPlay, userId]);
 
   // MediaSession:PC 全局媒体键 / 锁屏 / 通知栏 / 蓝牙耳机控制 + 元数据
   useEffect(() => {
@@ -1020,7 +976,7 @@ export const PlayerProvider = ({ children }) => {
 
   return (
     <PlayerContext.Provider value={{
-      nowPlaying, play, notice, isPaused, progress, mode, setMode,
+      nowPlaying, play, audioRef, notice, isPaused, progress, mode, setMode,
       volume, setVolume, muted, toggleMute,
       cachedCoverUrl: cachedCover.url,
       queue, playFromQueue,
@@ -1028,7 +984,6 @@ export const PlayerProvider = ({ children }) => {
       startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
       isPlaying: (s) => nowPlaying && songIdentityKey(nowPlaying) === songIdentityKey(s),
       next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent, setIsPaused, setProgress,
-      bindPrimaryAudio, bindSecondaryAudio,
       handleTimeUpdate, handleLoadedMetadata, savePlayback,
       cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
     }}>
@@ -1201,9 +1156,8 @@ const KaraokeLine = ({ line, cur }) => {
 // 常驻底部播放器条:封面/标题 + 上/播/下 + 进度条 + 播放模式
 export const PlayerBar = () => {
   const {
-    nowPlaying, notice, isPaused, progress, mode,
+    nowPlaying, audioRef, notice, isPaused, progress, mode,
     next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent,
-    bindPrimaryAudio, bindSecondaryAudio,
     setIsPaused, setProgress, cycleMode,
     volume, setVolume, muted, toggleMute,
     queue, playFromQueue,
@@ -1727,25 +1681,10 @@ export const PlayerBar = () => {
         </div>
       )}
 
-      {/* 双 audio 常驻交替:下一首在备用元素上流式预载，开始播放后再交换角色。 */}
+      {/* 全局唯一 audio:整个队列始终复用同一媒体元素，保持 Android 音频焦点和 MediaSession 连续。 */}
       <audio
-        ref={bindPrimaryAudio}
-        preload="auto"
-        playsInline
-        onError={handleError}
-        onEnded={handleEnded}
-        onPlay={handlePlay}
-        onPlaying={handlePlaying}
-        onPause={handlePause}
-        onStalled={handleBufferEvent}
-        onWaiting={handleBufferEvent}
-        onSuspend={handleBufferEvent}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        style={{ display: 'none' }}
-      />
-      <audio
-        ref={bindSecondaryAudio}
+        ref={audioRef}
+        data-audio-slot="primary"
         preload="auto"
         playsInline
         onError={handleError}

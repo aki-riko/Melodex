@@ -8,13 +8,13 @@ import {
 const realFailure = {
   reason: 'unexpected',
   visibilityState: 'hidden',
-  sourceKind: 'stream_preload',
+  sourceKind: 'cache_preload',
   ended: false,
   playSeq: '3',
   recoveredPlaySeq: '',
 };
 
-assert.equal(shouldRecoverUnexpectedBackgroundPause(realFailure), true, '后台备用播放器首次意外暂停应自动恢复');
+assert.equal(shouldRecoverUnexpectedBackgroundPause(realFailure), true, '后台离线预载音轨首次意外暂停应自动恢复');
 assert.equal(
   shouldRecoverUnexpectedBackgroundPause({ ...realFailure, visibilityState: 'visible' }),
   false,
@@ -33,7 +33,7 @@ assert.equal(
 assert.equal(
   shouldRecoverUnexpectedBackgroundPause({ ...realFailure, sourceKind: 'network' }),
   false,
-  '恢复逻辑只针对备用播放器切入的音轨',
+  '恢复逻辑只针对离线预载 Blob 切入的音轨',
 );
 assert.equal(
   shouldRecoverUnexpectedBackgroundPause({ ...realFailure, recoveredPlaySeq: '3' }),

@@ -36,6 +36,23 @@ func TestPlaybackDiagnosticAcceptsKnownSameOriginEvent(t *testing.T) {
 	}
 }
 
+func TestPlaybackDiagnosticAcceptsLifecycleObservationEvent(t *testing.T) {
+	r := newPlaybackDiagnosticTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/music/playback_diagnostics", strings.NewReader(`{
+		"event":"playing","page_id":"page-1","bundle":"index-test.js",
+		"audio_slot":"primary","active_audio_slot":"primary",
+		"standby_audio_slot":"","media_session_state":"playing"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+}
+
 func TestPlaybackDiagnosticRejectsMissingXHRHeader(t *testing.T) {
 	r := newPlaybackDiagnosticTestRouter()
 	req := httptest.NewRequest(http.MethodPost, "/music/playback_diagnostics", strings.NewReader(`{"event":"ended_ignored"}`))

@@ -7,7 +7,9 @@ export const shouldRecoverUnexpectedBackgroundPause = ({
   recoveredPlaySeq = '',
 } = {}) => reason === 'unexpected'
   && visibilityState === 'hidden'
-  && ['stream_preload', 'cache_preload'].includes(sourceKind)
+  // 仅保留给纯离线 Blob 播放的防御性恢复；在线续播不再依赖
+  // 暂停补偿，而是由单一常驻 audio 维持 Android MediaSession。
+  && sourceKind === 'cache_preload'
   && !ended
   && Boolean(playSeq)
   && playSeq !== recoveredPlaySeq;
