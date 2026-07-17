@@ -16,6 +16,7 @@ import {
   shouldResumePlayback,
 } from '../src/contexts/playerVolumeFade.js';
 import { ensurePlaybackSession, UNAUTHORIZED_EVENT } from '../src/contexts/playerAuth.js';
+import { beginPlaybackTransition, shouldPreferPlaybackCache } from '../src/contexts/playerPlayback.js';
 import { songIdentityKey } from '../src/utils/songIdentity.js';
 
 const songs = [
@@ -64,6 +65,46 @@ const currentAudio = { dataset: { playSeq: '7', songKey: songIdentityKey(songs[0
 assert.equal(isCurrentAudioEvent(currentAudio, 7, songs[0]), true, '当前播放请求的事件应被处理');
 assert.equal(isCurrentAudioEvent(currentAudio, 8, songs[0]), false, '同一首歌的旧请求事件应被忽略');
 assert.equal(isCurrentAudioEvent(currentAudio, 7, songs[1]), false, '旧歌曲事件不应污染当前歌曲');
+
+assert.equal(
+  shouldPreferPlaybackCache({ offline: false, visibilityState: 'hidden' }),
+  false,
+  '在线锁屏续播必须跳过可能被后台冻结的 IndexedDB 查询',
+);
+assert.equal(
+  shouldPreferPlaybackCache({ offline: false, visibilityState: 'visible' }),
+  true,
+  '前台播放应继续优先使用本机缓存',
+);
+assert.equal(
+  shouldPreferPlaybackCache({ offline: true, visibilityState: 'hidden' }),
+  true,
+  '纯离线锁屏播放仍只能读取本机缓存',
+);
+
+const transitionSteps = [];
+let transitionOptions = null;
+await beginPlaybackTransition({
+  song: songs[1],
+  seq: 9,
+  offline: false,
+  visibilityState: 'hidden',
+  selectSong: (song) => transitionSteps.push(`select:${song.id}`),
+  loadAudio: async (song, options) => {
+    transitionSteps.push(`load:${song.id}`);
+    transitionOptions = options;
+  },
+});
+assert.deepEqual(
+  transitionSteps,
+  ['select:2', 'load:2'],
+  '锁屏切歌应同步更新当前歌曲并立即启动音频加载,不得经过后台定时器',
+);
+assert.deepEqual(
+  transitionOptions,
+  { autoplay: true, seq: 9, preferCache: false },
+  '锁屏切歌应在同一调用栈内直接进入在线流播放',
+);
 
 const storage = new Map();
 const mockStorage = {

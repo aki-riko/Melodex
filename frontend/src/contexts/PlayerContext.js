@@ -19,6 +19,7 @@ import {
 } from './playerSleepTimer.js';
 import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
+import { beginPlaybackTransition } from './playerPlayback.js';
 
 const PlayerContext = createContext(null);
 
@@ -200,7 +201,17 @@ export const PlayerProvider = ({ children }) => {
     objectUrlRef.current = objectUrl;
     coverObjectUrlRef.current = coverUrl;
     setCachedCover({ url: coverUrl, mime: coverMime });
-    if (autoplay) audio.play().catch(() => {});
+    if (autoplay) {
+      try {
+        await audio.play();
+      } catch (err) {
+        if (seq === playSeqRef.current) {
+          setIsPaused(true);
+          setNotice(`「${song.name}」未能自动续播,请在锁屏播放器点一次播放。`);
+        }
+        console.warn('自动续播失败', err);
+      }
+    }
   }, [cancelPlaybackFade, offline, revokeCoverObjectUrl, revokeObjectUrl, userId]);
 
   useEffect(() => () => {
@@ -367,8 +378,18 @@ export const PlayerProvider = ({ children }) => {
   const startPlay = useCallback((song) => {
     const seq = ++playSeqRef.current;
     const nextSong = normalizeSong(song);
-    setNowPlaying(nextSong);
-    setTimeout(() => loadAudioForSong(nextSong, { autoplay: true, seq }), 0);
+    beginPlaybackTransition({
+      song: nextSong,
+      seq,
+      offline,
+      selectSong: (selectedSong) => {
+        // 音频事件可能早于 React 下一次渲染；ref 必须同步切到新歌，
+        // 否则 playing/error 会被误判成上一首的陈旧事件。
+        nowPlayingRef.current = selectedSong;
+        setNowPlaying(selectedSong);
+      },
+      loadAudio: loadAudioForSong,
+    }).catch((err) => console.warn('加载歌曲失败', err));
   }, [loadAudioForSong, offline]);
 
   // play(song, list):list 为当前列表(队列),用于上/下一首与失败自动跳
@@ -1354,6 +1375,8 @@ export const PlayerBar = () => {
       {/* 全局唯一 audio 元素(桌面/移动共用) */}
       <audio
         ref={audioRef}
+        preload="auto"
+        playsInline
         onError={handleError}
         onEnded={handleEnded}
         onPlay={() => setIsPaused(false)}
