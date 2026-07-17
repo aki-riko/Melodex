@@ -351,6 +351,7 @@ func playlistCategoryPlaylistsURL(source string, category model.PlaylistCategory
 }
 
 func RegisterMusicRoutes(api *gin.RouterGroup) {
+	registerPlaybackSegmentRoute(api)
 
 	api.GET("/", func(c *gin.Context) {
 		renderIndex(c, nil, nil, "", nil, "", "song", "", "", "", false, "", nil)

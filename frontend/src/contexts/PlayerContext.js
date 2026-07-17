@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import SleepTimerControl from '../components/SleepTimerControl';
-import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe } from '../services/musicdl';
+import { getStreamUrl, getPlaybackSegmentUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
@@ -34,6 +34,10 @@ import {
   shouldDeferPausedStateToEndedHandler,
   shouldRecoverUnexpectedBackgroundPause,
 } from './playerPauseRecovery.js';
+import {
+  ContinuousMediaSourcePlayback,
+  supportsContinuousMediaSource,
+} from './playerMediaSource.js';
 
 const PlayerContext = createContext(null);
 
@@ -113,6 +117,10 @@ export const PlayerProvider = ({ children }) => {
   const prefetchControllerRef = useRef(null);
   const prefetchSeqRef = useRef(0);
   const recoveredUnexpectedPauseSeqRef = useRef('');
+  const continuousPlaybackRef = useRef(null);
+  const continuousTrackChangeRef = useRef(() => {});
+  const continuousBeforeTrackChangeRef = useRef(() => true);
+  const continuousPlaybackErrorRef = useRef(() => {});
   // 本会话已自动下载过的歌 key,避免同一首反复播放重复拉流(后端下载不幂等、每次覆盖)。
   const autoDownloadedRef = useRef(new Set());
 
@@ -151,8 +159,14 @@ export const PlayerProvider = ({ children }) => {
     delete audio.dataset.objectUrl;
   }, []);
 
+  const destroyContinuousPlayback = useCallback(() => {
+    continuousPlaybackRef.current?.destroy();
+    continuousPlaybackRef.current = null;
+  }, []);
+
   const resetAudioElement = useCallback((audio) => {
     if (!audio) return;
+    destroyContinuousPlayback();
     revokeAudioObjectUrl(audio);
     try { audio.pause(); } catch { /* 已卸载或未初始化 */ }
     delete audio.dataset.playSeq;
@@ -160,7 +174,7 @@ export const PlayerProvider = ({ children }) => {
     delete audio.dataset.sourceKind;
     audio.removeAttribute('src');
     audio.load();
-  }, [revokeAudioObjectUrl]);
+  }, [destroyContinuousPlayback, revokeAudioObjectUrl]);
 
   const revokeCoverObjectUrl = useCallback(() => {
     if (!coverObjectUrlRef.current) return;
@@ -195,6 +209,7 @@ export const PlayerProvider = ({ children }) => {
     seq: requestedSeq,
     preferCache = true,
     preparedAudio = null,
+    forceNative = false,
   } = {}) => {
     const seq = requestedSeq ?? ++playSeqRef.current;
     if (seq !== playSeqRef.current) return;
@@ -245,6 +260,70 @@ export const PlayerProvider = ({ children }) => {
     audio.volume = volumeRef.current;
     audio.muted = muted;
 
+    if (!src && !offline && !forceNative && supportsContinuousMediaSource()) {
+      destroyContinuousPlayback();
+      revokeAudioObjectUrl(audio);
+      revokeCoverObjectUrl();
+      setCachedCover({ url: '', mime: '' });
+      pauseReasonRef.current = 'source_change';
+      audio.dataset.playSeq = String(seq);
+      audio.dataset.songKey = songKey;
+      audio.dataset.sourceKind = 'media_source';
+
+      const playback = new ContinuousMediaSourcePlayback({
+        audio,
+        getSegmentUrl: getPlaybackSegmentUrl,
+        getNextSong: (currentSong) => pickNextSong({
+          list: queueRef.current,
+          current: currentSong,
+          mode: modeRef.current,
+          forward: true,
+          auto: true,
+        }),
+        onBeforeSegmentChange: (segment) => continuousBeforeTrackChangeRef.current(segment),
+        onSegmentChange: (segment) => continuousTrackChangeRef.current(segment),
+        onDiagnostic: ({ event, song: eventSong, reason = '', start = 0, end = 0, bytes = 0 }) => {
+          reportPlaybackDiagnostic(buildPlayerDiagnostic({
+            event,
+            audio,
+            song: eventSong || song,
+            reason: reason || `start=${start.toFixed?.(3) || start};end=${end.toFixed?.(3) || end};bytes=${bytes}`,
+            mode: modeRef.current,
+            queueLength: queueRef.current.length,
+          }));
+        },
+        onError: (error, failedSong) => continuousPlaybackErrorRef.current(error, failedSong),
+      });
+      continuousPlaybackRef.current = playback;
+      try {
+        await playback.start(song, { autoplay });
+        if (seq === playSeqRef.current) {
+          reportPlaybackDiagnostic(buildPlayerDiagnostic({
+            event: 'mse_play_resolved',
+            audio,
+            song,
+            mode: modeRef.current,
+            queueLength: queueRef.current.length,
+          }));
+        }
+        return;
+      } catch (err) {
+        if (continuousPlaybackRef.current === playback) {
+          destroyContinuousPlayback();
+        }
+        if (seq !== playSeqRef.current) return;
+        reportPlaybackDiagnostic(buildPlayerDiagnostic({
+          event: 'mse_start_failed',
+          audio,
+          song,
+          reason: `${err?.name || 'Error'}:${err?.message || ''}`,
+          mode: modeRef.current,
+          queueLength: queueRef.current.length,
+        }));
+        console.warn('连续媒体管线启动失败，回退原生流播放', err);
+      }
+    }
+
     if (!src && !offline) {
       src = getStreamUrl(song);
       sourceKind = 'network';
@@ -259,6 +338,7 @@ export const PlayerProvider = ({ children }) => {
       return;
     }
     pauseReasonRef.current = 'source_change';
+    destroyContinuousPlayback();
     replaceAudioSource(audio, {
       src,
       playSeq: seq,
@@ -296,7 +376,22 @@ export const PlayerProvider = ({ children }) => {
         console.warn('自动续播失败', err);
       }
     }
-  }, [buildPlayerDiagnostic, cancelPlaybackFade, muted, offline, resetAudioElement, revokeCoverObjectUrl, userId]);
+  }, [buildPlayerDiagnostic, cancelPlaybackFade, destroyContinuousPlayback, muted, offline, resetAudioElement, revokeAudioObjectUrl, revokeCoverObjectUrl, userId]);
+
+  continuousPlaybackErrorRef.current = (error, failedSong) => {
+    const current = nowPlayingRef.current;
+    if (!current || songIdentityKey(current) !== songIdentityKey(failedSong)) return;
+    setNotice(`「${failedSong.name}」连续播放管线异常，已回退普通流播放。`);
+    const retrySeq = ++playSeqRef.current;
+    loadAudioForSong(failedSong, {
+      autoplay: true,
+      seq: retrySeq,
+      preferCache: false,
+      forceNative: true,
+    }).catch((fallbackError) => {
+      console.warn('普通流播放回退失败', fallbackError || error);
+    });
+  };
 
   useEffect(() => {
     if (!userId) return;
@@ -621,8 +716,65 @@ export const PlayerProvider = ({ children }) => {
     }
   }, [pauseWithFade, resumeWithFade]);
 
+  const recordStartedSong = useCallback((song, marker) => {
+    if (offline || !song || !marker || recordedPlaySeqRef.current === marker) return;
+    recordedPlaySeqRef.current = marker;
+    recordPlayHistory(song);
+    if (!shouldAutoDownloadOnPlay(song, isServerDownloaded)) return;
+    const dlKey = songIdentityKey(song);
+    if (!dlKey || autoDownloadedRef.current.has(dlKey)) return;
+    autoDownloadedRef.current.add(dlKey);
+    saveToServer(song)
+      .then((result) => {
+        if (!serverSaveSucceeded(result)) autoDownloadedRef.current.delete(dlKey);
+      })
+      .catch(() => {
+        autoDownloadedRef.current.delete(dlKey);
+      });
+  }, [isServerDownloaded, offline]);
+
+  const activateContinuousTrack = useCallback(({ song, start = 0, end = 0, index = 0 }) => {
+    const audio = audioRef.current;
+    if (!audio || audio.dataset?.sourceKind !== 'media_source') return;
+    const selectedSong = normalizeSong(song);
+    nowPlayingRef.current = selectedSong;
+    setNowPlaying(selectedSong);
+    audio.dataset.songKey = songIdentityKey(selectedSong);
+    triedRef.current = new Set();
+    switchTriedRef.current = new Set();
+    const local = continuousPlaybackRef.current?.currentLocalProgress(audio.currentTime)
+      || { cur: 0, dur: selectedSong.duration || Math.max(0, end - start) };
+    setProgress(local);
+    recordStartedSong(selectedSong, `${audio.dataset.playSeq}:${songIdentityKey(selectedSong)}:${index}`);
+    reportPlaybackDiagnostic(buildPlayerDiagnostic({
+      event: index === 0 ? 'mse_track_active' : 'mse_track_transition',
+      audio,
+      song: selectedSong,
+      reason: `segment=${index};start=${start};end=${end}`,
+      mode: modeRef.current,
+      queueLength: queueRef.current.length,
+    }));
+  }, [buildPlayerDiagnostic, recordStartedSong]);
+  continuousTrackChangeRef.current = activateContinuousTrack;
+
+  const beforeContinuousTrackChange = useCallback(() => {
+    if (!shouldStopAtTrackEnd(sleepTimerRef.current, sleepStopAfterTrackRef.current)) return true;
+    const audio = audioRef.current;
+    const local = continuousPlaybackRef.current?.currentLocalProgress(audio?.currentTime || 0);
+    pauseReasonRef.current = 'sleep_timer';
+    clearSleepTimer();
+    setIsPaused(true);
+    savePlayback(local?.dur || local?.cur || 0);
+    setNotice('睡眠定时已在本曲结束后停止播放。');
+    return false;
+  }, [clearSleepTimer, savePlayback]);
+  continuousBeforeTrackChangeRef.current = beforeContinuousTrackChange;
+
   const seek = useCallback((sec) => {
-    if (audioRef.current) audioRef.current.currentTime = sec;
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.dataset?.sourceKind === 'media_source' && continuousPlaybackRef.current?.seekLocal(sec)) return;
+    audio.currentTime = sec;
   }, []);
 
   // 进度更新:刷新进度条 + 节流保存播放快照(每 5 秒)。
@@ -631,8 +783,17 @@ export const PlayerProvider = ({ children }) => {
     const audio = e.currentTarget;
     const song = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     if (!isCurrentAudioEvent(audio, playSeqRef.current, song)) return;
-    const cur = audio.currentTime;
-    const dur = audio.duration || 0;
+    let cur = audio.currentTime;
+    let dur = audio.duration || 0;
+    if (audio.dataset?.sourceKind === 'media_source' && continuousPlaybackRef.current) {
+      if (resumeRef.current != null && isFinite(resumeRef.current)
+        && continuousPlaybackRef.current.seekLocal(resumeRef.current)) {
+        resumeRef.current = null;
+      }
+      const local = continuousPlaybackRef.current.handleTimeUpdate(audio.currentTime);
+      cur = local.cur;
+      dur = local.dur;
+    }
     setProgress({ cur, dur });
     const now = Date.now();
     if (now - lastSaveRef.current > 5000) {
@@ -646,6 +807,12 @@ export const PlayerProvider = ({ children }) => {
     const audio = e.currentTarget;
     const song = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     if (!isCurrentAudioEvent(audio, playSeqRef.current, song)) return;
+    if (audio.dataset?.sourceKind === 'media_source') {
+      const local = continuousPlaybackRef.current?.currentLocalProgress(audio.currentTime)
+        || { cur: 0, dur: Number(song?.duration || 0) };
+      setProgress(local);
+      return;
+    }
     const dur = audio.duration || 0;
     setProgress({ cur: audio.currentTime, dur });
     if (resumeRef.current != null && isFinite(resumeRef.current)) {
@@ -673,29 +840,8 @@ export const PlayerProvider = ({ children }) => {
       prefetchedPlaySeqRef.current = seq;
       prepareFollowingSong(cur);
     }
-    if (!offline && seq && recordedPlaySeqRef.current !== seq) {
-      recordedPlaySeqRef.current = seq;
-      recordPlayHistory(cur);
-      // 开关开启时,把正在播放(即活的)的歌静默下载到服务器。
-      // 用 songIdentityKey 去重,同一首本会话只下一次,避免重复拉流覆盖。
-      // 本地来源或“服务器”状态已命中的歌曲直接跳过,避免无意义请求,
-      // 更不能在 ServeContent 播放期间重写同一物理文件。
-      if (shouldAutoDownloadOnPlay(cur, isServerDownloaded)) {
-        const dlKey = songIdentityKey(cur);
-        if (dlKey && !autoDownloadedRef.current.has(dlKey)) {
-          autoDownloadedRef.current.add(dlKey);
-          saveToServer(cur)
-            .then((result) => {
-              if (!serverSaveSucceeded(result)) autoDownloadedRef.current.delete(dlKey);
-            })
-            .catch(() => {
-              // 静默失败(死链/需登录):从已下集合移除,下次播放可重试。
-              autoDownloadedRef.current.delete(dlKey);
-            });
-        }
-      }
-    }
-  }, [buildPlayerDiagnostic, isServerDownloaded, nowPlaying, offline, prepareFollowingSong]);
+    recordStartedSong(cur, `${seq}:${songIdentityKey(cur)}:0`);
+  }, [buildPlayerDiagnostic, nowPlaying, prepareFollowingSong, recordStartedSong]);
 
   const handlePlay = useCallback((event) => {
     const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
@@ -747,7 +893,10 @@ export const PlayerProvider = ({ children }) => {
     const reason = pauseReasonRef.current || (audio?.ended ? 'ended' : 'unexpected');
     const playSeq = audio?.dataset?.playSeq || '';
     pauseReasonRef.current = '';
-    savePlayback(audio?.currentTime || 0);
+    const savedTime = audio?.dataset?.sourceKind === 'media_source'
+      ? continuousPlaybackRef.current?.currentLocalProgress(audio?.currentTime || 0)?.cur || 0
+      : audio?.currentTime || 0;
+    savePlayback(savedTime);
     reportPauseRecoveryDiagnostic('pause', audio, cur, reason);
     if (shouldDeferPausedStateToEndedHandler(reason)) return;
     const shouldRecover = shouldRecoverUnexpectedBackgroundPause({
@@ -799,6 +948,19 @@ export const PlayerProvider = ({ children }) => {
       setNotice('睡眠定时已在本曲结束后停止播放。');
       return;
     }
+    if (audio?.dataset?.sourceKind === 'media_source') {
+      const local = continuousPlaybackRef.current?.currentLocalProgress(audio?.currentTime || 0);
+      reportPlaybackDiagnostic(buildPlayerDiagnostic({
+        event: 'mse_queue_exhausted',
+        audio,
+        song: cur,
+        mode: modeRef.current,
+        queueLength: queueRef.current.length,
+      }));
+      setIsPaused(true);
+      savePlayback(local?.dur || local?.cur || 0);
+      return;
+    }
     triedRef.current = new Set();
     switchTriedRef.current = new Set();
     const planned = preparedNextRef.current;
@@ -840,6 +1002,11 @@ export const PlayerProvider = ({ children }) => {
     const seqAtError = playSeqRef.current;
     if (!isCurrentAudioEvent(audio, seqAtError, cur)) return;
     const curKey = songIdentityKey(cur);
+
+    if (audio?.dataset?.sourceKind === 'media_source') {
+      continuousPlaybackErrorRef.current(audio?.error || new Error('MediaSource decode error'), cur);
+      return;
+    }
 
     if (!offline && ['cache', 'cache_preload'].includes(audio?.dataset?.sourceKind)) {
       setNotice(`「${cur.name}」本机音频无法播放,正在重新拉取当前源…`);
@@ -949,12 +1116,12 @@ export const PlayerProvider = ({ children }) => {
     navigator.mediaSession.setActionHandler('stop', safe('stop', () => pauseWithFade('media_session_stop')));
     try {
       navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); });
-      navigator.mediaSession.setActionHandler('seekforward', (d) => seek((audioRef.current?.currentTime || 0) + (d.seekOffset || 10)));
-      navigator.mediaSession.setActionHandler('seekbackward', (d) => seek(Math.max(0, (audioRef.current?.currentTime || 0) - (d.seekOffset || 10))));
+      navigator.mediaSession.setActionHandler('seekforward', (d) => seek(progress.cur + (d.seekOffset || 10)));
+      navigator.mediaSession.setActionHandler('seekbackward', (d) => seek(Math.max(0, progress.cur - (d.seekOffset || 10))));
     } catch (err) {
       console.debug('当前浏览器不支持部分 MediaSession seek 动作', err);
     }
-  }, [cachedCover, next, nowPlaying, offline, pauseWithFade, prev, resumeWithFade, seek]);
+  }, [cachedCover, next, nowPlaying, offline, pauseWithFade, prev, progress.cur, resumeWithFade, seek]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {
