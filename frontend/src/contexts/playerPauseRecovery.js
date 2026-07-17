@@ -7,7 +7,7 @@ export const shouldRecoverUnexpectedBackgroundPause = ({
   recoveredPlaySeq = '',
 } = {}) => reason === 'unexpected'
   && visibilityState === 'hidden'
-  && sourceKind === 'prefetch'
+  && ['stream_preload', 'cache_preload'].includes(sourceKind)
   && !ended
   && Boolean(playSeq)
   && playSeq !== recoveredPlaySeq;
