@@ -1,33 +1,33 @@
 import assert from 'node:assert/strict';
-import { prepareNextAudioBlob, preparedAudioForTransition } from '../src/contexts/playerPrefetch.js';
+import {
+  createPreparedAudio,
+  handoffAudioElement,
+  isPreparedStandbyAudio,
+  preparedAudioForTransition,
+} from '../src/contexts/playerPrefetch.js';
 
 const current = { source: 'qq', id: '1', name: '当前歌曲' };
 const next = { source: 'qq', id: '2', name: '下一首' };
-const blob = new Blob(['audio-bytes'], { type: 'audio/mpeg' });
+const standbyAudio = { src: '/music/download?id=2&source=qq&stream=1' };
 
-let onlineCalls = 0;
-const onlineController = new AbortController();
-const preparedOnline = await prepareNextAudioBlob({
+const preparedOnline = createPreparedAudio({
   currentSong: current,
   nextSong: next,
   mode: 'loop',
-  offline: false,
-  userId: 7,
-  signal: onlineController.signal,
-  getCachedAudio: async () => { throw new Error('在线模式不应读取 IndexedDB'); },
-  fetchOnlineAudio: async (song, { signal }) => {
-    onlineCalls += 1;
-    assert.equal(song, next);
-    assert.equal(signal, onlineController.signal, '在线预取必须把取消信号传给网络请求');
-    return { blob, mime: 'audio/mpeg' };
-  },
+  audio: standbyAudio,
+  sourceKind: 'stream_preload',
 });
-assert.equal(onlineCalls, 1, '在线模式应完整预取下一首');
 assert.equal(preparedOnline.song, next, '预取记录应保留计划中的下一首');
 assert.deepEqual(
   preparedAudioForTransition(preparedOnline, current, next, 'loop'),
-  { blob, mime: 'audio/mpeg' },
-  '当前歌曲与计划下一首匹配时应消费内存 Blob',
+  {
+    audio: standbyAudio,
+    sourceKind: 'stream_preload',
+    objectUrl: '',
+    coverBlob: null,
+    coverMime: '',
+  },
+  '当前歌曲与计划下一首匹配时应消费备用 audio，而不是整首内存 Blob',
 );
 assert.equal(
   preparedAudioForTransition(preparedOnline, { ...current, id: 'other' }, next, 'loop'),
@@ -40,22 +40,53 @@ assert.equal(
   '播放模式变化后不得消费旧模式计划的预取',
 );
 
-let cachedCalls = 0;
-const preparedOffline = await prepareNextAudioBlob({
+const cachedObjectUrl = 'blob:cached-next-song';
+const preparedOffline = createPreparedAudio({
   currentSong: current,
   nextSong: next,
   mode: 'loop',
-  offline: true,
-  userId: 7,
-  getCachedAudio: async (song, userId) => {
-    cachedCalls += 1;
-    assert.equal(song, next);
-    assert.equal(userId, 7);
-    return { blob, mime: 'audio/mpeg' };
-  },
-  fetchOnlineAudio: async () => { throw new Error('离线模式不得请求网络'); },
+  audio: standbyAudio,
+  sourceKind: 'cache_preload',
+  objectUrl: cachedObjectUrl,
 });
-assert.equal(cachedCalls, 1, '离线模式应预读 IndexedDB 下一首');
-assert.ok(preparedOffline?.blob, '离线缓存存在时应生成预取记录');
+assert.equal(preparedOffline.objectUrl, cachedObjectUrl, '离线预载应保留可释放的缓存 Object URL');
+assert.equal(preparedOffline.audio, standbyAudio, '离线预载也必须使用备用 audio 元素');
+
+assert.equal(
+  createPreparedAudio({ currentSong: current, nextSong: next, mode: 'loop', audio: null }),
+  null,
+  '备用 audio 尚未挂载时不得生成虚假预载记录',
+);
+
+let previousPauseCalls = 0;
+const previousAudio = {
+  paused: false,
+  pause: () => {
+    previousPauseCalls += 1;
+    previousAudio.paused = true;
+  },
+};
+const targetAudio = { paused: true };
+assert.deepEqual(
+  handoffAudioElement(previousAudio, targetAudio),
+  { activeAudio: targetAudio, standbyAudio: previousAudio },
+  '备用播放器接管后应交换活动与备用角色',
+);
+assert.equal(previousPauseCalls, 1, '新播放器接管时必须停止仍在出声的旧播放器');
+assert.equal(
+  handoffAudioElement(targetAudio, targetAudio),
+  null,
+  '目标已经是活动播放器时不得重复交接',
+);
+assert.equal(
+  isPreparedStandbyAudio(preparedOnline, standbyAudio, previousAudio),
+  true,
+  '预载元素在接管前报错时应识别为备用播放器错误',
+);
+assert.equal(
+  isPreparedStandbyAudio(preparedOnline, standbyAudio, standbyAudio),
+  false,
+  '预载元素已经接管后应走当前歌曲错误恢复，不得按备用错误丢弃',
+);
 
 console.log('playerPrefetch tests passed');
