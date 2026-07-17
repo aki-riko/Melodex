@@ -26,7 +26,11 @@ import {
   isPreparedStandbyAudio,
   preparedAudioForTransition,
 } from './playerPrefetch.js';
-import { resumeUnexpectedBackgroundPause, shouldRecoverUnexpectedBackgroundPause } from './playerPauseRecovery.js';
+import {
+  resumeUnexpectedBackgroundPause,
+  shouldDeferPausedStateToEndedHandler,
+  shouldRecoverUnexpectedBackgroundPause,
+} from './playerPauseRecovery.js';
 
 const PlayerContext = createContext(null);
 
@@ -774,6 +778,7 @@ export const PlayerProvider = ({ children }) => {
     pauseReasonRef.current = '';
     savePlayback(audio?.currentTime || 0);
     reportPauseRecoveryDiagnostic('pause', audio, cur, reason);
+    if (shouldDeferPausedStateToEndedHandler(reason)) return;
     const shouldRecover = shouldRecoverUnexpectedBackgroundPause({
       reason,
       sourceKind: audio?.dataset?.sourceKind || '',
@@ -853,6 +858,7 @@ export const PlayerProvider = ({ children }) => {
       }));
     }
     if (n) startPlay(n, { preparedAudio });
+    else setIsPaused(true);
   }, [clearSleepTimer, nowPlaying, pickNext, savePlayback, startPlay]);
 
   // audio 报错(死链/无法播放)→ 先自动换源,失败后再跳下一首没试过的
