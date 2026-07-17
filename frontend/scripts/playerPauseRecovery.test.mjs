@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   resumeUnexpectedBackgroundPause,
+  shouldDeferPausedStateToEndedHandler,
   shouldRecoverUnexpectedBackgroundPause,
 } from '../src/contexts/playerPauseRecovery.js';
 
@@ -38,6 +39,21 @@ assert.equal(
   shouldRecoverUnexpectedBackgroundPause({ ...realFailure, recoveredPlaySeq: '3' }),
   false,
   '同一音轨最多自动恢复一次以避免循环',
+);
+assert.equal(
+  shouldDeferPausedStateToEndedHandler('ended'),
+  true,
+  '自然结束的 pause 不得提前把 MediaSession 发布成 paused',
+);
+assert.equal(
+  shouldDeferPausedStateToEndedHandler('media_session'),
+  false,
+  '用户从锁屏控制器暂停时必须立即同步 paused',
+);
+assert.equal(
+  shouldDeferPausedStateToEndedHandler('sleep_timer'),
+  false,
+  '睡眠定时暂停不得延后',
 );
 
 const audio = {
