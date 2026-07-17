@@ -14,7 +14,14 @@ var allowedPlaybackDiagnosticEvents = map[string]struct{}{
 	"autoplay_rejected": {},
 	"ended_ignored":     {},
 	"ended_transition":  {},
+	"pause":             {},
+	"prefetch_consumed": {},
+	"prefetch_failed":   {},
+	"prefetch_ready":    {},
 	"queue_exhausted":   {},
+	"stalled":           {},
+	"suspend":           {},
+	"waiting":           {},
 }
 
 type playbackDiagnosticRequest struct {
@@ -24,12 +31,14 @@ type playbackDiagnosticRequest struct {
 	NextSource   string  `json:"next_source"`
 	NextSongID   string  `json:"next_song_id"`
 	PlaySeq      string  `json:"play_seq"`
+	SourceKind   string  `json:"source_kind"`
 	Visibility   string  `json:"visibility"`
 	Reason       string  `json:"reason"`
 	Mode         string  `json:"mode"`
 	QueueLength  int     `json:"queue_length"`
 	CurrentTime  float64 `json:"current_time"`
 	Duration     float64 `json:"duration"`
+	BufferedEnd  float64 `json:"buffered_end"`
 	Paused       bool    `json:"paused"`
 	Ended        bool    `json:"ended"`
 	ReadyState   int     `json:"ready_state"`
@@ -64,7 +73,7 @@ func RegisterPlaybackDiagnosticRoutes(api *gin.RouterGroup) {
 		}
 
 		log.Printf(
-			"player-diagnostic user_id=%d event=%s source=%s song_id=%s next_source=%s next_song_id=%s seq=%s visibility=%s reason=%s mode=%s queue=%d time=%.1f/%.1f paused=%t ended=%t ready=%d network=%d",
+			"player-diagnostic user_id=%d event=%s source=%s song_id=%s next_source=%s next_song_id=%s seq=%s source_kind=%s visibility=%s reason=%s mode=%s queue=%d time=%.1f/%.1f buffered_end=%.1f paused=%t ended=%t ready=%d network=%d",
 			currentUserID(c),
 			req.Event,
 			cleanPlaybackDiagnosticText(req.Source, 32),
@@ -72,12 +81,14 @@ func RegisterPlaybackDiagnosticRoutes(api *gin.RouterGroup) {
 			cleanPlaybackDiagnosticText(req.NextSource, 32),
 			cleanPlaybackDiagnosticText(req.NextSongID, 160),
 			cleanPlaybackDiagnosticText(req.PlaySeq, 32),
+			cleanPlaybackDiagnosticText(req.SourceKind, 24),
 			cleanPlaybackDiagnosticText(req.Visibility, 24),
 			cleanPlaybackDiagnosticText(req.Reason, 160),
 			cleanPlaybackDiagnosticText(req.Mode, 24),
 			req.QueueLength,
 			req.CurrentTime,
 			req.Duration,
+			req.BufferedEnd,
 			req.Paused,
 			req.Ended,
 			req.ReadyState,

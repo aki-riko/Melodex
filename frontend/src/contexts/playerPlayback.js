@@ -7,6 +7,17 @@ export const shouldPreferPlaybackCache = ({
 // state 只作为首次恢复等极短窗口的兜底。
 export const resolveCurrentPlaybackSong = (refSong, stateSong = null) => refSong || stateSong || null;
 
+export const lastBufferedEnd = (audio) => {
+  const ranges = audio?.buffered;
+  const count = Number(ranges?.length || 0);
+  if (!count) return 0;
+  try {
+    return Number(ranges.end(count - 1) || 0);
+  } catch {
+    return 0;
+  }
+};
+
 export const buildPlaybackDiagnostic = ({
   event,
   audio,
@@ -23,12 +34,14 @@ export const buildPlaybackDiagnostic = ({
   next_source: nextSong?.source || '',
   next_song_id: nextSong?.id || '',
   play_seq: audio?.dataset?.playSeq || '',
+  source_kind: audio?.dataset?.sourceKind || '',
   visibility: visibilityState,
   reason: String(reason || '').slice(0, 160),
   mode,
   queue_length: queueLength,
   current_time: Number(audio?.currentTime || 0),
   duration: Number(audio?.duration || 0),
+  buffered_end: lastBufferedEnd(audio),
   paused: Boolean(audio?.paused),
   ended: Boolean(audio?.ended),
   ready_state: Number(audio?.readyState || 0),
@@ -43,6 +56,7 @@ export const beginPlaybackTransition = ({
   seq,
   offline = false,
   visibilityState,
+  preparedAudio = null,
   selectSong,
   loadAudio,
 }) => {
@@ -51,5 +65,6 @@ export const beginPlaybackTransition = ({
     autoplay: true,
     seq,
     preferCache: shouldPreferPlaybackCache({ offline, visibilityState }),
+    preparedAudio,
   });
 };

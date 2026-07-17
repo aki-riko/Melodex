@@ -19,6 +19,7 @@ import { ensurePlaybackSession, UNAUTHORIZED_EVENT } from '../src/contexts/playe
 import {
   beginPlaybackTransition,
   buildPlaybackDiagnostic,
+  lastBufferedEnd,
   resolveCurrentPlaybackSong,
   shouldPreferPlaybackCache,
 } from '../src/contexts/playerPlayback.js';
@@ -107,7 +108,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   transitionOptions,
-  { autoplay: true, seq: 9, preferCache: false },
+  { autoplay: true, seq: 9, preferCache: false, preparedAudio: null },
   '锁屏切歌应在同一调用栈内直接进入在线流播放',
 );
 
@@ -129,7 +130,8 @@ assert.deepEqual(
   buildPlaybackDiagnostic({
     event: 'ended_transition',
     audio: {
-      dataset: { playSeq: '9' },
+      dataset: { playSeq: '9', sourceKind: 'network' },
+      buffered: { length: 1, end: () => 218.5 },
       currentTime: 220,
       duration: 220,
       paused: true,
@@ -150,12 +152,14 @@ assert.deepEqual(
     next_source: 'netease',
     next_song_id: '3',
     play_seq: '9',
+    source_kind: 'network',
     visibility: 'hidden',
     reason: '',
     mode: 'loop',
     queue_length: 3,
     current_time: 220,
     duration: 220,
+    buffered_end: 218.5,
     paused: true,
     ended: true,
     ready_state: 4,
@@ -163,6 +167,7 @@ assert.deepEqual(
   },
   '锁屏续播诊断应包含当前/下一首和媒体状态且不依赖 React state',
 );
+assert.equal(lastBufferedEnd({ buffered: { length: 0 } }), 0, '没有缓冲区间时应记录0');
 
 const storage = new Map();
 const mockStorage = {
