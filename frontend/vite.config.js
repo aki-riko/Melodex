@@ -8,6 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: false,
       includeAssets: ['favicon.ico', 'favicon-32.png', 'logo192.png', 'logo512.png'],
       manifest: {
         name: 'Melodex',
@@ -33,6 +34,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
+        importScripts: ['sw-force-reload.js'],
         runtimeCaching: [
           {
             // 封面图等图片:缓存优先,加速二次加载
