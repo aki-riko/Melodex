@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import SleepTimerControl from '../components/SleepTimerControl';
-import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, switchSource as switchSongSource, getMe } from '../services/musicdl';
+import { getStreamUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
@@ -19,7 +19,7 @@ import {
 } from './playerSleepTimer.js';
 import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
-import { beginPlaybackTransition } from './playerPlayback.js';
+import { beginPlaybackTransition, buildPlaybackDiagnostic, resolveCurrentPlaybackSong } from './playerPlayback.js';
 
 const PlayerContext = createContext(null);
 
@@ -209,6 +209,14 @@ export const PlayerProvider = ({ children }) => {
           setIsPaused(true);
           setNotice(`「${song.name}」未能自动续播,请在锁屏播放器点一次播放。`);
         }
+        reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+          event: 'autoplay_rejected',
+          audio,
+          song,
+          reason: `${err?.name || 'Error'}:${err?.message || ''}`,
+          mode: modeRef.current,
+          queueLength: queueRef.current.length,
+        }));
         console.warn('自动续播失败', err);
       }
     }
@@ -260,7 +268,7 @@ export const PlayerProvider = ({ children }) => {
 
   const resumeWithFade = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio || !nowPlaying) return;
+    if (!audio || !nowPlayingRef.current) return;
 
     playbackFadeCancelRef.current?.();
     playbackFadeCancelRef.current = null;
@@ -281,7 +289,7 @@ export const PlayerProvider = ({ children }) => {
       return;
     }
     startVolumeFade(audio, volumeRef.current, 'play');
-  }, [nowPlaying, startVolumeFade]);
+  }, [startVolumeFade]);
 
   const clearSleepTimer = useCallback(() => {
     sleepTimerRef.current = null;
@@ -327,6 +335,7 @@ export const PlayerProvider = ({ children }) => {
       queueRef.current = q;
       setQueue(q);
       resumeRef.current = saved.cur > 0 ? saved.cur : null;
+      nowPlayingRef.current = saved.song;
       setNowPlaying(saved.song);
       // 预载音频(paused 状态),onLoadedMetadata 会 seek 到 resumeRef
       setTimeout(() => loadAudioForSong(saved.song, { autoplay: false }), 0);
@@ -336,7 +345,7 @@ export const PlayerProvider = ({ children }) => {
   // 保存当前播放快照(节流:由调用点控制频率)。
   const savePlayback = useCallback((cur) => {
     try {
-      const song = nowPlaying;
+      const song = nowPlayingRef.current;
       if (!song) return;
       localStorage.setItem(playbackKey(userId), JSON.stringify({
         song,
@@ -344,7 +353,7 @@ export const PlayerProvider = ({ children }) => {
         cur: cur > 0 ? cur : 0,
       }));
     } catch { /* 配额满等忽略 */ }
-  }, [nowPlaying, userId]);
+  }, [userId]);
 
   useEffect(() => {
     if (!sleepTimer) return undefined;
@@ -427,30 +436,32 @@ export const PlayerProvider = ({ children }) => {
 
   // 手动下一首/上一首
   const next = useCallback(() => {
-    if (!nowPlaying) return;
+    const cur = nowPlayingRef.current;
+    if (!cur) return;
     triedRef.current = new Set();
     switchTriedRef.current = new Set();
-    const n = pickNext(nowPlaying, true);
+    const n = pickNext(cur, true);
     if (n) startPlay(n);
-  }, [nowPlaying, pickNext, startPlay]);
+  }, [pickNext, startPlay]);
 
   const prev = useCallback(() => {
-    if (!nowPlaying) return;
+    const cur = nowPlayingRef.current;
+    if (!cur) return;
     triedRef.current = new Set();
     switchTriedRef.current = new Set();
-    const p = pickNext(nowPlaying, false);
+    const p = pickNext(cur, false);
     if (p) startPlay(p);
-  }, [nowPlaying, pickNext, startPlay]);
+  }, [pickNext, startPlay]);
 
   const togglePlay = useCallback(() => {
     const a = audioRef.current;
-    if (!a || !nowPlaying) return;
+    if (!a || !nowPlayingRef.current) return;
     if (shouldResumePlayback(a.paused, playbackIntentRef.current)) {
       resumeWithFade();
     } else {
       pauseWithFade();
     }
-  }, [nowPlaying, pauseWithFade, resumeWithFade]);
+  }, [pauseWithFade, resumeWithFade]);
 
   const seek = useCallback((sec) => {
     if (audioRef.current) audioRef.current.currentTime = sec;
@@ -482,7 +493,7 @@ export const PlayerProvider = ({ children }) => {
 
   const handlePlaying = useCallback((event) => {
     setIsPaused(false);
-    const cur = nowPlayingRef.current || nowPlaying;
+    const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     const audio = event?.currentTarget || audioRef.current;
     if (!isCurrentAudioEvent(audio, playSeqRef.current, cur)) return;
     const seq = audio?.dataset?.playSeq || '';
@@ -512,24 +523,44 @@ export const PlayerProvider = ({ children }) => {
 
   // 播放结束:repeat 重播当前,否则跳下一首
   const handleEnded = useCallback((event) => {
-    if (!isCurrentAudioEvent(event?.currentTarget || audioRef.current, playSeqRef.current, nowPlaying)) return;
+    const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
+    const audio = event?.currentTarget || audioRef.current;
+    if (!isCurrentAudioEvent(audio, playSeqRef.current, cur)) {
+      reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+        event: 'ended_ignored',
+        audio,
+        song: cur,
+        reason: `expected_seq=${playSeqRef.current}`,
+        mode: modeRef.current,
+        queueLength: queueRef.current.length,
+      }));
+      return;
+    }
     if (shouldStopAtTrackEnd(sleepTimerRef.current, sleepStopAfterTrackRef.current)) {
       clearSleepTimer();
       setIsPaused(true);
-      savePlayback(event?.currentTarget?.currentTime || progress.dur || 0);
+      savePlayback(audio?.currentTime || audio?.duration || 0);
       setNotice('睡眠定时已在本曲结束后停止播放。');
       return;
     }
-    if (modeRef.current === 'repeat' && nowPlaying) { startPlay(nowPlaying); return; }
+    if (modeRef.current === 'repeat' && cur) { startPlay(cur); return; }
     triedRef.current = new Set();
     switchTriedRef.current = new Set();
-    const n = pickNext(nowPlaying, true, true); // auto 续播:order 到尾则停
+    const n = pickNext(cur, true, true); // auto 续播:order 到尾则停
+    reportPlaybackDiagnostic(buildPlaybackDiagnostic({
+      event: n ? 'ended_transition' : 'queue_exhausted',
+      audio,
+      song: cur,
+      nextSong: n,
+      mode: modeRef.current,
+      queueLength: queueRef.current.length,
+    }));
     if (n) startPlay(n);
-  }, [clearSleepTimer, nowPlaying, pickNext, progress.dur, savePlayback, startPlay]);
+  }, [clearSleepTimer, nowPlaying, pickNext, savePlayback, startPlay]);
 
   // audio 报错(死链/无法播放)→ 先自动换源,失败后再跳下一首没试过的
   const handleError = useCallback(async (event) => {
-    const cur = nowPlayingRef.current || nowPlaying;
+    const cur = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     if (!cur) return;
     const audio = event?.currentTarget || audioRef.current;
     const seqAtError = playSeqRef.current;

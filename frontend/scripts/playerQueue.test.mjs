@@ -16,7 +16,12 @@ import {
   shouldResumePlayback,
 } from '../src/contexts/playerVolumeFade.js';
 import { ensurePlaybackSession, UNAUTHORIZED_EVENT } from '../src/contexts/playerAuth.js';
-import { beginPlaybackTransition, shouldPreferPlaybackCache } from '../src/contexts/playerPlayback.js';
+import {
+  beginPlaybackTransition,
+  buildPlaybackDiagnostic,
+  resolveCurrentPlaybackSong,
+  shouldPreferPlaybackCache,
+} from '../src/contexts/playerPlayback.js';
 import { songIdentityKey } from '../src/utils/songIdentity.js';
 
 const songs = [
@@ -104,6 +109,59 @@ assert.deepEqual(
   transitionOptions,
   { autoplay: true, seq: 9, preferCache: false },
   '锁屏切歌应在同一调用栈内直接进入在线流播放',
+);
+
+const staleReactSong = songs[0];
+const currentRefSong = songs[1];
+const resolvedBackgroundSong = resolveCurrentPlaybackSong(currentRefSong, staleReactSong);
+assert.equal(resolvedBackgroundSong, currentRefSong, '后台 React state 陈旧时必须以同步播放 ref 为准');
+assert.equal(
+  isCurrentAudioEvent(
+    { dataset: { playSeq: '9', songKey: songIdentityKey(currentRefSong) } },
+    9,
+    resolvedBackgroundSong,
+  ),
+  true,
+  '锁屏多次续播时不得把当前音轨的 ended 误判为旧事件',
+);
+
+assert.deepEqual(
+  buildPlaybackDiagnostic({
+    event: 'ended_transition',
+    audio: {
+      dataset: { playSeq: '9' },
+      currentTime: 220,
+      duration: 220,
+      paused: true,
+      ended: true,
+      readyState: 4,
+      networkState: 1,
+    },
+    song: currentRefSong,
+    nextSong: songs[2],
+    mode: 'loop',
+    queueLength: 3,
+    visibilityState: 'hidden',
+  }),
+  {
+    event: 'ended_transition',
+    source: 'qq',
+    song_id: '2',
+    next_source: 'netease',
+    next_song_id: '3',
+    play_seq: '9',
+    visibility: 'hidden',
+    reason: '',
+    mode: 'loop',
+    queue_length: 3,
+    current_time: 220,
+    duration: 220,
+    paused: true,
+    ended: true,
+    ready_state: 4,
+    network_state: 1,
+  },
+  '锁屏续播诊断应包含当前/下一首和媒体状态且不依赖 React state',
 );
 
 const storage = new Map();
