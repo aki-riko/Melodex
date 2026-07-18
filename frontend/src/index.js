@@ -3,13 +3,18 @@ import ReactDOM from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import './index.css';
 import App from './App';
-import { scheduleServiceWorkerUpdates } from './pwaUpdatePolicy.js';
+import {
+  createSafeServiceWorkerReloader,
+  scheduleServiceWorkerUpdates,
+} from './pwaUpdatePolicy.js';
+
+const serviceWorkerReloader = createSafeServiceWorkerReloader();
+serviceWorkerReloader.listen();
 
 registerSW({
   immediate: true,
-  // 新 SW 可以接管后续请求，但不得在播放期间强制导航当前 PWA 窗口。
-  // 当前页面继续运行已加载的版本，用户下次正常打开时再进入新 bundle。
-  onNeedReload: () => {},
+  // 更新已激活时必须切换页面内存中的旧 JS；播放中则等到 pause/ended 安全边界。
+  onNeedReload: serviceWorkerReloader.requestReload,
   onRegisteredSW: (_swUrl, registration) => {
     scheduleServiceWorkerUpdates(registration, {
       intervalMs: import.meta.env.VITE_SW_UPDATE_INTERVAL_MS,
