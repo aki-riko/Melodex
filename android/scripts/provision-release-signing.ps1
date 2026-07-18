@@ -24,8 +24,32 @@ function New-RandomSecret([int]$ByteCount = 32) {
 }
 
 function Set-EnvironmentSecret([string]$Name, [string]$Value) {
-    $Value | & gh secret set $Name --repo $Repository --env $EnvironmentName
-    if ($LASTEXITCODE -ne 0) { throw "Failed to write GitHub Secret: $Name" }
+    $ghExecutable = (Get-Command gh.exe -ErrorAction Stop).Source
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $ghExecutable
+    $startInfo.Arguments = "secret set $Name --repo `"$Repository`" --env `"$EnvironmentName`""
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw "Failed to start GitHub CLI." }
+        $process.StandardInput.Write($Value)
+        $process.StandardInput.Close()
+        $standardOutput = $process.StandardOutput.ReadToEnd()
+        $standardError = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            throw "Failed to write GitHub Secret ${Name}: $standardOutput$standardError"
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
 }
 
 & gh auth status | Out-Null
