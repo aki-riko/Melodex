@@ -38,6 +38,8 @@ import {
   ContinuousMediaSourcePlayback,
   supportsContinuousMediaSource,
 } from './playerMediaSource.js';
+import NativePlayerProvider from './NativePlayerProvider.js';
+import { isNativeAndroidPlayback } from './nativePlayback.js';
 
 const PlayerContext = createContext(null);
 
@@ -74,7 +76,7 @@ const playbackKey = (userId) => `melodex_playback_${userId || 'anon'}`;
 
 // 全局播放器:audio 元素与播放状态常驻 App 顶层,切换页面不中断。
 // 支持播放队列(上/下一首)、进度、播放模式、MediaSession(锁屏/通知栏控制)。
-export const PlayerProvider = ({ children }) => {
+const WebPlayerProvider = ({ children }) => {
   const [nowPlaying, setNowPlaying] = useState(null);
   const [notice, setNotice] = useState('');
   const [isPaused, setIsPaused] = useState(true);
@@ -1189,10 +1191,19 @@ export const PlayerProvider = ({ children }) => {
       next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent, setIsPaused, setProgress,
       handleTimeUpdate, handleLoadedMetadata, savePlayback,
       cycleMode,
+      usesNativePlayback: false,
     }}>
       {children}
     </PlayerContext.Provider>
   );
+};
+
+export const PlayerProvider = ({ children }) => {
+  const { offline } = useAuth();
+  if (isNativeAndroidPlayback() && !offline) {
+    return <NativePlayerProvider context={PlayerContext}>{children}</NativePlayerProvider>;
+  }
+  return <WebPlayerProvider>{children}</WebPlayerProvider>;
 };
 
 export const usePlayer = () => {
@@ -1367,6 +1378,7 @@ export const PlayerBar = () => {
     sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
     startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
     cachedCoverUrl,
+    usesNativePlayback,
     handleTimeUpdate, handleLoadedMetadata, savePlayback,
   } = usePlayer();
 
@@ -1885,7 +1897,7 @@ export const PlayerBar = () => {
       )}
 
       {/* 全局唯一 audio:整个队列始终复用同一媒体元素，保持 Android 音频焦点和 MediaSession 连续。 */}
-      <audio
+      {!usesNativePlayback && <audio
         ref={audioRef}
         data-audio-slot="primary"
         preload="auto"
@@ -1901,7 +1913,7 @@ export const PlayerBar = () => {
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         style={{ display: 'none' }}
-      />
+      />}
     </>
   );
 };

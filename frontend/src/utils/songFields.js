@@ -1,4 +1,4 @@
-import { normalizeSongIdentity } from './songIdentity';
+import { normalizeSongIdentity } from './songIdentity.js';
 
 const textValue = (value) => (value == null ? '' : String(value));
 
