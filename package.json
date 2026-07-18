@@ -3,7 +3,8 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "cap:copy": "cap copy android"
+    "cap:copy": "cap copy android",
+    "test:android-version": "node --test android/scripts/resolve-release-version.test.mjs"
   },
   "dependencies": {
     "@capacitor/core": "8.4.2"

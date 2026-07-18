@@ -38,3 +38,9 @@ android/app/src/main/assets/capacitor.config.json
 android/app/src/main/assets/capacitor.plugins.json
 android/app/src/main/assets/public/
 android/app/src/main/res/xml/config.xml
+
+# Android Release签名材料（仅允许放在仓库外和GitHub Environment Secrets）
+*.jks
+*.keystore
+android/keystore.properties
+android/signing.properties
