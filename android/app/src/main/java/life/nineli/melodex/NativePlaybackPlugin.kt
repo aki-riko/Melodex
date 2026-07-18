@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.CookieManager
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
@@ -89,7 +90,11 @@ class NativePlaybackPlugin : Plugin() {
     fun play(call: PluginCall) = withController(call) { it.play(); call.resolve(stateObject(it)) }
 
     @PluginMethod
-    fun pause(call: PluginCall) = withController(call) { it.pause(); call.resolve(stateObject(it)) }
+    fun pause(call: PluginCall) = withController(call) {
+        Log.w(TAG, "pause requested by Capacitor bridge")
+        it.pause()
+        call.resolve(stateObject(it))
+    }
 
     @PluginMethod
     fun next(call: PluginCall) = withController(call) { player ->
@@ -169,27 +174,29 @@ class NativePlaybackPlugin : Plugin() {
     }
 
     private fun withController(call: PluginCall, action: (MediaController) -> Unit) {
-        val connected = controller
-        if (connected != null) {
-            try {
-                action(connected)
-            } catch (error: Exception) {
-                call.reject(error.message ?: "播放器操作失败", error)
+        mainHandler.post {
+            val connected = controller
+            if (connected != null) {
+                try {
+                    action(connected)
+                } catch (error: Exception) {
+                    call.reject(error.message ?: "播放器操作失败", error)
+                }
+                return@post
             }
-            return
-        }
-        val future = controllerFuture
-        if (future == null) {
-            call.reject("播放器尚未初始化")
-            return
-        }
-        future.addListener({
-            try {
-                action(future.get())
-            } catch (error: Exception) {
-                call.reject(error.message ?: "连接播放器失败", error)
+            val future = controllerFuture
+            if (future == null) {
+                call.reject("播放器尚未初始化")
+                return@post
             }
-        }, ContextCompat.getMainExecutor(getContext()))
+            future.addListener({
+                try {
+                    action(future.get())
+                } catch (error: Exception) {
+                    call.reject(error.message ?: "连接播放器失败", error)
+                }
+            }, ContextCompat.getMainExecutor(getContext()))
+        }
     }
 
     private fun emitState(player: Player?) {
@@ -219,10 +226,12 @@ class NativePlaybackPlugin : Plugin() {
 
     override fun handleOnDestroy() {
         mainHandler.removeCallbacks(progressTicker)
-        controller?.removeListener(playerListener)
-        controllerFuture?.let(MediaController::releaseFuture)
-        controller = null
-        controllerFuture = null
+        mainHandler.post {
+            controller?.removeListener(playerListener)
+            controllerFuture?.let(MediaController::releaseFuture)
+            controller = null
+            controllerFuture = null
+        }
         super.handleOnDestroy()
     }
 
@@ -232,6 +241,7 @@ class NativePlaybackPlugin : Plugin() {
     private companion object {
         const val EVENT_STATE = "playbackState"
         const val EVENT_ERROR = "playbackError"
+        const val TAG = "MelodexNativePlayback"
         const val PROGRESS_INTERVAL_MS = 500L
         const val PREVIOUS_RESTART_THRESHOLD_MS = 3_000L
     }
