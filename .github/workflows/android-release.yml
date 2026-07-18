@@ -112,7 +112,7 @@ jobs:
           echo "sha_path=$apk.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Attest APK provenance
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: ${{ steps.artifact.outputs.apk_path }}
 
