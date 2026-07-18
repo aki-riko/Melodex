@@ -28,6 +28,16 @@ import androidx.media3.session.SessionResult
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
+    private data class PendingNoisyEvent(
+        val observedAtMs: Long,
+        val previousRoute: Set<AudioRouteDevice>,
+    )
+
+    private data class AudioRouteSnapshot(
+        val devices: Set<AudioRouteDevice>,
+        val isReliable: Boolean,
+    )
+
     private var mediaSession: MediaSession? = null
     private lateinit var audioManager: AudioManager
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -40,6 +50,11 @@ class PlaybackService : MediaSessionService() {
     private var lastRoutedDevices = emptySet<AudioRouteDevice>()
     private val recentlyDisconnectedRoutes = ArrayDeque<RecentlyDisconnectedRoute>()
     private var deferredMediaPause: Runnable? = null
+    private var pendingNoisyEvent: PendingNoisyEvent? = null
+    private val clearPendingNoisyEvent = Runnable {
+        pendingNoisyEvent = null
+        Log.i(TAG, "expired pending noisy route evidence")
+    }
     private val failedIndices = mutableSetOf<Int>()
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -55,17 +70,31 @@ class PlaybackService : MediaSessionService() {
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
             val removed = removedDevices.mapTo(mutableSetOf()) { it.toRouteDevice() }
             val disconnectedAtMs = SystemClock.elapsedRealtime()
-            recentlyDisconnectedRoutes += routedPrivateDisconnects(
-                previousRoute = lastRoutedDevices,
+            val previousRoute = buildSet {
+                addAll(lastRoutedDevices)
+                pendingNoisyEvent?.previousRoute?.let(::addAll)
+            }
+            val routedDisconnects = routedPrivateDisconnects(
+                previousRoute = previousRoute,
                 removedDevices = removed,
                 disconnectedAtMs = disconnectedAtMs,
             )
+            recentlyDisconnectedRoutes += routedDisconnects
             pruneDisconnectedRoutes(disconnectedAtMs)
             Log.i(
                 TAG,
                 "audio devices removed=${routeDescription(removed)} " +
                     "recentRouted=${routeDescription(recentlyDisconnectedRoutes.mapTo(mutableSetOf()) { it.device })}",
             )
+            val noisyEvent = pendingNoisyEvent
+            if (routedDisconnects.isNotEmpty() && noisyEvent != null && isWithinEvidenceWindow(
+                    eventAtMs = noisyEvent.observedAtMs,
+                    nowMs = disconnectedAtMs,
+                    evidenceWindowMs = NOISY_ROUTE_EVIDENCE_WINDOW_MS,
+                )
+            ) {
+                pauseForValidatedNoisy("devices_removed")
+            }
             mainHandler.postDelayed(
                 { refreshAudioRoute("devices_removed_settled") },
                 ROUTE_SETTLE_DELAY_MS,
@@ -154,12 +183,7 @@ class PlaybackService : MediaSessionService() {
                     controllerDescription(controller),
             )
             if (keyEvent.action != KeyEvent.ACTION_DOWN || keyEvent.repeatCount > 0) return true
-            when (keyEvent.keyCode) {
-                KeyEvent.KEYCODE_MEDIA_PAUSE -> deferMediaPause(session.player)
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                KeyEvent.KEYCODE_HEADSETHOOK,
-                -> if (session.player.playWhenReady) deferMediaPause(session.player) else session.player.play()
-            }
+            deferMediaPause(session.player)
             return true
         }
 
@@ -211,6 +235,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
         deferredMediaPause = null
+        pendingNoisyEvent = null
         unregisterRouteMonitoring()
         mediaSession?.run {
             player.removeListener(recoveryListener)
@@ -255,31 +280,54 @@ class PlaybackService : MediaSessionService() {
 
     private fun handleAudioBecomingNoisy() {
         val nowMs = SystemClock.elapsedRealtime()
-        val currentRoute = queryRoutedDevices()
+        val previousRoute = buildSet {
+            addAll(lastRoutedDevices)
+            pendingNoisyEvent?.previousRoute?.let(::addAll)
+        }
+        val routeSnapshot = queryRoutedDevices()
+        val currentRoute = routeSnapshot.devices
+        pendingNoisyEvent = PendingNoisyEvent(
+            observedAtMs = nowMs,
+            previousRoute = previousRoute,
+        )
+        mainHandler.removeCallbacks(clearPendingNoisyEvent)
+        mainHandler.postDelayed(clearPendingNoisyEvent, NOISY_ROUTE_EVIDENCE_WINDOW_MS)
         pruneDisconnectedRoutes(nowMs)
         val shouldPause = shouldPauseForNoisyRoute(
             currentRoute = currentRoute,
+            currentRouteIsReliable = routeSnapshot.isReliable,
             recentlyDisconnectedRoutes = recentlyDisconnectedRoutes,
             nowMs = nowMs,
             evidenceWindowMs = NOISY_ROUTE_EVIDENCE_WINDOW_MS,
         )
         Log.w(
             TAG,
-            "audio becoming noisy decision=${if (shouldPause) "pause" else "ignore"} " +
+            "audio becoming noisy decision=${if (shouldPause) "pause" else "wait"} " +
                 "current=${routeDescription(currentRoute)} previous=${routeDescription(lastRoutedDevices)} " +
                 "recentDisconnected=${routeDescription(recentlyDisconnectedRoutes.mapTo(mutableSetOf()) { it.device })}",
         )
         lastRoutedDevices = currentRoute
-        val player = mediaSession?.player ?: return
+        if (mediaSession?.player == null) return
+        cancelDeferredMediaPause("noisy_received")
         if (shouldPause) {
-            cancelDeferredMediaPause("validated_noisy")
-            if (player.playWhenReady) player.pause()
+            pauseForValidatedNoisy("current_or_recent_route")
         } else {
-            cancelDeferredMediaPause("false_noisy")
+            Log.i(TAG, "noisy route awaiting device-removal evidence")
         }
     }
 
     private fun deferMediaPause(player: Player) {
+        val nowMs = SystemClock.elapsedRealtime()
+        val noisyEvent = pendingNoisyEvent
+        if (noisyEvent != null && isWithinEvidenceWindow(
+                eventAtMs = noisyEvent.observedAtMs,
+                nowMs = nowMs,
+                evidenceWindowMs = MEDIA_PAUSE_CORRELATION_WINDOW_MS,
+            )
+        ) {
+            Log.i(TAG, "ignored media pause while noisy correlation is pending")
+            return
+        }
         cancelDeferredMediaPause("replaced")
         val task = Runnable {
             deferredMediaPause = null
@@ -299,8 +347,17 @@ class PlaybackService : MediaSessionService() {
         return true
     }
 
+    private fun pauseForValidatedNoisy(reason: String) {
+        mainHandler.removeCallbacks(clearPendingNoisyEvent)
+        pendingNoisyEvent = null
+        cancelDeferredMediaPause("validated_noisy")
+        Log.w(TAG, "validated noisy route reason=$reason")
+        val player = mediaSession?.player ?: return
+        if (player.playWhenReady) player.pause()
+    }
+
     private fun refreshAudioRoute(reason: String) {
-        val route = queryRoutedDevices()
+        val route = queryRoutedDevices().devices
         if (route != lastRoutedDevices) {
             Log.i(
                 TAG,
@@ -311,16 +368,19 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun queryRoutedDevices(): Set<AudioRouteDevice> {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    private fun queryRoutedDevices(): AudioRouteSnapshot {
+        if (hasReliableRouteQuery()) {
             val routed = audioManager.getAudioDevicesForAttributes(platformMediaAudioAttributes)
                 .mapTo(mutableSetOf()) { it.toRouteDevice() }
-            if (routed.isNotEmpty()) return routed
+            if (routed.isNotEmpty()) return AudioRouteSnapshot(routed, isReliable = true)
             Log.w(TAG, "getAudioDevicesForAttributes returned no route; using connected outputs")
         }
-        return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val connectedOutputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .mapTo(mutableSetOf()) { it.toRouteDevice() }
+        return AudioRouteSnapshot(connectedOutputs, isReliable = false)
     }
+
+    private fun hasReliableRouteQuery(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 
     private fun pruneDisconnectedRoutes(nowMs: Long) {
         while (recentlyDisconnectedRoutes.firstOrNull()?.let {

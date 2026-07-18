@@ -40,8 +40,6 @@ internal fun isPrivateAudioRoute(type: Int): Boolean = when (type) {
 
 internal fun isDeferredMediaPauseKey(keyCode: Int): Boolean = when (keyCode) {
     KeyEvent.KEYCODE_MEDIA_PAUSE,
-    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-    KeyEvent.KEYCODE_HEADSETHOOK,
     -> true
 
     else -> false
@@ -60,14 +58,21 @@ internal fun routedPrivateDisconnects(
 
 internal fun shouldPauseForNoisyRoute(
     currentRoute: Set<AudioRouteDevice>,
+    currentRouteIsReliable: Boolean,
     recentlyDisconnectedRoutes: Collection<RecentlyDisconnectedRoute>,
     nowMs: Long,
     evidenceWindowMs: Long,
 ): Boolean {
-    if (currentRoute.any { isPrivateAudioRoute(it.type) }) return true
+    if (currentRouteIsReliable && currentRoute.any { isPrivateAudioRoute(it.type) }) return true
     return recentlyDisconnectedRoutes.any { route ->
         isPrivateAudioRoute(route.device.type) &&
             nowMs >= route.disconnectedAtMs &&
             nowMs - route.disconnectedAtMs <= evidenceWindowMs
     }
 }
+
+internal fun isWithinEvidenceWindow(
+    eventAtMs: Long,
+    nowMs: Long,
+    evidenceWindowMs: Long,
+): Boolean = nowMs >= eventAtMs && nowMs - eventAtMs <= evidenceWindowMs
