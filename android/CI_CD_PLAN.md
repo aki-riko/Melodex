@@ -31,7 +31,9 @@ GitHub Actions是唯一构建发布源。私仓与GitHub继续双推源码，但
 - 已落地版本解析测试、Gradle版本/签名注入、普通CI、签名Release、Dependabot和CODEOWNERS。
 - 已建立正式Release Key、本机DPAPI备份、`android-release` Environment Secrets、维护者人工批准和`v*`标签策略。
 - 已在JDK 21下完成无缓存Debug链路，以及`v0.2.1-rc.1`本地正式签名构建、验签和包元数据核对。
-- 待完成：提交并双推、GitHub普通CI、按真实check-run名称开启`master`保护、创建RC标签并核验Pre-release。
+- 已双推源码，GitHub普通CI通过；`master`已要求真实check-run名称`verify`，并禁止强推、删除。
+- `v0.2.1-rc.1`已完成首次真实Pre-release，APK、SHA256、固定证书和来源证明均通过；其运行暴露并验证修复了Windows PowerShell 5上传Base64时的BOM问题。
+- 因上传修复发生在`rc.1`标签之后，本文件所在最终提交将直接发布为`v0.2.1-rc.2`，它才是后续vivo真机验收候选。
 - `v0.2.1`稳定标签继续由目标vivo真机验收门禁阻挡，不在本轮自动创建。
 
 ## 版本规则
