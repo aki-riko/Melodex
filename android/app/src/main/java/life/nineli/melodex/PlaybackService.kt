@@ -5,6 +5,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -14,7 +15,12 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build().apply {
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(CookieAwareHttpDataSourceFactory())
+        val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+            .apply {
             setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -25,6 +31,7 @@ class PlaybackService : MediaSessionService() {
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
+        PlaybackRuntime.player = player
         mediaSession = MediaSession.Builder(this, player).build()
     }
 
@@ -35,6 +42,7 @@ class PlaybackService : MediaSessionService() {
             player.release()
             release()
         }
+        PlaybackRuntime.player = null
         mediaSession = null
         super.onDestroy()
     }

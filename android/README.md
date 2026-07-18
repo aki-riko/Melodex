@@ -1,38 +1,41 @@
 # Melodex Android
 
-Melodex 的原生 Android 客户端。它直接连接后端现有的 Subsonic facade：
+Melodex Android 采用 Capacitor + Media3 混合架构：
 
-- `/rest/search3`：按后端完成验活与相关性排序后的原始顺序展示，不在客户端重排或折叠同名歌曲。
-- `/rest/stream`：交给 Android Media3 `MediaSessionService` 播放，支持后台、锁屏媒体控件与系统音频焦点。
-- 凭据：使用 Subsonic salt/token 认证；密码由 Android Keystore 加密后保存在应用私有目录。
+- `BridgeActivity` 加载 `capacitor.config.json` 中配置的 Melodex Web 站点，完整复用 React 页面、服务端排序、登录、歌单、歌词和下载管理。
+- 浏览器继续使用现有 Web 播放器；只有 Capacitor Android 会切换到 `NativePlayerProvider`。
+- `NativePlaybackPlugin` 把网页队列原序交给 Media3 `MediaSessionService`，支持后台播放、锁屏媒体控件、蓝牙耳机、系统音频焦点和前台媒体通知。
+- 原生播放器从 WebView `CookieManager` 读取当前站点 Cookie，并注入媒体流请求，保持 Authentik 与 Melodex 登录态。
+- 网页资源从服务器实时加载，前端部署后无需重新发布 APK；APK 内的 `android/web/index.html` 仅作为本地占位资源。
 
 ## 环境
 
-- JDK 17
+- Node.js 22+
+- JDK 21
 - Android SDK 36
 - Gradle Wrapper（首次构建会解析官方 AndroidX/Media3 依赖）
 
 ## 构建
 
 ```powershell
+# 仓库根目录：安装 Capacitor 构建依赖
+npm.cmd install
+
+# 可选：系统默认不是 JDK 21 时，指定便携 JDK 目录
+$env:MELODEX_JAVA_HOME = 'D:\path\to\jdk-21'
+
 cd android
-.\build.cmd
+.\build.cmd testDebugUnitTest assembleDebug lintDebug
 ```
 
 调试 APK 生成到 `app/build/outputs/apk/debug/app-debug.apk`。
 
-`build.cmd` 会临时映射一个空闲盘符再执行 Gradle，结束后立即解除映射；这是为了绕过 Android Gradle Plugin 在 Windows 非 ASCII 路径下的测试问题，也不受 PowerShell 执行策略影响。
+`build.cmd` 会先执行 `npm.cmd run cap:copy`，再把仓库根临时映射到空闲盘符并从 `android` 子目录执行 Gradle；结束后立即解除映射。这同时解决 Windows 非 ASCII 路径与 Capacitor 根目录 `node_modules` 的解析问题。
 
-## 使用
+## 服务器配置
 
-首次启动填写：
+默认站点在仓库根 `capacitor.config.json` 的 `server.url` 中配置。自托管分支可修改该配置文件后重新构建 APK；生产媒体流必须使用 HTTPS。
 
-1. Melodex 的 HTTPS 地址，不包含 `/rest`。
-2. `MUSIC_DL_SUBSONIC_USER` 对应的用户名。
-3. `MUSIC_DL_SUBSONIC_PASS` 对应的密码。
+## 验收边界
 
-客户端先调用 `ping` 验证配置，成功后才保存并进入搜索页。
-
-## 当前范围
-
-首版只覆盖服务器配置、全网搜索、原序列表、播放队列和后台/锁屏播放。歌单、歌词、下载管理和离线曲库后续按真实使用需求增加。
+单测、构建与 Lint 只能证明桥接和静态行为正确。后台播放是否不再被手机系统杀死，必须在目标手机上安装 APK，用真实账号播放真实队列，并锁屏持续至少 15 分钟验证。

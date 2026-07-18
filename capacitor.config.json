@@ -1,0 +1,16 @@
+{
+  "appId": "life.nineli.melodex",
+  "appName": "Melodex",
+  "webDir": "android/web",
+  "server": {
+    "url": "https://music.9li.life",
+    "cleartext": false,
+    "allowNavigation": [
+      "music.9li.life"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}

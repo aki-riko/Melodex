@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@capacitor/core": "8.4.2",
     "axios": "^1.18.1",
     "lucide-react": "^1.21.0",
     "qrcode.react": "^4.2.0",
@@ -37,7 +38,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:wake": "node scripts/appWakePolicy.test.mjs && node scripts/swForceReload.test.mjs && node scripts/pwaUpdatePolicy.test.mjs",
-    "test:player": "node scripts/playerQueue.test.mjs && node scripts/playerPrefetch.test.mjs && node scripts/playerPauseRecovery.test.mjs && node scripts/playerMediaSource.test.mjs && node scripts/audioProbe.test.mjs",
+    "test:player": "node scripts/playerQueue.test.mjs && node scripts/playerPrefetch.test.mjs && node scripts/playerPauseRecovery.test.mjs && node scripts/playerMediaSource.test.mjs && node scripts/audioProbe.test.mjs && node scripts/nativePlayback.test.mjs",
     "test:downloads": "node scripts/serverDownloads.test.mjs",
     "preview": "vite preview"
   },
