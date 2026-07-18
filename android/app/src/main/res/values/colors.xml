@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="melodex_background">#181818</color>
+    <color name="melodex_surface">#282828</color>
+    <color name="melodex_green">#1ED760</color>
+    <color name="melodex_text">#FFFFFF</color>
+    <color name="melodex_text_secondary">#B3B3B3</color>
+</resources>

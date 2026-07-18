@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Melodex</string>
+    <string name="server_settings">服务器设置</string>
+    <string name="server_url_hint">服务器地址（仅 HTTPS）</string>
+    <string name="username_hint">Subsonic 用户名</string>
+    <string name="password_hint">Subsonic 密码</string>
+    <string name="save_and_test">保存并测试</string>
+    <string name="search_hint">搜索歌曲</string>
+    <string name="search">搜索</string>
+    <string name="open_settings">设置</string>
+    <string name="previous">上一首</string>
+    <string name="play">播放</string>
+    <string name="pause">暂停</string>
+    <string name="next">下一首</string>
+    <string name="not_playing">尚未播放</string>
+    <string name="status_server_order">严格按 Melodex 服务端排序显示</string>
+    <string name="status_enter_username">请输入用户名</string>
+    <string name="status_enter_password">请输入密码</string>
+    <string name="status_invalid_settings">配置无效</string>
+    <string name="status_testing_server">正在验证服务器…</string>
+    <string name="status_server_connected">服务器连接成功</string>
+    <string name="status_server_failed">服务器连接失败</string>
+    <string name="status_enter_query">请输入搜索词</string>
+    <string name="status_searching">服务端正在搜索、验活并排序…</string>
+    <string name="status_result_count">共 %1$d 首；列表顺序与服务端响应完全一致</string>
+    <string name="status_search_failed">搜索失败</string>
+    <string name="status_player_connecting">播放器仍在连接，请稍后再试</string>
+    <string name="status_player_failed">播放器服务连接失败</string>
+    <string name="song_row_title">%1$d. %2$s</string>
+    <string name="quality_lossless">无损</string>
+    <string name="quality_bitrate">%1$dk</string>
+    <string name="quality_unknown">未知音质</string>
+    <string name="now_playing_format">%1$s · %2$s</string>
+</resources>
