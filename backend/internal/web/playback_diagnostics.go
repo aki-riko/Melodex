@@ -20,6 +20,8 @@ var allowedPlaybackDiagnosticEvents = map[string]struct{}{
 	"ended_transition":           {},
 	"media_session_action":       {},
 	"mse_buffer_cleanup_failed":  {},
+	"mse_chunk_ready":            {},
+	"mse_chunk_retry":            {},
 	"mse_end_of_stream_failed":   {},
 	"mse_pipeline_error":         {},
 	"mse_play_resolved":          {},

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { isCurrentAudioEvent, pickNextSong } from '../src/contexts/playerQueue.js';
+import { isCurrentAudioEvent, nextPlaybackMode, pickNextSong } from '../src/contexts/playerQueue.js';
 import {
   createSleepTimer,
   formatSleepTimerRemaining,
@@ -33,6 +33,11 @@ const songs = [
   { source: 'netease', id: '3', name: '第三首', extra: { mid: 'c' } },
 ];
 
+assert.equal(nextPlaybackMode('order'), 'loop');
+assert.equal(nextPlaybackMode('loop'), 'repeat');
+assert.equal(nextPlaybackMode('repeat'), 'shuffle');
+assert.equal(nextPlaybackMode('shuffle'), 'order');
+
 assert.equal(
   pickNextSong({ list: songs, current: songs[0], mode: 'loop', forward: true, auto: true }),
   songs[1],
@@ -61,6 +66,24 @@ assert.equal(
   pickNextSong({ list: [songs[0]], current: songs[0], mode: 'loop', forward: true, auto: true }),
   songs[0],
   '单曲队列的列表循环应重播同一首',
+);
+
+assert.equal(
+  pickNextSong({ list: songs, current: songs[0], mode: 'repeat', forward: true, auto: true }),
+  songs[0],
+  '单曲循环自然结束时必须重播当前歌曲',
+);
+
+assert.equal(
+  pickNextSong({ list: songs, current: songs[0], mode: 'repeat', forward: true, auto: false }),
+  songs[1],
+  '单曲循环下手动下一首仍必须切换歌曲',
+);
+
+assert.equal(
+  pickNextSong({ list: songs, current: songs[1], mode: 'repeat', forward: false, auto: false }),
+  songs[0],
+  '单曲循环下手动上一首仍必须切换歌曲',
 );
 
 assert.equal(

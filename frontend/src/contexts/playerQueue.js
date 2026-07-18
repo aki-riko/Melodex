@@ -2,6 +2,8 @@ import { songIdentityKey } from '../utils/songIdentity.js';
 
 export const MODES = ['order', 'loop', 'repeat', 'shuffle'];
 
+export const nextPlaybackMode = (mode) => MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+
 export const pickNextSong = ({
   list,
   current,
@@ -15,6 +17,9 @@ export const pickNextSong = ({
 
   const curKey = songIdentityKey(current);
   const idx = songs.findIndex((song) => songIdentityKey(song) === curKey);
+  if (auto && mode === 'repeat') {
+    return idx >= 0 ? songs[idx] : (current || songs[0]);
+  }
   if (mode === 'shuffle' && songs.length > 1) {
     let nextIdx = idx;
     while (nextIdx === idx) nextIdx = Math.floor(random() * songs.length);

@@ -8,7 +8,7 @@ import { sourceLabel } from '../utils/sourceLabels';
 import { songIdentityKey } from '../utils/songIdentity';
 import { normalizeSong } from '../utils/songFields';
 import { ensurePlaybackSession } from './playerAuth.js';
-import { MODES, isCurrentAudioEvent, pickNextSong } from './playerQueue.js';
+import { isCurrentAudioEvent, nextPlaybackMode, pickNextSong } from './playerQueue.js';
 import { useServerDownloads } from './ServerDownloadsContext';
 import {
   createSleepTimer,
@@ -211,7 +211,6 @@ export const PlayerProvider = ({ children }) => {
     seq: requestedSeq,
     preferCache = true,
     preparedAudio = null,
-    forceNative = false,
   } = {}) => {
     const seq = requestedSeq ?? ++playSeqRef.current;
     if (seq !== playSeqRef.current) return;
@@ -262,7 +261,7 @@ export const PlayerProvider = ({ children }) => {
     audio.volume = volumeRef.current;
     audio.muted = muted;
 
-    if (!src && !offline && !forceNative && supportsContinuousMediaSource()) {
+    if (!src && !offline && supportsContinuousMediaSource()) {
       destroyContinuousPlayback();
       revokeAudioObjectUrl(audio);
       revokeCoverObjectUrl();
@@ -383,16 +382,12 @@ export const PlayerProvider = ({ children }) => {
   continuousPlaybackErrorRef.current = (error, failedSong) => {
     const current = nowPlayingRef.current;
     if (!current || songIdentityKey(current) !== songIdentityKey(failedSong)) return;
-    setNotice(`「${failedSong.name}」连续播放管线异常，已回退普通流播放。`);
-    const retrySeq = ++playSeqRef.current;
-    loadAudioForSong(failedSong, {
-      autoplay: true,
-      seq: retrySeq,
-      preferCache: false,
-      forceNative: true,
-    }).catch((fallbackError) => {
-      console.warn('普通流播放回退失败', fallbackError || error);
-    });
+    // 锁屏状态销毁 MediaSource、替换成普通 audio.src 会让 Android/Chromium
+    // 重新申请媒体会话和音频焦点，真实日志已证明新流开始后会立刻被暂停。
+    // 分块层已在同一 MediaSource 内重试；彻底失败时保留当前媒体会话和已缓冲
+    // 音频，禁止再自动换 src。用户解锁后重新点歌会建立新的播放会话。
+    setNotice(`「${failedSong.name}」网络分块重试仍失败，将播完已缓冲部分；请解锁后重新播放。`);
+    console.warn('连续播放分块重试耗尽，保留当前媒体会话', error);
   };
 
   useEffect(() => {
@@ -738,6 +733,16 @@ export const PlayerProvider = ({ children }) => {
       pauseWithFade();
     }
   }, [pauseWithFade, resumeWithFade]);
+
+  const cycleMode = useCallback(() => {
+    setMode((currentMode) => {
+      const nextMode = nextPlaybackMode(currentMode);
+      // 短歌曲可能在 React effect 运行前就完成整首预缓冲。模式按钮必须同步
+      // 更新回调读取的 ref，避免 UI 已显示单曲循环而 MSE 仍预接列表下一首。
+      modeRef.current = nextMode;
+      return nextMode;
+    });
+  }, []);
 
   const recordStartedSong = useCallback((song, marker) => {
     if (offline || !song || !marker || recordedPlaySeqRef.current === marker) return;
@@ -1183,7 +1188,7 @@ export const PlayerProvider = ({ children }) => {
       isPlaying: (s) => nowPlaying && songIdentityKey(nowPlaying) === songIdentityKey(s),
       next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent, setIsPaused, setProgress,
       handleTimeUpdate, handleLoadedMetadata, savePlayback,
-      cycleMode: () => setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]),
+      cycleMode,
     }}>
       {children}
     </PlayerContext.Provider>

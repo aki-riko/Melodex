@@ -285,6 +285,12 @@ func TestCORSAllowsExpectedSaveUserHeader(t *testing.T) {
 	if !strings.Contains(allowed, expectedSaveUserHeader) {
 		t.Fatalf("Access-Control-Allow-Headers = %q, want %q", allowed, expectedSaveUserHeader)
 	}
+	exposed := rec.Header().Get("Access-Control-Expose-Headers")
+	for _, header := range []string{"X-Melodex-Playback-Source", "X-Melodex-Chunk-Index", "X-Melodex-Chunk-Final"} {
+		if !strings.Contains(exposed, header) {
+			t.Fatalf("Access-Control-Expose-Headers = %q, want %q", exposed, header)
+		}
+	}
 }
 
 func TestAuthRequiredRedirectsWhenSetupMissing(t *testing.T) {
