@@ -78,6 +78,10 @@ func playbackSegmentHandler(c *gin.Context) {
 	if song.Album == "" && song.Extra != nil {
 		song.Album = strings.TrimSpace(song.Extra["album"])
 	}
+	if rawChunk := strings.TrimSpace(c.Query("chunk")); rawChunk != "" {
+		playbackChunkHandler(c, song, rawChunk)
+		return
+	}
 
 	input, err := openPlaybackSegmentInput(c, song)
 	if err != nil {

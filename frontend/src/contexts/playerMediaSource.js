@@ -3,6 +3,9 @@ import { songIdentityKey } from '../utils/songIdentity.js';
 export const CONTINUOUS_AUDIO_MIME = 'audio/mp4; codecs="flac"';
 export const MAX_BUFFER_AHEAD_SECONDS = 75;
 export const QUOTA_RETRY_BUFFER_AHEAD_SECONDS = 30;
+export const PLAYBACK_CHUNK_MAX_ATTEMPTS = 6;
+export const PLAYBACK_CHUNK_RETRY_BASE_MS = 500;
+export const PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS = 30000;
 
 const waitForEvent = (target, successEvent, errorEvents = []) => new Promise((resolve, reject) => {
   const cleanup = () => {
@@ -49,6 +52,114 @@ const waitForPlaybackProgress = (audio, timeoutMs = 1000) => new Promise((resolv
   audio?.addEventListener?.('timeupdate', finish, { once: true });
   timer = globalThis.setTimeout?.(finish, timeoutMs);
 });
+
+const abortError = () => new DOMException('播放会话已取消', 'AbortError');
+
+const waitForRetryDelay = (delayMs, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) {
+    reject(abortError());
+    return;
+  }
+  let timer = null;
+  const cleanup = () => {
+    if (timer != null) globalThis.clearTimeout?.(timer);
+    signal?.removeEventListener?.('abort', onAbort);
+  };
+  const onAbort = () => {
+    cleanup();
+    reject(abortError());
+  };
+  timer = globalThis.setTimeout?.(() => {
+    cleanup();
+    resolve();
+  }, delayMs);
+  signal?.addEventListener?.('abort', onAbort, { once: true });
+});
+
+const playbackChunkError = (message, retryable = true) => {
+  const error = new Error(message);
+  error.retryable = retryable;
+  return error;
+};
+
+const fetchPlaybackChunkOnce = async ({
+  url,
+  chunkIndex,
+  fetchImpl,
+  signal,
+  timeoutMs,
+}) => {
+  if (signal?.aborted) throw abortError();
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener?.('abort', onAbort, { once: true });
+  const timeout = globalThis.setTimeout?.(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      throw playbackChunkError(`媒体分块请求失败: HTTP ${response.status || 0}`, retryable);
+    }
+    const contentType = response.headers?.get?.('content-type') || '';
+    if (!contentType.toLowerCase().includes('audio/mp4')) {
+      throw playbackChunkError(`媒体分块类型错误: ${contentType || 'unknown'}`, false);
+    }
+    const responseChunkHeader = response.headers?.get?.('x-melodex-chunk-index');
+    const responseChunk = Number(responseChunkHeader);
+    if (responseChunkHeader != null && responseChunkHeader !== ''
+      && Number.isFinite(responseChunk) && responseChunk !== chunkIndex) {
+      throw playbackChunkError(`媒体分块序号错误: ${responseChunk}`, false);
+    }
+    const buffer = await response.arrayBuffer();
+    if (!buffer?.byteLength) throw playbackChunkError('媒体分块为空');
+    return {
+      bytes: new Uint8Array(buffer),
+      final: response.headers?.get?.('x-melodex-chunk-final') === '1',
+      sourceKind: response.headers?.get?.('x-melodex-playback-source') || '',
+    };
+  } catch (error) {
+    if (signal?.aborted) throw abortError();
+    if (controller.signal.aborted && error?.name === 'AbortError') {
+      throw playbackChunkError(`媒体分块请求超时: ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    if (timeout != null) globalThis.clearTimeout?.(timeout);
+    signal?.removeEventListener?.('abort', onAbort);
+  }
+};
+
+export const fetchPlaybackChunkWithRetry = async ({
+  url,
+  chunkIndex,
+  fetchImpl = globalThis.fetch?.bind(globalThis),
+  signal,
+  maxAttempts = PLAYBACK_CHUNK_MAX_ATTEMPTS,
+  retryBaseMs = PLAYBACK_CHUNK_RETRY_BASE_MS,
+  timeoutMs = PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS,
+  waitImpl = waitForRetryDelay,
+  onRetry = () => {},
+}) => {
+  if (!fetchImpl) throw new Error('当前环境不支持媒体分块请求');
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await fetchPlaybackChunkOnce({ url, chunkIndex, fetchImpl, signal, timeoutMs });
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      lastError = error;
+      if (error?.retryable === false || attempt >= maxAttempts) break;
+      const delayMs = Math.min(retryBaseMs * (2 ** (attempt - 1)), 5000);
+      onRetry({ attempt, delayMs, error });
+      await waitImpl(delayMs, signal);
+    }
+  }
+  throw lastError || new Error('媒体分块请求失败');
+};
 
 const songDurationSeconds = (song, fallback = 0) => {
   const raw = Number(song?.duration || 0);
@@ -127,6 +238,7 @@ export class ContinuousMediaSourcePlayback {
     this.appendPromise = null;
     this.destroyed = false;
     this.queueEnded = false;
+    this.failed = false;
   }
 
   async start(song, { autoplay = true } = {}) {
@@ -182,32 +294,31 @@ export class ContinuousMediaSourcePlayback {
     };
     this.segments.push(segment);
 
-    const response = await this.fetchImpl(this.getSegmentUrl(song), {
-      credentials: 'include',
-      cache: 'no-store',
-      signal: this.abortController.signal,
-    });
-    if (!response.ok || !response.body?.getReader) {
-      throw new Error(`媒体分段请求失败: HTTP ${response.status || 0}`);
-    }
-    const contentType = response.headers?.get?.('content-type') || '';
-    if (!contentType.toLowerCase().includes('audio/mp4')) {
-      throw new Error(`媒体分段类型错误: ${contentType || 'unknown'}`);
-    }
-
-    const reader = response.body.getReader();
     let bytes = 0;
-    try {
-      while (!this.destroyed) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (!value?.byteLength) continue;
-        bytes += value.byteLength;
-        await this.appendBytes(value);
-        if (this.activeIndex < 0) this.activateSegment(0);
-      }
-    } finally {
-      reader.releaseLock?.();
+    let chunkIndex = 0;
+    while (!this.destroyed) {
+      const chunk = await fetchPlaybackChunkWithRetry({
+        url: this.getSegmentUrl(song, chunkIndex),
+        chunkIndex,
+        fetchImpl: this.fetchImpl,
+        signal: this.abortController.signal,
+        onRetry: ({ attempt, delayMs, error }) => this.onDiagnostic({
+          event: 'mse_chunk_retry',
+          song,
+          reason: `chunk=${chunkIndex};attempt=${attempt};delay_ms=${delayMs};error=${error?.name || 'Error'}:${error?.message || ''}`,
+        }),
+      });
+      bytes += chunk.bytes.byteLength;
+      await this.appendBytes(chunk.bytes);
+      if (this.activeIndex < 0) this.activateSegment(0);
+      this.onDiagnostic({
+        event: 'mse_chunk_ready',
+        song,
+        bytes: chunk.bytes.byteLength,
+        reason: `chunk=${chunkIndex};final=${chunk.final ? 1 : 0};source=${chunk.sourceKind}`,
+      });
+      if (chunk.final) break;
+      chunkIndex += 1;
     }
     if (this.destroyed) throw new DOMException('播放会话已取消', 'AbortError');
 
@@ -323,9 +434,14 @@ export class ContinuousMediaSourcePlayback {
   }
 
   handlePipelineError(error, song) {
-    if (this.destroyed || error?.name === 'AbortError') return;
-    if (this.mediaSource?.readyState === 'open') {
-      try { this.mediaSource.endOfStream('decode'); } catch { /* source 已关闭 */ }
+    if (this.destroyed || this.failed || error?.name === 'AbortError') return;
+    this.failed = true;
+    this.queueEnded = true;
+    const current = this.segments[this.segments.length - 1];
+    const end = bufferedEnd(this.sourceBuffer);
+    if (current && end > current.start) {
+      current.end = end;
+      current.complete = true;
     }
     this.onDiagnostic({
       event: 'mse_pipeline_error',

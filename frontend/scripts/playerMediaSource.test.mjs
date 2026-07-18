@@ -2,14 +2,20 @@ import assert from 'node:assert/strict';
 import {
   bufferedAheadSeconds,
   CONTINUOUS_AUDIO_MIME,
+  ContinuousMediaSourcePlayback,
+  fetchPlaybackChunkWithRetry,
   localProgressForSegment,
   MAX_BUFFER_AHEAD_SECONDS,
+  PLAYBACK_CHUNK_MAX_ATTEMPTS,
+  PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS,
+  PLAYBACK_CHUNK_RETRY_BASE_MS,
   QUOTA_RETRY_BUFFER_AHEAD_SECONDS,
   segmentForTimelineTime,
   shouldApplyBufferBackpressure,
   supportsContinuousMediaSource,
 } from '../src/contexts/playerMediaSource.js';
 import { buildPlaybackDiagnostic } from '../src/contexts/playerPlayback.js';
+import { pickNextSong } from '../src/contexts/playerQueue.js';
 
 const songs = [
   { source: 'qq', id: 'a', name: '凝眸（对唱版）', duration: 219 },
@@ -25,6 +31,9 @@ const segments = [
 assert.equal(CONTINUOUS_AUDIO_MIME, 'audio/mp4; codecs="flac"');
 assert.equal(MAX_BUFFER_AHEAD_SECONDS, 75);
 assert.equal(QUOTA_RETRY_BUFFER_AHEAD_SECONDS, 30);
+assert.equal(PLAYBACK_CHUNK_MAX_ATTEMPTS, 6);
+assert.equal(PLAYBACK_CHUNK_RETRY_BASE_MS, 500);
+assert.equal(PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS, 30000);
 assert.equal(bufferedAheadSeconds({ buffered: { length: 1, end: () => 80 } }, 12), 68);
 assert.equal(shouldApplyBufferBackpressure(76), true, '超过 75 秒前向缓冲时必须暂停追加');
 assert.equal(shouldApplyBufferBackpressure(45), false, '缓冲消耗后应恢复网络读取和追加');
@@ -56,6 +65,222 @@ assert.deepEqual(
   { cur: 10, dur: 32 },
   '缺少歌曲时长时应使用实际追加区间',
 );
+
+const chunkFetchCalls = [];
+const chunkRetryEvents = [];
+const chunkResponse = await fetchPlaybackChunkWithRetry({
+  url: '/music/playback_segment?id=a&source=qq&chunk=3',
+  chunkIndex: 3,
+  maxAttempts: 3,
+  retryBaseMs: 1,
+  waitImpl: async () => {},
+  onRetry: (event) => chunkRetryEvents.push(event),
+  fetchImpl: async (url) => {
+    chunkFetchCalls.push(url);
+    if (chunkFetchCalls.length === 1) throw new TypeError('network error');
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => ({
+          'content-type': 'audio/mp4; codecs="flac"',
+          'x-melodex-chunk-index': '3',
+          'x-melodex-chunk-final': '0',
+          'x-melodex-playback-source': 'network',
+        }[name.toLowerCase()] ?? null),
+      },
+      arrayBuffer: async () => Uint8Array.from([1, 2, 3, 4]).buffer,
+    };
+  },
+});
+assert.equal(chunkFetchCalls.length, 2, '网络错误后必须重试同一个短块');
+assert.equal(chunkFetchCalls[0], chunkFetchCalls[1], '重试不得跳到下一块或更换媒体 URL');
+assert.equal(chunkRetryEvents.length, 1, '每次短块重试都应留下诊断事件');
+assert.deepEqual([...chunkResponse.bytes], [1, 2, 3, 4]);
+assert.equal(chunkResponse.final, false);
+assert.equal(chunkResponse.sourceKind, 'network');
+
+await assert.rejects(
+  fetchPlaybackChunkWithRetry({
+    url: '/music/playback_segment?id=a&source=qq&chunk=0',
+    chunkIndex: 0,
+    maxAttempts: 6,
+    waitImpl: async () => {
+      throw new Error('非重试错误不应进入等待');
+    },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 400,
+      headers: { get: () => null },
+    }),
+  }),
+  /HTTP 400/,
+  '参数错误不可盲目重试',
+);
+
+class FakeEventTarget {
+  constructor() {
+    this.listeners = new Map();
+  }
+
+  addEventListener(name, callback) {
+    const callbacks = this.listeners.get(name) || new Set();
+    callbacks.add(callback);
+    this.listeners.set(name, callbacks);
+  }
+
+  removeEventListener(name, callback) {
+    this.listeners.get(name)?.delete(callback);
+  }
+
+  emit(name) {
+    [...(this.listeners.get(name) || [])].forEach((callback) => callback({ type: name }));
+  }
+}
+
+class FakeSourceBuffer extends FakeEventTarget {
+  constructor() {
+    super();
+    this.mode = '';
+    this.updating = false;
+    this.end = 0;
+    this.buffered = {
+      get length() { return 1; },
+      start: () => 0,
+      end: () => this.end,
+    };
+  }
+
+  appendBuffer() {
+    this.updating = true;
+    queueMicrotask(() => {
+      this.end += 12;
+      this.updating = false;
+      this.emit('updateend');
+    });
+  }
+
+  remove() {
+    queueMicrotask(() => this.emit('updateend'));
+  }
+}
+
+class FakeMediaSource extends FakeEventTarget {
+  static isTypeSupported(mime) {
+    return mime === CONTINUOUS_AUDIO_MIME;
+  }
+
+  constructor() {
+    super();
+    this.readyState = 'closed';
+    this.buffer = new FakeSourceBuffer();
+  }
+
+  addSourceBuffer() {
+    return this.buffer;
+  }
+
+  endOfStream() {
+    this.readyState = 'ended';
+  }
+}
+
+const requestedChunkURLs = [];
+const fakeAudio = new FakeEventTarget();
+Object.assign(fakeAudio, {
+  src: '',
+  currentTime: 0,
+  load() {},
+  play: async () => {},
+});
+const playback = new ContinuousMediaSourcePlayback({
+  audio: fakeAudio,
+  MediaSourceCtor: FakeMediaSource,
+  createObjectURL: (mediaSource) => {
+    queueMicrotask(() => {
+      mediaSource.readyState = 'open';
+      mediaSource.emit('sourceopen');
+    });
+    return 'blob:one-media-source';
+  },
+  revokeObjectURL: () => {},
+  getSegmentUrl: (_song, chunkIndex) => `/chunk/${chunkIndex}`,
+  getNextSong: () => null,
+  fetchImpl: async (url) => {
+    requestedChunkURLs.push(url);
+    const chunkIndex = Number(url.split('/').at(-1));
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => ({
+          'content-type': 'audio/mp4',
+          'x-melodex-chunk-index': String(chunkIndex),
+          'x-melodex-chunk-final': chunkIndex === 1 ? '1' : '0',
+        }[name.toLowerCase()] ?? null),
+      },
+      arrayBuffer: async () => Uint8Array.from([chunkIndex + 1]).buffer,
+    };
+  },
+});
+await playback.start(songs[0]);
+await playback.appendPromise;
+assert.equal(fakeAudio.src, 'blob:one-media-source', '整首歌所有短块必须共用一个 MediaSource URL');
+assert.deepEqual(requestedChunkURLs, ['/chunk/0', '/chunk/1'], '短块必须按序请求直到 final');
+assert.equal(playback.segments[0].complete, true, '全部短块追加后歌曲段才可标记完成');
+assert.equal(playback.segments[0].end, 24, '歌曲时间轴应累加每个完整短块');
+
+const repeatRequests = [];
+const repeatAudio = new FakeEventTarget();
+Object.assign(repeatAudio, {
+  src: '',
+  currentTime: 0,
+  load() {},
+  play: async () => {},
+});
+const repeatPlayback = new ContinuousMediaSourcePlayback({
+  audio: repeatAudio,
+  MediaSourceCtor: FakeMediaSource,
+  createObjectURL: (mediaSource) => {
+    queueMicrotask(() => {
+      mediaSource.readyState = 'open';
+      mediaSource.emit('sourceopen');
+    });
+    return 'blob:repeat-media-source';
+  },
+  revokeObjectURL: () => {},
+  getSegmentUrl: (song, chunkIndex) => `/repeat/${song.id}/${chunkIndex}`,
+  getNextSong: (current) => pickNextSong({
+    list: songs,
+    current,
+    mode: 'repeat',
+    forward: true,
+    auto: true,
+  }),
+  fetchImpl: async (url) => {
+    repeatRequests.push(url);
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => ({
+          'content-type': 'audio/mp4',
+          'x-melodex-chunk-index': '0',
+          'x-melodex-chunk-final': '1',
+        }[name.toLowerCase()] ?? null),
+      },
+      arrayBuffer: async () => Uint8Array.from([1]).buffer,
+    };
+  },
+});
+await repeatPlayback.start(songs[0]);
+await repeatPlayback.appendPromise;
+assert.deepEqual(
+  repeatRequests,
+  ['/repeat/a/0', '/repeat/a/0'],
+  'MSE 自动预接下一段时,单曲循环必须再次追加当前歌曲而不是队列下一首',
+);
+assert.equal(repeatAudio.src, 'blob:repeat-media-source', '单曲循环也必须保持同一个 MediaSource URL');
 
 const diagnostic = buildPlaybackDiagnostic({
   event: 'media_session_action',
