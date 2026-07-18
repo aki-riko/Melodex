@@ -2,8 +2,13 @@ package life.nineli.melodex
 
 import org.w3c.dom.Document
 import org.w3c.dom.Element
+import org.xml.sax.InputSource
+import org.xml.sax.SAXException
 import java.io.InputStream
-import javax.xml.XMLConstants
+import java.io.StringReader
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import javax.xml.parsers.DocumentBuilderFactory
 
 object SubsonicXml {
@@ -27,16 +32,24 @@ object SubsonicXml {
     }
 
     private fun parseDocument(input: InputStream): Document {
+        val xml = decodeUtf8(input)
+        require(!xml.contains('\u0000')) { "服务器返回了不支持的 XML 编码" }
+        require(!DOCTYPE_PATTERN.containsMatchIn(xml)) { "服务器返回的 XML 包含被禁止的 DOCTYPE" }
         val factory = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = false
             isExpandEntityReferences = false
-            setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
         }
-        return factory.newDocumentBuilder().parse(input)
+        val builder = factory.newDocumentBuilder().apply {
+            setEntityResolver { _, _ -> throw SAXException("禁止解析外部 XML 实体") }
+        }
+        return builder.parse(InputSource(StringReader(xml)))
     }
+
+    private fun decodeUtf8(input: InputStream): String = StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(input.readBytes()))
+        .toString()
 
     private fun requireSuccess(document: Document) {
         val root = document.documentElement
@@ -60,4 +73,6 @@ object SubsonicXml {
         getAttribute(name).ifBlank { throw SubsonicException("歌曲缺少 $name 字段") }
 
     private fun Element.intAttribute(name: String): Int = getAttribute(name).toIntOrNull() ?: 0
+
+    private val DOCTYPE_PATTERN = Regex("<!DOCTYPE", RegexOption.IGNORE_CASE)
 }

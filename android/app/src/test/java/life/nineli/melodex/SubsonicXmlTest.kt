@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
 
 class SubsonicXmlTest {
     @Test
@@ -48,6 +49,30 @@ class SubsonicXmlTest {
 
         assertThrows(Exception::class.java) {
             SubsonicXml.parseSongs(xml.byteInputStream())
+        }
+    }
+
+    @Test
+    fun escapedAttributesAreDecoded() {
+        val xml = """
+            <subsonic-response status="ok" version="1.16.1">
+              <searchResult3><song id="safe" title="A &amp; B" artist="C" /></searchResult3>
+            </subsonic-response>
+        """.trimIndent()
+
+        val songs = SubsonicXml.parseSongs(xml.byteInputStream())
+
+        assertEquals("A & B", songs.single().title)
+    }
+
+    @Test
+    fun utf16ResponseIsRejected() {
+        val xml = "<subsonic-response status=\"ok\" />"
+
+        assertThrows(Exception::class.java) {
+            SubsonicXml.requireSuccess(
+                ByteArrayInputStream(xml.toByteArray(StandardCharsets.UTF_16LE)),
+            )
         }
     }
 }
