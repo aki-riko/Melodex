@@ -24,31 +24,18 @@ function New-RandomSecret([int]$ByteCount = 32) {
 }
 
 function Set-EnvironmentSecret([string]$Name, [string]$Value) {
-    $ghExecutable = (Get-Command gh.exe -ErrorAction Stop).Source
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $ghExecutable
-    $startInfo.Arguments = "secret set $Name --repo `"$Repository`" --env `"$EnvironmentName`""
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardInput = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
+    $temporaryFile = Join-Path $BackupDirectory (".secret-upload-" + [Guid]::NewGuid().ToString("N") + ".env")
     try {
-        if (-not $process.Start()) { throw "Failed to start GitHub CLI." }
-        $process.StandardInput.Write($Value)
-        $process.StandardInput.Close()
-        $standardOutput = $process.StandardOutput.ReadToEnd()
-        $standardError = $process.StandardError.ReadToEnd()
-        $process.WaitForExit()
-        if ($process.ExitCode -ne 0) {
-            throw "Failed to write GitHub Secret ${Name}: $standardOutput$standardError"
-        }
+        [IO.File]::WriteAllText($temporaryFile, "$Name=$Value", [Text.Encoding]::ASCII)
+        & gh secret set --repo $Repository --env $EnvironmentName --env-file $temporaryFile
+        if ($LASTEXITCODE -ne 0) { throw "Failed to write GitHub Secret: $Name" }
     }
     finally {
-        $process.Dispose()
+        if (Test-Path -LiteralPath $temporaryFile) {
+            $length = (Get-Item -LiteralPath $temporaryFile).Length
+            [IO.File]::WriteAllBytes($temporaryFile, [byte[]]::new($length))
+            Remove-Item -LiteralPath $temporaryFile -Force
+        }
     }
 }
 
