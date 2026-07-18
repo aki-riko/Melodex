@@ -86,6 +86,7 @@ class NativePlaybackModelsTest {
         assertFalse(
             shouldPauseForNoisyRoute(
                 currentRoute = setOf(speaker),
+                currentRouteIsReliable = true,
                 recentlyDisconnectedRoutes = emptyList(),
                 nowMs = 10_000L,
                 evidenceWindowMs = 2_000L,
@@ -99,6 +100,7 @@ class NativePlaybackModelsTest {
         assertTrue(
             shouldPauseForNoisyRoute(
                 currentRoute = setOf(headphones),
+                currentRouteIsReliable = true,
                 recentlyDisconnectedRoutes = emptyList(),
                 nowMs = 10_000L,
                 evidenceWindowMs = 2_000L,
@@ -118,6 +120,7 @@ class NativePlaybackModelsTest {
         assertTrue(
             shouldPauseForNoisyRoute(
                 currentRoute = setOf(speaker),
+                currentRouteIsReliable = true,
                 recentlyDisconnectedRoutes = recent,
                 nowMs = 10_000L,
                 evidenceWindowMs = 2_000L,
@@ -139,6 +142,7 @@ class NativePlaybackModelsTest {
         assertFalse(
             shouldPauseForNoisyRoute(
                 currentRoute = setOf(speaker),
+                currentRouteIsReliable = true,
                 recentlyDisconnectedRoutes = listOf(RecentlyDisconnectedRoute(headphones, 5_000L)),
                 nowMs = 10_000L,
                 evidenceWindowMs = 2_000L,
@@ -149,9 +153,45 @@ class NativePlaybackModelsTest {
     @Test
     fun onlyPauseCapableMediaKeysAreDeferredForNoisyCorrelation() {
         assertTrue(isDeferredMediaPauseKey(KeyEvent.KEYCODE_MEDIA_PAUSE))
-        assertTrue(isDeferredMediaPauseKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
-        assertTrue(isDeferredMediaPauseKey(KeyEvent.KEYCODE_HEADSETHOOK))
+        assertFalse(isDeferredMediaPauseKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
+        assertFalse(isDeferredMediaPauseKey(KeyEvent.KEYCODE_HEADSETHOOK))
         assertFalse(isDeferredMediaPauseKey(KeyEvent.KEYCODE_MEDIA_PLAY))
         assertFalse(isDeferredMediaPauseKey(KeyEvent.KEYCODE_MEDIA_NEXT))
+    }
+
+    @Test
+    fun connectedOutputsAreNotTreatedAsActualRoutesOnOlderAndroid() {
+        val headphones = AudioRouteDevice(8, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
+        assertFalse(
+            shouldPauseForNoisyRoute(
+                currentRoute = setOf(headphones),
+                currentRouteIsReliable = false,
+                recentlyDisconnectedRoutes = emptyList(),
+                nowMs = 10_000L,
+                evidenceWindowMs = 2_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun lateDeviceRemovalCanValidateAnEarlierNoisyBroadcast() {
+        val headphones = AudioRouteDevice(8, AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
+        val disconnected = routedPrivateDisconnects(
+            previousRoute = setOf(headphones),
+            removedDevices = setOf(headphones),
+            disconnectedAtMs = 10_100L,
+        )
+        assertTrue(isWithinEvidenceWindow(10_000L, 10_100L, 2_000L))
+        assertTrue(
+            shouldPauseForNoisyRoute(
+                currentRoute = emptySet(),
+                currentRouteIsReliable = false,
+                recentlyDisconnectedRoutes = disconnected,
+                nowMs = 10_100L,
+                evidenceWindowMs = 2_000L,
+            ),
+        )
+        assertFalse(isWithinEvidenceWindow(10_000L, 9_999L, 2_000L))
+        assertFalse(isWithinEvidenceWindow(10_000L, 12_001L, 2_000L))
     }
 }
