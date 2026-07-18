@@ -1,5 +1,66 @@
 import assert from 'node:assert/strict';
-import { scheduleServiceWorkerUpdates } from '../src/pwaUpdatePolicy.js';
+import {
+  SW_UPDATE_QUERY,
+  SW_UPDATE_RESPONSE,
+  createSafeServiceWorkerReloader,
+  scheduleServiceWorkerUpdates,
+} from '../src/pwaUpdatePolicy.js';
+
+const createEventTarget = () => {
+  const listeners = new Map();
+  return {
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    dispatch(type) {
+      listeners.get(type)?.();
+    },
+    listener(type) {
+      return listeners.get(type);
+    },
+  };
+};
+
+const playingAudio = { ...createEventTarget(), paused: false, ended: false };
+const documentTarget = createEventTarget();
+const documentLike = {
+  ...documentTarget,
+  querySelector: (selector) => (selector === 'audio' ? playingAudio : null),
+};
+const serviceWorkerTarget = createEventTarget();
+let reloadCalls = 0;
+const safeReloader = createSafeServiceWorkerReloader({
+  documentLike,
+  navigatorLike: { serviceWorker: serviceWorkerTarget },
+  reload: () => { reloadCalls += 1; },
+});
+safeReloader.listen();
+assert.equal(typeof serviceWorkerTarget.listener('message'), 'function', '应监听 SW 升级握手');
+
+const responses = [];
+safeReloader.handleWorkerMessage({
+  data: { type: SW_UPDATE_QUERY },
+  ports: [{ postMessage: (payload) => responses.push(payload) }],
+});
+await Promise.resolve();
+assert.equal(responses[0]?.type, SW_UPDATE_RESPONSE, '新页面必须响应安全升级能力');
+assert.equal(safeReloader.isReloadPending(), true, '播放中收到更新后应记录待重载');
+assert.equal(reloadCalls, 0, '播放中不得立即重载页面');
+
+playingAudio.paused = true;
+playingAudio.dispatch('pause');
+assert.equal(reloadCalls, 1, '播放器暂停后应执行一次待处理重载');
+playingAudio.dispatch('ended');
+assert.equal(reloadCalls, 1, '同一更新不得重复重载');
+
+const pausedAudio = { paused: true, ended: false };
+let immediateReloads = 0;
+const idleReloader = createSafeServiceWorkerReloader({
+  documentLike: { querySelector: () => pausedAudio },
+  reload: () => { immediateReloads += 1; },
+});
+assert.equal(idleReloader.requestReload(), true, '未播放时应立即切换到新 bundle');
+assert.equal(immediateReloads, 1, '未播放时只应重载一次');
 
 let scheduledCallback = null;
 let scheduledInterval = null;
