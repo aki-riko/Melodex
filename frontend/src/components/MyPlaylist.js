@@ -17,6 +17,7 @@ import { songIdentityKey } from '../utils/songIdentity';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
+import { getLyric } from '../services/musicdl';
 
 const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
 
@@ -26,6 +27,7 @@ export default function MyPlaylist() {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
+  const [lyric, setLyric] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
   const loadSeqRef = useRef(0);
@@ -117,6 +119,17 @@ export default function MyPlaylist() {
       setSongs((s) => s.filter((x) => songIdentityKey(x) !== targetKey));
     } catch {
       setNotice('移除失败,请稍后重试');
+    }
+  };
+
+  const handleShowLyric = async (song) => {
+    setLyric({ song, text: '加载中…' });
+    try {
+      const text = await getLyric(song);
+      setLyric({ song, text: text || '无歌词' });
+    } catch (error) {
+      console.error('[playlist] 加载歌词失败', { song, error });
+      setLyric({ song, text: '歌词加载失败' });
     }
   };
 
@@ -330,10 +343,25 @@ export default function MyPlaylist() {
                 isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
                 isPaused={isPaused}
                 onTogglePlayback={togglePlay}
+                onShowLyric={handleShowLyric}
                 onRemove={handleRemove} removeTitle={rowRemoveTitle} removeHint={rowRemoveHint} />
             ))}
           </div>
         </>
+      )}
+      {lyric && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setLyric(null)}>
+          <div className="max-h-[70vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-xl font-bold">{lyric.song.name}</h3>
+                <p className="text-sm text-muted-foreground">{lyric.song.artist}</p>
+              </div>
+              <button onClick={() => setLyric(null)} className="text-2xl font-bold leading-none hover:text-primary" aria-label="关闭歌词">×</button>
+            </div>
+            <pre className="whitespace-pre-wrap font-sans text-sm text-foreground">{lyric.text}</pre>
+          </div>
+        </div>
       )}
     </div>
   );

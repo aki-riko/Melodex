@@ -716,6 +716,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		name := c.Query("name")
 		artist := c.Query("artist")
 		album := strings.TrimSpace(c.Query("album"))
+		duration, _ := strconv.Atoi(strings.TrimSpace(c.Query("duration")))
 		coverURL := strings.TrimSpace(c.Query("cover"))
 		streamPlayback := c.Query("stream") == "1"
 		noRangeRequest := strings.TrimSpace(c.GetHeader("Range")) == ""
@@ -746,7 +747,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		}
 
 		settings := core.GetWebSettings()
-		tempSong := &model.Song{ID: id, Source: source, Name: name, Artist: artist, Album: album, Cover: coverURL, Extra: extra}
+		tempSong := &model.Song{ID: id, Source: source, Name: name, Artist: artist, Album: album, Duration: duration, Cover: coverURL, Extra: extra}
 
 		// Web 播放本地优先:只要当前用户的“服务器”状态能命中真实文件,
 		// 就直接从 NAS 发流,不再依赖可能已失效的 QQ/网易/酷我等在线地址。
