@@ -132,35 +132,65 @@ func (q *QQ) GetLyrics(s *model.Song) (string, error) {
 		return "", errors.New("lyric is empty or not found")
 	}
 
+	return decodeQQLyricTracks(s, resp.Request.Data.Lyric, resp.Request.Data.Trans, resp.Request.Data.Roma)
+}
+
+func decodeQQLyricTracks(s *model.Song, lyricRaw, transRaw, romaRaw string) (string, error) {
 	tags := map[string]string{"ti": s.Name, "ar": s.Artist, "al": s.Album}
 	data := lyrics.MultiData{}
 	for _, item := range []struct {
 		key string
 		raw string
 	}{
-		{"orig", resp.Request.Data.Lyric},
-		{"ts", resp.Request.Data.Trans},
-		{"roma", resp.Request.Data.Roma},
+		{"orig", lyricRaw},
+		{"ts", transRaw},
+		{"roma", romaRaw},
 	} {
 		if strings.TrimSpace(item.raw) == "" {
 			continue
 		}
-		decrypted, err := lyrics.DecryptQRCHex(item.raw)
+		trackTags, trackData, err := decodeQQLyricTrack(item.raw)
 		if err != nil {
+			if item.key == "orig" {
+				return "", fmt.Errorf("qq lyric decode failed: %w", err)
+			}
 			continue
 		}
-		qrcTags, qrcData := lyrics.ParseQRC(decrypted)
 		if item.key == "orig" {
-			for k, v := range qrcTags {
-				if strings.TrimSpace(tags[k]) == "" {
-					tags[k] = v
-				}
-			}
+			mergeQQLyricTags(tags, trackTags)
 		}
-		data[item.key] = qrcData
+		data[item.key] = trackData
 	}
 	if len(data["orig"]) == 0 {
-		return "", errors.New("lyric is empty or qrc decrypt failed")
+		return "", errors.New("qq lyric is empty after decoding")
 	}
 	return lyrics.ConvertVerbatimLRC(tags, data, lyrics.DefaultDisplayOrder()), nil
+}
+
+func decodeQQLyricTrack(raw string) (map[string]string, lyrics.Data, error) {
+	decrypted, err := lyrics.DecryptQRCHex(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	tags, data := parseQQDecryptedLyric(decrypted)
+	if len(data) == 0 {
+		return nil, nil, errors.New("payload has no supported lyric lines")
+	}
+	return tags, data, nil
+}
+
+func mergeQQLyricTags(target, incoming map[string]string) {
+	for key, value := range incoming {
+		if strings.TrimSpace(target[key]) == "" {
+			target[key] = value
+		}
+	}
+}
+
+func parseQQDecryptedLyric(raw string) (map[string]string, lyrics.Data) {
+	tags, data := lyrics.ParseQRC(raw)
+	if len(data) > 0 {
+		return tags, data
+	}
+	return lyrics.ParseLRC(raw)
 }

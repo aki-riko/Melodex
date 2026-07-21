@@ -420,11 +420,9 @@ func fetchLyricByID(id string) string {
 	}
 	// 在线源:用源的歌词函数拉真实 LRC。
 	if song, ok := decodeOnlineSongID(id); ok {
-		if fn := core.GetLyricFunc(song.Source); fn != nil {
-			s := song
-			lrc, _ := fn(&s)
-			return lrc
-		}
+		s := song
+		lrc, _, _ := loadLyricWithFallback(&s)
+		return lrc
 	}
 	return ""
 }
