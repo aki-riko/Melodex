@@ -1019,16 +1019,17 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		fn := core.GetLyricFunc(song.Source)
-		if fn == nil {
-			c.String(404, "No support")
-			return
-		}
-
-		lrc, err := fn(song)
+		lrc, matchedSong, err := loadLyricWithFallback(song)
 		if err != nil || lrc == "" {
+			log.Printf("[lyric] 下载歌词失败 source=%q id=%q name=%q artist=%q: %v", song.Source, song.ID, song.Name, song.Artist, err)
 			c.String(404, "Lyric not found")
 			return
+		}
+		if matchedSong != nil {
+			c.Header("X-Lyric-Source", matchedSong.Source)
+			if matchedSong.Source != song.Source {
+				c.Header("X-Lyric-Fallback-Source", matchedSong.Source)
+			}
 		}
 		lrc = formatLyricForMode(lrc, c.DefaultQuery("format", "auto"))
 		c.Header("X-Lyric-Format", classifyLyricFormat(lrc))
@@ -1041,8 +1042,8 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		setDownloadHeader(c, filename)
 		c.String(200, lrc)
 	}
-	api.GET("/download_lrc", downloadLRCHandler)
-	api.POST("/download_lrc", downloadLRCHandler)
+	api.GET("/download_lrc", rateLimitMiddleware(searchRateLimiter), downloadLRCHandler)
+	api.POST("/download_lrc", rateLimitMiddleware(searchRateLimiter), downloadLRCHandler)
 
 	downloadCoverHandler := func(c *gin.Context) {
 		u := c.Query("url")
@@ -1101,24 +1102,28 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		c.Data(http.StatusOK, contentType, data)
 	})
 
-	api.GET("/lyric", func(c *gin.Context) {
+	api.GET("/lyric", rateLimitMiddleware(searchRateLimiter), func(c *gin.Context) {
 		song := lyricSongFromQuery(c)
 		if isLocalMusicSource(song.Source) {
 			serveLocalMusicLyric(c, song, false)
 			return
 		}
 
-		fn := core.GetLyricFunc(song.Source)
-		if fn != nil {
-			lrc, _ := fn(song)
-			if lrc != "" {
-				lrc = formatLyricForMode(lrc, c.DefaultQuery("format", "auto"))
-				c.Header("X-Lyric-Format", classifyLyricFormat(lrc))
-				c.String(200, lrc)
-				return
+		lrc, matchedSong, err := loadLyricWithFallback(song)
+		if err == nil && lrc != "" {
+			lrc = formatLyricForMode(lrc, c.DefaultQuery("format", "auto"))
+			c.Header("X-Lyric-Format", classifyLyricFormat(lrc))
+			if matchedSong != nil {
+				c.Header("X-Lyric-Source", matchedSong.Source)
+				if matchedSong.Source != song.Source {
+					c.Header("X-Lyric-Fallback-Source", matchedSong.Source)
+				}
 			}
+			c.String(200, lrc)
+			return
 		}
-		c.String(200, "[00:00.00] 纯音乐 / 无歌词")
+		log.Printf("[lyric] 获取歌词失败 source=%q id=%q name=%q artist=%q: %v", song.Source, song.ID, song.Name, song.Artist, err)
+		c.String(200, "[00:00.00] 暂无歌词")
 	})
 }
 
