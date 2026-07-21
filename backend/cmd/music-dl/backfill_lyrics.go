@@ -42,9 +42,8 @@ var backfillLyricsCmd = &cobra.Command{
 			Limit:       backfillLyricsLimit,
 			Delay:       backfillLyricsDelay,
 			Output:      cmd.OutOrStdout(),
-			FetchLyric: func(_ string, song *model.Song) (string, error) {
-				lyrics, _, fetchErr := web.LoadLyricWithFallback(song)
-				return lyrics, fetchErr
+			FetchLyric: func(_ string, song *model.Song) (string, *model.Song, error) {
+				return web.LoadLyricWithFallback(song)
 			},
 		})
 		fmt.Fprintf(cmd.OutOrStdout(), "SUMMARY dry_run=%v inspected=%d matched=%d written=%d embedded=%d sidecar=%d missing=%d invalid=%d conflict=%d unsupported=%d fetch_failed=%d write_failed=%d unusable=%d\n",

@@ -23,15 +23,20 @@ func TestBackfillLyricsDryRunDeduplicatesOwners(t *testing.T) {
 		downloadRecord{UserID: 2, RelPath: "春信迟 - 婴戏浅戈.flac", Source: "qq", SongID: "00498DKO1STwWZ", Name: "春信迟", Artist: "婴戏浅戈"},
 	)
 	fetches := 0
+	var output bytes.Buffer
 	summary, err := BackfillLyrics(context.Background(), db, LyricsBackfillOptions{
 		DownloadDir: downloadDir,
 		DryRun:      true,
-		FetchLyric: func(source string, song *model.Song) (string, error) {
+		Output:      &output,
+		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
 			fetches++
 			if song.Duration != 274 {
 				t.Fatalf("song duration=%d want=274", song.Duration)
 			}
-			return "[00:01.00]如初见你从桥边折枝缓缓来", nil
+			matched := *song
+			matched.Source = "netease"
+			matched.ID = "2718117658"
+			return "[00:01.00]如初见你从桥边折枝缓缓来", &matched, nil
 		},
 		ReadEmbeddedLyric: noEmbeddedLyrics,
 		ReadDuration:      func(string) (int, error) { return 274, nil },
@@ -41,6 +46,9 @@ func TestBackfillLyricsDryRunDeduplicatesOwners(t *testing.T) {
 	}
 	if summary.Inspected != 1 || summary.Matched != 1 || summary.Written != 0 || fetches != 1 {
 		t.Fatalf("unexpected summary=%+v fetches=%d", summary, fetches)
+	}
+	if !strings.Contains(output.String(), `matched_source="netease"`) || !strings.Contains(output.String(), `matched_song_id="2718117658"`) {
+		t.Fatalf("missing matched identity audit: %s", output.String())
 	}
 	assertNoSidecar(t, downloadDir, "春信迟 - 婴戏浅戈.lrc")
 }
@@ -54,8 +62,8 @@ func TestBackfillLyricsWritesSidecarAndReportsMetadataWarning(t *testing.T) {
 	summary, err := BackfillLyrics(context.Background(), db, LyricsBackfillOptions{
 		DownloadDir: downloadDir,
 		Output:      &output,
-		FetchLyric: func(source string, song *model.Song) (string, error) {
-			return "[00:01.00]第一句\r\n[00:02.00]第二句", nil
+		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
+			return "[00:01.00]第一句\r\n[00:02.00]第二句", song, nil
 		},
 		ReadEmbeddedLyric: func(string) (string, error) {
 			return "", errors.New("unsupported test metadata")
@@ -95,9 +103,9 @@ func TestBackfillLyricsSkipsExistingLyrics(t *testing.T) {
 	fetches := 0
 	summary, err := BackfillLyrics(context.Background(), db, LyricsBackfillOptions{
 		DownloadDir: downloadDir,
-		FetchLyric: func(source string, song *model.Song) (string, error) {
+		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
 			fetches++
-			return "[00:01.00]不应请求", nil
+			return "[00:01.00]不应请求", song, nil
 		},
 		ReadEmbeddedLyric: func(path string) (string, error) {
 			if strings.HasSuffix(path, "embedded.flac") {
@@ -128,8 +136,8 @@ func TestBackfillLyricsRejectsConflictsUnsafePathsAndPlaceholders(t *testing.T) 
 	)
 	summary, err := BackfillLyrics(context.Background(), db, LyricsBackfillOptions{
 		DownloadDir: downloadDir,
-		FetchLyric: func(source string, song *model.Song) (string, error) {
-			return "[00:00.00] 暂无歌词", nil
+		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
+			return "[00:00.00] 暂无歌词", song, nil
 		},
 		ReadEmbeddedLyric: noEmbeddedLyrics,
 		ReadDuration:      noAudioDuration,

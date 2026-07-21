@@ -47,7 +47,7 @@ type LyricsBackfillOptions struct {
 	Limit             int
 	Delay             time.Duration
 	Output            io.Writer
-	FetchLyric        func(source string, song *model.Song) (string, error)
+	FetchLyric        func(source string, song *model.Song) (string, *model.Song, error)
 	ReadEmbeddedLyric func(audioPath string) (string, error)
 	ReadDuration      func(audioPath string) (int, error)
 }
@@ -74,9 +74,10 @@ type lyricCandidate struct {
 }
 
 type candidateResult struct {
-	status  string
-	detail  string
-	fetched bool
+	status      string
+	detail      string
+	fetched     bool
+	matchedSong *model.Song
 }
 
 func BackfillLyrics(ctx context.Context, db *gorm.DB, options LyricsBackfillOptions) (LyricsBackfillSummary, error) {
@@ -317,29 +318,30 @@ func fetchAndStoreLyric(audioPath string, record downloadRecord, options LyricsB
 		fmt.Fprintf(options.Output, "WARN duration rel=%q error=%q\n", record.RelPath, durationErr.Error())
 	}
 	song := &model.Song{ID: record.SongID, Source: record.Source, Name: record.Name, Artist: record.Artist, Duration: duration}
-	lyrics, err := options.FetchLyric(record.Source, song)
+	lyrics, matchedSong, err := options.FetchLyric(record.Source, song)
 	if errors.Is(err, errUnsupportedSource) {
 		return candidateResult{status: "unsupported", detail: err.Error(), fetched: true}
 	}
 	if err != nil {
-		return candidateResult{status: "fetch_failure", detail: err.Error(), fetched: true}
+		return candidateResult{status: "fetch_failure", detail: err.Error(), fetched: true, matchedSong: matchedSong}
 	}
 	lyrics, timedLines, ok := normalizeUsableLyrics(lyrics)
 	if !ok {
-		return candidateResult{status: "unusable_lyrics", detail: "empty or non-timed lyrics", fetched: true}
+		return candidateResult{status: "unusable_lyrics", detail: "empty or non-timed lyrics", fetched: true, matchedSong: matchedSong}
 	}
 	if options.DryRun {
-		return candidateResult{status: "dry_matched", detail: fmt.Sprintf("timed_lines=%d", timedLines), fetched: true}
+		return candidateResult{status: "dry_matched", detail: fmt.Sprintf("timed_lines=%d", timedLines), fetched: true, matchedSong: matchedSong}
 	}
-	return writeFetchedSidecar(audioPath, lyrics, timedLines)
+	return writeFetchedSidecar(audioPath, lyrics, timedLines, matchedSong)
 }
 
-func fetchLyricFromSource(source string, song *model.Song) (string, error) {
+func fetchLyricFromSource(source string, song *model.Song) (string, *model.Song, error) {
 	fetch := core.GetLyricFunc(source)
 	if fetch == nil {
-		return "", fmt.Errorf("%w: %s", errUnsupportedSource, source)
+		return "", nil, fmt.Errorf("%w: %s", errUnsupportedSource, source)
 	}
-	return fetch(song)
+	lyrics, err := fetch(song)
+	return lyrics, song, err
 }
 
 func readEmbeddedLyric(audioPath string) (string, error) {
@@ -409,19 +411,19 @@ func normalizeUsableLyrics(raw string) (string, int, bool) {
 	return lyrics + "\n", timedLines, true
 }
 
-func writeFetchedSidecar(audioPath, lyrics string, timedLines int) candidateResult {
+func writeFetchedSidecar(audioPath, lyrics string, timedLines int, matchedSong *model.Song) candidateResult {
 	sidecarPath := strings.TrimSuffix(audioPath, filepath.Ext(audioPath)) + ".lrc"
 	file, err := os.OpenFile(sidecarPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if os.IsExist(err) {
-		return candidateResult{status: "existing_sidecar", detail: filepath.Base(sidecarPath), fetched: true}
+		return candidateResult{status: "existing_sidecar", detail: filepath.Base(sidecarPath), fetched: true, matchedSong: matchedSong}
 	}
 	if err != nil {
-		return candidateResult{status: "write_failure", detail: err.Error(), fetched: true}
+		return candidateResult{status: "write_failure", detail: err.Error(), fetched: true, matchedSong: matchedSong}
 	}
 	if err := writeAndSyncSidecar(file, sidecarPath, lyrics); err != nil {
-		return candidateResult{status: "write_failure", detail: err.Error(), fetched: true}
+		return candidateResult{status: "write_failure", detail: err.Error(), fetched: true, matchedSong: matchedSong}
 	}
-	return candidateResult{status: "written", detail: fmt.Sprintf("timed_lines=%d", timedLines), fetched: true}
+	return candidateResult{status: "written", detail: fmt.Sprintf("timed_lines=%d", timedLines), fetched: true, matchedSong: matchedSong}
 }
 
 func writeAndSyncSidecar(file *os.File, sidecarPath, lyrics string) error {
@@ -478,6 +480,12 @@ func applyCandidateResult(summary *LyricsBackfillSummary, result candidateResult
 }
 
 func writeCandidateResult(output io.Writer, record downloadRecord, result candidateResult) {
-	fmt.Fprintf(output, "%s source=%q song_id=%q rel=%q %s\n",
-		strings.ToUpper(result.status), record.Source, record.SongID, record.RelPath, result.detail)
+	fmt.Fprintf(output, "%s source=%q song_id=%q rel=%q",
+		strings.ToUpper(result.status), record.Source, record.SongID, record.RelPath)
+	if result.matchedSong != nil {
+		fmt.Fprintf(output, " matched_source=%q matched_song_id=%q matched_name=%q matched_artist=%q matched_duration=%d",
+			result.matchedSong.Source, result.matchedSong.ID, result.matchedSong.Name,
+			result.matchedSong.Artist, result.matchedSong.Duration)
+	}
+	fmt.Fprintf(output, " detail=%q\n", result.detail)
 }
