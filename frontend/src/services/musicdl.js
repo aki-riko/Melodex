@@ -184,6 +184,12 @@ export const getLyric = async (song) => {
   params.set('source', s.source);
   params.set('name', s.name || '');
   params.set('artist', s.artist || '');
+  if (s.album) params.set('album', s.album);
+  if (s.duration) params.set('duration', String(s.duration));
+  if (s.extra) {
+    const extraValue = typeof s.extra === 'string' ? s.extra : JSON.stringify(s.extra);
+    if (extraValue && extraValue !== '{}' && extraValue !== 'null') params.set('extra', extraValue);
+  }
   const { data } = await client.get(`/music/lyric?${params.toString()}`, { responseType: 'text' });
   return data;
 };
@@ -198,6 +204,7 @@ const buildDownloadParams = (song, extra = {}) => {
   params.set('name', s.name || '');
   params.set('artist', s.artist || '');
   if (s.album) params.set('album', s.album);
+  if (s.duration) params.set('duration', String(s.duration));
   if (s.cover) params.set('cover', s.cover);
   if (s.extra) {
     const extraValue = typeof s.extra === 'string' ? s.extra : JSON.stringify(s.extra);
