@@ -28,9 +28,13 @@ func TestBackfillLyricsDryRunDeduplicatesOwners(t *testing.T) {
 		DryRun:      true,
 		FetchLyric: func(source string, song *model.Song) (string, error) {
 			fetches++
+			if song.Duration != 274 {
+				t.Fatalf("song duration=%d want=274", song.Duration)
+			}
 			return "[00:01.00]如初见你从桥边折枝缓缓来", nil
 		},
 		ReadEmbeddedLyric: noEmbeddedLyrics,
+		ReadDuration:      func(string) (int, error) { return 274, nil },
 	})
 	if err != nil {
 		t.Fatalf("BackfillLyrics: %v", err)
@@ -56,6 +60,7 @@ func TestBackfillLyricsWritesSidecarAndReportsMetadataWarning(t *testing.T) {
 		ReadEmbeddedLyric: func(string) (string, error) {
 			return "", errors.New("unsupported test metadata")
 		},
+		ReadDuration: noAudioDuration,
 	})
 	if err != nil {
 		t.Fatalf("BackfillLyrics: %v", err)
@@ -127,6 +132,7 @@ func TestBackfillLyricsRejectsConflictsUnsafePathsAndPlaceholders(t *testing.T) 
 			return "[00:00.00] 暂无歌词", nil
 		},
 		ReadEmbeddedLyric: noEmbeddedLyrics,
+		ReadDuration:      noAudioDuration,
 	})
 	if err != nil {
 		t.Fatalf("BackfillLyrics: %v", err)
@@ -135,6 +141,28 @@ func TestBackfillLyricsRejectsConflictsUnsafePathsAndPlaceholders(t *testing.T) 
 		t.Fatalf("unexpected summary=%+v", summary)
 	}
 	assertNoSidecar(t, downloadDir, "placeholder.lrc")
+}
+
+func TestDurationFromFFprobeJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want int
+	}{
+		{name: "format", data: `{"format":{"duration":"274.49"}}`, want: 274},
+		{name: "stream fallback", data: `{"format":{},"streams":[{"duration":"61.6"}]}`, want: 62},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := durationFromFFprobeJSON([]byte(test.data))
+			if err != nil || got != test.want {
+				t.Fatalf("duration=%d err=%v want=%d", got, err, test.want)
+			}
+		})
+	}
+	if _, err := durationFromFFprobeJSON([]byte(`{"format":{}}`)); err == nil {
+		t.Fatal("missing duration should fail")
+	}
 }
 
 func openLyricsBackfillTestDB(t *testing.T) *gorm.DB {
@@ -177,6 +205,8 @@ func writeTestAudio(t *testing.T, downloadDir, relPath string) {
 }
 
 func noEmbeddedLyrics(string) (string, error) { return "", nil }
+
+func noAudioDuration(string) (int, error) { return 0, nil }
 
 func assertNoSidecar(t *testing.T, downloadDir, relPath string) {
 	t.Helper()

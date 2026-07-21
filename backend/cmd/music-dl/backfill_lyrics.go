@@ -7,6 +7,8 @@ import (
 
 	"github.com/guohuiyuan/go-music-dl/core"
 	"github.com/guohuiyuan/go-music-dl/internal/maintenance"
+	"github.com/guohuiyuan/go-music-dl/internal/web"
+	"github.com/guohuiyuan/music-lib/model"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +42,10 @@ var backfillLyricsCmd = &cobra.Command{
 			Limit:       backfillLyricsLimit,
 			Delay:       backfillLyricsDelay,
 			Output:      cmd.OutOrStdout(),
+			FetchLyric: func(_ string, song *model.Song) (string, error) {
+				lyrics, _, fetchErr := web.LoadLyricWithFallback(song)
+				return lyrics, fetchErr
+			},
 		})
 		fmt.Fprintf(cmd.OutOrStdout(), "SUMMARY dry_run=%v inspected=%d matched=%d written=%d embedded=%d sidecar=%d missing=%d invalid=%d conflict=%d unsupported=%d fetch_failed=%d write_failed=%d unusable=%d\n",
 			backfillLyricsDryRun, summary.Inspected, summary.Matched, summary.Written,
