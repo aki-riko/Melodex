@@ -2,12 +2,16 @@ package maintenance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +49,7 @@ type LyricsBackfillOptions struct {
 	Output            io.Writer
 	FetchLyric        func(source string, song *model.Song) (string, error)
 	ReadEmbeddedLyric func(audioPath string) (string, error)
+	ReadDuration      func(audioPath string) (int, error)
 }
 
 type LyricsBackfillSummary struct {
@@ -97,6 +102,9 @@ func normalizeLyricsBackfillOptions(options LyricsBackfillOptions) LyricsBackfil
 	}
 	if options.ReadEmbeddedLyric == nil {
 		options.ReadEmbeddedLyric = readEmbeddedLyric
+	}
+	if options.ReadDuration == nil {
+		options.ReadDuration = probeAudioDuration
 	}
 	if options.Delay < 0 {
 		options.Delay = 0
@@ -304,7 +312,11 @@ func existingLyricSidecar(audioPath string) string {
 }
 
 func fetchAndStoreLyric(audioPath string, record downloadRecord, options LyricsBackfillOptions) candidateResult {
-	song := &model.Song{ID: record.SongID, Source: record.Source, Name: record.Name, Artist: record.Artist}
+	duration, durationErr := options.ReadDuration(audioPath)
+	if durationErr != nil {
+		fmt.Fprintf(options.Output, "WARN duration rel=%q error=%q\n", record.RelPath, durationErr.Error())
+	}
+	song := &model.Song{ID: record.SongID, Source: record.Source, Name: record.Name, Artist: record.Artist, Duration: duration}
 	lyrics, err := options.FetchLyric(record.Source, song)
 	if errors.Is(err, errUnsupportedSource) {
 		return candidateResult{status: "unsupported", detail: err.Error(), fetched: true}
@@ -341,6 +353,46 @@ func readEmbeddedLyric(audioPath string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(metadata.Lyrics()), nil
+}
+
+func probeAudioDuration(audioPath string) (int, error) {
+	ffprobePath, err := core.ResolveFFprobePath()
+	if err != nil {
+		return 0, err
+	}
+	command := exec.Command(ffprobePath,
+		"-v", "error", "-show_entries", "format=duration:stream=duration",
+		"-of", "json", audioPath)
+	output, err := command.Output()
+	if err != nil {
+		return 0, fmt.Errorf("ffprobe duration: %w", err)
+	}
+	return durationFromFFprobeJSON(output)
+}
+
+func durationFromFFprobeJSON(data []byte) (int, error) {
+	var payload struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+		Streams []struct {
+			Duration string `json:"duration"`
+		} `json:"streams"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return 0, fmt.Errorf("decode ffprobe duration: %w", err)
+	}
+	values := []string{payload.Format.Duration}
+	for _, stream := range payload.Streams {
+		values = append(values, stream.Duration)
+	}
+	for _, value := range values {
+		seconds, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if err == nil && seconds > 0 {
+			return int(math.Round(seconds)), nil
+		}
+	}
+	return 0, errors.New("ffprobe returned no positive duration")
 }
 
 func normalizeUsableLyrics(raw string) (string, int, bool) {

@@ -44,6 +44,12 @@ func loadLyricWithFallback(song *model.Song) (string, *model.Song, error) {
 	return "", nil, errors.Join(primaryErr, fallbackErr)
 }
 
+// LoadLyricWithFallback exposes the same strict same-song fallback used by the
+// Web lyric endpoint to trusted in-process maintenance commands.
+func LoadLyricWithFallback(song *model.Song) (string, *model.Song, error) {
+	return loadLyricWithFallback(song)
+}
+
 func findFallbackLyric(song *model.Song) (string, *model.Song, error) {
 	name := strings.TrimSpace(song.Name)
 	artist := strings.TrimSpace(song.Artist)
