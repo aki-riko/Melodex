@@ -16,14 +16,15 @@ class NativeShellContractTests(unittest.TestCase):
 
         self.assertIn("Fluent.Windows {", source)
         self.assertNotIn("Fluent.WindowsCore {", source)
-        self.assertIn('key: "page_3"', source)
+        self.assertIn('key: "page_4"', source)
 
-    def test_native_shell_registers_all_four_pages(self) -> None:
+    def test_native_shell_registers_all_five_pages(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
         for object_name in (
             "homePage",
             "searchPage",
+            "playlistsPage",
             "nowPlayingPage",
             "settingsPage",
         ):
@@ -53,6 +54,12 @@ class NativeShellContractTests(unittest.TestCase):
         player = (QML_ROOT / "pages" / "NowPlayingPage.qml").read_text(
             encoding="utf-8"
         )
+        playlists = (QML_ROOT / "pages" / "PlaylistsPage.qml").read_text(
+            encoding="utf-8"
+        )
+        search = (QML_ROOT / "pages" / "SearchPage.qml").read_text(
+            encoding="utf-8"
+        )
         song_row = (QML_ROOT / "components" / "SongRow.qml").read_text(
             encoding="utf-8"
         )
@@ -66,6 +73,9 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Fluent.ScrollArea {", home)
         self.assertIn("Fluent.ScrollArea {", settings)
         self.assertIn("Fluent.ScrollArea {", player)
+        self.assertIn("Fluent.SplitPane {", playlists)
+        self.assertIn("Fluent.ListWidget {", playlists)
+        self.assertIn("Fluent.ComboBox {", search)
         self.assertNotIn("Flickable {", home + settings)
         self.assertNotIn("ListView {", player)
         self.assertIn(

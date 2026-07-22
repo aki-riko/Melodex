@@ -13,6 +13,7 @@ Item {
     readonly property var navigationModel: [
         { text: "概览", icon: Fluent.Enums.icon.home },
         { text: "搜索", icon: Fluent.Enums.icon.search },
+        { text: "歌单", icon: Fluent.Enums.icon.collections },
         { text: "正在播放", icon: Fluent.Enums.icon.music_note_2 }
     ]
 
@@ -41,7 +42,7 @@ Item {
             {
                 text: Api.currentUser.username || "账户",
                 icon: Fluent.Enums.icon.person,
-                key: "page_3"
+                key: "page_4"
             }
         ] : []
 
@@ -53,13 +54,19 @@ Item {
         HomePage {
             objectName: "homePage"
             onOpenSearchRequested: mainWindow.currentIndex = 1
-            onOpenPlayerRequested: mainWindow.currentIndex = 2
-            onOpenSettingsRequested: mainWindow.currentIndex = 3
+            onOpenPlaylistsRequested: mainWindow.currentIndex = 2
+            onOpenPlayerRequested: mainWindow.currentIndex = 3
+            onOpenSettingsRequested: mainWindow.currentIndex = 4
         }
 
         SearchPage {
             objectName: "searchPage"
-            onOpenPlayerRequested: mainWindow.currentIndex = 2
+            onOpenPlayerRequested: mainWindow.currentIndex = 3
+        }
+
+        PlaylistsPage {
+            objectName: "playlistsPage"
+            onOpenPlayerRequested: mainWindow.currentIndex = 3
         }
 
         NowPlayingPage {

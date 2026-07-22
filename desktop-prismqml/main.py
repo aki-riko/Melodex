@@ -51,21 +51,23 @@ def _create_application(config):
 
 def _create_services(config, app):
     from melodex_desktop.api_client import ApiClient
+    from melodex_desktop.collection_controller import CollectionController
     from melodex_desktop.config import UserSettings
     from melodex_desktop.desktop_state import DesktopState
     from melodex_desktop.player import PlayerController
 
     settings = UserSettings(config.application_name, app.qapp)
     api = ApiClient(settings, app.qapp)
+    collections = CollectionController(api, app.qapp)
     player = PlayerController(api, app.qapp)
     desktop_state = DesktopState(settings, app.qapp)
-    return settings, api, player, desktop_state
+    return settings, api, collections, player, desktop_state
 
 
 def _publish_context(app, config, icon_path, services, self_test: bool) -> None:
     from PySide6.QtCore import QUrl
 
-    settings, api, player, desktop_state = services
+    settings, api, collections, player, desktop_state = services
     context = app.engine.rootContext()
     context.setContextProperty(
         "AppConfig",
@@ -81,6 +83,7 @@ def _publish_context(app, config, icon_path, services, self_test: bool) -> None:
     )
     context.setContextProperty("UserSettings", settings)
     context.setContextProperty("Api", api)
+    context.setContextProperty("Collections", collections)
     context.setContextProperty("Player", player)
     context.setContextProperty("DesktopState", desktop_state)
     context.setContextProperty("HeadlessSelfTest", self_test)
@@ -190,7 +193,7 @@ def main() -> int:
         app.setWindowIcon(icon)
 
     services = _create_services(config, app)
-    settings, api, _player, _desktop_state = services
+    settings, api, _collections, _player, _desktop_state = services
     _publish_context(app, config, icon_path, services, self_test)
     loaded_window = _load_main_window(app, root / "qml" / "main.qml")
     if loaded_window is None:

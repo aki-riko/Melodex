@@ -7,6 +7,7 @@ Item {
     id: root
 
     signal openSearchRequested()
+    signal openPlaylistsRequested()
     signal openPlayerRequested()
     signal openSettingsRequested()
 
@@ -79,6 +80,16 @@ Item {
                     content: "搜索全网曲库并使用 Melodex 的相关性排序"
                     buttonText: "打开搜索"
                     onClicked: root.openSearchRequested()
+                }
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    type: Fluent.Enums.settingCard.type_push
+                    icon: Fluent.Enums.icon.collections
+                    title: "我的歌单"
+                    content: "查看我喜欢、自建歌单和已导入的平台歌单"
+                    buttonText: "打开歌单"
+                    onClicked: root.openPlaylistsRequested()
                 }
 
                 Fluent.SettingsCard {
