@@ -101,13 +101,26 @@ def _load_main_window(app, qml_path):
     return qml_root, main_window
 
 
+def _show_initial_window(main_window) -> None:
+    """Make the QML-owned window visible through Qt's public window API."""
+
+    main_window.show()
+
+
+def _restore_main_window(main_window) -> None:
+    """Restore a tray-hidden window and its PrismQML paint state."""
+
+    main_window.showNormal()
+    main_window.restoreVisibleState()
+    main_window.raise_()
+    main_window.requestActivate()
+
+
 def _install_tray(app, config, icon, main_window, settings):
     from prismqml import SystemTrayIcon
 
     def show_main_window() -> None:
-        main_window.showNormal()
-        main_window.raise_()
-        main_window.requestActivate()
+        _restore_main_window(main_window)
 
     tray = SystemTrayIcon(
         icon=icon, parent=app.qapp, toolTip=config.application_name
@@ -154,6 +167,7 @@ def _execute(
     if self_test:
         QTimer.singleShot(500, app.quit)
     else:
+        _show_initial_window(main_window)
         tray = _install_tray(app, config, icon, main_window, settings)
         QTimer.singleShot(0, api.checkSession)
     _ = (tray, qml_root)  # Keep QML ownership and Python callbacks alive.
