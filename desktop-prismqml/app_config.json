@@ -1,0 +1,12 @@
+{
+  "application_name": "Melodex",
+  "application_version": "0.1.0",
+  "application_id": "PrismQML.Melodex",
+  "accent_color": "#1ED760",
+  "window": {
+    "width": 1180,
+    "height": 760,
+    "minimum_width": 920,
+    "minimum_height": 620
+  }
+}
