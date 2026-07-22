@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+import QtQuick
+import PrismQML as Fluent
+
+Item {
+    id: root
+
+    property string text: ""
+    property real progress: 0
+    property int pixelSize: Fluent.Enums.typography.hero
+    property int minimumPixelSize: Fluent.Enums.typography.titleLarge
+    property bool bold: true
+    property color restingColor: Fluent.Enums.secondaryForeground
+    property color activeColor: Fluent.Enums.accentColor
+    property color outlineColor: Qt.rgba(0, 0, 0, 0.72)
+
+    Text {
+        anchors.fill: parent
+        text: root.text
+        color: root.restingColor
+        font.pixelSize: root.pixelSize
+        font.bold: root.bold
+        fontSizeMode: Text.Fit
+        minimumPixelSize: root.minimumPixelSize
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        elide: Text.ElideRight
+        style: Text.Outline
+        styleColor: root.outlineColor
+    }
+
+    Item {
+        width: root.width * Math.max(0, Math.min(1, root.progress))
+        height: root.height
+        clip: true
+
+        Text {
+            width: root.width
+            height: root.height
+            text: root.text
+            color: root.activeColor
+            font.pixelSize: root.pixelSize
+            font.bold: root.bold
+            fontSizeMode: Text.Fit
+            minimumPixelSize: root.minimumPixelSize
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            style: Text.Outline
+            styleColor: root.outlineColor
+        }
+    }
+}
