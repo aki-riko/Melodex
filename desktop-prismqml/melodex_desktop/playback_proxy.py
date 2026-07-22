@@ -8,6 +8,7 @@ import http.client
 import re
 import secrets
 import threading
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, urlunsplit
@@ -32,6 +33,14 @@ class _ResponseWindow:
         return self.absolute_start + self.body_length - 1
 
 
+class _RemoteOpenError(http.client.HTTPException):
+    """The upstream connection failed before a usable response arrived."""
+
+
+class _UnsafeResumeError(http.client.HTTPException):
+    """Resuming would risk joining bytes from different response windows."""
+
+
 class _LoopbackServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
@@ -46,6 +55,8 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     _COPY_CHUNK_SIZE = 64 * 1024
     _MAX_RESUME_ATTEMPTS = 4
+    _RESUME_RETRY_DELAYS = (0.05, 0.1, 0.2)
+    _RETRIABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
     _CONTENT_RANGE_PATTERN = re.compile(r"^bytes (\d+)-(\d+)/(\d+|\*)$")
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler contract
@@ -106,10 +117,10 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
         try:
             connection.request(self.command, target, headers=headers)
             return connection, connection.getresponse()
-        except Exception as exc:
+        except (OSError, http.client.HTTPException) as exc:
             print(f"[WARN] 无法建立远端媒体连接：{exc}")
             connection.close()
-            raise
+            raise _RemoteOpenError(str(exc)) from exc
 
     def _remote_headers(
         self, entry: _ProxyEntry, range_override: str | None = None
@@ -178,16 +189,15 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
                 failure = read_error or http.client.IncompleteRead(
                     b"", window.body_length - sent
                 )
-                attempt += 1
-                if attempt > self._MAX_RESUME_ATTEMPTS:
-                    raise failure
                 if resume_connection is not None:
+                    active_response.close()
                     resume_connection.close()
-                resume_connection, active_response = self._resume_response(
-                    entry, window, sent, attempt
+                attempt, resume_connection, active_response = self._resume_with_retries(
+                    entry, window, sent, attempt, failure
                 )
         finally:
             if resume_connection is not None:
+                active_response.close()
                 resume_connection.close()
 
     def _copy_next_chunk(
@@ -196,6 +206,8 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
         chunk, read_error = self._read_chunk(
             response, min(self._COPY_CHUNK_SIZE, remaining)
         )
+        if len(chunk) > remaining:
+            raise _UnsafeResumeError("远端媒体返回了超出请求范围的数据")
         if chunk:
             self.wfile.write(chunk)
         return len(chunk), read_error
@@ -210,6 +222,39 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
             return exc.partial, exc
         except (OSError, http.client.HTTPException) as exc:
             return b"", exc
+
+    def _resume_with_retries(
+        self,
+        entry: _ProxyEntry,
+        window: _ResponseWindow,
+        sent: int,
+        attempt: int,
+        initial_error: Exception,
+    ) -> tuple[int, http.client.HTTPConnection, http.client.HTTPResponse]:
+        last_error = initial_error
+        while attempt < self._MAX_RESUME_ATTEMPTS:
+            attempt += 1
+            try:
+                connection, response = self._resume_response(
+                    entry, window, sent, attempt
+                )
+                return attempt, connection, response
+            except _UnsafeResumeError:
+                raise
+            except (OSError, http.client.HTTPException) as exc:
+                last_error = exc
+                if attempt < self._MAX_RESUME_ATTEMPTS:
+                    delay = self._resume_retry_delay(attempt)
+                    print(
+                        f"[WARN] 远端媒体第 {attempt} 次续传失败，"
+                        f"{delay:.2f} 秒后重试：{exc}"
+                    )
+                    time.sleep(delay)
+        raise last_error
+
+    def _resume_retry_delay(self, attempt: int) -> float:
+        index = min(max(0, attempt - 1), len(self._RESUME_RETRY_DELAYS) - 1)
+        return self._RESUME_RETRY_DELAYS[index]
 
     def _resume_response(
         self,
@@ -234,8 +279,9 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
         )
         try:
             self._validate_resume_response(response, window, resume_start)
-        except Exception as exc:
+        except http.client.HTTPException as exc:
             print(f"[WARN] 远端媒体续传响应校验失败：{exc}")
+            response.close()
             connection.close()
             raise
         return connection, response
@@ -287,28 +333,36 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
         window: _ResponseWindow,
         resume_start: int,
     ) -> None:
-        if response.status != 206:
+        if response.status in self._RETRIABLE_STATUS_CODES:
             raise http.client.HTTPException(
+                f"远端媒体续传暂时失败，HTTP 状态为 {response.status}"
+            )
+        if response.status != 206:
+            raise _UnsafeResumeError(
                 f"远端拒绝媒体续传，HTTP 状态为 {response.status}"
             )
         actual_start, actual_end, total_length = self._parse_content_range(response)
-        if actual_start != resume_start or actual_end > window.absolute_end:
-            raise http.client.HTTPException("远端媒体续传范围与请求不一致")
+        if actual_start != resume_start or actual_end != window.absolute_end:
+            raise _UnsafeResumeError("远端媒体续传范围与请求不一致")
         length_header = response.getheader("Content-Length", "")
-        if length_header and int(length_header) != actual_end - actual_start + 1:
-            raise http.client.HTTPException(
-                "远端媒体续传 Content-Length 与 Content-Range 不一致"
-            )
+        if length_header:
+            try:
+                declared_length = int(length_header)
+            except ValueError as exc:
+                raise _UnsafeResumeError("远端媒体续传 Content-Length 无效") from exc
+            if declared_length != actual_end - actual_start + 1:
+                raise _UnsafeResumeError(
+                    "远端媒体续传 Content-Length 与 Content-Range 不一致"
+                )
         if total_length != window.total_length:
-            raise http.client.HTTPException("远端媒体在续传期间长度发生变化")
-        if window.etag and response.getheader("ETag", window.etag) != window.etag:
-            raise http.client.HTTPException("远端媒体在续传期间 ETag 发生变化")
+            raise _UnsafeResumeError("远端媒体在续传期间长度发生变化")
+        if window.etag and response.getheader("ETag", "") != window.etag:
+            raise _UnsafeResumeError("远端媒体在续传期间 ETag 发生变化")
         if (
             window.last_modified
-            and response.getheader("Last-Modified", window.last_modified)
-            != window.last_modified
+            and response.getheader("Last-Modified", "") != window.last_modified
         ):
-            raise http.client.HTTPException("远端媒体在续传期间修改时间发生变化")
+            raise _UnsafeResumeError("远端媒体在续传期间修改时间发生变化")
 
     def _parse_content_range(
         self, response: http.client.HTTPResponse
@@ -316,10 +370,10 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
         value = response.getheader("Content-Range", "")
         match = self._CONTENT_RANGE_PATTERN.fullmatch(value.strip())
         if match is None or match.group(3) == "*":
-            raise http.client.HTTPException("远端媒体 Content-Range 无效")
+            raise _UnsafeResumeError("远端媒体 Content-Range 无效")
         start, end, total = (int(part) for part in match.groups())
         if start > end or end >= total:
-            raise http.client.HTTPException("远端媒体 Content-Range 越界")
+            raise _UnsafeResumeError("远端媒体 Content-Range 越界")
         return start, end, total
 
     def log_message(self, _format: str, *_args) -> None:
