@@ -9,6 +9,7 @@ Item {
     property real progress: 0
     property int pixelSize: Fluent.Enums.typography.hero
     property int minimumPixelSize: Fluent.Enums.typography.titleLarge
+    property string fontFamily: Fluent.Enums.fontFamily
     property bool bold: true
     property color restingColor: Fluent.Enums.secondaryForeground
     property color activeColor: Fluent.Enums.accentColor
@@ -23,6 +24,7 @@ Item {
         type: Fluent.Enums.label.type_title_large
         text: root.text
         customTextColor: root.restingColor
+        font.family: root.fontFamily
         font.pixelSize: root.pixelSize
         font.bold: root.bold
         fontSizeMode: Text.Fit
@@ -47,6 +49,7 @@ Item {
             type: Fluent.Enums.label.type_title_large
             text: root.text
             customTextColor: root.activeColor
+            font.family: root.fontFamily
             font.pixelSize: root.pixelSize
             font.bold: root.bold
             fontSizeMode: Text.Fit

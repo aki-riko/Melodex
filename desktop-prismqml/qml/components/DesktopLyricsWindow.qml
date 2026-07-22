@@ -215,8 +215,10 @@ Window {
         height: lyricsWindow.activeLineHeight
         text: lyricsWindow.activeText
         progress: lyricsWindow.activeLine ? Player.currentLyricProgress : 0
+        fontFamily: UserSettings.lyricsFontFamily
         pixelSize: UserSettings.lyricsFontSize
         minimumPixelSize: UserSettings.lyricsFontSizeMinimum
+        bold: false
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
         outlineColor: Qt.rgba(0, 0, 0, 0.82)
@@ -233,8 +235,9 @@ Window {
         text: lyricsWindow.nextText
         customTextColor: UserSettings.lyricsUnplayedColor
         opacity: 0.86
+        font.family: UserSettings.lyricsFontFamily
         font.pixelSize: lyricsWindow.secondaryFontSize
-        font.weight: Font.DemiBold
+        font.weight: Font.Normal
         fontSizeMode: Text.Fit
         minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
         horizontalAlignment: Text.AlignHCenter
