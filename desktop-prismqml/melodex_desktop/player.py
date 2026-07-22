@@ -60,6 +60,11 @@ class PlayerController(QObject):
         self._active_identity: tuple[str, str] | None = None
         self._pending_restore_position_ms: int | None = None
         self._restoring_state = False
+        self._source_request_serial = 0
+        self._pending_source_key = ""
+        self._loaded_source_key = ""
+        self._play_when_source_ready = False
+        self._changing_source = False
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(PLAYBACK_SAVE_INTERVAL_MS)
@@ -88,6 +93,7 @@ class PlayerController(QObject):
         if not normalized["id"] or not normalized["source"]:
             self._set_error("歌曲缺少来源标识，无法播放")
             return
+        self._save_playback_state()
         self._pending_restore_position_ms = None
         self._restoring_state = False
         self._queue = [normalize_song(item) for item in queue if isinstance(item, dict)]
@@ -107,12 +113,7 @@ class PlayerController(QObject):
         self.lyricsChanged.emit()
         self.currentLyricIndexChanged.emit()
         self.currentLyricProgressChanged.emit()
-        try:
-            self._player.setSource(QUrl(self._api.stream_url(normalized)))
-        except ValueError as exc:
-            self._set_error(str(exc))
-            return
-        self._player.play()
+        self._request_stream_source(normalized, autoplay=True)
         self._api.load_lyrics(normalized)
         self._save_playback_state(position_seconds=0.0)
 
@@ -121,7 +122,13 @@ class PlayerController(QObject):
         if self._player.playbackState() == QMediaPlayer.PlayingState:
             self._player.pause()
         elif self._current_song:
-            self._player.play()
+            current_key = self._song_key(self._current_song)
+            if self._loaded_source_key == current_key:
+                self._player.play()
+            elif self._pending_source_key == current_key:
+                self._play_when_source_ready = True
+            else:
+                self._request_stream_source(self._current_song, autoplay=True)
 
     @Slot()
     def next(self) -> None:
@@ -161,12 +168,12 @@ class PlayerController(QObject):
         if abs(progress - self._current_lyric_progress) >= 0.005:
             self._current_lyric_progress = progress
             self.currentLyricProgressChanged.emit()
-        if not self._restoring_state:
+        if not self._restoring_state and not self._changing_source:
             self._schedule_playback_save()
 
     def _on_playback_state_changed(self, state) -> None:
         self.playingChanged.emit()
-        if state != QMediaPlayer.PlayingState:
+        if state != QMediaPlayer.PlayingState and not self._changing_source:
             self._save_playback_state()
 
     def _on_duration_changed(self, _milliseconds: int) -> None:
@@ -279,16 +286,51 @@ class PlayerController(QObject):
         self.currentLyricIndexChanged.emit()
         self.currentLyricProgressChanged.emit()
 
-        try:
-            self._player.setSource(QUrl(self._api.stream_url(current_song)))
-        except ValueError as exc:
-            self._restoring_state = False
-            self._set_error(str(exc))
-            return
+        self._request_stream_source(current_song, autoplay=False)
         self._api.load_lyrics(current_song)
         if position_ms == 0:
             self._pending_restore_position_ms = None
             self.positionChanged.emit()
+
+    def _request_stream_source(self, song: dict[str, Any], *, autoplay: bool) -> None:
+        """Resolve one direct URL without putting media bytes through Python."""
+
+        song_key = self._song_key(song)
+        self._source_request_serial += 1
+        request_serial = self._source_request_serial
+        self._pending_source_key = song_key
+        self._loaded_source_key = ""
+        self._play_when_source_ready = autoplay
+        self._changing_source = True
+        try:
+            self._player.stop()
+            self._player.setSource(QUrl())
+        finally:
+            self._changing_source = False
+
+        def completed(stream_url: str, error: str) -> None:
+            if request_serial != self._source_request_serial:
+                return
+            if song_key != self._song_key(self._current_song):
+                return
+            self._pending_source_key = ""
+            if error or not stream_url:
+                self._play_when_source_ready = False
+                self._restoring_state = False
+                self._set_error(error or "服务端未返回原生播放地址")
+                return
+            self._set_error("")
+            self._loaded_source_key = song_key
+            self._changing_source = True
+            try:
+                self._player.setSource(QUrl(stream_url))
+            finally:
+                self._changing_source = False
+            if self._play_when_source_ready:
+                self._play_when_source_ready = False
+                self._player.play()
+
+        self._api.request_stream_url(song, completed)
 
     def _restored_queue_index(
         self,
@@ -371,6 +413,10 @@ class PlayerController(QObject):
             print(f"[WARN] 保存桌面播放状态失败：{exc}")
 
     def _clear_playback(self) -> None:
+        self._source_request_serial += 1
+        self._pending_source_key = ""
+        self._loaded_source_key = ""
+        self._play_when_source_ready = False
         self._pending_restore_position_ms = None
         self._restoring_state = False
         self._player.stop()

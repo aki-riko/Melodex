@@ -421,18 +421,26 @@ func authRequired() gin.HandlerFunc {
 // authenticateRequest 验签会话 cookie 并查库确认用户存在且未禁用。
 func authenticateRequest(c *gin.Context, now time.Time) (*User, bool, error) {
 	value, err := c.Cookie(authCookieName)
-	if err != nil || value == "" {
-		return nil, false, nil
+	if err == nil && value != "" {
+		secret, secretErr := signingSecret()
+		if secretErr != nil {
+			return nil, false, secretErr
+		}
+		if payload, ok := parseSessionValue(secret, value, now); ok {
+			if user, valid, lookupErr := authenticatedUserForIdentity(
+				payload.UserID, payload.Username, payload.Epoch,
+			); lookupErr != nil || valid {
+				return user, valid, lookupErr
+			}
+		}
 	}
-	secret, err := signingSecret()
-	if err != nil {
-		return nil, false, err
-	}
-	payload, ok := parseSessionValue(secret, value, now)
-	if !ok {
-		return nil, false, nil
-	}
-	u, err := findUserByID(payload.UserID)
+	return authenticatePlaybackTicketRequest(c, now)
+}
+
+func authenticatedUserForIdentity(
+	userID uint, username string, epoch int,
+) (*User, bool, error) {
+	u, err := findUserByID(userID)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return nil, false, nil
@@ -446,11 +454,11 @@ func authenticateRequest(c *gin.Context, now time.Time) (*User, bool, error) {
 		return nil, false, nil
 	}
 	// 用户名变更则旧会话失效(防止改名后旧 cookie 仍显示旧名)。
-	if u.Username != payload.Username {
+	if u.Username != username {
 		return nil, false, nil
 	}
 	// 会话纪元不匹配(改密码后递增)→ 旧会话作废,实现"改密码即登出所有设备"。
-	if u.SessionEpoch != payload.Epoch {
+	if u.SessionEpoch != epoch {
 		return nil, false, nil
 	}
 	return u, true, nil

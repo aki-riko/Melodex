@@ -42,6 +42,8 @@ android/app/src/main/res/xml/config.xml
 # Windows/macOS 桌面歌词助手本地构建产物
 desktop/src-tauri/target/
 desktop/src-tauri/gen/schemas/
+desktop-prismqml/build-cpp/
+desktop-prismqml/.prism-sdk/
 
 # Android Release签名材料（仅允许放在仓库外和GitHub Environment Secrets）
 *.jks

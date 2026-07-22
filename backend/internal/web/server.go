@@ -411,7 +411,8 @@ func StartWithOptions(port string, opts StartOptions) {
 	}
 
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.LoggerWithFormatter(redactedGinLogFormatter), gin.Recovery())
 	// 可信代理:env MUSIC_DL_TRUSTED_PROXIES(逗号分隔 CIDR/IP)配置后,仅这些来源的
 	// X-Forwarded-For 被 ClientIP() 采信,防客户端伪造 XFF 绕过限流/登录锁。
 	// 未配置时显式不信任任何代理头;有反代部署时请配置真实反代网段。

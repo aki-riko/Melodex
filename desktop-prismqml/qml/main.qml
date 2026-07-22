@@ -21,7 +21,7 @@ Item {
         id: mainWindow
         objectName: "mainWindow"
 
-        // Python owns the first show() call. This follows PrismQML's public
+        // C++ owns the first show() call. This follows PrismQML's public
         // window lifecycle and keeps the native HWND from remaining hidden.
         visible: false
         width: AppConfig.windowWidth
