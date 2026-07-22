@@ -244,17 +244,6 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
         self, response: http.client.HTTPResponse
     ) -> _ResponseWindow | None:
         length_header = response.getheader("Content-Length")
-        if response.status not in {200, 206} or not length_header:
-            return None
-        try:
-            body_length = int(length_header)
-        except ValueError:
-            return None
-        if body_length <= 0:
-            return None
-
-        absolute_start = 0
-        total_length = body_length
         if response.status == 206:
             try:
                 absolute_start, absolute_end, total_length = self._parse_content_range(
@@ -263,9 +252,27 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
             except http.client.HTTPException as exc:
                 print(f"[INFO] 远端媒体不支持安全续传：{exc}")
                 return None
-            if absolute_end - absolute_start + 1 != body_length:
-                print("[INFO] 远端媒体不支持安全续传：响应长度与范围不一致")
+            body_length = absolute_end - absolute_start + 1
+            if length_header:
+                try:
+                    declared_length = int(length_header)
+                except ValueError:
+                    print("[INFO] 远端媒体不支持安全续传：响应长度无效")
+                    return None
+                if declared_length != body_length:
+                    print("[INFO] 远端媒体不支持安全续传：响应长度与范围不一致")
+                    return None
+        elif response.status == 200 and length_header:
+            try:
+                body_length = int(length_header)
+            except ValueError:
                 return None
+            absolute_start = 0
+            total_length = body_length
+        else:
+            return None
+        if body_length <= 0:
+            return None
         return _ResponseWindow(
             absolute_start=absolute_start,
             body_length=body_length,
@@ -288,7 +295,7 @@ class _ProxyRequestHandler(BaseHTTPRequestHandler):
         if actual_start != resume_start or actual_end > window.absolute_end:
             raise http.client.HTTPException("远端媒体续传范围与请求不一致")
         length_header = response.getheader("Content-Length", "")
-        if not length_header or int(length_header) != actual_end - actual_start + 1:
+        if length_header and int(length_header) != actual_end - actual_start + 1:
             raise http.client.HTTPException(
                 "远端媒体续传 Content-Length 与 Content-Range 不一致"
             )
