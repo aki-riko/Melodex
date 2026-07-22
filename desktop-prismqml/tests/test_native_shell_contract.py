@@ -106,9 +106,21 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Fluent.ImageWidget {", song_row)
         self.assertIn("Fluent.ImageWidget {", player_bar)
         self.assertIn("Fluent.WindowDragHandle {", lyrics_window)
+        self.assertIn("Fluent.Card {", lyrics_window)
+        self.assertIn("readonly property bool controlsVisible", lyrics_window)
+        self.assertIn("Fluent.Enums.icon.previous", lyrics_window)
+        self.assertIn("Fluent.Enums.icon.desktop_cursor", lyrics_window)
+        self.assertIn("Player.togglePlay()", lyrics_window)
         self.assertIn('objectName: "desktopLyricsWindow"', lyrics_window)
         self.assertIn("visible: false", lyrics_window)
         self.assertNotIn("MouseArea {", lyrics_window)
+
+        word_fill = (QML_ROOT / "components" / "WordFill.qml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("baseLabel.paintedWidth", word_fill)
+        self.assertIn("root.textPaintedWidth * root.clampedProgress", word_fill)
+        self.assertNotIn("root.width * Math.max", word_fill)
 
         raw_visual_pattern = re.compile(
             r"^\s*(?:Rectangle|Flickable|ListView|GridView|ScrollView|Image|"
