@@ -15,19 +15,18 @@ Item {
         visible: !Api.authenticated
     }
 
-    Flickable {
+    Fluent.ScrollArea {
+        objectName: "homeScrollArea"
         anchors.fill: parent
         visible: Api.authenticated
-        clip: true
-        contentWidth: width
-        contentHeight: dashboard.implicitHeight + Fluent.Enums.spacing.xxxl * 2
-        boundsBehavior: Flickable.StopAtBounds
+        orientation: Qt.Vertical
+        padding: Fluent.Enums.spacing.xxxl
+        showScrollBar: true
 
         ColumnLayout {
             id: dashboard
-            x: Fluent.Enums.spacing.xxxl
-            y: Fluent.Enums.spacing.xxxl
-            width: parent.width - Fluent.Enums.spacing.xxxl * 2
+            objectName: "homeContent"
+            width: parent ? parent.width : 0
             spacing: Fluent.Enums.spacing.xl
 
             RowLayout {

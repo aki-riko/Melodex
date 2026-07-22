@@ -27,29 +27,13 @@ Fluent.Card {
             Layout.fillHeight: true
             Layout.minimumHeight: 180
 
-            Rectangle {
+            Fluent.ImageWidget {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, parent.height, 260)
                 height: width
                 radius: Fluent.Enums.radius.large
-                color: Fluent.Enums.surfaceColor
-                clip: true
-
-                Fluent.Icon {
-                    anchors.centerIn: parent
-                    icon: Fluent.Enums.icon.album
-                    iconSize: Fluent.Enums.iconSize.xxxl
-                    color: Fluent.Enums.secondaryForeground
-                }
-
-                Image {
-                    anchors.fill: parent
-                    source: Api.coverUrl(Player.currentSong)
-                    asynchronous: true
-                    cache: true
-                    fillMode: Image.PreserveAspectCrop
-                    visible: status === Image.Ready
-                }
+                source: Api.coverUrl(Player.currentSong)
+                fillMode: Image.PreserveAspectCrop
             }
         }
 

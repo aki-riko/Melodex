@@ -6,18 +6,17 @@ import PrismQML as Fluent
 Item {
     id: root
 
-    Flickable {
+    Fluent.ScrollArea {
+        objectName: "settingsScrollArea"
         anchors.fill: parent
-        clip: true
-        contentWidth: width
-        contentHeight: settingsContent.implicitHeight + Fluent.Enums.spacing.xxxl * 2
-        boundsBehavior: Flickable.StopAtBounds
+        orientation: Qt.Vertical
+        padding: Fluent.Enums.spacing.xxxl
+        showScrollBar: true
 
         ColumnLayout {
             id: settingsContent
-            x: Fluent.Enums.spacing.xxxl
-            y: Fluent.Enums.spacing.xxxl
-            width: parent.width - Fluent.Enums.spacing.xxxl * 2
+            objectName: "settingsContent"
+            width: parent ? parent.width : 0
             spacing: Fluent.Enums.spacing.xl
 
             Fluent.Label {

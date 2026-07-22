@@ -55,6 +55,8 @@ Item {
             minimumSize: 320
 
             firstContent: Item {
+                anchors.fill: parent
+
                 PlayerBar {
                     objectName: "playerPanel"
                     anchors.fill: parent
@@ -63,6 +65,8 @@ Item {
             }
 
             secondContent: Item {
+                anchors.fill: parent
+
                 Fluent.Card {
                     anchors.fill: parent
                     anchors.leftMargin: Fluent.Enums.spacing.m
@@ -93,37 +97,30 @@ Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
 
-                            ListView {
+                            Fluent.ScrollArea {
                                 id: lyricList
                                 objectName: "lyricList"
                                 anchors.fill: parent
                                 visible: Player.hasLyrics
-                                clip: true
+                                type: Fluent.Enums.scroll.type_list
                                 model: Player.lyrics
-                                spacing: Fluent.Enums.spacing.m
+                                itemHeight: 56
+                                listSpacing: Fluent.Enums.spacing.xs
+                                reuseItems: true
+                                bounceEnabled: false
+                                selectable: true
                                 currentIndex: Player.currentLyricIndex
-                                boundsBehavior: Flickable.StopAtBounds
 
                                 delegate: Item {
                                     required property var modelData
                                     required property int index
 
-                                    width: ListView.view.width
-                                    height: lyricText.implicitHeight + Fluent.Enums.spacing.m * 2
-
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        radius: Fluent.Enums.radius.medium
-                                        color: index === Player.currentLyricIndex
-                                               ? Fluent.Enums.stateColor.accentSubtle
-                                               : Fluent.Enums.transparent
-                                    }
+                                    width: ListView.view ? ListView.view.width : 0
+                                    height: lyricList.itemHeight
 
                                     Fluent.Label {
                                         id: lyricText
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.fill: parent
                                         anchors.leftMargin: Fluent.Enums.spacing.l
                                         anchors.rightMargin: Fluent.Enums.spacing.l
                                         type: index === Player.currentLyricIndex
@@ -134,7 +131,8 @@ Item {
                                                ? Fluent.Enums.accentColor
                                                : Fluent.Enums.secondaryForeground
                                         horizontalAlignment: Text.AlignHCenter
-                                        wrapMode: Text.WordWrap
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
                                     }
                                 }
                             }
@@ -158,8 +156,10 @@ Item {
         target: Player
 
         function onCurrentLyricIndexChanged() {
-            if (Player.currentLyricIndex >= 0 && lyricList.count > 0) {
-                lyricList.positionViewAtIndex(
+            if (Player.currentLyricIndex >= 0
+                    && lyricList.count > 0
+                    && lyricList.flickableItem) {
+                lyricList.flickableItem.positionViewAtIndex(
                     Player.currentLyricIndex,
                     ListView.Center
                 )
