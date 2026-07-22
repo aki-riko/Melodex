@@ -230,16 +230,23 @@ func setUserPassword(id uint, password string) error {
 		return err
 	}
 	// 改密码同时递增 session_epoch → 该用户所有已签发会话立即失效(登出所有设备)。
-	res := db.Model(&User{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"password_hash": hash,
-		"session_epoch": gorm.Expr("session_epoch + 1"),
+	err = db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&User{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"password_hash": hash,
+			"session_epoch": gorm.Expr("session_epoch + 1"),
+		})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrUserNotFound
+		}
+		return tx.Where("user_id = ?", id).Delete(&DesktopLyricsDevice{}).Error
 	})
-	if res.Error != nil {
-		return res.Error
+	if err != nil {
+		return err
 	}
-	if res.RowsAffected == 0 {
-		return ErrUserNotFound
-	}
+	desktopLyricsHub.disconnectUser(id)
 	return nil
 }
 
@@ -280,7 +287,19 @@ func setUserDisabled(id uint, disabled bool) error {
 			return ErrLastRootProtected
 		}
 	}
-	return db.Model(&User{}).Where("id = ?", id).Update("disabled", disabled).Error
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&User{}).Where("id = ?", id).Update("disabled", disabled).Error; err != nil {
+			return err
+		}
+		if disabled {
+			return tx.Where("user_id = ?", id).Delete(&DesktopLyricsDevice{}).Error
+		}
+		return nil
+	})
+	if err == nil {
+		desktopLyricsHub.disconnectUser(id)
+	}
+	return err
 }
 
 // deleteUser 删除账号。保护最后一个管理员。删除前应处理其归属数据(调用方负责)。
@@ -298,7 +317,16 @@ func deleteUser(id uint) error {
 			return ErrLastRootProtected
 		}
 	}
-	return db.Delete(&User{}, id).Error
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", id).Delete(&DesktopLyricsDevice{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&User{}, id).Error
+	})
+	if err == nil {
+		desktopLyricsHub.disconnectUser(id)
+	}
+	return err
 }
 
 // deleteUserAndData 删除用户及其归属数据(歌单连同 saved_songs 级联、下载归属记录),
@@ -317,7 +345,7 @@ func deleteUserAndData(id uint) error {
 			return ErrLastRootProtected
 		}
 	}
-	return db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		// 删该用户的歌单(SavedSong 经 Collection 的 OnDelete:CASCADE 级联删除)。
 		if err := tx.Where("user_id = ?", id).Delete(&Collection{}).Error; err != nil {
 			return err
@@ -325,8 +353,15 @@ func deleteUserAndData(id uint) error {
 		if err := tx.Where("user_id = ?", id).Delete(&DownloadRecord{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("user_id = ?", id).Delete(&DesktopLyricsDevice{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&User{}, id).Error
 	})
+	if err == nil {
+		desktopLyricsHub.disconnectUser(id)
+	}
+	return err
 }
 
 func listUsers() ([]publicUser, error) {
@@ -432,5 +467,3 @@ func migrateRootUserAndOwnership() error {
 	return db.Model(&Collection{}).Where("user_id = 0 OR user_id IS NULL").
 		Update("user_id", owner.ID).Error
 }
-
-
