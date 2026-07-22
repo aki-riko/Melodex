@@ -4,7 +4,7 @@
 `prismqml==0.3.1.34`，不修改 PrismQML 库源码，也不依赖 PWA 或 Tauri 桥接器。
 
 界面使用 PrismQML 的 Fluent 亮色皮肤，以及 `Windows` 紧凑导航、SettingsCard、
-InfoBar、ListWidget、ScrollArea、ImageWidget、SplitPane 等发布版桌面组件重新设计，
+SplashScreen、InfoBar、ListWidget、ScrollArea、ImageWidget、SplitPane 等发布版桌面组件重新设计，
 不复刻 PWA 的网页布局。当前包含 Melodex 登录与会话保持、全网搜索、Qt Multimedia
 原生播放队列、同步歌词、个人歌单（我喜欢、自建及平台导入）、搜索结果加入歌单、
 透明无标题桌面歌词、鼠标穿透和系统托盘。

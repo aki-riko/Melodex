@@ -36,6 +36,7 @@ Item {
                     : Fluent.Enums.windowShadow.mode_auto
         micaEnabled: !HeadlessSelfTest
         lazyLoading: false
+        _splashInstance: startupSplash
 
         navigationItems: Api.authenticated ? root.navigationModel : []
         bottomNavigationItems: Api.authenticated ? [
@@ -76,6 +77,15 @@ Item {
         SettingsPage {
             objectName: "settingsPage"
         }
+    }
+
+    Fluent.SplashScreen {
+        id: startupSplash
+        objectName: "startupSplashScreen"
+        parent: mainWindow.contentItem
+        iconSource: AppConfig.iconUrl
+        title: AppConfig.name
+        subtitle: "正在载入桌面客户端"
     }
 
     Connections {

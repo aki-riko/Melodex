@@ -46,6 +46,14 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertNotIn("setTheme(Theme.DARK)", source)
         self.assertNotIn("setSkin(Skin.PRISM_DESIGN)", source)
 
+    def test_startup_uses_published_prismqml_splash_screen(self) -> None:
+        source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
+
+        self.assertIn("Fluent.SplashScreen {", source)
+        self.assertIn('_splashInstance: startupSplash', source)
+        self.assertIn('objectName: "startupSplashScreen"', source)
+        self.assertIn("parent: mainWindow.contentItem", source)
+
     def test_pages_reuse_published_prismqml_components(self) -> None:
         home = (QML_ROOT / "pages" / "HomePage.qml").read_text(encoding="utf-8")
         settings = (QML_ROOT / "pages" / "SettingsPage.qml").read_text(
