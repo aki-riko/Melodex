@@ -5,6 +5,7 @@ import PrismQML as Fluent
 
 Window {
     id: lyricsWindow
+    objectName: "desktopLyricsWindow"
 
     readonly property int lineIndex: Player.currentLyricIndex
     readonly property var activeLine: lineIndex >= 0 && lineIndex < Player.lyrics.length
@@ -20,7 +21,9 @@ Window {
     height: 142
     x: Math.round((Screen.width - width) / 2)
     y: Math.round(Screen.height * 0.72)
-    visible: UserSettings.lyricsVisible && Boolean(Player.currentSong.id)
+    // Python explicitly owns the native show/hide lifecycle. A declarative
+    // visible binding left the Windows tool HWND uncreated after song changes.
+    visible: false
     color: "transparent"
     title: "Melodex 桌面歌词"
     flags: Qt.FramelessWindowHint
