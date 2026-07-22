@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Melodex 桌面歌词</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body class="passthrough">
+    <main id="lyrics-shell" class="lyrics-shell" aria-label="桌面歌词">
+      <p id="previous-line" class="lyric-line adjacent" aria-hidden="true"></p>
+      <p id="current-line" class="lyric-line current"></p>
+      <p id="next-line" class="lyric-line adjacent" aria-hidden="true"></p>
+      <div id="controls" class="controls" aria-label="播放控制">
+        <button type="button" data-command="prev" aria-label="上一首">◀◀</button>
+        <button id="toggle-button" type="button" data-command="toggle" aria-label="播放或暂停">Ⅱ</button>
+        <button type="button" data-command="next" aria-label="下一首">▶▶</button>
+      </div>
+    </main>
+    <script type="module" src="overlay.js"></script>
+  </body>
+</html>
