@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Melodex 桌面歌词本地窗口能力",
+  "windows": ["settings", "overlay"],
+  "permissions": ["core:default"]
+}

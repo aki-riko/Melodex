@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Melodex 桌面歌词</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <main class="settings-shell">
+      <header>
+        <div class="brand-mark" aria-hidden="true">M</div>
+        <div>
+          <h1>Melodex 桌面歌词</h1>
+          <p>Windows / macOS 透明歌词助手</p>
+        </div>
+      </header>
+
+      <section class="card" aria-labelledby="pair-title">
+        <h2 id="pair-title">连接 Melodex</h2>
+        <p class="hint">先在 Web 设置页生成一次性配对码。服务地址只填站点根地址，不填 API 路径。</p>
+        <form id="pair-form">
+          <label for="service-url">Melodex 服务地址</label>
+          <input id="service-url" name="service-url" type="text" inputmode="url" autocomplete="url"
+            placeholder="https://你的-melodex-地址" required />
+
+          <label for="pair-code">一次性配对码</label>
+          <input id="pair-code" name="pair-code" type="text" autocomplete="one-time-code"
+            placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="32" required />
+
+          <button id="pair-button" class="primary" type="submit">配对并连接</button>
+        </form>
+        <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card" aria-labelledby="device-title">
+        <div class="card-heading">
+          <h2 id="device-title">当前助手</h2>
+          <span id="connection-dot" class="status-dot" aria-hidden="true"></span>
+        </div>
+        <div id="device-empty" class="empty-state">尚未配对。完成配对后，浏览器播放时会自动显示歌词。</div>
+        <div id="device-info" class="device-info" hidden>
+          <strong id="device-name"></strong>
+          <span id="device-url"></span>
+          <button id="clear-button" class="secondary danger" type="button">清除本机配对</button>
+        </div>
+      </section>
+
+      <section class="tips">
+        <h2>怎么用</h2>
+        <ul>
+          <li>歌词窗无边框、无标题、无背景，并始终置顶。</li>
+          <li>默认开启鼠标穿透；从系统托盘取消穿透后，可拖动窗口和使用播放按钮。</li>
+          <li>关闭此设置窗口不会退出助手；需要退出时使用系统托盘菜单。</li>
+        </ul>
+      </section>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>

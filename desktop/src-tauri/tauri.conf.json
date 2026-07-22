@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Melodex Desktop Lyrics",
+  "version": "0.1.0",
+  "identifier": "life.9li.melodex.desktoplyrics",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "settings",
+        "url": "index.html",
+        "title": "Melodex 桌面歌词",
+        "width": 520,
+        "height": 640,
+        "minWidth": 460,
+        "minHeight": 560,
+        "center": true,
+        "resizable": true
+      },
+      {
+        "label": "overlay",
+        "url": "overlay.html",
+        "title": "Melodex 桌面歌词",
+        "width": 920,
+        "height": 220,
+        "minWidth": 560,
+        "minHeight": 160,
+        "resizable": true,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false,
+        "focus": false,
+        "acceptFirstMouse": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' customprotocol: asset:; connect-src ws: wss:; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon-32.png",
+      "icons/icon-128.png",
+      "icons/icon-256.png",
+      "icons/icon.ico"
+    ],
+    "shortDescription": "Windows/macOS 透明桌面歌词助手",
+    "longDescription": "Melodex 的无边框透明桌面歌词助手，浏览器负责播放，助手负责歌词显示和基础播放控制。"
+  }
+}

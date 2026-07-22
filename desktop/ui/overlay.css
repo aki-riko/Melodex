@@ -1,0 +1,100 @@
+:root,
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent !important;
+  color: #fff;
+  font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.lyrics-shell {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  padding: 13px 34px 15px;
+  grid-template-rows: minmax(26px, 0.75fr) minmax(54px, 1.5fr) minmax(26px, 0.75fr);
+  align-items: center;
+  cursor: move;
+}
+
+.lyric-line {
+  margin: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.95),
+    0 0 12px rgba(0, 0, 0, 0.82),
+    0 0 2px rgba(0, 0, 0, 1);
+  -webkit-text-stroke: 0.55px rgba(0, 0, 0, 0.92);
+}
+
+.adjacent {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: clamp(15px, 2.3vw, 21px);
+  font-weight: 560;
+}
+
+.current {
+  color: #1ed760;
+  font-size: clamp(24px, 4.2vw, 40px);
+  font-weight: 760;
+  letter-spacing: 0.01em;
+}
+
+.current .word {
+  display: inline;
+  background-image: linear-gradient(90deg, #1ed760 var(--fill), rgba(255, 255, 255, 0.9) var(--fill));
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.controls {
+  position: absolute;
+  right: 18px;
+  bottom: 10px;
+  display: flex;
+  gap: 7px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+body:not(.passthrough) .lyrics-shell:hover .controls,
+.controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.controls button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 50%;
+  background: rgba(16, 16, 16, 0.45);
+  color: #fff;
+  font: 700 12px/1 "Segoe UI", sans-serif;
+  text-shadow: 0 1px 2px #000;
+  cursor: pointer;
+  backdrop-filter: blur(5px);
+}
+
+.controls button:hover {
+  border-color: rgba(30, 215, 96, 0.8);
+  color: #1ed760;
+}
