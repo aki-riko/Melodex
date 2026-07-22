@@ -3,20 +3,23 @@
 
 import io
 import json
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
 from melodex_desktop.config import (
-    CUSTOM_LYRICS_COLOR_SCHEME,
+    DEFAULT_LYRICS_COLOR_SCHEME,
     DEFAULT_LYRICS_FONT_SIZE,
     DEFAULT_LYRICS_PLAYED_COLOR,
     DEFAULT_LYRICS_UNPLAYED_COLOR,
     LYRICS_FONT_SIZE_MAXIMUM,
     LYRICS_FONT_SIZE_MINIMUM,
     LYRICS_COLOR_SCHEMES,
+    MACOS_LYRICS_FONT_FAMILY,
     UserSettings,
+    WINDOWS_LYRICS_FONT_FAMILY,
     normalize_service_url,
 )
 
@@ -60,19 +63,20 @@ class UserSettingsLyricsTests(unittest.TestCase):
             json.dumps(payload, ensure_ascii=False), encoding="utf-8"
         )
 
-    def test_lyrics_preferences_persist_and_reload_independently(self) -> None:
+    def test_lyrics_size_and_preset_persist_and_reload(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_root = Path(temporary_directory)
             settings = UserSettings("MelodexTest", config_root=config_root)
 
             settings.setLyricsFontSize(48)
-            self.assertTrue(settings.setLyricsUnplayedColor("#112233"))
-            self.assertTrue(settings.setLyricsPlayedColor("#80445566"))
+            preset_index = list(LYRICS_COLOR_SCHEMES).index("樱雾")
+            self.assertTrue(settings.setLyricsColorSchemeIndex(preset_index))
 
             restored = UserSettings("MelodexTest", config_root=config_root)
             self.assertEqual(48, restored.lyricsFontSize)
-            self.assertEqual("#FF112233", restored.lyricsUnplayedColor)
-            self.assertEqual("#80445566", restored.lyricsPlayedColor)
+            self.assertEqual("樱雾", restored.lyricsColorScheme)
+            self.assertEqual("#FFFDD6EB", restored.lyricsPlayedColor)
+            self.assertEqual("#FFEEEEEE", restored.lyricsUnplayedColor)
 
     def test_font_size_is_clamped_to_supported_range(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -90,8 +94,6 @@ class UserSettingsLyricsTests(unittest.TestCase):
                 config_root,
                 {
                     "desktop_lyrics_font_size": "很大",
-                    "desktop_lyrics_unplayed_color": "not-a-color",
-                    "desktop_lyrics_played_color": None,
                     "desktop_lyrics_color_scheme": "不存在的方案",
                 },
             )
@@ -105,64 +107,71 @@ class UserSettingsLyricsTests(unittest.TestCase):
             )
             self.assertEqual(DEFAULT_LYRICS_PLAYED_COLOR, restored.lyricsPlayedColor)
             self.assertEqual(
-                CUSTOM_LYRICS_COLOR_SCHEME, restored.lyricsColorScheme
+                DEFAULT_LYRICS_COLOR_SCHEME, restored.lyricsColorScheme
             )
             self.assertIn("无效桌面歌词字号", warnings.getvalue())
-            self.assertIn("无效未播放歌词颜色", warnings.getvalue())
-            self.assertIn("无效已播放歌词颜色", warnings.getvalue())
             self.assertIn("无效桌面歌词配色方案", warnings.getvalue())
 
-    def test_invalid_color_update_is_rejected_without_changing_saved_value(self) -> None:
+    def test_font_family_and_preset_colors_are_not_user_editable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_root = Path(temporary_directory)
             settings = UserSettings("MelodexTest", config_root=config_root)
-            warnings = io.StringIO()
 
-            with redirect_stdout(warnings):
-                accepted = settings.setLyricsPlayedColor("definitely-invalid")
-
-            self.assertFalse(accepted)
-            self.assertEqual(DEFAULT_LYRICS_PLAYED_COLOR, settings.lyricsPlayedColor)
-            self.assertIn("拒绝无效桌面歌词颜色", warnings.getvalue())
+            expected_family = (
+                MACOS_LYRICS_FONT_FAMILY
+                if sys.platform == "darwin"
+                else WINDOWS_LYRICS_FONT_FAMILY
+            )
+            self.assertEqual(expected_family, settings.lyricsFontFamily)
+            self.assertFalse(hasattr(settings, "setLyricsFontFamily"))
+            self.assertFalse(hasattr(settings, "setLyricsPlayedColor"))
+            self.assertFalse(hasattr(settings, "setLyricsUnplayedColor"))
 
     def test_reference_color_schemes_use_sampled_swatch_colors(self) -> None:
         expected = {
-            "自定义": None,
-            "网易红": "#FFFFC6C6",
-            "落日晖": "#FFEEC1D1",
-            "可爱粉": "#FFFDD6EB",
-            "天际蓝": "#FFC7E4F1",
-            "清新绿": "#FFE6FAD0",
-            "活力紫": "#FFE7E3FB",
-            "温柔黄": "#FFFCE8C2",
-            "低调灰": "#FFD3D2D2",
+            "珊瑚绯": ("#FFFFC6C6", "#FFEEEEEE"),
+            "暮霞": ("#FFEEC1D1", "#FFEEEEEE"),
+            "樱雾": ("#FFFDD6EB", "#FFEEEEEE"),
+            "晴澜": ("#FFC7E4F1", "#FFEEEEEE"),
+            "青芽": ("#FFE6FAD0", "#FFEEEEEE"),
+            "藤影": ("#FFE7E3FB", "#FFEEEEEE"),
+            "杏月": ("#FFFCE8C2", "#FFEEEEEE"),
+            "雾银": ("#FFD3D2D2", "#FFEEEEEE"),
         }
 
         self.assertEqual(expected, LYRICS_COLOR_SCHEMES)
 
-    def test_color_scheme_applies_played_color_and_persists(self) -> None:
+    def test_color_scheme_applies_both_colors_and_persists(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_root = Path(temporary_directory)
             settings = UserSettings("MelodexTest", config_root=config_root)
             names = list(LYRICS_COLOR_SCHEMES)
-            sky_blue_index = names.index("天际蓝")
+            sky_blue_index = names.index("晴澜")
 
             self.assertTrue(settings.setLyricsColorSchemeIndex(sky_blue_index))
-            self.assertEqual("天际蓝", settings.lyricsColorScheme)
+            self.assertEqual("晴澜", settings.lyricsColorScheme)
             self.assertEqual("#FFC7E4F1", settings.lyricsPlayedColor)
             self.assertEqual(DEFAULT_LYRICS_UNPLAYED_COLOR, settings.lyricsUnplayedColor)
 
             restored = UserSettings("MelodexTest", config_root=config_root)
-            self.assertEqual("天际蓝", restored.lyricsColorScheme)
+            self.assertEqual("晴澜", restored.lyricsColorScheme)
             self.assertEqual(sky_blue_index, restored.lyricsColorSchemeIndex)
             self.assertEqual("#FFC7E4F1", restored.lyricsPlayedColor)
 
-            restored.setLyricsUnplayedColor("#ABCDEF")
-            self.assertEqual("天际蓝", restored.lyricsColorScheme)
-            restored.setLyricsPlayedColor("#123456")
+    def test_legacy_color_scheme_names_migrate_to_new_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            config_root = Path(temporary_directory)
+            self._write_settings(
+                config_root, {"desktop_lyrics_color_scheme": "可爱粉"}
+            )
+            restored = UserSettings("MelodexTest", config_root=config_root)
+            self.assertEqual("樱雾", restored.lyricsColorScheme)
+
+            self._write_settings(
+                config_root, {"desktop_lyrics_color_scheme": "自定义"}
+            )
             custom = UserSettings("MelodexTest", config_root=config_root)
-            self.assertEqual(CUSTOM_LYRICS_COLOR_SCHEME, custom.lyricsColorScheme)
-            self.assertEqual("#FF123456", custom.lyricsPlayedColor)
+            self.assertEqual(DEFAULT_LYRICS_COLOR_SCHEME, custom.lyricsColorScheme)
 
     def test_lyrics_position_persists_and_can_be_reset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

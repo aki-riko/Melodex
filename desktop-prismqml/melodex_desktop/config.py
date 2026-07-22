@@ -7,32 +7,47 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from PySide6.QtCore import QObject, Property, QStandardPaths, Signal, Slot
-from PySide6.QtGui import QColor
 
 
 LYRICS_FONT_SIZE_MINIMUM = 20
 LYRICS_FONT_SIZE_MAXIMUM = 64
 DEFAULT_LYRICS_FONT_SIZE = 36
-DEFAULT_LYRICS_UNPLAYED_COLOR = "#FFF4F7F5"
-DEFAULT_LYRICS_PLAYED_COLOR = "#FF1ED760"
-CUSTOM_LYRICS_COLOR_SCHEME = "自定义"
-# Representative midpoint colors sampled from the user's reference swatches.
-LYRICS_COLOR_SCHEMES: dict[str, str | None] = {
-    CUSTOM_LYRICS_COLOR_SCHEME: None,
-    "网易红": "#FFFFC6C6",
-    "落日晖": "#FFEEC1D1",
-    "可爱粉": "#FFFDD6EB",
-    "天际蓝": "#FFC7E4F1",
-    "清新绿": "#FFE6FAD0",
-    "活力紫": "#FFE7E3FB",
-    "温柔黄": "#FFFCE8C2",
-    "低调灰": "#FFD3D2D2",
+DEFAULT_LYRICS_COLOR_SCHEME = "珊瑚绯"
+DEFAULT_LYRICS_UNPLAYED_COLOR = "#FFEEEEEE"
+# Each pair is (played, unplayed). Played colors are midpoint samples from the
+# reference swatches; the unplayed swatch is the sampled neutral #EEEEEE.
+LYRICS_COLOR_SCHEMES: dict[str, tuple[str, str]] = {
+    "珊瑚绯": ("#FFFFC6C6", DEFAULT_LYRICS_UNPLAYED_COLOR),
+    "暮霞": ("#FFEEC1D1", DEFAULT_LYRICS_UNPLAYED_COLOR),
+    "樱雾": ("#FFFDD6EB", DEFAULT_LYRICS_UNPLAYED_COLOR),
+    "晴澜": ("#FFC7E4F1", DEFAULT_LYRICS_UNPLAYED_COLOR),
+    "青芽": ("#FFE6FAD0", DEFAULT_LYRICS_UNPLAYED_COLOR),
+    "藤影": ("#FFE7E3FB", DEFAULT_LYRICS_UNPLAYED_COLOR),
+    "杏月": ("#FFFCE8C2", DEFAULT_LYRICS_UNPLAYED_COLOR),
+    "雾银": ("#FFD3D2D2", DEFAULT_LYRICS_UNPLAYED_COLOR),
 }
+DEFAULT_LYRICS_PLAYED_COLOR = LYRICS_COLOR_SCHEMES[
+    DEFAULT_LYRICS_COLOR_SCHEME
+][0]
+LEGACY_LYRICS_COLOR_SCHEMES = {
+    "自定义": DEFAULT_LYRICS_COLOR_SCHEME,
+    "网易红": "珊瑚绯",
+    "落日晖": "暮霞",
+    "可爱粉": "樱雾",
+    "天际蓝": "晴澜",
+    "清新绿": "青芽",
+    "活力紫": "藤影",
+    "温柔黄": "杏月",
+    "低调灰": "雾银",
+}
+WINDOWS_LYRICS_FONT_FAMILY = "SimSun"
+MACOS_LYRICS_FONT_FAMILY = "Songti SC"
 
 
 @dataclass(frozen=True)
@@ -112,17 +127,6 @@ def normalize_lyrics_font_size(raw_value: object) -> int:
     )
 
 
-def normalize_lyrics_color(raw_value: object) -> str:
-    """Validate a QML color and persist one canonical ARGB value."""
-
-    if not isinstance(raw_value, str) or not raw_value.strip():
-        raise ValueError("歌词颜色不能为空")
-    color = QColor(raw_value.strip())
-    if not color.isValid():
-        raise ValueError(f"Qt 无法识别歌词颜色：{raw_value}")
-    return color.name(QColor.NameFormat.HexArgb).upper()
-
-
 def normalize_window_coordinate(raw_value: object) -> int:
     """Validate one persisted native-window coordinate."""
 
@@ -144,8 +148,6 @@ class UserSettings(QObject):
     clickThroughChanged = Signal()
     lyricsVisibleChanged = Signal()
     lyricsFontSizeChanged = Signal()
-    lyricsUnplayedColorChanged = Signal()
-    lyricsPlayedColorChanged = Signal()
     lyricsColorSchemeChanged = Signal()
     lyricsPositionChanged = Signal()
 
@@ -165,9 +167,7 @@ class UserSettings(QObject):
         self._click_through = True
         self._lyrics_visible = True
         self._lyrics_font_size = DEFAULT_LYRICS_FONT_SIZE
-        self._lyrics_unplayed_color = DEFAULT_LYRICS_UNPLAYED_COLOR
-        self._lyrics_played_color = DEFAULT_LYRICS_PLAYED_COLOR
-        self._lyrics_color_scheme = CUSTOM_LYRICS_COLOR_SCHEME
+        self._lyrics_color_scheme = DEFAULT_LYRICS_COLOR_SCHEME
         self._lyrics_position_set = False
         self._lyrics_x = 0
         self._lyrics_y = 0
@@ -199,44 +199,19 @@ class UserSettings(QObject):
             )
         except ValueError as exc:
             print(f"[WARN] 忽略无效桌面歌词字号：{exc}")
-        self._lyrics_unplayed_color = self._load_lyrics_color(
-            payload,
-            "desktop_lyrics_unplayed_color",
-            DEFAULT_LYRICS_UNPLAYED_COLOR,
-            "未播放",
-        )
-        self._lyrics_played_color = self._load_lyrics_color(
-            payload,
-            "desktop_lyrics_played_color",
-            DEFAULT_LYRICS_PLAYED_COLOR,
-            "已播放",
-        )
         self._lyrics_color_scheme = self._load_lyrics_color_scheme(payload)
 
     def _load_lyrics_color_scheme(self, payload: dict[str, object]) -> str:
         scheme = str(
-            payload.get("desktop_lyrics_color_scheme", CUSTOM_LYRICS_COLOR_SCHEME)
+            payload.get(
+                "desktop_lyrics_color_scheme", DEFAULT_LYRICS_COLOR_SCHEME
+            )
         )
+        scheme = LEGACY_LYRICS_COLOR_SCHEMES.get(scheme, scheme)
         if scheme not in LYRICS_COLOR_SCHEMES:
             print(f"[WARN] 忽略无效桌面歌词配色方案：{scheme}")
-            return CUSTOM_LYRICS_COLOR_SCHEME
-        preset_color = LYRICS_COLOR_SCHEMES[scheme]
-        if preset_color is None:
-            return scheme
-        if self._lyrics_played_color != preset_color:
-            print(f"[WARN] 桌面歌词配色方案与颜色不一致，改用自定义：{scheme}")
-            return CUSTOM_LYRICS_COLOR_SCHEME
+            return DEFAULT_LYRICS_COLOR_SCHEME
         return scheme
-
-    @staticmethod
-    def _load_lyrics_color(
-        payload: dict[str, object], key: str, default: str, label: str
-    ) -> str:
-        try:
-            return normalize_lyrics_color(payload.get(key, default))
-        except ValueError as exc:
-            print(f"[WARN] 忽略无效{label}歌词颜色：{exc}")
-            return default
 
     def _load_lyrics_position(self, payload: dict[str, object]) -> None:
         if not bool(payload.get("desktop_lyrics_position_set", False)):
@@ -258,8 +233,6 @@ class UserSettings(QObject):
             "desktop_lyrics_click_through": self._click_through,
             "desktop_lyrics_visible": self._lyrics_visible,
             "desktop_lyrics_font_size": self._lyrics_font_size,
-            "desktop_lyrics_unplayed_color": self._lyrics_unplayed_color,
-            "desktop_lyrics_played_color": self._lyrics_played_color,
             "desktop_lyrics_color_scheme": self._lyrics_color_scheme,
             "desktop_lyrics_position_set": self._lyrics_position_set,
             "desktop_lyrics_x": self._lyrics_x,
@@ -330,50 +303,16 @@ class UserSettings(QObject):
         self._save()
         self.lyricsFontSizeChanged.emit()
 
-    def get_lyrics_unplayed_color(self) -> str:
-        return self._lyrics_unplayed_color
+    def get_lyrics_font_family(self) -> str:
+        if sys.platform == "darwin":
+            return MACOS_LYRICS_FONT_FAMILY
+        return WINDOWS_LYRICS_FONT_FAMILY
 
-    @Slot(str, result=bool)
-    def setLyricsUnplayedColor(self, value: str) -> bool:
-        return self._set_lyrics_color(
-            value,
-            "_lyrics_unplayed_color",
-            self.lyricsUnplayedColorChanged,
-        )
+    def get_lyrics_unplayed_color(self) -> str:
+        return LYRICS_COLOR_SCHEMES[self._lyrics_color_scheme][1]
 
     def get_lyrics_played_color(self) -> str:
-        return self._lyrics_played_color
-
-    @Slot(str, result=bool)
-    def setLyricsPlayedColor(self, value: str) -> bool:
-        return self._set_lyrics_color(
-            value,
-            "_lyrics_played_color",
-            self.lyricsPlayedColorChanged,
-        )
-
-    def _set_lyrics_color(
-        self, value: str, attribute_name: str, changed_signal: Signal
-    ) -> bool:
-        try:
-            normalized = normalize_lyrics_color(value)
-        except ValueError as exc:
-            print(f"[WARN] 拒绝无效桌面歌词颜色：{exc}")
-            return False
-        if normalized == getattr(self, attribute_name):
-            return True
-        setattr(self, attribute_name, normalized)
-        scheme_changed = (
-            attribute_name == "_lyrics_played_color"
-            and self._lyrics_color_scheme != CUSTOM_LYRICS_COLOR_SCHEME
-        )
-        if scheme_changed:
-            self._lyrics_color_scheme = CUSTOM_LYRICS_COLOR_SCHEME
-        self._save()
-        changed_signal.emit()
-        if scheme_changed:
-            self.lyricsColorSchemeChanged.emit()
-        return True
+        return LYRICS_COLOR_SCHEMES[self._lyrics_color_scheme][0]
 
     def get_lyrics_color_scheme(self) -> str:
         return self._lyrics_color_scheme
@@ -390,26 +329,11 @@ class UserSettings(QObject):
         return self._set_lyrics_color_scheme(names[index])
 
     def _set_lyrics_color_scheme(self, scheme: str) -> bool:
-        preset_color = LYRICS_COLOR_SCHEMES[scheme]
-        old_unplayed = self._lyrics_unplayed_color
-        old_played = self._lyrics_played_color
-        old_scheme = self._lyrics_color_scheme
-        self._lyrics_color_scheme = scheme
-        if preset_color is not None:
-            self._lyrics_played_color = preset_color
-        if (
-            old_scheme == self._lyrics_color_scheme
-            and old_unplayed == self._lyrics_unplayed_color
-            and old_played == self._lyrics_played_color
-        ):
+        if scheme == self._lyrics_color_scheme:
             return True
+        self._lyrics_color_scheme = scheme
         self._save()
-        if old_scheme != self._lyrics_color_scheme:
-            self.lyricsColorSchemeChanged.emit()
-        if old_unplayed != self._lyrics_unplayed_color:
-            self.lyricsUnplayedColorChanged.emit()
-        if old_played != self._lyrics_played_color:
-            self.lyricsPlayedColorChanged.emit()
+        self.lyricsColorSchemeChanged.emit()
         return True
 
     def get_lyrics_position_set(self) -> bool:
@@ -462,17 +386,12 @@ class UserSettings(QObject):
     lyricsFontSizeMaximum = Property(
         int, lambda _self: LYRICS_FONT_SIZE_MAXIMUM, constant=True
     )
-    defaultLyricsUnplayedColor = Property(
-        str, lambda _self: DEFAULT_LYRICS_UNPLAYED_COLOR, constant=True
-    )
-    defaultLyricsPlayedColor = Property(
-        str, lambda _self: DEFAULT_LYRICS_PLAYED_COLOR, constant=True
-    )
+    lyricsFontFamily = Property(str, get_lyrics_font_family, constant=True)
     lyricsUnplayedColor = Property(
-        str, get_lyrics_unplayed_color, notify=lyricsUnplayedColorChanged
+        str, get_lyrics_unplayed_color, notify=lyricsColorSchemeChanged
     )
     lyricsPlayedColor = Property(
-        str, get_lyrics_played_color, notify=lyricsPlayedColorChanged
+        str, get_lyrics_played_color, notify=lyricsColorSchemeChanged
     )
     lyricsColorSchemeNames = Property(
         "QVariantList", lambda _self: list(LYRICS_COLOR_SCHEMES), constant=True

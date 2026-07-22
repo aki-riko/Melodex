@@ -70,8 +70,9 @@ Item {
                     width: parent.width
                     type: Fluent.Enums.settingCard.type_range
                     icon: Fluent.Enums.icon.music_note_2
-                    title: "歌词字号"
-                    content: "当前 " + UserSettings.lyricsFontSize + " px"
+                    title: "字体与字号"
+                    content: "宋体（固定） · 当前 "
+                             + UserSettings.lyricsFontSize + " px"
                     value: UserSettings.lyricsFontSize
                     from: UserSettings.lyricsFontSizeMinimum
                     to: UserSettings.lyricsFontSizeMaximum
@@ -86,50 +87,12 @@ Item {
                     type: Fluent.Enums.settingCard.type_combobox
                     icon: Fluent.Enums.icon.music_note_2_play
                     title: "配色方案"
-                    content: "选取参考中的已播放颜色；未播放颜色保持不变"
+                    content: "方案同时确定已播放与未播放歌词颜色"
                     model: UserSettings.lyricsColorSchemeNames
                     currentIndex: UserSettings.lyricsColorSchemeIndex
                     onIndexSelected: index => UserSettings.setLyricsColorSchemeIndex(
                                          index
                                      )
-                }
-
-                Fluent.SettingsCard {
-                    id: unplayedColorCard
-                    width: parent.width
-                    type: Fluent.Enums.settingCard.type_color
-                    icon: Fluent.Enums.icon.music_note_2
-                    title: "未播放歌词颜色"
-                    content: "当前歌词剩余部分与下一行歌词使用此颜色"
-                    defaultColor: UserSettings.defaultLyricsUnplayedColor
-                    customColor: UserSettings.lyricsUnplayedColor
-                    useCustomColor: UserSettings.lyricsUnplayedColor
-                                    !== UserSettings.defaultLyricsUnplayedColor
-                    defaultColorText: "默认未播放颜色"
-                    customColorText: "自定义未播放颜色"
-                    chooseColorText: "选择颜色"
-                    onCustomColorPicked: color => UserSettings.setLyricsUnplayedColor(
-                                             color.toString()
-                                         )
-                }
-
-                Fluent.SettingsCard {
-                    id: playedColorCard
-                    width: parent.width
-                    type: Fluent.Enums.settingCard.type_color
-                    icon: Fluent.Enums.icon.music_note_2_play
-                    title: "已播放歌词颜色"
-                    content: "逐字播放完成的歌词使用此颜色"
-                    defaultColor: UserSettings.defaultLyricsPlayedColor
-                    customColor: UserSettings.lyricsPlayedColor
-                    useCustomColor: UserSettings.lyricsPlayedColor
-                                    !== UserSettings.defaultLyricsPlayedColor
-                    defaultColorText: "默认已播放颜色"
-                    customColorText: "自定义已播放颜色"
-                    chooseColorText: "选择颜色"
-                    onCustomColorPicked: color => UserSettings.setLyricsPlayedColor(
-                                             color.toString()
-                                         )
                 }
 
                 Fluent.SettingsCard {
@@ -178,19 +141,4 @@ Item {
         }
     }
 
-    Connections {
-        target: UserSettings
-
-        function onLyricsUnplayedColorChanged() {
-            unplayedColorCard.customColor = UserSettings.lyricsUnplayedColor
-            unplayedColorCard.useCustomColor = UserSettings.lyricsUnplayedColor
-                                                  !== UserSettings.defaultLyricsUnplayedColor
-        }
-
-        function onLyricsPlayedColorChanged() {
-            playedColorCard.customColor = UserSettings.lyricsPlayedColor
-            playedColorCard.useCustomColor = UserSettings.lyricsPlayedColor
-                                                !== UserSettings.defaultLyricsPlayedColor
-        }
-    }
 }

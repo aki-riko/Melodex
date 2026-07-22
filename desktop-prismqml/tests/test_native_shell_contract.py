@@ -113,6 +113,8 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Player.togglePlay()", lyrics_window)
         self.assertIn("UserSettings.setLyricsPosition(", lyrics_window)
         self.assertIn("UserSettings.lyricsFontSize", lyrics_window)
+        self.assertIn("fontFamily: UserSettings.lyricsFontFamily", lyrics_window)
+        self.assertIn("bold: false", lyrics_window)
         self.assertIn("restingColor: UserSettings.lyricsUnplayedColor", lyrics_window)
         self.assertIn("activeColor: UserSettings.lyricsPlayedColor", lyrics_window)
         self.assertIn("id: positionSaveTimer", lyrics_window)
@@ -122,13 +124,11 @@ class NativeShellContractTests(unittest.TestCase):
 
         self.assertIn("Fluent.Enums.settingCard.type_range", settings)
         self.assertIn("Fluent.Enums.settingCard.type_combobox", settings)
-        self.assertGreaterEqual(
-            settings.count("Fluent.Enums.settingCard.type_color"), 2
-        )
+        self.assertNotIn("Fluent.Enums.settingCard.type_color", settings)
         self.assertIn("UserSettings.setLyricsFontSize", settings)
         self.assertIn("UserSettings.setLyricsColorSchemeIndex", settings)
-        self.assertIn("UserSettings.setLyricsUnplayedColor", settings)
-        self.assertIn("UserSettings.setLyricsPlayedColor", settings)
+        self.assertNotIn("UserSettings.setLyricsUnplayedColor", settings)
+        self.assertNotIn("UserSettings.setLyricsPlayedColor", settings)
         self.assertIn("UserSettings.resetLyricsPosition", settings)
 
         word_fill = (QML_ROOT / "components" / "WordFill.qml").read_text(
@@ -136,6 +136,7 @@ class NativeShellContractTests(unittest.TestCase):
         )
         self.assertIn("baseLabel.paintedWidth", word_fill)
         self.assertIn("root.textPaintedWidth * root.clampedProgress", word_fill)
+        self.assertEqual(2, word_fill.count("font.family: root.fontFamily"))
         self.assertNotIn("root.width * Math.max", word_fill)
 
         raw_visual_pattern = re.compile(
