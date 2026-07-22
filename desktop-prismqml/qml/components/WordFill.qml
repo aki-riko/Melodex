@@ -13,8 +13,12 @@ Item {
     property color restingColor: Fluent.Enums.secondaryForeground
     property color activeColor: Fluent.Enums.accentColor
     property color outlineColor: Qt.rgba(0, 0, 0, 0.72)
+    readonly property real clampedProgress: Math.max(0, Math.min(1, progress))
+    readonly property real textPaintedWidth: Math.min(width, baseLabel.paintedWidth)
+    readonly property real textLeft: Math.max(0, (width - textPaintedWidth) / 2)
 
     Fluent.Label {
+        id: baseLabel
         anchors.fill: parent
         type: Fluent.Enums.label.type_title_large
         text: root.text
@@ -31,11 +35,13 @@ Item {
     }
 
     Item {
-        width: root.width * Math.max(0, Math.min(1, root.progress))
+        x: root.textLeft
+        width: root.textPaintedWidth * root.clampedProgress
         height: root.height
         clip: true
 
         Fluent.Label {
+            x: -root.textLeft
             width: root.width
             height: root.height
             type: Fluent.Enums.label.type_title_large
