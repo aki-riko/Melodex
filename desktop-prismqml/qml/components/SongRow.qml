@@ -5,13 +5,21 @@ import PrismQML as Fluent
 
 Fluent.Card {
     id: root
+    objectName: "songRow"
 
     property var song: ({})
     property var queue: []
     signal playRequested(var song, var queue)
 
+    function timeText(seconds) {
+        const value = Math.max(0, Math.floor(seconds || 0))
+        const minutes = Math.floor(value / 60)
+        const rest = value % 60
+        return minutes + ":" + (rest < 10 ? "0" : "") + rest
+    }
+
     width: ListView.view ? ListView.view.width : 720
-    height: 72
+    height: 68
     cardType: Fluent.Enums.card.type_hover
     clickEnabled: false
 
@@ -22,17 +30,17 @@ Fluent.Card {
         spacing: Fluent.Enums.spacing.l
 
         Rectangle {
-            Layout.preferredWidth: 48
-            Layout.preferredHeight: 48
+            Layout.preferredWidth: 44
+            Layout.preferredHeight: 44
             radius: Fluent.Enums.radius.medium
             color: Fluent.Enums.surfaceColor
             clip: true
 
-            Text {
+            Fluent.Icon {
                 anchors.centerIn: parent
-                text: "♫"
+                icon: Fluent.Enums.icon.music_note_2
+                iconSize: Fluent.Enums.iconSize.m
                 color: Fluent.Enums.secondaryForeground
-                font.pixelSize: Fluent.Enums.typography.titleLarge
             }
 
             Image {
@@ -49,37 +57,44 @@ Fluent.Card {
             Layout.fillWidth: true
             spacing: Fluent.Enums.spacing.xxs
 
-            Text {
+            Fluent.Label {
                 Layout.fillWidth: true
+                type: Fluent.Enums.label.type_body_strong
                 text: root.song.name || "未知歌曲"
-                color: Fluent.Enums.foregroundColor
-                font.pixelSize: Fluent.Enums.typography.bodyLarge
-                font.bold: true
                 elide: Text.ElideRight
             }
 
-            Text {
+            Fluent.Label {
                 Layout.fillWidth: true
+                type: Fluent.Enums.label.type_caption
                 text: (root.song.artist || "未知歌手")
                       + (root.song.album ? "  ·  " + root.song.album : "")
                 color: Fluent.Enums.secondaryForeground
-                font.pixelSize: Fluent.Enums.typography.caption
                 elide: Text.ElideRight
             }
         }
 
-        Text {
-            text: root.song.source || ""
+        Fluent.Label {
+            Layout.preferredWidth: 48
+            type: Fluent.Enums.label.type_caption
+            text: root.timeText(root.song.duration)
             color: Fluent.Enums.tertiaryForeground
-            font.pixelSize: Fluent.Enums.typography.caption
+            horizontalAlignment: Text.AlignRight
+        }
+
+        Fluent.Tag {
+            status: Fluent.Enums.statusLevel.info
+            text: String(root.song.source || "来源").toUpperCase()
+            showDot: false
         }
 
         Fluent.Button {
-            Layout.preferredWidth: 40
-            Layout.preferredHeight: 40
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 38
             icon: Fluent.Enums.icon.play
             style: Fluent.Enums.button.style_primary
             shape: Fluent.Enums.button.shape_pill
+            toolTipText: "播放"
             onClicked: root.playRequested(root.song, root.queue)
         }
     }

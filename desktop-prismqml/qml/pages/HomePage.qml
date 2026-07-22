@@ -7,127 +7,134 @@ Item {
     id: root
 
     signal openSearchRequested()
+    signal openPlayerRequested()
+    signal openSettingsRequested()
 
-    ColumnLayout {
+    LoginPage {
         anchors.fill: parent
-        anchors.margins: Fluent.Enums.spacing.xxxl
-        spacing: Fluent.Enums.spacing.xl
+        visible: !Api.authenticated
+    }
 
-        Text {
-            Layout.fillWidth: true
-            text: "晚上好，" + (Api.currentUser.username || "Melodex 用户")
-            color: Fluent.Enums.foregroundColor
-            font.pixelSize: Fluent.Enums.typography.displayLarge
-            font.bold: true
-        }
+    Flickable {
+        anchors.fill: parent
+        visible: Api.authenticated
+        clip: true
+        contentWidth: width
+        contentHeight: dashboard.implicitHeight + Fluent.Enums.spacing.xxxl * 2
+        boundsBehavior: Flickable.StopAtBounds
 
-        Text {
-            Layout.fillWidth: true
-            text: "桌面端已直接连接你的音乐服务。搜索一首歌，播放器和透明桌面歌词会一起工作。"
-            color: Fluent.Enums.secondaryForeground
-            font.pixelSize: Fluent.Enums.typography.bodyLarge
-            wrapMode: Text.WordWrap
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Fluent.Enums.spacing.l
-
-            Repeater {
-                model: [
-                    { title: "原生播放", detail: "Qt Multimedia 播放队列" },
-                    { title: "透明歌词", detail: "逐字进度与鼠标穿透" },
-                    { title: "保持连接", detail: "本机保存 Melodex 会话" }
-                ]
-
-                delegate: Fluent.Card {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 132
-                    cardType: Fluent.Enums.card.type_elevated
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Fluent.Enums.spacing.xl
-                        spacing: Fluent.Enums.spacing.m
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: modelData.title
-                            color: Fluent.Enums.foregroundColor
-                            font.pixelSize: Fluent.Enums.typography.title
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: modelData.detail
-                            color: Fluent.Enums.secondaryForeground
-                            font.pixelSize: Fluent.Enums.typography.body
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-                }
-            }
-        }
-
-        Fluent.Card {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 210
-            cardType: Fluent.Enums.card.type_default
+        ColumnLayout {
+            id: dashboard
+            x: Fluent.Enums.spacing.xxxl
+            y: Fluent.Enums.spacing.xxxl
+            width: parent.width - Fluent.Enums.spacing.xxxl * 2
+            spacing: Fluent.Enums.spacing.xl
 
             RowLayout {
-                anchors.fill: parent
-                anchors.margins: Fluent.Enums.spacing.xxxl
-                spacing: Fluent.Enums.spacing.xxxl
+                Layout.fillWidth: true
+                spacing: Fluent.Enums.spacing.l
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Fluent.Enums.spacing.l
+                    spacing: Fluent.Enums.spacing.xs
 
-                    Text {
+                    Fluent.Label {
                         Layout.fillWidth: true
-                        text: "从搜索开始"
-                        color: Fluent.Enums.foregroundColor
-                        font.pixelSize: Fluent.Enums.typography.display
-                        font.bold: true
+                        type: Fluent.Enums.label.type_title
+                        text: "概览"
                     }
 
-                    Text {
+                    Fluent.Label {
                         Layout.fillWidth: true
-                        text: "结果顺序直接使用 Melodex 后端排序；选择歌曲后由桌面原生播放器接管。"
+                        type: Fluent.Enums.label.type_body
+                        text: "欢迎回来，" + (Api.currentUser.username || "Melodex 用户")
                         color: Fluent.Enums.secondaryForeground
-                        font.pixelSize: Fluent.Enums.typography.body
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Fluent.Button {
-                        Layout.preferredWidth: 150
-                        Layout.preferredHeight: 42
-                        text: "搜索音乐"
-                        icon: Fluent.Enums.icon.search
-                        style: Fluent.Enums.button.style_primary
-                        onClicked: root.openSearchRequested()
                     }
                 }
 
-                Image {
-                    Layout.preferredWidth: 150
-                    Layout.preferredHeight: 150
-                    source: AppConfig.iconUrl
-                    fillMode: Image.PreserveAspectFit
-                    opacity: 0.9
+                Fluent.Tag {
+                    status: Fluent.Enums.statusLevel.success
+                    text: "服务已连接"
                 }
             }
-        }
 
-        Item { Layout.fillHeight: true }
+            Fluent.InfoBar {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                title: "当前服务"
+                message: UserSettings.serviceUrl
+                severity: "success"
+                closable: false
+            }
 
-        Text {
-            Layout.fillWidth: true
-            text: "Melodex Desktop " + AppConfig.version + "  ·  PrismQML"
-            color: Fluent.Enums.tertiaryForeground
-            font.pixelSize: Fluent.Enums.typography.caption
+            Fluent.SettingsCardGroup {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                title: "开始"
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    type: Fluent.Enums.settingCard.type_primary_push
+                    icon: Fluent.Enums.icon.search
+                    title: "搜索音乐"
+                    content: "搜索全网曲库并使用 Melodex 的相关性排序"
+                    buttonText: "打开搜索"
+                    onClicked: root.openSearchRequested()
+                }
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    visible: Boolean(Player.currentSong.id)
+                    type: Fluent.Enums.settingCard.type_push
+                    icon: Fluent.Enums.icon.music_note_2_play
+                    title: Player.currentSong.name || "正在播放"
+                    content: Player.currentSong.artist || "查看播放器与同步歌词"
+                    buttonText: "查看"
+                    onClicked: root.openPlayerRequested()
+                }
+            }
+
+            Fluent.SettingsCardGroup {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                title: "桌面功能"
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    type: Fluent.Enums.settingCard.type_switch
+                    icon: Fluent.Enums.icon.desktop
+                    title: "桌面歌词"
+                    content: "透明、无标题栏并始终置顶"
+                    checked: UserSettings.lyricsVisible
+                    onToggled: enabled => UserSettings.setLyricsVisible(enabled)
+                }
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    type: Fluent.Enums.settingCard.type_switch
+                    icon: Fluent.Enums.icon.desktop_cursor
+                    title: "鼠标穿透"
+                    content: "开启后点击会穿过歌词窗口"
+                    checked: UserSettings.clickThrough
+                    onToggled: enabled => UserSettings.setClickThrough(enabled)
+                }
+            }
+
+            Fluent.SettingsCardGroup {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                title: "账户"
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    type: Fluent.Enums.settingCard.type_push
+                    icon: Fluent.Enums.icon.person_settings
+                    title: Api.currentUser.username || "当前账户"
+                    content: "管理连接、桌面歌词和登录状态"
+                    buttonText: "设置"
+                    onClicked: root.openSettingsRequested()
+                }
+            }
         }
     }
 }

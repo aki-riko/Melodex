@@ -10,14 +10,69 @@ Item {
         Api.login(serviceInput.text, usernameInput.text, passwordInput.text)
     }
 
-    Rectangle {
+    RowLayout {
         anchors.fill: parent
-        color: Fluent.Enums.backgroundColor
+        anchors.margins: Fluent.Enums.spacing.xxxl
+        spacing: Fluent.Enums.spacing.xxxl
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: 4
+            spacing: Fluent.Enums.spacing.l
+
+            Item { Layout.fillHeight: true }
+
+            Image {
+                Layout.preferredWidth: 112
+                Layout.preferredHeight: 112
+                source: AppConfig.iconUrl
+                fillMode: Image.PreserveAspectFit
+            }
+
+            Fluent.Label {
+                Layout.fillWidth: true
+                type: Fluent.Enums.label.type_title_large
+                text: AppConfig.name
+            }
+
+            Fluent.Label {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 420
+                type: Fluent.Enums.label.type_subtitle
+                text: "连接你的音乐服务"
+                color: Fluent.Enums.secondaryForeground
+            }
+
+            Fluent.Tag {
+                status: Fluent.Enums.statusLevel.attention
+                text: "等待登录"
+            }
+
+            Fluent.Label {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 420
+                type: Fluent.Enums.label.type_body
+                text: "这是独立桌面客户端。登录状态保存在本机，播放、歌词和桌面歌词均由原生 Qt 组件接管。"
+                color: Fluent.Enums.secondaryForeground
+                wrapMode: Text.WordWrap
+            }
+
+            Item { Layout.fillHeight: true }
+
+            Fluent.Label {
+                type: Fluent.Enums.label.type_caption
+                text: "Melodex Desktop  " + AppConfig.version
+                color: Fluent.Enums.tertiaryForeground
+            }
+        }
 
         Fluent.Card {
-            anchors.centerIn: parent
-            width: Math.min(520, parent.width - Fluent.Enums.spacing.xxxl * 2)
-            height: 510
+            Layout.fillWidth: true
+            Layout.preferredWidth: 5
+            Layout.maximumWidth: 520
+            Layout.preferredHeight: 500
+            Layout.alignment: Qt.AlignVCenter
             cardType: Fluent.Enums.card.type_elevated
 
             ColumnLayout {
@@ -25,71 +80,63 @@ Item {
                 anchors.margins: Fluent.Enums.spacing.xxxl
                 spacing: Fluent.Enums.spacing.l
 
-                Image {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 84
-                    Layout.preferredHeight: 84
-                    source: AppConfig.iconUrl
-                    fillMode: Image.PreserveAspectFit
-                }
-
-                Text {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: "连接 Melodex"
-                    color: Fluent.Enums.foregroundColor
-                    font.pixelSize: Fluent.Enums.typography.displayLarge
-                    font.bold: true
-                }
-
-                Text {
+                Fluent.Label {
                     Layout.fillWidth: true
-                    text: "使用你自己的 Melodex 服务，登录后会自动保持会话。"
+                    type: Fluent.Enums.label.type_title
+                    text: "登录"
+                }
+
+                Fluent.Label {
+                    Layout.fillWidth: true
+                    type: Fluent.Enums.label.type_body
+                    text: "填写 Melodex 地址和账户信息。"
                     color: Fluent.Enums.secondaryForeground
-                    font.pixelSize: Fluent.Enums.typography.body
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
                 }
 
                 Fluent.LineEdit {
                     id: serviceInput
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 42
                     text: UserSettings.serviceUrl
-                    placeholderText: "https://你的-melodex-地址"
+                    placeholderText: "https://music.example.com"
                     label: "服务地址"
+                    enabled: !Api.busy
                 }
 
                 Fluent.LineEdit {
                     id: usernameInput
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 42
                     placeholderText: "用户名"
                     label: "用户名"
+                    enabled: !Api.busy
+                    onAccepted: passwordInput.forceActiveFocus()
                 }
 
                 Fluent.LineEdit {
                     id: passwordInput
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 42
                     inputType: Fluent.Enums.input.type_password
                     placeholderText: "密码"
                     label: "密码"
+                    enabled: !Api.busy
                     onAccepted: root.submit()
                 }
 
-                Text {
+                Fluent.InfoBar {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
                     visible: Boolean(Api.error)
-                    text: Api.error
-                    color: Fluent.Enums.infoAccentColor
-                    font.pixelSize: Fluent.Enums.typography.caption
-                    wrapMode: Text.WordWrap
+                    title: "连接失败"
+                    message: Api.error
+                    severity: "error"
+                    closable: false
                 }
+
+                Item { Layout.fillHeight: true }
 
                 Fluent.Button {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
-                    text: "登录"
+                    text: "连接并登录"
                     icon: Fluent.Enums.icon.key
                     style: Fluent.Enums.button.style_primary
                     loading: Api.busy
@@ -98,13 +145,12 @@ Item {
                     onClicked: root.submit()
                 }
 
-                Text {
+                Fluent.Label {
                     Layout.fillWidth: true
-                    text: "如果地址前还有 Authentik 等网页登录网关，客户端会明确提示被拦截；此客户端不会改动服务端代理配置。"
+                    type: Fluent.Enums.label.type_caption
+                    text: "若服务地址前存在仅浏览器可用的 SSO 网关，客户端会明确报告拦截，不会修改服务端配置。"
                     color: Fluent.Enums.tertiaryForeground
-                    font.pixelSize: Fluent.Enums.typography.captionCompact
                     wrapMode: Text.WordWrap
-                    horizontalAlignment: Text.AlignHCenter
                 }
             }
         }

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlencode
 
 from PySide6.QtCore import (
     QByteArray,
@@ -70,6 +71,12 @@ def song_query(song: dict[str, Any], **extra_values: str) -> QUrlQuery:
     for key, value in extra_values.items():
         query.addQueryItem(key, value)
     return query
+
+
+def encoded_query(query: QUrlQuery) -> str:
+    """Serialize a Qt query with nested URLs safely escaped for reverse proxies."""
+
+    return urlencode(query.queryItems())
 
 
 class ApiClient(QObject):
@@ -294,11 +301,11 @@ class ApiClient(QObject):
             self._search_results = [normalize_song(song) for song in songs if isinstance(song, dict)]
             self.searchResultsChanged.emit()
 
-        self._request("GET", f"/api/v1/search?{query.toString(QUrl.FullyEncoded)}", completed)
+        self._request("GET", f"/api/v1/search?{encoded_query(query)}", completed)
 
     def stream_url(self, song: dict[str, Any]) -> str:
         url = self._root_url("/music/download")
-        url.setQuery(song_query(song, stream="1"))
+        url.setQuery(encoded_query(song_query(song, stream="1")))
         return self._authenticated_url(url)
 
     def cover_url(self, song: dict[str, Any]) -> str:
@@ -312,7 +319,7 @@ class ApiClient(QObject):
             query = QUrlQuery()
             query.addQueryItem("url", normalized["cover"])
             query.addQueryItem("source", normalized["source"])
-            url.setQuery(query)
+            url.setQuery(encoded_query(query))
         return self._authenticated_url(url)
 
     def _authenticated_url(self, url: QUrl) -> str:
@@ -328,7 +335,7 @@ class ApiClient(QObject):
         normalized = normalize_song(song)
         key = f"{normalized['source']}:{normalized['id']}"
         url = self._root_url("/music/lyric")
-        url.setQuery(song_query(normalized))
+        url.setQuery(encoded_query(song_query(normalized)))
         relative = url.toString(QUrl.FullyEncoded).removeprefix(self._settings.serviceUrl)
 
         def completed(payload, error: str, _status: int) -> None:
