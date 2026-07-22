@@ -59,7 +59,7 @@ def _create_services(config, app):
     settings = UserSettings(config.application_name, app.qapp)
     api = ApiClient(settings, app.qapp)
     collections = CollectionController(api, app.qapp)
-    player = PlayerController(api, app.qapp)
+    player = PlayerController(api, settings, app.qapp)
     desktop_state = DesktopState(settings, player, app.qapp)
     return settings, api, collections, player, desktop_state
 
