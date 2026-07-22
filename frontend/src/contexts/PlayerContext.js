@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
+import DesktopLyricsWindow from '../components/DesktopLyricsWindow';
 import SleepTimerControl from '../components/SleepTimerControl';
 import { getStreamUrl, getPlaybackSegmentUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
@@ -1555,6 +1556,17 @@ export const PlayerBar = () => {
               {modeIcon}
             </button>
             <SleepTimerControl {...sleepTimerControlProps} align="center" />
+            <DesktopLyricsWindow
+              song={nowPlaying}
+              coverUrl={coverUrl}
+              lines={lrc}
+              activeIndex={lyricIdx}
+              currentTime={progress.cur}
+              isPaused={isPaused}
+              onTogglePlay={togglePlay}
+              onPrev={prev}
+              onNext={next}
+            />
             {/* 右:进度条 */}
             <div className="flex items-center gap-2 flex-grow min-w-0">
               <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>
