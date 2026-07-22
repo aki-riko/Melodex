@@ -8,7 +8,25 @@ import os
 import sys
 from pathlib import Path
 
-os.environ.setdefault("QT_LOGGING_RULES", "qt.text.font.db=false")
+
+def _configure_qt_logging() -> None:
+    """Keep signed playback URLs out of Qt Multimedia diagnostics."""
+
+    required_rules = (
+        "qt.text.font.db=false",
+        "qt.multimedia.ffmpeg=false",
+        "qt.multimedia.ffmpeg.*=false",
+    )
+    configured = [
+        rule.strip()
+        for rule in os.environ.get("QT_LOGGING_RULES", "").split(";")
+        if rule.strip()
+    ]
+    configured.extend(rule for rule in required_rules if rule not in configured)
+    os.environ["QT_LOGGING_RULES"] = ";".join(configured)
+
+
+_configure_qt_logging()
 os.environ.setdefault("QML_XHR_ALLOW_FILE_READ", "1")
 
 

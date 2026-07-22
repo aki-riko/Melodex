@@ -79,6 +79,24 @@ def encoded_query(query: QUrlQuery) -> str:
     return urlencode(query.queryItems())
 
 
+def resolve_playback_url(service_url: str, raw_url: str) -> str:
+    """Resolve a server-issued media URL while enforcing the configured origin."""
+
+    base = QUrl(service_url)
+    resolved = base.resolved(QUrl(str(raw_url or "").strip()))
+    default_ports = {"http": 80, "https": 443}
+
+    def origin(url: QUrl) -> tuple[str, str, int]:
+        scheme = url.scheme().lower()
+        return scheme, url.host().lower(), url.port(default_ports.get(scheme, -1))
+
+    if not resolved.isValid() or origin(resolved) != origin(base):
+        raise ValueError("服务端返回了跨域播放地址，已拒绝加载")
+    if resolved.userName() or resolved.password() or resolved.fragment():
+        raise ValueError("服务端返回的播放地址包含不安全字段")
+    return resolved.toString(QUrl.FullyEncoded)
+
+
 class ApiClient(QObject):
     """Expose Melodex authentication, search and lyric requests to QML."""
 
@@ -314,10 +332,30 @@ class ApiClient(QObject):
 
         self._request("GET", f"/api/v1/search?{encoded_query(query)}", completed)
 
-    def stream_url(self, song: dict[str, Any]) -> str:
-        url = self._root_url("/music/download")
-        url.setQuery(encoded_query(song_query(song, stream="1")))
-        return self._authenticated_url(url)
+    def request_stream_url(self, song: dict[str, Any], callback) -> None:
+        """Request one query-bound direct URL for the native Qt media engine."""
+
+        query = encoded_query(song_query(song, stream="1"))
+
+        def completed(payload, error: str, _status: int) -> None:
+            if error:
+                callback("", error)
+                return
+            raw_url = payload.get("url") if isinstance(payload, dict) else ""
+            if not raw_url:
+                callback("", "服务端未返回原生播放地址")
+                return
+            try:
+                callback(resolve_playback_url(self._settings.serviceUrl, str(raw_url)), "")
+            except ValueError as exc:
+                callback("", str(exc))
+
+        self._request(
+            "POST",
+            "/api/v1/playback_ticket",
+            completed,
+            {"query": query},
+        )
 
     def cover_url(self, song: dict[str, Any]) -> str:
         normalized = normalize_song(song)

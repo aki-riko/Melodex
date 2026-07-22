@@ -46,6 +46,10 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		})
 	})
 
+	// 桌面端音频播放票据:让 Qt 原生播放器直连音频流,不再经 Python 搬运媒体字节。
+	// 票据只绑定一条 GET /music/download?stream=1 查询,不可转作下载或写操作。
+	userSecure.POST("/playback_ticket", jsonPlaybackTicketHandler)
+
 	// 搜索会放大到所有上游音源,加 per-IP 限流(30 次/分钟)防滥用。
 	userSecure.GET("/search", rateLimitMiddleware(searchRateLimiter), jsonSearchHandler)
 	userSecure.DELETE("/search_cache", jsonSearchCacheDeleteHandler)

@@ -35,6 +35,8 @@ class _FakeApi(QObject):
         self._authenticated = False
         self._current_user = {}
         self.lyric_requests = []
+        self.stream_requests = []
+        self.defer_stream_requests = False
 
     def get_authenticated(self) -> bool:
         return self._authenticated
@@ -52,8 +54,10 @@ class _FakeApi(QObject):
         self._current_user = {}
         self.currentUserChanged.emit()
 
-    def stream_url(self, song: dict) -> str:
-        return f"{self._settings.get_service_url()}stream/{song['id']}"
+    def request_stream_url(self, song: dict, callback) -> None:
+        self.stream_requests.append((song["id"], callback))
+        if not self.defer_stream_requests:
+            callback(f"{self._settings.get_service_url()}stream/{song['id']}", "")
 
     def load_lyrics(self, song: dict) -> None:
         self.lyric_requests.append(song["id"])
@@ -282,6 +286,26 @@ class PlayerPersistenceTests(unittest.TestCase):
         saved = self.store.load(self.service_url, "1")
         self.assertEqual(saved["position_seconds"], 27)
         self.assertEqual(player.get_current_song(), {})
+
+    def test_late_ticket_callback_cannot_replace_a_newer_song(self) -> None:
+        player = self._create_player()
+        self.api.sign_in(1, "alice")
+        self.api.defer_stream_requests = True
+        first = _song("track-a", "晴天")
+        second = _song("track-b", "夜曲")
+
+        player.playSong(first, [first, second])
+        player.playSong(second, [first, second])
+        first_callback = self.api.stream_requests[-2][1]
+        second_callback = self.api.stream_requests[-1][1]
+
+        first_callback(f"{self.service_url}stream/track-a", "")
+        self.assertTrue(self.media.source.isEmpty())
+        self.assertEqual(self.media.play_calls, 0)
+
+        second_callback(f"{self.service_url}stream/track-b", "")
+        self.assertEqual(self.media.source.toString(), f"{self.service_url}stream/track-b")
+        self.assertEqual(self.media.play_calls, 1)
 
 
 if __name__ == "__main__":

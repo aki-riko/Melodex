@@ -1,8 +1,9 @@
 # coding: utf-8
 # SPDX-License-Identifier: AGPL-3.0-only
 
+import os
 import unittest
-from unittest.mock import Mock, call
+from unittest.mock import Mock, call, patch
 
 from PySide6.QtCore import Property, QCoreApplication, QObject, Signal
 
@@ -40,6 +41,15 @@ class _FakePlayer(QObject):
 
 
 class StartupWindowTests(unittest.TestCase):
+    def test_qt_ffmpeg_logging_cannot_expose_signed_playback_urls(self) -> None:
+        with patch.dict(os.environ, {"QT_LOGGING_RULES": "custom.category=true"}):
+            main._configure_qt_logging()
+            rules = os.environ["QT_LOGGING_RULES"].split(";")
+
+        self.assertIn("custom.category=true", rules)
+        self.assertIn("qt.multimedia.ffmpeg=false", rules)
+        self.assertIn("qt.multimedia.ffmpeg.*=false", rules)
+
     def test_initial_window_is_explicitly_shown(self) -> None:
         window = Mock()
 
