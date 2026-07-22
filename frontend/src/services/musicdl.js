@@ -342,6 +342,26 @@ export const saveUserPrefs = async (prefs) => {
   return data;
 };
 
+// ===== Windows/macOS 透明桌面歌词助手 =====
+
+export const createDesktopLyricsPairing = async () => {
+  const { data } = await client.post('/api/v1/desktop-lyrics/pairing', {}, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
+  return data;
+};
+
+export const getDesktopLyricsDevices = async () => {
+  const { data } = await client.get('/api/v1/desktop-lyrics/devices');
+  return Array.isArray(data?.devices) ? data.devices : [];
+};
+
+export const revokeDesktopLyricsDevice = async (deviceId) => {
+  await client.delete(`/api/v1/desktop-lyrics/devices/${encodeURIComponent(deviceId)}`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
+};
+
 // ===== 搜索历史(按用户隔离,仅登录) =====
 
 export const getSearchHistory = async () => {

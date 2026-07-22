@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
 import { loadAutoDownloadOnPlay, saveAutoDownloadOnPlay } from '../contexts/playerAutoDownload';
 import LoadingState from './LoadingState';
+import DesktopLyricsSettings from './DesktopLyricsSettings';
 
 const SOURCE_NOTES = {
   qq: 'QQ 音乐客户端强登录入口,用于换取 qm_keyst/qqmusic_key 等强凭证。',
@@ -639,6 +640,8 @@ const Settings = () => {
           </button>
         </div>
       </section>
+
+      <DesktopLyricsSettings />
 
       <section>
         <div className="flex items-center justify-between mb-4">
