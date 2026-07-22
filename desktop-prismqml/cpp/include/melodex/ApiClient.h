@@ -5,9 +5,11 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
+#include <memory>
 
 namespace melodex {
 
+class AuthenticatedHttpProxy;
 class CookieStore;
 class UserSettings;
 
@@ -29,6 +31,7 @@ public:
 
     explicit ApiClient(UserSettings *settings, CookieStore *cookies,
                        QObject *parent = nullptr);
+    ~ApiClient() override;
 
     bool authenticated() const { return m_authenticated; }
     QVariantMap currentUser() const { return m_currentUser; }
@@ -62,6 +65,7 @@ private:
                  bool expectText = false);
     void finishReply(QNetworkReply *reply, RequestCallback callback, bool expectText);
     QUrl rootUrl(const QString &path) const;
+    QByteArray cookieHeaderForUrl(const QUrl &url) const;
     QString responseError(QNetworkReply *reply, const QByteArray &raw,
                           const QByteArray &contentType) const;
     void setAuthenticated(bool authenticated, const QVariantMap &user);
@@ -70,6 +74,7 @@ private:
 
     UserSettings *m_settings = nullptr;
     CookieStore *m_cookies = nullptr;
+    std::unique_ptr<AuthenticatedHttpProxy> m_mediaProxy;
     QNetworkAccessManager m_network;
     bool m_authenticated = false;
     QVariantMap m_currentUser;
