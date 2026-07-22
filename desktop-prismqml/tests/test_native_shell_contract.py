@@ -106,6 +106,8 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Fluent.ImageWidget {", song_row)
         self.assertIn("Fluent.ImageWidget {", player_bar)
         self.assertIn("Fluent.WindowDragHandle {", lyrics_window)
+        self.assertIn('objectName: "desktopLyricsWindow"', lyrics_window)
+        self.assertIn("visible: false", lyrics_window)
         self.assertNotIn("MouseArea {", lyrics_window)
 
         raw_visual_pattern = re.compile(

@@ -60,7 +60,7 @@ def _create_services(config, app):
     api = ApiClient(settings, app.qapp)
     collections = CollectionController(api, app.qapp)
     player = PlayerController(api, app.qapp)
-    desktop_state = DesktopState(settings, app.qapp)
+    desktop_state = DesktopState(settings, player, app.qapp)
     return settings, api, collections, player, desktop_state
 
 
@@ -108,6 +108,19 @@ def _show_initial_window(main_window) -> None:
     """Make the QML-owned window visible through Qt's public window API."""
 
     main_window.show()
+
+
+def _attach_desktop_lyrics_window(qml_root, desktop_state) -> bool:
+    """Attach the QML tool window to its explicit native visibility owner."""
+
+    from PySide6.QtCore import QObject
+
+    lyrics_window = qml_root.findChild(QObject, "desktopLyricsWindow")
+    if lyrics_window is None:
+        print("[ERROR] 未找到 Melodex 桌面歌词窗口", file=sys.stderr)
+        return False
+    desktop_state.attach_lyrics_window(lyrics_window)
+    return True
 
 
 def _restore_main_window(main_window) -> None:
@@ -193,12 +206,14 @@ def main() -> int:
         app.setWindowIcon(icon)
 
     services = _create_services(config, app)
-    settings, api, _collections, _player, _desktop_state = services
+    settings, api, _collections, _player, desktop_state = services
     _publish_context(app, config, icon_path, services, self_test)
     loaded_window = _load_main_window(app, root / "qml" / "main.qml")
     if loaded_window is None:
         return -1
     qml_root, main_window = loaded_window
+    if not _attach_desktop_lyrics_window(qml_root, desktop_state):
+        return -1
     if not icon.isNull():
         main_window.setIcon(icon)
 
