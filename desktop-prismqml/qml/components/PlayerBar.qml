@@ -13,31 +13,33 @@ Fluent.Card {
         return minutes + ":" + (rest < 10 ? "0" : "") + rest
     }
 
-    Layout.fillWidth: true
-    Layout.preferredHeight: 112
-    cardType: Fluent.Enums.card.type_default
+    implicitWidth: 420
+    implicitHeight: 540
+    cardType: Fluent.Enums.card.type_elevated
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Fluent.Enums.spacing.l
-        spacing: Fluent.Enums.spacing.s
+        anchors.margins: Fluent.Enums.spacing.xxl
+        spacing: Fluent.Enums.spacing.l
 
-        RowLayout {
+        Item {
             Layout.fillWidth: true
-            spacing: Fluent.Enums.spacing.l
+            Layout.fillHeight: true
+            Layout.minimumHeight: 180
 
             Rectangle {
-                Layout.preferredWidth: 52
-                Layout.preferredHeight: 52
-                radius: Fluent.Enums.radius.medium
+                anchors.centerIn: parent
+                width: Math.min(parent.width, parent.height, 260)
+                height: width
+                radius: Fluent.Enums.radius.large
                 color: Fluent.Enums.surfaceColor
                 clip: true
 
-                Text {
+                Fluent.Icon {
                     anchors.centerIn: parent
-                    text: "♫"
+                    icon: Fluent.Enums.icon.album
+                    iconSize: Fluent.Enums.iconSize.xxxl
                     color: Fluent.Enums.secondaryForeground
-                    font.pixelSize: Fluent.Enums.typography.display
                 }
 
                 Image {
@@ -49,59 +51,66 @@ Fluent.Card {
                     visible: status === Image.Ready
                 }
             }
+        }
 
-            ColumnLayout {
-                Layout.preferredWidth: 210
-                Layout.maximumWidth: 260
-                spacing: Fluent.Enums.spacing.xxs
+        Fluent.Label {
+            Layout.fillWidth: true
+            type: Fluent.Enums.label.type_subtitle
+            text: Player.currentSong.name || "尚未播放"
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
 
-                Text {
-                    Layout.fillWidth: true
-                    text: Player.currentSong.name || "尚未播放"
-                    color: Fluent.Enums.foregroundColor
-                    font.pixelSize: Fluent.Enums.typography.body
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
+        Fluent.Label {
+            Layout.fillWidth: true
+            type: Fluent.Enums.label.type_body
+            text: Player.currentSong.artist || "从搜索页选择一首歌曲"
+            color: Fluent.Enums.secondaryForeground
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
 
-                Text {
-                    Layout.fillWidth: true
-                    text: Player.currentSong.artist || ""
-                    color: Fluent.Enums.secondaryForeground
-                    font.pixelSize: Fluent.Enums.typography.caption
-                    elide: Text.ElideRight
-                }
-            }
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: Fluent.Enums.spacing.l
 
             Fluent.Button {
-                Layout.preferredWidth: 36
-                Layout.preferredHeight: 36
+                Layout.preferredWidth: 42
+                Layout.preferredHeight: 42
                 icon: Fluent.Enums.icon.previous
                 shape: Fluent.Enums.button.shape_pill
+                enabled: Boolean(Player.currentSong.id)
                 onClicked: Player.previous()
             }
 
             Fluent.Button {
-                Layout.preferredWidth: 44
-                Layout.preferredHeight: 44
+                Layout.preferredWidth: 54
+                Layout.preferredHeight: 54
                 icon: Player.playing ? Fluent.Enums.icon.pause : Fluent.Enums.icon.play
                 style: Fluent.Enums.button.style_primary
                 shape: Fluent.Enums.button.shape_pill
+                enabled: Boolean(Player.currentSong.id)
                 onClicked: Player.togglePlay()
             }
 
             Fluent.Button {
-                Layout.preferredWidth: 36
-                Layout.preferredHeight: 36
+                Layout.preferredWidth: 42
+                Layout.preferredHeight: 42
                 icon: Fluent.Enums.icon.next
                 shape: Fluent.Enums.button.shape_pill
+                enabled: Boolean(Player.currentSong.id)
                 onClicked: Player.next()
             }
+        }
 
-            Text {
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Fluent.Enums.spacing.m
+
+            Fluent.Label {
+                type: Fluent.Enums.label.type_caption
                 text: root.timeText(Player.position)
                 color: Fluent.Enums.secondaryForeground
-                font.pixelSize: Fluent.Enums.typography.caption
             }
 
             Fluent.Slider {
@@ -110,6 +119,7 @@ Fluent.Card {
                 from: 0
                 to: Math.max(1, Player.duration)
                 stepSize: 0.25
+                enabled: Boolean(Player.currentSong.id)
                 onValueModified: value => Player.seek(value)
 
                 Binding {
@@ -119,25 +129,26 @@ Fluent.Card {
                 }
             }
 
-            Text {
+            Fluent.Label {
+                type: Fluent.Enums.label.type_caption
                 text: root.timeText(Player.duration)
                 color: Fluent.Enums.secondaryForeground
-                font.pixelSize: Fluent.Enums.typography.caption
             }
+        }
 
-            Fluent.Button {
-                Layout.preferredWidth: 44
-                Layout.preferredHeight: 36
-                icon: Fluent.Enums.icon.window
-                style: UserSettings.lyricsVisible
-                       ? Fluent.Enums.button.style_primary
-                       : Fluent.Enums.button.style_default
-                onClicked: DesktopState.toggleLyricsVisible()
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Fluent.Enums.spacing.m
+
+            Fluent.Icon {
+                icon: Fluent.Enums.icon.speaker_2
+                iconSize: Fluent.Enums.iconSize.m
+                color: Fluent.Enums.secondaryForeground
             }
 
             Fluent.Slider {
                 id: volumeSlider
-                Layout.preferredWidth: 90
+                Layout.fillWidth: true
                 from: 0
                 to: 1
                 stepSize: 0.01
@@ -149,15 +160,25 @@ Fluent.Card {
                     value: Player.volume
                 }
             }
+
+            Fluent.Button {
+                text: UserSettings.lyricsVisible ? "隐藏桌面歌词" : "显示桌面歌词"
+                icon: Fluent.Enums.icon.desktop
+                style: UserSettings.lyricsVisible
+                       ? Fluent.Enums.button.style_primary
+                       : Fluent.Enums.button.style_default
+                onClicked: DesktopState.toggleLyricsVisible()
+            }
         }
 
-        Text {
+        Fluent.InfoBar {
             Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
             visible: Boolean(Player.error)
-            text: Player.error
-            color: Fluent.Enums.infoAccentColor
-            font.pixelSize: Fluent.Enums.typography.caption
-            elide: Text.ElideRight
+            title: "播放失败"
+            message: Player.error
+            severity: "error"
+            closable: false
         }
     }
 }

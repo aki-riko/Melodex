@@ -3,7 +3,7 @@
 
 import unittest
 
-from melodex_desktop.api_client import normalize_song, song_query
+from melodex_desktop.api_client import encoded_query, normalize_song, song_query
 
 
 class NormalizeSongTests(unittest.TestCase):
@@ -59,6 +59,21 @@ class NormalizeSongTests(unittest.TestCase):
         self.assertEqual(items["source"], "qq")
         self.assertEqual(items["stream"], "1")
         self.assertEqual(items["extra"], '{"quality":"flac"}')
+
+    def test_encoded_query_escapes_nested_cover_url(self) -> None:
+        query = song_query(
+            {
+                "id": "track-id",
+                "source": "netease",
+                "cover": "https://p1.music.126.net/cover.jpg?size=640&quality=90",
+            }
+        )
+
+        encoded = encoded_query(query)
+
+        self.assertIn("cover=https%3A%2F%2F", encoded)
+        self.assertIn("%3Fsize%3D640%26quality%3D90", encoded)
+        self.assertNotIn("cover=https://", encoded)
 
 
 if __name__ == "__main__":
