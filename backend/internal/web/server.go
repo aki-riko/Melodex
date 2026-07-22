@@ -558,6 +558,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	// Melodex 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。
 	// 敏感接口(登录/cookie)复用同一套管理员鉴权。
 	RegisterJSONAPIRoutes(r, opts)
+	RegisterDesktopLyricsRoutes(r, opts)
 
 	// Melodex 新增:Subsonic API facade(/rest),让音流等标准 Subsonic 客户端直接连。
 	// 默认关闭,须配 env(MUSIC_DL_SUBSONIC_ENABLED + USER + PASS)才启用;自带 Subsonic 认证。

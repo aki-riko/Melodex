@@ -192,7 +192,7 @@ func InitDB() {
 		panic("Failed to connect to database: " + err.Error())
 	}
 
-	if err := db.AutoMigrate(&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &apiCacheRow{}, &searchHistoryRow{}, &playHistoryRow{}, &qualityCacheRow{}); err != nil {
+	if err := db.AutoMigrate(&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}, &userPrefRow{}, &searchCacheRow{}, &apiCacheRow{}, &searchHistoryRow{}, &playHistoryRow{}, &qualityCacheRow{}, &DesktopLyricsDevice{}); err != nil {
 		panic("Failed to migrate database: " + err.Error())
 	}
 

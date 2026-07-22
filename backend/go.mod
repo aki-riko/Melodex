@@ -13,10 +13,12 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/gioui-plugins/gio-plugins v0.9.2
 	github.com/glebarez/sqlite v1.11.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/guohuiyuan/music-lib v1.1.1-0.20260602115923-b299302e3163
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.46.0
+	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )
 
@@ -47,7 +49,6 @@ require (
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/inkeliz/go_inkwasm v0.1.23-0.20240519174017-989fbe5b10f6 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -92,7 +93,6 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 	google.golang.org/protobuf v1.36.9 // indirect
-	gorm.io/driver/postgres v1.6.0 // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
