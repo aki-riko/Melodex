@@ -10,7 +10,8 @@ Fluent.Card {
         const safe = Math.max(0, Math.floor(seconds || 0))
         const minutes = Math.floor(safe / 60)
         const rest = safe % 60
-        return minutes + ":" + (rest < 10 ? "0" : "") + rest
+        return (minutes < 10 ? "0" : "") + minutes
+               + ":" + (rest < 10 ? "0" : "") + rest
     }
 
     implicitWidth: 420
@@ -103,6 +104,7 @@ Fluent.Card {
                 from: 0
                 to: Math.max(1, Player.duration)
                 stepSize: 0.25
+                displayValueFn: value => root.timeText(value)
                 enabled: Boolean(Player.currentSong.id)
                 onValueModified: value => Player.seek(value)
 
@@ -136,6 +138,7 @@ Fluent.Card {
                 from: 0
                 to: 1
                 stepSize: 0.01
+                displayValueFn: value => Math.round(value * 100) + "%"
                 onValueModified: value => Player.setVolume(value)
 
                 Binding {
