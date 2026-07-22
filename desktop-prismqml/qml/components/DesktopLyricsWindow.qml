@@ -43,15 +43,16 @@ Window {
         minimumPixelSize: Fluent.Enums.typography.display
     }
 
-    Text {
+    Fluent.Label {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: activeLyric.bottom
         anchors.leftMargin: Fluent.Enums.spacing.xxxl
         anchors.rightMargin: Fluent.Enums.spacing.xxxl
         height: 48
+        type: Fluent.Enums.label.type_subtitle
         text: lyricsWindow.nextText
-        color: Fluent.Enums.foregroundColor
+        customTextColor: Fluent.Enums.foregroundColor
         opacity: 0.78
         font.pixelSize: Fluent.Enums.typography.titleLarge
         font.bold: true
@@ -64,11 +65,10 @@ Window {
         styleColor: Qt.rgba(0, 0, 0, 0.68)
     }
 
-    MouseArea {
+    Fluent.WindowDragHandle {
         anchors.fill: parent
         enabled: !UserSettings.clickThrough
         acceptedButtons: Qt.LeftButton
-        onPressed: lyricsWindow.startSystemMove()
         onDoubleClicked: UserSettings.setLyricsVisible(false)
     }
 }

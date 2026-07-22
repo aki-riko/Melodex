@@ -29,28 +29,12 @@ Fluent.Card {
         anchors.rightMargin: Fluent.Enums.spacing.l
         spacing: Fluent.Enums.spacing.l
 
-        Rectangle {
+        Fluent.ImageWidget {
             Layout.preferredWidth: 44
             Layout.preferredHeight: 44
             radius: Fluent.Enums.radius.medium
-            color: Fluent.Enums.surfaceColor
-            clip: true
-
-            Fluent.Icon {
-                anchors.centerIn: parent
-                icon: Fluent.Enums.icon.music_note_2
-                iconSize: Fluent.Enums.iconSize.m
-                color: Fluent.Enums.secondaryForeground
-            }
-
-            Image {
-                anchors.fill: parent
-                source: Api.coverUrl(root.song)
-                asynchronous: true
-                cache: true
-                fillMode: Image.PreserveAspectCrop
-                visible: status === Image.Ready
-            }
+            source: Api.coverUrl(root.song)
+            fillMode: Image.PreserveAspectCrop
         }
 
         ColumnLayout {

@@ -40,8 +40,8 @@ def _create_application(config):
         setTheme,
     )
 
-    setTheme(Theme.DARK)
-    setSkin(Skin.PRISM_DESIGN)
+    setTheme(Theme.LIGHT)
+    setSkin(Skin.FLUENT)
     setAccentColor(config.accent_color)
     app = App(sys.argv)
     app.setApplicationName(config.application_name)

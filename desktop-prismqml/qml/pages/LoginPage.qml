@@ -23,11 +23,12 @@ Item {
 
             Item { Layout.fillHeight: true }
 
-            Image {
+            Fluent.ImageWidget {
                 Layout.preferredWidth: 112
                 Layout.preferredHeight: 112
                 source: AppConfig.iconUrl
                 fillMode: Image.PreserveAspectFit
+                radius: Fluent.Enums.radius.large
             }
 
             Fluent.Label {

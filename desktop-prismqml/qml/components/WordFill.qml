@@ -14,10 +14,11 @@ Item {
     property color activeColor: Fluent.Enums.accentColor
     property color outlineColor: Qt.rgba(0, 0, 0, 0.72)
 
-    Text {
+    Fluent.Label {
         anchors.fill: parent
+        type: Fluent.Enums.label.type_title_large
         text: root.text
-        color: root.restingColor
+        customTextColor: root.restingColor
         font.pixelSize: root.pixelSize
         font.bold: root.bold
         fontSizeMode: Text.Fit
@@ -34,11 +35,12 @@ Item {
         height: root.height
         clip: true
 
-        Text {
+        Fluent.Label {
             width: root.width
             height: root.height
+            type: Fluent.Enums.label.type_title_large
             text: root.text
-            color: root.activeColor
+            customTextColor: root.activeColor
             font.pixelSize: root.pixelSize
             font.bold: root.bold
             fontSizeMode: Text.Fit
