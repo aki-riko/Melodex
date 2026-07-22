@@ -111,9 +111,25 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Fluent.Enums.icon.previous", lyrics_window)
         self.assertIn("Fluent.Enums.icon.desktop_cursor", lyrics_window)
         self.assertIn("Player.togglePlay()", lyrics_window)
+        self.assertIn("UserSettings.setLyricsPosition(", lyrics_window)
+        self.assertIn("UserSettings.lyricsFontSize", lyrics_window)
+        self.assertIn("restingColor: UserSettings.lyricsUnplayedColor", lyrics_window)
+        self.assertIn("activeColor: UserSettings.lyricsPlayedColor", lyrics_window)
+        self.assertIn("id: positionSaveTimer", lyrics_window)
         self.assertIn('objectName: "desktopLyricsWindow"', lyrics_window)
         self.assertIn("visible: false", lyrics_window)
         self.assertNotIn("MouseArea {", lyrics_window)
+
+        self.assertIn("Fluent.Enums.settingCard.type_range", settings)
+        self.assertIn("Fluent.Enums.settingCard.type_combobox", settings)
+        self.assertGreaterEqual(
+            settings.count("Fluent.Enums.settingCard.type_color"), 2
+        )
+        self.assertIn("UserSettings.setLyricsFontSize", settings)
+        self.assertIn("UserSettings.setLyricsColorSchemeIndex", settings)
+        self.assertIn("UserSettings.setLyricsUnplayedColor", settings)
+        self.assertIn("UserSettings.setLyricsPlayedColor", settings)
+        self.assertIn("UserSettings.resetLyricsPosition", settings)
 
         word_fill = (QML_ROOT / "components" / "WordFill.qml").read_text(
             encoding="utf-8"

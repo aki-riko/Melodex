@@ -158,7 +158,7 @@ def _add_tray_actions(tray, app, config, settings, show_main_window) -> None:
         checked=settings.lyricsVisible,
     )
     tray.addAction(
-        "桌面歌词鼠标穿透",
+        "锁定桌面歌词",
         triggered=settings.toggleClickThrough,
         actionId="click-through",
         checkable=True,

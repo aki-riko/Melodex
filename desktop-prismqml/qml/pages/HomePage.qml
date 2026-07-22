@@ -123,8 +123,8 @@ Item {
                     width: parent.width
                     type: Fluent.Enums.settingCard.type_switch
                     icon: Fluent.Enums.icon.desktop_cursor
-                    title: "鼠标穿透"
-                    content: "开启后点击会穿过歌词窗口"
+                    title: "锁定桌面歌词"
+                    content: "锁定后点击会穿过歌词窗口"
                     checked: UserSettings.clickThrough
                     onToggled: enabled => UserSettings.setClickThrough(enabled)
                 }
