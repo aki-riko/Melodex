@@ -19,6 +19,7 @@ private slots:
     void playbackUrlStaysOnAuthenticatedOrigin();
     void realSongMetadataNormalizesForRequests();
     void lyricsSupportWordAndLineTiming();
+    void lyricsTypographyUsesKaiTi();
     void playbackStateIsAccountScoped();
 };
 
@@ -82,6 +83,18 @@ void DesktopContractsTest::lyricsSupportWordAndLineTiming() {
     QCOMPARE(lines.constFirst().toMap().value(QStringLiteral("words")).toList().size(), 2);
     QCOMPARE(melodex::currentLyricIndex(lines, 1.2), 1);
     QVERIFY(melodex::lyricProgress(lines, 0, 0.75) > 0.5);
+}
+
+void DesktopContractsTest::lyricsTypographyUsesKaiTi() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    melodex::UserSettings settings(QStringLiteral("MelodexTypographyTest"),
+                                   directory.path());
+#ifdef Q_OS_MACOS
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Kaiti SC"));
+#else
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("KaiTi"));
+#endif
 }
 
 void DesktopContractsTest::playbackStateIsAccountScoped() {

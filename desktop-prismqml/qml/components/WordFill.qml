@@ -13,7 +13,8 @@ Item {
     property bool bold: true
     property color restingColor: Fluent.Enums.secondaryForeground
     property color activeColor: Fluent.Enums.accentColor
-    property color outlineColor: Qt.rgba(0, 0, 0, 0.72)
+    property real restingOpacity: 0.92
+    property color shadowColor: Qt.rgba(0, 0, 0, 0.58)
     readonly property real clampedProgress: Math.max(0, Math.min(1, progress))
     readonly property real textPaintedWidth: Math.min(width, baseLabel.paintedWidth)
     readonly property real textLeft: Math.max(0, (width - textPaintedWidth) / 2)
@@ -26,14 +27,16 @@ Item {
         customTextColor: root.restingColor
         font.family: root.fontFamily
         font.pixelSize: root.pixelSize
-        font.bold: root.bold
+        font.weight: root.bold ? Font.DemiBold : Font.Medium
+        font.letterSpacing: 0.6
         fontSizeMode: Text.Fit
         minimumPixelSize: root.minimumPixelSize
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
-        style: Text.Outline
-        styleColor: root.outlineColor
+        opacity: root.restingOpacity
+        style: Text.Raised
+        styleColor: root.shadowColor
     }
 
     Item {
@@ -51,14 +54,15 @@ Item {
             customTextColor: root.activeColor
             font.family: root.fontFamily
             font.pixelSize: root.pixelSize
-            font.bold: root.bold
+            font.weight: root.bold ? Font.DemiBold : Font.Medium
+            font.letterSpacing: 0.6
             fontSizeMode: Text.Fit
             minimumPixelSize: root.minimumPixelSize
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
-            style: Text.Outline
-            styleColor: root.outlineColor
+            style: Text.Raised
+            styleColor: root.shadowColor
         }
     }
 }

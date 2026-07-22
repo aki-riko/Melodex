@@ -107,6 +107,10 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Fluent.ImageWidget {", player_bar)
         self.assertIn("Fluent.WindowDragHandle {", lyrics_window)
         self.assertIn("Fluent.Card {", lyrics_window)
+        self.assertIn("id: lyricSurface", lyrics_window)
+        self.assertIn("color: Qt.rgba(0.025, 0.035, 0.055, 0.88)", lyrics_window)
+        self.assertIn("restingOpacity: 0.92", lyrics_window)
+        self.assertIn("opacity: 0.66", lyrics_window)
         self.assertIn("readonly property bool controlsVisible", lyrics_window)
         self.assertIn("Fluent.Enums.icon.previous", lyrics_window)
         self.assertIn("Fluent.Enums.icon.desktop_cursor", lyrics_window)
@@ -137,6 +141,8 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("baseLabel.paintedWidth", word_fill)
         self.assertIn("root.textPaintedWidth * root.clampedProgress", word_fill)
         self.assertEqual(2, word_fill.count("font.family: root.fontFamily"))
+        self.assertEqual(2, word_fill.count("style: Text.Raised"))
+        self.assertNotIn("style: Text.Outline", word_fill)
         self.assertNotIn("root.width * Math.max", word_fill)
 
         raw_visual_pattern = re.compile(
