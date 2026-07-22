@@ -54,6 +54,17 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn('objectName: "startupSplashScreen"', source)
         self.assertIn("parent: mainWindow.contentItem", source)
 
+    def test_player_sliders_format_tooltips_for_their_units(self) -> None:
+        source = (QML_ROOT / "components" / "PlayerBar.qml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('return (minutes < 10 ? "0" : "") + minutes', source)
+        self.assertIn("displayValueFn: value => root.timeText(value)", source)
+        self.assertIn(
+            'displayValueFn: value => Math.round(value * 100) + "%"', source
+        )
+
     def test_pages_reuse_published_prismqml_components(self) -> None:
         home = (QML_ROOT / "pages" / "HomePage.qml").read_text(encoding="utf-8")
         settings = (QML_ROOT / "pages" / "SettingsPage.qml").read_text(
