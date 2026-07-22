@@ -1,5 +1,6 @@
 #include "melodex/ApiClient.h"
 
+#include "melodex/AuthenticatedHttpProxy.h"
 #include "melodex/CookieStore.h"
 #include "melodex/JsonUtils.h"
 #include "melodex/UserSettings.h"
@@ -44,9 +45,14 @@ QUrl resolvePlaybackUrl(const QString &serviceUrl, const QString &rawUrl) {
 }
 
 ApiClient::ApiClient(UserSettings *settings, CookieStore *cookies, QObject *parent)
-    : QObject(parent), m_settings(settings), m_cookies(cookies) {
+    : QObject(parent),
+      m_settings(settings),
+      m_cookies(cookies),
+      m_mediaProxy(std::make_unique<AuthenticatedHttpProxy>()) {
     m_network.setCookieJar(new DelegatingCookieJar(cookies, &m_network));
 }
+
+ApiClient::~ApiClient() = default;
 
 QUrl ApiClient::rootUrl(const QString &path) const {
     if (!m_settings || m_settings->serviceUrl().isEmpty())
@@ -55,6 +61,18 @@ QUrl ApiClient::rootUrl(const QString &path) const {
     while (relative.startsWith(QLatin1Char('/')))
         relative.remove(0, 1);
     return QUrl(m_settings->serviceUrl()).resolved(QUrl(relative));
+}
+
+QByteArray ApiClient::cookieHeaderForUrl(const QUrl &url) const {
+    QByteArray header;
+    if (!m_cookies)
+        return header;
+    for (const QNetworkCookie &cookie : m_cookies->cookiesForUrl(url)) {
+        if (!header.isEmpty())
+            header += "; ";
+        header += cookie.toRawForm(QNetworkCookie::NameAndValueOnly);
+    }
+    return header;
 }
 
 void ApiClient::setBusy(bool value) {
@@ -190,7 +208,10 @@ void ApiClient::login(const QString &serviceUrl, const QString &username,
     setBusy(true);
     setError({});
     try {
+        const QString previousServiceUrl = m_settings->serviceUrl();
         m_settings->setServiceUrl(serviceUrl);
+        if (m_mediaProxy && previousServiceUrl != m_settings->serviceUrl())
+            m_mediaProxy->clear();
     } catch (const std::invalid_argument &error) {
         setBusy(false);
         setError(QString::fromUtf8(error.what()));
@@ -220,6 +241,8 @@ void ApiClient::logout() {
             [this, serial](const QVariant &, const QString &error, int) {
                 if (serial != m_sessionSerial)
                     return;
+                if (m_mediaProxy)
+                    m_mediaProxy->clear();
                 m_cookies->clear();
                 setAuthenticated(false, {});
                 if (!error.isEmpty())
@@ -269,6 +292,14 @@ void ApiClient::search(const QString &rawKeyword) {
 }
 
 void ApiClient::requestStreamUrl(const QVariantMap &song, StreamCallback callback) {
+    if (!m_mediaProxy || !m_mediaProxy->isListening()) {
+        const QString detail =
+            m_mediaProxy ? m_mediaProxy->errorString() : QString();
+        callback({}, detail.isEmpty()
+                         ? QStringLiteral("无法启动本机媒体续传服务")
+                         : QStringLiteral("无法启动本机媒体续传服务：") + detail);
+        return;
+    }
     const QString query = encodedQuery(songQuery(
         song, {{QStringLiteral("stream"), QStringLiteral("1")}}));
     const QVariantMap body{{QStringLiteral("query"), query}};
@@ -285,8 +316,14 @@ void ApiClient::requestStreamUrl(const QVariantMap &song, StreamCallback callbac
                     return;
                 }
                 try {
-                    callback(resolvePlaybackUrl(m_settings->serviceUrl(), rawUrl)
-                                 .toString(QUrl::FullyEncoded), {});
+                    const QUrl remoteUrl =
+                        resolvePlaybackUrl(m_settings->serviceUrl(), rawUrl);
+                    const QUrl localUrl = m_mediaProxy->registerUrl(remoteUrl);
+                    if (localUrl.isEmpty()) {
+                        callback({}, QStringLiteral("本机媒体续传服务拒绝了播放地址"));
+                        return;
+                    }
+                    callback(localUrl.toString(QUrl::FullyEncoded), {});
                 } catch (const std::invalid_argument &validationError) {
                     callback({}, QString::fromUtf8(validationError.what()));
                 }
@@ -310,7 +347,12 @@ QString ApiClient::coverUrl(const QVariantMap &songValue) const {
                                song.value(QStringLiteral("source")).toString());
             url.setQuery(query);
         }
-        return url.toString(QUrl::FullyEncoded);
+        if (!m_mediaProxy || !m_mediaProxy->isListening())
+            return url.toString(QUrl::FullyEncoded);
+        const QUrl localUrl =
+            m_mediaProxy->registerUrl(url, cookieHeaderForUrl(url));
+        return localUrl.isEmpty() ? url.toString(QUrl::FullyEncoded)
+                                  : localUrl.toString(QUrl::FullyEncoded);
     } catch (const std::invalid_argument &error) {
         qWarning().noquote() << "[WARN] 无法生成封面地址：" << error.what();
         return {};

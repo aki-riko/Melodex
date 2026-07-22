@@ -13,6 +13,9 @@ find_package(prism CONFIG REQUIRED)
 qt_standard_project_setup()
 
 add_library(melodex_desktop_core STATIC
+    cpp/AuthenticatedHttpProxy.cpp
+    cpp/AuthenticatedHttpProxySession.cpp
+    cpp/AuthenticatedHttpProxyPrivate.h
     cpp/ApplicationConfig.cpp
     cpp/ApiClient.cpp
     cpp/CollectionController.cpp
@@ -24,6 +27,7 @@ add_library(melodex_desktop_core STATIC
     cpp/PlayerController.cpp
     cpp/PlayerPersistence.cpp
     cpp/UserSettings.cpp
+    cpp/include/melodex/AuthenticatedHttpProxy.h
     cpp/include/melodex/ApplicationConfig.h
     cpp/include/melodex/ApiClient.h
     cpp/include/melodex/CollectionController.h
@@ -119,6 +123,20 @@ if(BUILD_TESTING)
     if(MSVC)
         target_compile_options(melodex_playback_probe PRIVATE /utf-8 /W4)
     endif()
+
+    qt_add_executable(melodex_playback_proxy_tests
+        cpp/tests/test_playback_proxy.cpp)
+    target_link_libraries(melodex_playback_proxy_tests PRIVATE
+        melodex_desktop_core Qt6::Test)
+    set_target_properties(melodex_playback_proxy_tests PROPERTIES
+        QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+    if(MSVC)
+        target_compile_options(melodex_playback_proxy_tests PRIVATE /utf-8 /W4)
+    endif()
+    add_test(NAME melodex_playback_proxy
+        COMMAND "${CMAKE_COMMAND}" -E env
+            "PATH=${MELODEX_TEST_PATH}"
+            "$<TARGET_FILE:melodex_playback_proxy_tests>")
 endif()
 
 install(TARGETS melodex_desktop RUNTIME DESTINATION bin BUNDLE DESTINATION .)

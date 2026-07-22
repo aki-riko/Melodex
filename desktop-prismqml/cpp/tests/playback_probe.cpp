@@ -11,6 +11,7 @@
 #include <QThread>
 #include <QTextStream>
 #include <QTimer>
+#include <memory>
 
 namespace {
 
@@ -44,14 +45,22 @@ int main(int argc, char *argv[]) {
     const QString expectedId = arguments.at(4);
     const int minimumSeconds = argumentInt(arguments, 5, 8);
     const int timeoutSeconds = argumentInt(arguments, 6, 90);
-    QTemporaryDir configRoot;
-    if (!configRoot.isValid()) {
-        qCritical() << "PLAYBACK_PROBE_FAIL: 无法创建隔离配置目录";
-        return 3;
+    const QString configuredRoot =
+        qEnvironmentVariable("MELODEX_PROBE_CONFIG_ROOT").trimmed();
+    std::unique_ptr<QTemporaryDir> temporaryRoot;
+    QString configRoot = configuredRoot;
+    QString settingsName = QStringLiteral("Melodex");
+    if (configRoot.isEmpty()) {
+        temporaryRoot = std::make_unique<QTemporaryDir>();
+        if (!temporaryRoot->isValid()) {
+            qCritical() << "PLAYBACK_PROBE_FAIL: 无法创建隔离配置目录";
+            return 3;
+        }
+        configRoot = temporaryRoot->path();
+        settingsName = QStringLiteral("MelodexProbe");
     }
 
-    melodex::UserSettings settings(QStringLiteral("MelodexProbe"),
-                                   configRoot.path());
+    melodex::UserSettings settings(settingsName, configRoot);
     settings.setServiceUrl(serviceUrl);
     melodex::CookieStore cookies(
         settings.storagePath(QStringLiteral("cookies.dat")));
