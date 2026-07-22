@@ -26,15 +26,25 @@ Window {
                                                  16,
                                                  Math.round(UserSettings.lyricsFontSize * 0.67)
                                              )
-    readonly property int activeLineHeight: UserSettings.lyricsFontSize + 12
-    readonly property int secondaryLineHeight: secondaryFontSize + 8
+    readonly property int activeLineHeight: UserSettings.lyricsFontSize + 20
+    readonly property int secondaryLineHeight: secondaryFontSize + 14
+    readonly property int lyricSurfaceWidth: Math.round(Math.min(
+                                                            width - 24,
+                                                            Math.max(
+                                                                440,
+                                                                Math.max(
+                                                                    activeMetrics.advanceWidth,
+                                                                    nextMetrics.advanceWidth
+                                                                ) + 112
+                                                            )
+                                                        ))
     property bool positionReady: false
 
     width: Math.min(920, Math.max(640, Screen.width - 96))
-    height: 36 + activeLineHeight + secondaryLineHeight
+    height: 46 + activeLineHeight + secondaryLineHeight + 18
     x: 0
     y: 0
-    // Python explicitly owns the native show/hide lifecycle. A declarative
+    // DesktopState explicitly owns the native show/hide lifecycle. A declarative
     // visible binding left the Windows tool HWND uncreated after song changes.
     visible: false
     color: "transparent"
@@ -100,6 +110,22 @@ Window {
                      )
     }
 
+    TextMetrics {
+        id: activeMetrics
+        font.family: UserSettings.lyricsFontFamily
+        font.pixelSize: UserSettings.lyricsFontSize
+        font.weight: Font.Medium
+        text: lyricsWindow.activeText
+    }
+
+    TextMetrics {
+        id: nextMetrics
+        font.family: UserSettings.lyricsFontFamily
+        font.pixelSize: lyricsWindow.secondaryFontSize
+        font.weight: Font.Normal
+        text: lyricsWindow.nextText
+    }
+
     Connections {
         target: UserSettings
 
@@ -118,6 +144,21 @@ Window {
     HoverHandler {
         id: windowHover
         enabled: !UserSettings.clickThrough
+    }
+
+    Fluent.Card {
+        id: lyricSurface
+        z: 1
+        anchors.top: parent.top
+        anchors.topMargin: 32
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: lyricsWindow.lyricSurfaceWidth
+        borderRadius: 22
+        interactionEnabled: false
+        color: Qt.rgba(0.025, 0.035, 0.055, 0.88)
+        border.width: Fluent.Enums.border.thin
+        border.color: Qt.rgba(1, 1, 1, 0.09)
     }
 
     Fluent.Card {
@@ -206,12 +247,13 @@ Window {
 
     WordFill {
         id: activeLyric
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.topMargin: 36
-        anchors.leftMargin: Fluent.Enums.spacing.xxl
-        anchors.rightMargin: Fluent.Enums.spacing.xxl
+        z: 2
+        anchors.left: lyricSurface.left
+        anchors.right: lyricSurface.right
+        anchors.top: lyricSurface.top
+        anchors.topMargin: 12
+        anchors.leftMargin: 34
+        anchors.rightMargin: 34
         height: lyricsWindow.activeLineHeight
         text: lyricsWindow.activeText
         progress: lyricsWindow.activeLine ? Player.currentLyricProgress : 0
@@ -221,33 +263,37 @@ Window {
         bold: false
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
-        outlineColor: Qt.rgba(0, 0, 0, 0.82)
+        restingOpacity: 0.92
+        shadowColor: Qt.rgba(0, 0, 0, 0.62)
     }
 
     Fluent.Label {
-        anchors.left: parent.left
-        anchors.right: parent.right
+        z: 2
+        anchors.left: lyricSurface.left
+        anchors.right: lyricSurface.right
         anchors.top: activeLyric.bottom
-        anchors.leftMargin: Fluent.Enums.spacing.xxl
-        anchors.rightMargin: Fluent.Enums.spacing.xxl
+        anchors.leftMargin: 42
+        anchors.rightMargin: 42
         height: lyricsWindow.secondaryLineHeight
         type: Fluent.Enums.label.type_subtitle
         text: lyricsWindow.nextText
         customTextColor: UserSettings.lyricsUnplayedColor
-        opacity: 0.86
+        opacity: 0.66
         font.family: UserSettings.lyricsFontFamily
         font.pixelSize: lyricsWindow.secondaryFontSize
         font.weight: Font.Normal
+        font.letterSpacing: 0.4
         fontSizeMode: Text.Fit
         minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
-        style: Text.Outline
-        styleColor: Qt.rgba(0, 0, 0, 0.78)
+        style: Text.Raised
+        styleColor: Qt.rgba(0, 0, 0, 0.58)
     }
 
     Fluent.WindowDragHandle {
+        z: 9
         anchors.fill: parent
         enabled: !UserSettings.clickThrough
         acceptedButtons: Qt.LeftButton
