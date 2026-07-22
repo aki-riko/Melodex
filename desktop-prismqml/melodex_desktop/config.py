@@ -5,12 +5,34 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from PySide6.QtCore import QObject, Property, QStandardPaths, Signal, Slot
+from PySide6.QtGui import QColor
+
+
+LYRICS_FONT_SIZE_MINIMUM = 20
+LYRICS_FONT_SIZE_MAXIMUM = 64
+DEFAULT_LYRICS_FONT_SIZE = 36
+DEFAULT_LYRICS_UNPLAYED_COLOR = "#FFF4F7F5"
+DEFAULT_LYRICS_PLAYED_COLOR = "#FF1ED760"
+CUSTOM_LYRICS_COLOR_SCHEME = "自定义"
+# Representative midpoint colors sampled from the user's reference swatches.
+LYRICS_COLOR_SCHEMES: dict[str, str | None] = {
+    CUSTOM_LYRICS_COLOR_SCHEME: None,
+    "网易红": "#FFFFC6C6",
+    "落日晖": "#FFEEC1D1",
+    "可爱粉": "#FFFDD6EB",
+    "天际蓝": "#FFC7E4F1",
+    "清新绿": "#FFE6FAD0",
+    "活力紫": "#FFE7E3FB",
+    "温柔黄": "#FFFCE8C2",
+    "低调灰": "#FFD3D2D2",
+}
 
 
 @dataclass(frozen=True)
@@ -73,20 +95,82 @@ def normalize_service_url(raw_value: str) -> str:
     return urlunsplit((parsed.scheme, netloc, "/", "", ""))
 
 
+def normalize_lyrics_font_size(raw_value: object) -> int:
+    """Return a supported whole-pixel lyrics size."""
+
+    if isinstance(raw_value, bool):
+        raise ValueError("歌词字号必须是整数")
+    try:
+        numeric_value = float(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("歌词字号必须是整数") from exc
+    if not math.isfinite(numeric_value) or not numeric_value.is_integer():
+        raise ValueError("歌词字号必须是整数")
+    return max(
+        LYRICS_FONT_SIZE_MINIMUM,
+        min(LYRICS_FONT_SIZE_MAXIMUM, int(numeric_value)),
+    )
+
+
+def normalize_lyrics_color(raw_value: object) -> str:
+    """Validate a QML color and persist one canonical ARGB value."""
+
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise ValueError("歌词颜色不能为空")
+    color = QColor(raw_value.strip())
+    if not color.isValid():
+        raise ValueError(f"Qt 无法识别歌词颜色：{raw_value}")
+    return color.name(QColor.NameFormat.HexArgb).upper()
+
+
+def normalize_window_coordinate(raw_value: object) -> int:
+    """Validate one persisted native-window coordinate."""
+
+    if isinstance(raw_value, bool):
+        raise ValueError("窗口坐标必须是整数")
+    try:
+        numeric_value = float(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("窗口坐标必须是整数") from exc
+    if not math.isfinite(numeric_value) or not numeric_value.is_integer():
+        raise ValueError("窗口坐标必须是整数")
+    return int(numeric_value)
+
+
 class UserSettings(QObject):
     """Persist non-secret desktop preferences in the platform config directory."""
 
     serviceUrlChanged = Signal()
     clickThroughChanged = Signal()
     lyricsVisibleChanged = Signal()
+    lyricsFontSizeChanged = Signal()
+    lyricsUnplayedColorChanged = Signal()
+    lyricsPlayedColorChanged = Signal()
+    lyricsColorSchemeChanged = Signal()
+    lyricsPositionChanged = Signal()
 
-    def __init__(self, app_name: str, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        app_name: str,
+        parent: QObject | None = None,
+        *,
+        config_root: Path | None = None,
+    ) -> None:
         super().__init__(parent)
-        config_root = Path(QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation))
-        self._path = config_root / app_name / "desktop-settings.json"
+        resolved_root = config_root or Path(
+            QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)
+        )
+        self._path = resolved_root / app_name / "desktop-settings.json"
         self._service_url = ""
         self._click_through = True
         self._lyrics_visible = True
+        self._lyrics_font_size = DEFAULT_LYRICS_FONT_SIZE
+        self._lyrics_unplayed_color = DEFAULT_LYRICS_UNPLAYED_COLOR
+        self._lyrics_played_color = DEFAULT_LYRICS_PLAYED_COLOR
+        self._lyrics_color_scheme = CUSTOM_LYRICS_COLOR_SCHEME
+        self._lyrics_position_set = False
+        self._lyrics_x = 0
+        self._lyrics_y = 0
         self._load()
 
     def _load(self) -> None:
@@ -105,6 +189,67 @@ class UserSettings(QObject):
                 print(f"[WARN] 忽略无效服务地址：{exc}")
         self._click_through = bool(payload.get("desktop_lyrics_click_through", True))
         self._lyrics_visible = bool(payload.get("desktop_lyrics_visible", True))
+        self._load_lyrics_appearance(payload)
+        self._load_lyrics_position(payload)
+
+    def _load_lyrics_appearance(self, payload: dict[str, object]) -> None:
+        try:
+            self._lyrics_font_size = normalize_lyrics_font_size(
+                payload.get("desktop_lyrics_font_size", DEFAULT_LYRICS_FONT_SIZE)
+            )
+        except ValueError as exc:
+            print(f"[WARN] 忽略无效桌面歌词字号：{exc}")
+        self._lyrics_unplayed_color = self._load_lyrics_color(
+            payload,
+            "desktop_lyrics_unplayed_color",
+            DEFAULT_LYRICS_UNPLAYED_COLOR,
+            "未播放",
+        )
+        self._lyrics_played_color = self._load_lyrics_color(
+            payload,
+            "desktop_lyrics_played_color",
+            DEFAULT_LYRICS_PLAYED_COLOR,
+            "已播放",
+        )
+        self._lyrics_color_scheme = self._load_lyrics_color_scheme(payload)
+
+    def _load_lyrics_color_scheme(self, payload: dict[str, object]) -> str:
+        scheme = str(
+            payload.get("desktop_lyrics_color_scheme", CUSTOM_LYRICS_COLOR_SCHEME)
+        )
+        if scheme not in LYRICS_COLOR_SCHEMES:
+            print(f"[WARN] 忽略无效桌面歌词配色方案：{scheme}")
+            return CUSTOM_LYRICS_COLOR_SCHEME
+        preset_color = LYRICS_COLOR_SCHEMES[scheme]
+        if preset_color is None:
+            return scheme
+        if self._lyrics_played_color != preset_color:
+            print(f"[WARN] 桌面歌词配色方案与颜色不一致，改用自定义：{scheme}")
+            return CUSTOM_LYRICS_COLOR_SCHEME
+        return scheme
+
+    @staticmethod
+    def _load_lyrics_color(
+        payload: dict[str, object], key: str, default: str, label: str
+    ) -> str:
+        try:
+            return normalize_lyrics_color(payload.get(key, default))
+        except ValueError as exc:
+            print(f"[WARN] 忽略无效{label}歌词颜色：{exc}")
+            return default
+
+    def _load_lyrics_position(self, payload: dict[str, object]) -> None:
+        if not bool(payload.get("desktop_lyrics_position_set", False)):
+            return
+        try:
+            lyrics_x = normalize_window_coordinate(payload["desktop_lyrics_x"])
+            lyrics_y = normalize_window_coordinate(payload["desktop_lyrics_y"])
+        except (KeyError, ValueError) as exc:
+            print(f"[WARN] 忽略无效桌面歌词位置：{exc}")
+            return
+        self._lyrics_x = lyrics_x
+        self._lyrics_y = lyrics_y
+        self._lyrics_position_set = True
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +257,13 @@ class UserSettings(QObject):
             "service_url": self._service_url,
             "desktop_lyrics_click_through": self._click_through,
             "desktop_lyrics_visible": self._lyrics_visible,
+            "desktop_lyrics_font_size": self._lyrics_font_size,
+            "desktop_lyrics_unplayed_color": self._lyrics_unplayed_color,
+            "desktop_lyrics_played_color": self._lyrics_played_color,
+            "desktop_lyrics_color_scheme": self._lyrics_color_scheme,
+            "desktop_lyrics_position_set": self._lyrics_position_set,
+            "desktop_lyrics_x": self._lyrics_x,
+            "desktop_lyrics_y": self._lyrics_y,
         }
         temporary = self._path.with_suffix(".tmp")
         temporary.write_text(
@@ -166,6 +318,135 @@ class UserSettings(QObject):
     def toggleLyricsVisible(self) -> None:
         self.setLyricsVisible(not self._lyrics_visible)
 
+    def get_lyrics_font_size(self) -> int:
+        return self._lyrics_font_size
+
+    @Slot(int)
+    def setLyricsFontSize(self, value: int) -> None:
+        normalized = normalize_lyrics_font_size(value)
+        if normalized == self._lyrics_font_size:
+            return
+        self._lyrics_font_size = normalized
+        self._save()
+        self.lyricsFontSizeChanged.emit()
+
+    def get_lyrics_unplayed_color(self) -> str:
+        return self._lyrics_unplayed_color
+
+    @Slot(str, result=bool)
+    def setLyricsUnplayedColor(self, value: str) -> bool:
+        return self._set_lyrics_color(
+            value,
+            "_lyrics_unplayed_color",
+            self.lyricsUnplayedColorChanged,
+        )
+
+    def get_lyrics_played_color(self) -> str:
+        return self._lyrics_played_color
+
+    @Slot(str, result=bool)
+    def setLyricsPlayedColor(self, value: str) -> bool:
+        return self._set_lyrics_color(
+            value,
+            "_lyrics_played_color",
+            self.lyricsPlayedColorChanged,
+        )
+
+    def _set_lyrics_color(
+        self, value: str, attribute_name: str, changed_signal: Signal
+    ) -> bool:
+        try:
+            normalized = normalize_lyrics_color(value)
+        except ValueError as exc:
+            print(f"[WARN] 拒绝无效桌面歌词颜色：{exc}")
+            return False
+        if normalized == getattr(self, attribute_name):
+            return True
+        setattr(self, attribute_name, normalized)
+        scheme_changed = (
+            attribute_name == "_lyrics_played_color"
+            and self._lyrics_color_scheme != CUSTOM_LYRICS_COLOR_SCHEME
+        )
+        if scheme_changed:
+            self._lyrics_color_scheme = CUSTOM_LYRICS_COLOR_SCHEME
+        self._save()
+        changed_signal.emit()
+        if scheme_changed:
+            self.lyricsColorSchemeChanged.emit()
+        return True
+
+    def get_lyrics_color_scheme(self) -> str:
+        return self._lyrics_color_scheme
+
+    def get_lyrics_color_scheme_index(self) -> int:
+        return list(LYRICS_COLOR_SCHEMES).index(self._lyrics_color_scheme)
+
+    @Slot(int, result=bool)
+    def setLyricsColorSchemeIndex(self, index: int) -> bool:
+        names = list(LYRICS_COLOR_SCHEMES)
+        if index < 0 or index >= len(names):
+            print(f"[WARN] 拒绝无效桌面歌词配色索引：{index}")
+            return False
+        return self._set_lyrics_color_scheme(names[index])
+
+    def _set_lyrics_color_scheme(self, scheme: str) -> bool:
+        preset_color = LYRICS_COLOR_SCHEMES[scheme]
+        old_unplayed = self._lyrics_unplayed_color
+        old_played = self._lyrics_played_color
+        old_scheme = self._lyrics_color_scheme
+        self._lyrics_color_scheme = scheme
+        if preset_color is not None:
+            self._lyrics_played_color = preset_color
+        if (
+            old_scheme == self._lyrics_color_scheme
+            and old_unplayed == self._lyrics_unplayed_color
+            and old_played == self._lyrics_played_color
+        ):
+            return True
+        self._save()
+        if old_scheme != self._lyrics_color_scheme:
+            self.lyricsColorSchemeChanged.emit()
+        if old_unplayed != self._lyrics_unplayed_color:
+            self.lyricsUnplayedColorChanged.emit()
+        if old_played != self._lyrics_played_color:
+            self.lyricsPlayedColorChanged.emit()
+        return True
+
+    def get_lyrics_position_set(self) -> bool:
+        return self._lyrics_position_set
+
+    def get_lyrics_x(self) -> int:
+        return self._lyrics_x
+
+    def get_lyrics_y(self) -> int:
+        return self._lyrics_y
+
+    @Slot(int, int)
+    def setLyricsPosition(self, x: int, y: int) -> None:
+        normalized_x = normalize_window_coordinate(x)
+        normalized_y = normalize_window_coordinate(y)
+        if (
+            self._lyrics_position_set
+            and normalized_x == self._lyrics_x
+            and normalized_y == self._lyrics_y
+        ):
+            return
+        self._lyrics_x = normalized_x
+        self._lyrics_y = normalized_y
+        self._lyrics_position_set = True
+        self._save()
+        self.lyricsPositionChanged.emit()
+
+    @Slot()
+    def resetLyricsPosition(self) -> None:
+        if not self._lyrics_position_set:
+            return
+        self._lyrics_position_set = False
+        self._lyrics_x = 0
+        self._lyrics_y = 0
+        self._save()
+        self.lyricsPositionChanged.emit()
+
     def storage_path(self, filename: str) -> Path:
         """Return a private per-user data path owned by this client."""
 
@@ -174,3 +455,36 @@ class UserSettings(QObject):
     serviceUrl = Property(str, get_service_url, notify=serviceUrlChanged)
     clickThrough = Property(bool, get_click_through, notify=clickThroughChanged)
     lyricsVisible = Property(bool, get_lyrics_visible, notify=lyricsVisibleChanged)
+    lyricsFontSize = Property(int, get_lyrics_font_size, notify=lyricsFontSizeChanged)
+    lyricsFontSizeMinimum = Property(
+        int, lambda _self: LYRICS_FONT_SIZE_MINIMUM, constant=True
+    )
+    lyricsFontSizeMaximum = Property(
+        int, lambda _self: LYRICS_FONT_SIZE_MAXIMUM, constant=True
+    )
+    defaultLyricsUnplayedColor = Property(
+        str, lambda _self: DEFAULT_LYRICS_UNPLAYED_COLOR, constant=True
+    )
+    defaultLyricsPlayedColor = Property(
+        str, lambda _self: DEFAULT_LYRICS_PLAYED_COLOR, constant=True
+    )
+    lyricsUnplayedColor = Property(
+        str, get_lyrics_unplayed_color, notify=lyricsUnplayedColorChanged
+    )
+    lyricsPlayedColor = Property(
+        str, get_lyrics_played_color, notify=lyricsPlayedColorChanged
+    )
+    lyricsColorSchemeNames = Property(
+        "QVariantList", lambda _self: list(LYRICS_COLOR_SCHEMES), constant=True
+    )
+    lyricsColorScheme = Property(
+        str, get_lyrics_color_scheme, notify=lyricsColorSchemeChanged
+    )
+    lyricsColorSchemeIndex = Property(
+        int, get_lyrics_color_scheme_index, notify=lyricsColorSchemeChanged
+    )
+    lyricsPositionSet = Property(
+        bool, get_lyrics_position_set, notify=lyricsPositionChanged
+    )
+    lyricsX = Property(int, get_lyrics_x, notify=lyricsPositionChanged)
+    lyricsY = Property(int, get_lyrics_y, notify=lyricsPositionChanged)
