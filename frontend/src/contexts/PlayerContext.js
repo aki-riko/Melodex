@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
-import DesktopLyricsWindow from '../components/DesktopLyricsWindow';
+import DesktopLyricsBridge from '../components/DesktopLyricsBridge';
 import SleepTimerControl from '../components/SleepTimerControl';
 import { getStreamUrl, getPlaybackSegmentUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
@@ -1556,12 +1556,12 @@ export const PlayerBar = () => {
               {modeIcon}
             </button>
             <SleepTimerControl {...sleepTimerControlProps} align="center" />
-            <DesktopLyricsWindow
+            <DesktopLyricsBridge
               song={nowPlaying}
-              coverUrl={coverUrl}
               lines={lrc}
               activeIndex={lyricIdx}
               currentTime={progress.cur}
+              duration={progress.dur}
               isPaused={isPaused}
               onTogglePlay={togglePlay}
               onPrev={prev}
