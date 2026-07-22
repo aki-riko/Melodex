@@ -17,7 +17,9 @@ Item {
         id: mainWindow
         objectName: "mainWindow"
 
-        visible: !HeadlessSelfTest
+        // Python owns the initial show call so the native HWND cannot remain
+        // hidden after PrismQML finishes attaching its Windows frame hook.
+        visible: false
         width: AppConfig.windowWidth
         height: AppConfig.windowHeight
         minimumWidth: AppConfig.minimumWindowWidth
