@@ -154,6 +154,17 @@ class ApiClient(QObject):
             return
         reply.finished.connect(lambda: self._finish(reply, callback, expect_text))
 
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        callback,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Share the authenticated JSON transport with feature controllers."""
+
+        self._request(method, path, callback, payload)
+
     def _finish(self, reply: QNetworkReply, callback, expect_text: bool) -> None:
         try:
             status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute) or 0

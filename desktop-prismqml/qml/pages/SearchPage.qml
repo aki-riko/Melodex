@@ -78,6 +78,54 @@ Item {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            visible: Collections.writableCollectionNames.length > 0
+            spacing: Fluent.Enums.spacing.m
+
+            Fluent.Label {
+                type: Fluent.Enums.label.type_body_strong
+                text: "加入歌单"
+            }
+
+            Fluent.ComboBox {
+                id: targetCollection
+                Layout.preferredWidth: 240
+                model: Collections.writableCollectionNames
+                currentIndex: Collections.targetIndex
+                placeholderText: "选择目标歌单"
+                onActivated: index => Collections.setTargetCollectionIndex(index)
+            }
+
+            Fluent.Label {
+                Layout.fillWidth: true
+                type: Fluent.Enums.label.type_caption
+                text: "搜索结果右侧的添加按钮会写入这里"
+                color: Fluent.Enums.tertiaryForeground
+            }
+        }
+
+        Fluent.InfoBar {
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            visible: Boolean(Collections.notice)
+            title: "歌单已更新"
+            message: Collections.notice
+            severity: "success"
+            closable: false
+        }
+
+        Fluent.InfoBar {
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            visible: Boolean(Collections.error)
+            title: "歌单操作失败"
+            message: Collections.error
+            severity: "error"
+            closable: false
+        }
+
         Fluent.ProgressBar {
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? implicitHeight : 0
@@ -113,7 +161,10 @@ Item {
                     SongRow {
                         song: modelData
                         queue: Api.searchResults
+                        showAddButton: Collections.targetIndex >= 0
+                        addEnabled: !Collections.busy
                         onPlayRequested: (song, queue) => Player.playSong(song, queue)
+                        onAddRequested: song => Collections.addSong(song)
                     }
                 }
             }

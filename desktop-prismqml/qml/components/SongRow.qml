@@ -9,7 +9,10 @@ Fluent.Card {
 
     property var song: ({})
     property var queue: []
+    property bool showAddButton: false
+    property bool addEnabled: true
     signal playRequested(var song, var queue)
+    signal addRequested(var song)
 
     function timeText(seconds) {
         const value = Math.max(0, Math.floor(seconds || 0))
@@ -70,6 +73,17 @@ Fluent.Card {
             status: Fluent.Enums.statusLevel.info
             text: String(root.song.source || "来源").toUpperCase()
             showDot: false
+        }
+
+        Fluent.Button {
+            visible: root.showAddButton
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 38
+            icon: Fluent.Enums.icon.collections_add
+            shape: Fluent.Enums.button.shape_pill
+            toolTipText: "加入所选歌单"
+            enabled: root.addEnabled
+            onClicked: root.addRequested(root.song)
         }
 
         Fluent.Button {
