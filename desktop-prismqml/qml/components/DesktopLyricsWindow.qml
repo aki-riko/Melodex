@@ -146,7 +146,7 @@ Window {
         enabled: !UserSettings.clickThrough
     }
 
-    Fluent.Card {
+    Item {
         id: lyricSurface
         z: 1
         anchors.top: parent.top
@@ -154,11 +154,6 @@ Window {
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
         width: lyricsWindow.lyricSurfaceWidth
-        borderRadius: 22
-        interactionEnabled: false
-        color: Qt.rgba(0.025, 0.035, 0.055, 0.88)
-        border.width: Fluent.Enums.border.thin
-        border.color: Qt.rgba(1, 1, 1, 0.09)
     }
 
     Fluent.Card {
