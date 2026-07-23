@@ -259,8 +259,9 @@ Window {
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
         restingOpacity: 0.92
-        outlineColor: Qt.rgba(0, 0, 0, 0.92)
-        dropShadowColor: Qt.rgba(0, 0, 0, 0.72)
+        shadowColor: Qt.rgba(0, 0, 0, 0.50)
+        shadowBlur: 0.30
+        shadowVerticalOffset: 2
     }
 
     Item {
@@ -274,32 +275,11 @@ Window {
         height: lyricsWindow.secondaryLineHeight
 
         Fluent.Label {
-            x: 2
-            y: 3
-            width: parent.width
-            height: parent.height
-            type: Fluent.Enums.label.type_subtitle
-            text: lyricsWindow.nextText
-            customTextColor: Qt.rgba(0, 0, 0, 0.72)
-            font.family: UserSettings.lyricsFontFamily
-            font.pixelSize: lyricsWindow.secondaryFontSize
-            font.weight: Font.Normal
-            font.letterSpacing: 0.4
-            fontSizeMode: Text.Fit
-            minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-            style: Text.Outline
-            styleColor: Qt.rgba(0, 0, 0, 0.92)
-        }
-
-        Fluent.Label {
             anchors.fill: parent
             type: Fluent.Enums.label.type_subtitle
             text: lyricsWindow.nextText
             customTextColor: UserSettings.lyricsUnplayedColor
-            opacity: 0.66
+            opacity: 0.82
             font.family: UserSettings.lyricsFontFamily
             font.pixelSize: lyricsWindow.secondaryFontSize
             font.weight: Font.Normal
@@ -309,8 +289,14 @@ Window {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
-            style: Text.Outline
-            styleColor: Qt.rgba(0, 0, 0, 0.92)
+            renderType: Text.NativeRendering
+            layer.enabled: true
+            layer.effect: Fluent.Shadow {
+                blur: 0.28
+                color: Qt.rgba(0, 0, 0, 0.48)
+                horizontalOffset: 0
+                verticalOffset: 1.5
+            }
         }
     }
 

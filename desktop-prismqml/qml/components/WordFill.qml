@@ -14,35 +14,12 @@ Item {
     property color restingColor: Fluent.Enums.secondaryForeground
     property color activeColor: Fluent.Enums.accentColor
     property real restingOpacity: 0.92
-    property color outlineColor: Qt.rgba(0, 0, 0, 0.92)
-    property color dropShadowColor: Qt.rgba(0, 0, 0, 0.72)
-    property real dropShadowX: 2
-    property real dropShadowY: 3
+    property color shadowColor: Qt.rgba(0, 0, 0, 0.50)
+    property real shadowBlur: 0.30
+    property real shadowVerticalOffset: 2
     readonly property real clampedProgress: Math.max(0, Math.min(1, progress))
     readonly property real textPaintedWidth: Math.min(width, baseLabel.paintedWidth)
     readonly property real textLeft: Math.max(0, (width - textPaintedWidth) / 2)
-
-    Fluent.Label {
-        id: shadowLabel
-        x: root.dropShadowX
-        y: root.dropShadowY
-        width: root.width
-        height: root.height
-        type: Fluent.Enums.label.type_title_large
-        text: root.text
-        customTextColor: root.dropShadowColor
-        font.family: root.fontFamily
-        font.pixelSize: root.pixelSize
-        font.weight: root.bold ? Font.DemiBold : Font.Medium
-        font.letterSpacing: 0.6
-        fontSizeMode: Text.Fit
-        minimumPixelSize: root.minimumPixelSize
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
-        style: Text.Outline
-        styleColor: root.outlineColor
-    }
 
     Fluent.Label {
         id: baseLabel
@@ -60,8 +37,14 @@ Item {
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
         opacity: root.restingOpacity
-        style: Text.Outline
-        styleColor: root.outlineColor
+        renderType: Text.NativeRendering
+        layer.enabled: true
+        layer.effect: Fluent.Shadow {
+            blur: root.shadowBlur
+            color: root.shadowColor
+            horizontalOffset: 0
+            verticalOffset: root.shadowVerticalOffset
+        }
     }
 
     Item {
@@ -86,8 +69,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
-            style: Text.Outline
-            styleColor: root.outlineColor
+            renderType: Text.NativeRendering
         }
     }
 }
