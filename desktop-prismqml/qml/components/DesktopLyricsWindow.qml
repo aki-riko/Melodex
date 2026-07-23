@@ -286,12 +286,13 @@ Window {
         fontFamily: UserSettings.lyricsFontFamily
         pixelSize: UserSettings.lyricsFontSize
         minimumPixelSize: UserSettings.lyricsFontSizeMinimum
-        bold: false
+        bold: true
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
-        restingOpacity: 0.92
-        shadowColor: Qt.rgba(0, 0, 0, 0.50)
-        shadowBlur: 0.30
+        restingOpacity: 0.96
+        outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.90)
+        shadowColor: Qt.rgba(0, 0, 0, 0.72)
+        shadowBlur: 0.18
         shadowVerticalOffset: 2
     }
 
@@ -310,23 +311,26 @@ Window {
             type: Fluent.Enums.label.type_subtitle
             text: lyricsWindow.nextText
             customTextColor: UserSettings.lyricsUnplayedColor
-            opacity: 0.82
+            opacity: 0.92
             font.family: UserSettings.lyricsFontFamily
             font.pixelSize: lyricsWindow.secondaryFontSize
-            font.weight: Font.Normal
-            font.letterSpacing: 0.4
+            font.weight: Font.Medium
+            font.letterSpacing: 0
             fontSizeMode: Text.Fit
             minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
-            renderType: Text.NativeRendering
+            style: Text.Outline
+            styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.88)
+            renderType: Text.QtRendering
+            renderTypeQuality: Text.VeryHighRenderTypeQuality
             layer.enabled: true
             layer.effect: Fluent.Shadow {
-                blur: 0.28
-                color: Qt.rgba(0, 0, 0, 0.48)
+                blur: 0.16
+                color: Qt.rgba(0, 0, 0, 0.68)
                 horizontalOffset: 0
-                verticalOffset: 1.5
+                verticalOffset: 2
             }
         }
     }

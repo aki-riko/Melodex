@@ -13,9 +13,10 @@ Item {
     property bool bold: true
     property color restingColor: Fluent.Enums.secondaryForeground
     property color activeColor: Fluent.Enums.accentColor
-    property real restingOpacity: 0.92
-    property color shadowColor: Qt.rgba(0, 0, 0, 0.50)
-    property real shadowBlur: 0.30
+    property real restingOpacity: 0.96
+    property color outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.90)
+    property color shadowColor: Qt.rgba(0, 0, 0, 0.72)
+    property real shadowBlur: 0.18
     property real shadowVerticalOffset: 2
     readonly property real clampedProgress: Math.max(0, Math.min(1, progress))
     readonly property real textPaintedWidth: Math.min(width, baseLabel.paintedWidth)
@@ -29,15 +30,18 @@ Item {
         customTextColor: root.restingColor
         font.family: root.fontFamily
         font.pixelSize: root.pixelSize
-        font.weight: root.bold ? Font.DemiBold : Font.Medium
-        font.letterSpacing: 0.6
+        font.weight: root.bold ? Font.Bold : Font.DemiBold
+        font.letterSpacing: 0
         fontSizeMode: Text.Fit
         minimumPixelSize: root.minimumPixelSize
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
         opacity: root.restingOpacity
-        renderType: Text.NativeRendering
+        style: Text.Outline
+        styleColor: root.outlineColor
+        renderType: Text.QtRendering
+        renderTypeQuality: Text.VeryHighRenderTypeQuality
         layer.enabled: true
         layer.effect: Fluent.Shadow {
             blur: root.shadowBlur
@@ -62,14 +66,17 @@ Item {
             customTextColor: root.activeColor
             font.family: root.fontFamily
             font.pixelSize: root.pixelSize
-            font.weight: root.bold ? Font.DemiBold : Font.Medium
-            font.letterSpacing: 0.6
+            font.weight: root.bold ? Font.Bold : Font.DemiBold
+            font.letterSpacing: 0
             fontSizeMode: Text.Fit
             minimumPixelSize: root.minimumPixelSize
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
-            renderType: Text.NativeRendering
+            style: Text.Outline
+            styleColor: root.outlineColor
+            renderType: Text.QtRendering
+            renderTypeQuality: Text.VeryHighRenderTypeQuality
         }
     }
 }
