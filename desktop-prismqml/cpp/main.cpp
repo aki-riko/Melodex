@@ -144,48 +144,49 @@ void restoreMainWindow(QObject *mainWindow) {
     window->requestActivate();
 }
 
-prism::SystemTrayIcon *installTray(const melodex::ApplicationConfig &config,
-                                   QObject *mainWindow,
-                                   melodex::UserSettings *settings,
-                                   QApplication *application) {
-    auto *tray = new prism::SystemTrayIcon(
-        QString::fromLatin1(kIconPath), config.applicationName, application);
+void configureTray(prism::App &app, const melodex::ApplicationConfig &config,
+                   QObject *mainWindow, melodex::UserSettings *settings) {
+    prism::SystemTrayIcon &tray = app.createSystemTrayIcon(
+        QString::fromLatin1(kIconPath), config.applicationName);
     prism::TrayActionOptions showOptions;
     showOptions.actionId = QStringLiteral("show");
-    tray->addAction(QStringLiteral("显示 %1").arg(config.applicationName),
-                    [mainWindow]() { restoreMainWindow(mainWindow); }, showOptions);
+    showOptions.icon = QStringLiteral("Window");
+    tray.addAction(QStringLiteral("显示 %1").arg(config.applicationName),
+                   [mainWindow]() { restoreMainWindow(mainWindow); }, showOptions);
 
     prism::TrayActionOptions lyricsOptions;
     lyricsOptions.actionId = QStringLiteral("lyrics-visible");
+    lyricsOptions.icon = QStringLiteral("Eye");
     lyricsOptions.checkable = true;
     lyricsOptions.checked = settings->lyricsVisible();
-    tray->addAction(QStringLiteral("显示桌面歌词"),
-                    [settings]() { settings->toggleLyricsVisible(); }, lyricsOptions);
+    tray.addAction(QStringLiteral("显示桌面歌词"),
+                   [settings]() { settings->toggleLyricsVisible(); }, lyricsOptions);
 
     prism::TrayActionOptions lockOptions;
     lockOptions.actionId = QStringLiteral("click-through");
+    lockOptions.icon = QStringLiteral("LockClosed");
     lockOptions.checkable = true;
     lockOptions.checked = settings->clickThrough();
-    tray->addAction(QStringLiteral("锁定桌面歌词"),
-                    [settings]() { settings->toggleClickThrough(); }, lockOptions);
-    tray->addSeparator();
+    tray.addAction(QStringLiteral("锁定桌面歌词"),
+                   [settings]() { settings->toggleClickThrough(); }, lockOptions);
+    tray.addSeparator();
 
     prism::TrayActionOptions quitOptions;
     quitOptions.actionId = QStringLiteral("quit");
-    tray->addAction(QStringLiteral("退出"), []() { QCoreApplication::quit(); },
-                    quitOptions);
-    QObject::connect(settings, &melodex::UserSettings::clickThroughChanged, tray,
-                     [tray, settings]() {
-                         tray->setActionChecked(QStringLiteral("click-through"),
-                                                settings->clickThrough());
+    quitOptions.icon = QStringLiteral("Power");
+    tray.addAction(QStringLiteral("退出"), []() { QCoreApplication::quit(); },
+                   quitOptions);
+    QObject::connect(settings, &melodex::UserSettings::clickThroughChanged, &tray,
+                     [&tray, settings]() {
+                         tray.setActionChecked(QStringLiteral("click-through"),
+                                               settings->clickThrough());
                      });
-    QObject::connect(settings, &melodex::UserSettings::lyricsVisibleChanged, tray,
-                     [tray, settings]() {
-                         tray->setActionChecked(QStringLiteral("lyrics-visible"),
-                                                settings->lyricsVisible());
+    QObject::connect(settings, &melodex::UserSettings::lyricsVisibleChanged, &tray,
+                     [&tray, settings]() {
+                         tray.setActionChecked(QStringLiteral("lyrics-visible"),
+                                               settings->lyricsVisible());
                      });
-    tray->show();
-    return tray;
+    tray.show();
 }
 
 int runApplication(int argc, char *argv[]) {
@@ -231,7 +232,7 @@ int runApplication(int argc, char *argv[]) {
     } else {
         if (auto *window = qobject_cast<QWindow *>(mainWindow))
             window->show();
-        installTray(config, mainWindow, services.settings, app.qapp());
+        configureTray(app, config, mainWindow, services.settings);
         QTimer::singleShot(0, services.api, &melodex::ApiClient::checkSession);
     }
     return app.exec();

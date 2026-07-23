@@ -46,6 +46,14 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertNotIn("setTheme(Theme.DARK)", source)
         self.assertNotIn("setSkin(Skin.PRISM_DESIGN)", source)
 
+    def test_cpp_tray_is_owned_and_rendered_by_prismqml(self) -> None:
+        source = (DESKTOP_ROOT / "cpp" / "main.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("app.createSystemTrayIcon(", source)
+        self.assertIn('showOptions.icon = QStringLiteral("Window")', source)
+        self.assertIn('quitOptions.icon = QStringLiteral("Power")', source)
+        self.assertNotIn("new prism::SystemTrayIcon", source)
+
     def test_startup_uses_published_prismqml_splash_screen(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
@@ -122,6 +130,8 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("bold: false", lyrics_window)
         self.assertIn("restingColor: UserSettings.lyricsUnplayedColor", lyrics_window)
         self.assertIn("activeColor: UserSettings.lyricsPlayedColor", lyrics_window)
+        self.assertIn("outlineColor: Qt.rgba(0, 0, 0, 0.92)", lyrics_window)
+        self.assertIn("dropShadowColor: Qt.rgba(0, 0, 0, 0.72)", lyrics_window)
         self.assertIn("id: positionSaveTimer", lyrics_window)
         self.assertIn('objectName: "desktopLyricsWindow"', lyrics_window)
         self.assertIn("visible: false", lyrics_window)
@@ -141,9 +151,9 @@ class NativeShellContractTests(unittest.TestCase):
         )
         self.assertIn("baseLabel.paintedWidth", word_fill)
         self.assertIn("root.textPaintedWidth * root.clampedProgress", word_fill)
-        self.assertEqual(2, word_fill.count("font.family: root.fontFamily"))
-        self.assertEqual(2, word_fill.count("style: Text.Raised"))
-        self.assertNotIn("style: Text.Outline", word_fill)
+        self.assertEqual(3, word_fill.count("font.family: root.fontFamily"))
+        self.assertEqual(3, word_fill.count("style: Text.Outline"))
+        self.assertNotIn("style: Text.Raised", word_fill)
         self.assertNotIn("root.width * Math.max", word_fill)
 
         raw_visual_pattern = re.compile(
