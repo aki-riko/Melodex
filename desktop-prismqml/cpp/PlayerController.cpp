@@ -60,6 +60,27 @@ double PlayerController::duration() const { return m_player->duration() / 1000.0
 
 double PlayerController::volume() const { return m_audio->volume(); }
 
+double PlayerController::visualPosition() const {
+    double milliseconds = static_cast<double>(m_positionAnchorMs);
+    if (playing() && m_positionAnchorClock.isValid()) {
+        const double playbackRate =
+            qMax(0.0, static_cast<double>(m_player->playbackRate()));
+        milliseconds +=
+            (m_positionAnchorClock.nsecsElapsed() / 1000000.0) * playbackRate;
+    }
+    if (m_player->duration() > 0)
+        milliseconds = qMin(milliseconds, static_cast<double>(m_player->duration()));
+    return qMax(0.0, milliseconds / 1000.0);
+}
+
+int PlayerController::visualLyricIndex(double positionSeconds) const {
+    return melodex::currentLyricIndex(m_lyrics, qMax(0.0, positionSeconds));
+}
+
+double PlayerController::visualLyricProgress(int index, double positionSeconds) const {
+    return melodex::lyricProgress(m_lyrics, index, qMax(0.0, positionSeconds));
+}
+
 void PlayerController::playSong(const QVariantMap &songValue,
                                 const QVariantList &queueValues) {
     const QVariantMap song = normalizeSong(songValue);
@@ -135,6 +156,7 @@ void PlayerController::seek(double seconds) {
     m_pendingRestorePositionMs.reset();
     m_restoringState = false;
     const double normalized = qMax(0.0, seconds);
+    updatePositionAnchor(static_cast<qint64>(normalized * 1000.0));
     m_player->setPosition(static_cast<qint64>(normalized * 1000.0));
     savePlaybackState(normalized);
 }
@@ -143,11 +165,20 @@ void PlayerController::setVolume(double value) {
     m_audio->setVolume(static_cast<float>(qBound(0.0, value, 1.0)));
 }
 
-void PlayerController::onPositionChanged(qint64) {
+void PlayerController::onPositionChanged(qint64 milliseconds) {
+    updatePositionAnchor(milliseconds);
     emit positionChanged();
     updateLyricPosition();
     if (!m_restoringState && !m_changingSource)
         schedulePlaybackSave();
+}
+
+void PlayerController::updatePositionAnchor(qint64 milliseconds) {
+    m_positionAnchorMs = qMax<qint64>(0, milliseconds);
+    if (playing())
+        m_positionAnchorClock.restart();
+    else
+        m_positionAnchorClock.invalidate();
 }
 
 void PlayerController::updateLyricPosition() {
@@ -164,6 +195,7 @@ void PlayerController::updateLyricPosition() {
 }
 
 void PlayerController::onPlaybackStateChanged(QMediaPlayer::PlaybackState state) {
+    updatePositionAnchor(m_player->position());
     emit playingChanged();
     if (state != QMediaPlayer::PlayingState && !m_changingSource)
         savePlaybackState();
