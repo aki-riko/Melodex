@@ -19,7 +19,7 @@ private slots:
     void playbackUrlStaysOnAuthenticatedOrigin();
     void realSongMetadataNormalizesForRequests();
     void lyricsSupportWordAndLineTiming();
-    void lyricsTypographyUsesKaiTi();
+    void lyricsTypographyUsesSystemCjkFont();
     void playbackStateIsAccountScoped();
 };
 
@@ -85,15 +85,15 @@ void DesktopContractsTest::lyricsSupportWordAndLineTiming() {
     QVERIFY(melodex::lyricProgress(lines, 0, 0.75) > 0.5);
 }
 
-void DesktopContractsTest::lyricsTypographyUsesKaiTi() {
+void DesktopContractsTest::lyricsTypographyUsesSystemCjkFont() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     melodex::UserSettings settings(QStringLiteral("MelodexTypographyTest"),
                                    directory.path());
 #ifdef Q_OS_MACOS
-    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Kaiti SC"));
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("PingFang SC"));
 #else
-    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("KaiTi"));
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Microsoft YaHei UI"));
 #endif
 }
 
