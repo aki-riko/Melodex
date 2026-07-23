@@ -127,6 +127,7 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("UserSettings.setLyricsPosition(", lyrics_window)
         self.assertIn("UserSettings.lyricsFontSize", lyrics_window)
         self.assertIn("fontFamily: UserSettings.lyricsFontFamily", lyrics_window)
+        self.assertIn('content: "微软雅黑 UI（固定） · 当前 "', settings)
         self.assertIn("bold: false", lyrics_window)
         self.assertIn("restingColor: UserSettings.lyricsUnplayedColor", lyrics_window)
         self.assertIn("activeColor: UserSettings.lyricsPlayedColor", lyrics_window)
