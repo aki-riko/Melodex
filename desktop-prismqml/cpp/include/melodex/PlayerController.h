@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAudioOutput>
+#include <QElapsedTimer>
 #include <QMediaPlayer>
 #include <QObject>
 #include <QTimer>
@@ -53,6 +54,9 @@ public:
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE void setVolume(double volume);
     Q_INVOKABLE void flushPlaybackState();
+    Q_INVOKABLE double visualPosition() const;
+    Q_INVOKABLE int visualLyricIndex(double positionSeconds) const;
+    Q_INVOKABLE double visualLyricProgress(int index, double positionSeconds) const;
 
 signals:
     void currentSongChanged();
@@ -76,6 +80,7 @@ private slots:
 private:
     void requestStreamSource(const QVariantMap &song, bool autoplay);
     void setError(const QString &message);
+    void updatePositionAnchor(qint64 milliseconds);
     void updateLyricPosition();
     void applyPendingRestorePosition();
     void schedulePlaybackSave();
@@ -108,6 +113,8 @@ private:
     QString m_loadedSourceKey;
     bool m_playWhenSourceReady = false;
     bool m_changingSource = false;
+    QElapsedTimer m_positionAnchorClock;
+    qint64 m_positionAnchorMs = 0;
     QTimer m_saveTimer;
 };
 

@@ -46,8 +46,8 @@ LEGACY_LYRICS_COLOR_SCHEMES = {
     "温柔黄": "杏月",
     "低调灰": "雾银",
 }
-WINDOWS_LYRICS_FONT_FAMILY = "Microsoft YaHei UI"
-MACOS_LYRICS_FONT_FAMILY = "PingFang SC"
+WINDOWS_LYRICS_FONT_FAMILY = "SimSun"
+MACOS_LYRICS_FONT_FAMILY = "Songti SC"
 
 
 @dataclass(frozen=True)

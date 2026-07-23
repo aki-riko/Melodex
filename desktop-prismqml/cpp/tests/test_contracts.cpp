@@ -91,9 +91,9 @@ void DesktopContractsTest::lyricsTypographyUsesSystemCjkFont() {
     melodex::UserSettings settings(QStringLiteral("MelodexTypographyTest"),
                                    directory.path());
 #ifdef Q_OS_MACOS
-    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("PingFang SC"));
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Songti SC"));
 #else
-    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Microsoft YaHei UI"));
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("SimSun"));
 #endif
 }
 

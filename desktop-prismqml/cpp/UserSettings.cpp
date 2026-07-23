@@ -164,9 +164,9 @@ void UserSettings::save() const {
 
 QString UserSettings::lyricsFontFamily() const {
 #ifdef Q_OS_MACOS
-    return QStringLiteral("PingFang SC");
+    return QStringLiteral("Songti SC");
 #else
-    return QStringLiteral("Microsoft YaHei UI");
+    return QStringLiteral("SimSun");
 #endif
 }
 

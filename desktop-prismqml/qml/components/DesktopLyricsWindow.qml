@@ -7,12 +7,15 @@ Window {
     id: lyricsWindow
     objectName: "desktopLyricsWindow"
 
-    readonly property int lineIndex: Player.currentLyricIndex
-    readonly property var activeLine: lineIndex >= 0 && lineIndex < Player.lyrics.length
-                                      ? Player.lyrics[lineIndex] : null
-    readonly property var nextLine: lineIndex >= 0 && lineIndex + 1 < Player.lyrics.length
-                                    ? Player.lyrics[lineIndex + 1]
-                                    : (lineIndex < 0 && Player.lyrics.length > 0
+    property real displayPosition: Player.position
+    readonly property int displayLineIndex: Player.visualLyricIndex(displayPosition)
+    readonly property var activeLine: displayLineIndex >= 0
+                                      && displayLineIndex < Player.lyrics.length
+                                      ? Player.lyrics[displayLineIndex] : null
+    readonly property var nextLine: displayLineIndex >= 0
+                                    && displayLineIndex + 1 < Player.lyrics.length
+                                    ? Player.lyrics[displayLineIndex + 1]
+                                    : (displayLineIndex < 0 && Player.lyrics.length > 0
                                        ? Player.lyrics[0] : null)
     readonly property string activeText: activeLine
                                          ? activeLine.text
@@ -99,6 +102,29 @@ Window {
     }
 
     Component.onCompleted: restorePosition()
+
+    FrameAnimation {
+        id: lyricFrame
+        running: lyricsWindow.visible && Player.playing && Player.hasLyrics
+        onTriggered: lyricsWindow.displayPosition = Player.visualPosition()
+    }
+
+    Connections {
+        target: Player
+
+        function onPositionChanged() {
+            if (!Player.playing)
+                lyricsWindow.displayPosition = Player.position
+        }
+
+        function onPlayingChanged() {
+            lyricsWindow.displayPosition = Player.visualPosition()
+        }
+
+        function onCurrentSongChanged() {
+            lyricsWindow.displayPosition = Player.position
+        }
+    }
 
     Timer {
         id: positionSaveTimer
@@ -251,7 +277,12 @@ Window {
         anchors.rightMargin: 34
         height: lyricsWindow.activeLineHeight
         text: lyricsWindow.activeText
-        progress: lyricsWindow.activeLine ? Player.currentLyricProgress : 0
+        progress: lyricsWindow.activeLine
+                  ? Player.visualLyricProgress(
+                        lyricsWindow.displayLineIndex,
+                        lyricsWindow.displayPosition
+                    )
+                  : 0
         fontFamily: UserSettings.lyricsFontFamily
         pixelSize: UserSettings.lyricsFontSize
         minimumPixelSize: UserSettings.lyricsFontSizeMinimum
