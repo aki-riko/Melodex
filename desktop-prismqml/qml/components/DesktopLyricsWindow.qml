@@ -259,10 +259,12 @@ Window {
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
         restingOpacity: 0.92
-        shadowColor: Qt.rgba(0, 0, 0, 0.62)
+        outlineColor: Qt.rgba(0, 0, 0, 0.92)
+        dropShadowColor: Qt.rgba(0, 0, 0, 0.72)
     }
 
-    Fluent.Label {
+    Item {
+        id: secondaryLyric
         z: 2
         anchors.left: lyricSurface.left
         anchors.right: lyricSurface.right
@@ -270,21 +272,46 @@ Window {
         anchors.leftMargin: 42
         anchors.rightMargin: 42
         height: lyricsWindow.secondaryLineHeight
-        type: Fluent.Enums.label.type_subtitle
-        text: lyricsWindow.nextText
-        customTextColor: UserSettings.lyricsUnplayedColor
-        opacity: 0.66
-        font.family: UserSettings.lyricsFontFamily
-        font.pixelSize: lyricsWindow.secondaryFontSize
-        font.weight: Font.Normal
-        font.letterSpacing: 0.4
-        fontSizeMode: Text.Fit
-        minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
-        style: Text.Raised
-        styleColor: Qt.rgba(0, 0, 0, 0.58)
+
+        Fluent.Label {
+            x: 2
+            y: 3
+            width: parent.width
+            height: parent.height
+            type: Fluent.Enums.label.type_subtitle
+            text: lyricsWindow.nextText
+            customTextColor: Qt.rgba(0, 0, 0, 0.72)
+            font.family: UserSettings.lyricsFontFamily
+            font.pixelSize: lyricsWindow.secondaryFontSize
+            font.weight: Font.Normal
+            font.letterSpacing: 0.4
+            fontSizeMode: Text.Fit
+            minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            style: Text.Outline
+            styleColor: Qt.rgba(0, 0, 0, 0.92)
+        }
+
+        Fluent.Label {
+            anchors.fill: parent
+            type: Fluent.Enums.label.type_subtitle
+            text: lyricsWindow.nextText
+            customTextColor: UserSettings.lyricsUnplayedColor
+            opacity: 0.66
+            font.family: UserSettings.lyricsFontFamily
+            font.pixelSize: lyricsWindow.secondaryFontSize
+            font.weight: Font.Normal
+            font.letterSpacing: 0.4
+            fontSizeMode: Text.Fit
+            minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            style: Text.Outline
+            styleColor: Qt.rgba(0, 0, 0, 0.92)
+        }
     }
 
     Fluent.WindowDragHandle {
