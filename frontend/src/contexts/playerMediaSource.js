@@ -1,8 +1,11 @@
 import { songIdentityKey } from '../utils/songIdentity.js';
 
 export const CONTINUOUS_AUDIO_MIME = 'audio/mp4; codecs="flac"';
-export const MAX_BUFFER_AHEAD_SECONDS = 75;
-export const QUOTA_RETRY_BUFFER_AHEAD_SECONDS = 30;
+// 每块约 12 秒。Chrome 对高码率 FLAC SourceBuffer 的限制按字节而非时长计算，
+// 继续预取到 75~84 秒会在部分歌曲上先触发 QuotaExceededError。保留三个完整
+// 分块的前向余量，同时在每次追加前回收已播放区间，避免等配额耗尽后才清理。
+export const MAX_BUFFER_AHEAD_SECONDS = 36;
+export const QUOTA_RETRY_BUFFER_AHEAD_SECONDS = 12;
 export const PLAYBACK_CHUNK_MAX_ATTEMPTS = 6;
 export const PLAYBACK_CHUNK_RETRY_BASE_MS = 500;
 export const PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS = 30000;
@@ -331,7 +334,13 @@ export class ContinuousMediaSourcePlayback {
   }
 
   async appendBytes(value) {
+    // 主动回收比 QuotaExceededError 后补救可靠。真实 Chrome 会出现 remove() 已
+    // 成功但本次媒体会话仍拒绝再次 appendBuffer() 的情况。
+    await this.removePlayedBuffer();
     await this.waitForAppendWindow();
+    // waitForAppendWindow 期间播放时间会继续前进；用最新时间再清理一次，否则
+    // 恰好回落到上限时会跳出等待，却把刚播放完的旧字节继续留在配额里。
+    await this.removePlayedBuffer(true);
     if (this.sourceBuffer.updating) {
       await waitForEvent(this.sourceBuffer, 'updateend', ['error', 'abort']);
     }
@@ -343,7 +352,7 @@ export class ContinuousMediaSourcePlayback {
     } catch (error) {
       if (error?.name !== 'QuotaExceededError') throw error;
       // Chromium 的 SourceBuffer 字节配额可能先于时长阈值触发。先强制回收
-      // 已播放区间，再等前向缓冲降到 30 秒后仅重试一次；仍失败则把错误交给
+      // 已播放区间，再等前向缓冲降到 12 秒后仅重试一次；仍失败则把错误交给
       // 上层回退，禁止在同一块上无限重试。
       await this.removePlayedBuffer(true);
       await this.waitForAppendWindow(QUOTA_RETRY_BUFFER_AHEAD_SECONDS);
