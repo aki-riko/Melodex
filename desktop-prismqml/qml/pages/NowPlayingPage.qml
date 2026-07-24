@@ -115,10 +115,10 @@ Item {
                     anchors.fill: parent
                     anchors.leftMargin: Fluent.Enums.spacing.m
                     cardType: Fluent.Enums.card.type_default
+                    contentPadding: Fluent.Enums.spacing.xxl
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: Fluent.Enums.spacing.xxl
                         spacing: Fluent.Enums.spacing.l
 
                         RowLayout {
@@ -174,8 +174,8 @@ Item {
                                 visible: Player.hasLyrics
                                 type: Fluent.Enums.scroll.type_list
                                 model: Player.lyrics
-                                itemHeight: 76
-                                listSpacing: Fluent.Enums.spacing.s
+                                itemHeight: 52
+                                listSpacing: Fluent.Enums.spacing.xxs
                                 reuseItems: true
                                 bounceEnabled: false
                                 selectable: false
@@ -215,8 +215,8 @@ Item {
                                         text: modelData.text || ""
                                         progress: parent.isCurrentLine
                                                   ? root.displayLyricProgress : 0
-                                        pixelSize: Fluent.Enums.typography.displayLarge
-                                        minimumPixelSize: Fluent.Enums.typography.titleLarge
+                                        pixelSize: Fluent.Enums.typography.titleLarge
+                                        minimumPixelSize: Fluent.Enums.typography.body
                                         fontFamily: Fluent.Enums.fontFamily
                                         bold: true
                                         restingColor: Fluent.Enums.secondaryForeground
@@ -233,11 +233,13 @@ Item {
                                         anchors.fill: parent
                                         anchors.leftMargin: Fluent.Enums.spacing.xxl
                                         anchors.rightMargin: Fluent.Enums.spacing.xxl
-                                        type: Fluent.Enums.label.type_subtitle
+                                        type: Fluent.Enums.label.type_body
                                         text: modelData.text || ""
                                         color: Fluent.Enums.secondaryForeground
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
+                                        wrapMode: Text.NoWrap
+                                        maximumLineCount: 1
                                         elide: Text.ElideRight
                                     }
 
