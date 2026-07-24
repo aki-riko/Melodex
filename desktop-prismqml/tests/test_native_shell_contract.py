@@ -207,13 +207,17 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("fontWeight: Font.DemiBold", lyrics_window)
         self.assertIn("restingColor: UserSettings.lyricsUnplayedColor", lyrics_window)
         self.assertIn("activeColor: UserSettings.lyricsPlayedColor", lyrics_window)
-        self.assertIn("outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.52)", lyrics_window)
         self.assertIn(
-            "readonly property color lyricShadowColor: "
-            "Qt.rgba(0.02, 0.025, 0.03, 0.48)",
+            "readonly property color lyricOutlineColor: "
+            "Qt.rgba(0.02, 0.025, 0.03, 0.82)",
             lyrics_window,
         )
-        self.assertIn("readonly property real lyricShadowBlur: 0.10", lyrics_window)
+        self.assertIn(
+            "readonly property color lyricShadowColor: "
+            "Qt.rgba(0.02, 0.025, 0.03, 0.30)",
+            lyrics_window,
+        )
+        self.assertIn("readonly property real lyricShadowBlur: 0", lyrics_window)
         self.assertIn(
             "readonly property real lyricShadowVerticalOffset: 1", lyrics_window
         )
@@ -224,7 +228,8 @@ class NativeShellContractTests(unittest.TestCase):
             lyrics_window,
         )
         self.assertIn("font.weight: Font.Normal", lyrics_window)
-        self.assertIn("styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.46)", lyrics_window)
+        self.assertIn("outlineColor: lyricsWindow.lyricOutlineColor", lyrics_window)
+        self.assertIn("styleColor: lyricsWindow.lyricOutlineColor", lyrics_window)
         self.assertEqual(1, lyrics_window.count("layer.effect: Fluent.Shadow"))
         self.assertIn("blur: lyricsWindow.lyricShadowBlur", lyrics_window)
         self.assertIn("color: lyricsWindow.lyricShadowColor", lyrics_window)
