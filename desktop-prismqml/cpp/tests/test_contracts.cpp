@@ -21,6 +21,7 @@ private slots:
     void serviceUrlRejectsUnsafeOrigins();
     void playbackUrlStaysOnAuthenticatedOrigin();
     void realSongMetadataNormalizesForRequests();
+    void qqZeroSongMidUsesNumericSongId();
     void coverUrlUsesSharedQmlNetworkStack();
     void playerPublishesQueueContractToQml();
     void lyricsSupportWordAndLineTiming();
@@ -77,6 +78,27 @@ void DesktopContractsTest::realSongMetadataNormalizesForRequests() {
     QCOMPARE(melodex::songKey(normalized), QStringLiteral("netease:2140404278"));
     QVERIFY(melodex::encodedQuery(melodex::songQuery(normalized))
                 .contains(QStringLiteral("id=2140404278")));
+}
+
+void DesktopContractsTest::qqZeroSongMidUsesNumericSongId() {
+    const QVariantMap song = {
+        {QStringLiteral("id"), QStringLiteral("0")},
+        {QStringLiteral("source"), QStringLiteral("qq")},
+        {QStringLiteral("name"), QStringLiteral("晚安")},
+        {QStringLiteral("artist"), QStringLiteral("许莉洁")},
+        {QStringLiteral("duration"), 283},
+        {QStringLiteral("extra"),
+         QVariantMap{{QStringLiteral("songmid"), QStringLiteral("0")},
+                     {QStringLiteral("song_id"), QStringLiteral("613053895")}}},
+    };
+
+    const QVariantMap normalized = melodex::normalizeSong(song);
+    QCOMPARE(normalized.value(QStringLiteral("id")).toString(),
+             QStringLiteral("613053895"));
+    QCOMPARE(melodex::songKey(normalized), QStringLiteral("qq:613053895"));
+    const QString query = melodex::encodedQuery(melodex::songQuery(normalized));
+    QVERIFY(query.contains(QStringLiteral("id=613053895")));
+    QVERIFY(query.contains(QStringLiteral("source=qq")));
 }
 
 void DesktopContractsTest::coverUrlUsesSharedQmlNetworkStack() {

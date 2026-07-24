@@ -2,6 +2,7 @@ package qq
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -188,6 +189,97 @@ func TestSearchKeepsPaidTracksWhenMusicKeyPresent(t *testing.T) {
 	}
 	if songs[0].Extra["has_lossless"] != "1" {
 		t.Fatalf("has_lossless extra = %q, want 1", songs[0].Extra["has_lossless"])
+	}
+}
+
+func TestSearchUsesNumericSongIDWhenSongMIDIsZero(t *testing.T) {
+	origGet := qqSearchGet
+	defer func() { qqSearchGet = origGet }()
+
+	qqSearchGet = func(string, ...utils.RequestOption) ([]byte, error) {
+		return []byte(`{"data":{"song":{"list":[{"songid":613053895,"songname":"晚安","songmid":"0","albumname":"","albummid":"0","interval":283,"size128":4542135,"singer":[{"name":"许莉洁"}],"pay":{"payplay":0}}]}}}`), nil
+	}
+
+	vipFalse := false
+	q := New("")
+	q.isVipCache = &vipFalse
+	songs, err := q.Search("晚安")
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(songs) != 1 {
+		t.Fatalf("len(songs) = %d, want 1", len(songs))
+	}
+	got := songs[0]
+	if got.ID != "613053895" || got.Extra["songmid"] != "" {
+		t.Fatalf("song identity = id:%q extra:%#v", got.ID, got.Extra)
+	}
+	if got.Cover != "" || got.Link != "" {
+		t.Fatalf("song presentation = cover:%q link:%q", got.Cover, got.Link)
+	}
+}
+
+func TestGetDownloadURLResolvesZeroSongMIDFromNumericSongID(t *testing.T) {
+	origDetailGet := qqSongDetailGet
+	origPost := qqMusicuPost
+	defer func() {
+		qqSongDetailGet = origDetailGet
+		qqMusicuPost = origPost
+	}()
+
+	qqSongDetailGet = func(apiURL string, _ ...utils.RequestOption) ([]byte, error) {
+		if !strings.Contains(apiURL, "songid=613053895") {
+			t.Fatalf("detail URL = %q", apiURL)
+		}
+		return []byte(`{"data":[{"id":613053895,"name":"晚安","mid":"000033wK2aPdea","album":{"name":"","mid":""},"singer":[{"name":"许莉洁"}],"interval":283}]}`), nil
+	}
+	qqMusicuPost = func(jsonData []byte, _ ...utils.RequestOption) ([]byte, error) {
+		var request struct {
+			Req1 struct {
+				Param struct {
+					SongMID   []string `json:"songmid"`
+					Filenames []string `json:"filename"`
+				} `json:"param"`
+			} `json:"req_1"`
+		}
+		if err := json.Unmarshal(jsonData, &request); err != nil {
+			t.Fatalf("request json: %v", err)
+		}
+		if len(request.Req1.Param.SongMID) == 0 || request.Req1.Param.SongMID[0] != "000033wK2aPdea" {
+			t.Fatalf("songmid = %#v", request.Req1.Param.SongMID)
+		}
+		filename := request.Req1.Param.Filenames[0]
+		return []byte(fmt.Sprintf(`{"req_1":{"data":{"midurlinfo":[{"filename":%q,"purl":"resolved.mp3"}]}}}`, filename)), nil
+	}
+
+	song := &model.Song{Source: "qq", ID: "613053895", Extra: map[string]string{
+		"song_id": "613053895", "songmid": "0",
+	}}
+	got, err := New("").GetDownloadURL(song)
+	if err != nil {
+		t.Fatalf("GetDownloadURL returned error: %v", err)
+	}
+	if got != "https://ws.stream.qqmusic.qq.com/resolved.mp3" {
+		t.Fatalf("url = %q", got)
+	}
+	if song.Extra["songmid"] != "000033wK2aPdea" {
+		t.Fatalf("resolved extra = %#v", song.Extra)
+	}
+}
+
+func TestResolveSongMIDLiveForReportedSong(t *testing.T) {
+	if os.Getenv("QQ_SONG_DETAIL_LIVE") != "1" {
+		t.Skip("set QQ_SONG_DETAIL_LIVE=1 to run the reported QQ song detail probe")
+	}
+	song := &model.Song{Source: "qq", ID: "0", Extra: map[string]string{
+		"song_id": "613053895", "songmid": "0",
+	}}
+	songMID, err := New("").resolveSongMID(song)
+	if err != nil {
+		t.Fatalf("resolveSongMID returned error: %v", err)
+	}
+	if songMID != "000033wK2aPdea" {
+		t.Fatalf("songMID = %q, want 000033wK2aPdea", songMID)
 	}
 }
 

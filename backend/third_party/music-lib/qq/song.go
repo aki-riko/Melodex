@@ -88,9 +88,29 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 			artistNames = append(artistNames, s.Name)
 		}
 
+		songMID := strings.TrimSpace(item.SongMID)
+		if songMID == "0" {
+			songMID = ""
+		}
+		songID := ""
+		if item.SongID > 0 {
+			songID = strconv.FormatInt(item.SongID, 10)
+		}
+		stableID := songMID
+		if stableID == "" {
+			stableID = songID
+		}
+		if stableID == "" {
+			continue
+		}
+
+		albumMID := strings.TrimSpace(item.AlbumMID)
+		if albumMID == "0" {
+			albumMID = ""
+		}
 		var coverURL string
-		if item.AlbumMID != "" {
-			coverURL = fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", item.AlbumMID)
+		if albumMID != "" {
+			coverURL = fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", albumMID)
 		}
 
 		fileSize := item.Size128
@@ -108,8 +128,8 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 		}
 
 		songExtra := map[string]string{
-			"songmid": item.SongMID,
-			"song_id": strconv.FormatInt(item.SongID, 10),
+			"songmid": songMID,
+			"song_id": songID,
 		}
 		// 原唱/正版信号(Melodex 排序用,见 facade combinedScore):
 		// 有无损授权 + 付费单曲 ≈ 正版原唱,区别于草根译名翻唱。
@@ -120,9 +140,13 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 			songExtra["is_paid"] = "1"
 		}
 
+		link := ""
+		if songMID != "" {
+			link = fmt.Sprintf("https://y.qq.com/n/ryqq/songDetail/%s", songMID)
+		}
 		songs = append(songs, model.Song{
 			Source:   "qq",
-			ID:       item.SongMID,
+			ID:       stableID,
 			Name:     item.SongName,
 			Artist:   strings.Join(artistNames, "、"),
 			Album:    item.AlbumName,
@@ -130,7 +154,7 @@ func (q *QQ) Search(keyword string) ([]model.Song, error) {
 			Size:     fileSize,
 			Bitrate:  bitrate,
 			Cover:    coverURL,
-			Link:     fmt.Sprintf("https://y.qq.com/n/ryqq/songDetail/%s", item.SongMID),
+			Link:     link,
 			Extra:    songExtra,
 		})
 	}
