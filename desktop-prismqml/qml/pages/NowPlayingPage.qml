@@ -9,8 +9,22 @@ Item {
 
     signal queueRequested()
 
+    property real lyricDisplayPosition: Player.position
+    readonly property int displayLyricIndex:
+        Player.visualLyricIndex(lyricDisplayPosition)
+    readonly property real displayLyricProgress:
+        displayLyricIndex >= 0
+        ? Player.visualLyricProgress(displayLyricIndex, lyricDisplayPosition)
+        : 0
+
+    onDisplayLyricIndexChanged: Qt.callLater(root.centerCurrentLyric)
+    onVisibleChanged: {
+        if (visible)
+            lyricDisplayPosition = Player.visualPosition()
+    }
+
     function centerCurrentLyric() {
-        if (Player.currentLyricIndex < 0
+        if (displayLyricIndex < 0
                 || lyricList.count <= 0
                 || !lyricList.flickableItem) {
             return
@@ -19,9 +33,15 @@ Item {
         const itemExtent = lyricList.itemHeight + lyricList.listSpacing
         const originY = lyricList.flickableItem.originY
         const centeredY = originY
-                + Player.currentLyricIndex * itemExtent
+                + displayLyricIndex * itemExtent
                 - (lyricList.height - lyricList.itemHeight) / 2
         lyricList.smoothScrollTo(centeredY)
+    }
+
+    FrameAnimation {
+        id: lyricProgressFrame
+        running: root.visible && Player.playing && Player.hasLyrics
+        onTriggered: root.lyricDisplayPosition = Player.visualPosition()
     }
 
     ColumnLayout {
@@ -168,11 +188,11 @@ Item {
                                     required property var modelData
                                     required property int index
                                     readonly property bool isCurrentLine:
-                                        index === Player.currentLyricIndex
+                                        index === root.displayLyricIndex
                                     readonly property int distanceFromCurrent:
-                                        Player.currentLyricIndex < 0
+                                        root.displayLyricIndex < 0
                                         ? 0
-                                        : Math.abs(index - Player.currentLyricIndex)
+                                        : Math.abs(index - root.displayLyricIndex)
 
                                     width: ListView.view ? ListView.view.width : 0
                                     height: lyricList.itemHeight
@@ -193,7 +213,8 @@ Item {
                                         anchors.leftMargin: Fluent.Enums.spacing.xxl
                                         anchors.rightMargin: Fluent.Enums.spacing.xxl
                                         text: modelData.text || ""
-                                        progress: Player.currentLyricProgress
+                                        progress: parent.isCurrentLine
+                                                  ? root.displayLyricProgress : 0
                                         pixelSize: Fluent.Enums.typography.displayLarge
                                         minimumPixelSize: Fluent.Enums.typography.titleLarge
                                         fontFamily: Fluent.Enums.fontFamily
@@ -253,11 +274,21 @@ Item {
     Connections {
         target: Player
 
-        function onCurrentLyricIndexChanged() {
-            Qt.callLater(root.centerCurrentLyric)
+        function onPositionChanged() {
+            if (!Player.playing)
+                root.lyricDisplayPosition = Player.position
+        }
+
+        function onPlayingChanged() {
+            root.lyricDisplayPosition = Player.visualPosition()
+        }
+
+        function onCurrentSongChanged() {
+            root.lyricDisplayPosition = Player.position
         }
 
         function onLyricsChanged() {
+            root.lyricDisplayPosition = Player.position
             Qt.callLater(root.centerCurrentLyric)
         }
     }

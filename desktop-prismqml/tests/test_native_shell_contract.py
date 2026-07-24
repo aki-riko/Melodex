@@ -116,7 +116,20 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("selectable: false", source)
         self.assertNotIn("selectable: true", source)
         self.assertIn("WordFill {", source)
-        self.assertIn("progress: Player.currentLyricProgress", source)
+        self.assertIn("FrameAnimation {", source)
+        self.assertIn(
+            "running: root.visible && Player.playing && Player.hasLyrics", source
+        )
+        self.assertIn(
+            "onTriggered: root.lyricDisplayPosition = Player.visualPosition()", source
+        )
+        self.assertIn("Player.visualLyricIndex(lyricDisplayPosition)", source)
+        self.assertIn(
+            "Player.visualLyricProgress(displayLyricIndex, lyricDisplayPosition)",
+            source,
+        )
+        self.assertIn("? root.displayLyricProgress : 0", source)
+        self.assertNotIn("progress: Player.currentLyricProgress", source)
         self.assertIn("distanceFromCurrent", source)
         self.assertIn("Behavior on opacity", source)
         self.assertIn("Behavior on scale", source)
