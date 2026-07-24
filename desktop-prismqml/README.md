@@ -23,16 +23,12 @@ SplashScreen、InfoBar、ListWidget、ScrollArea、ImageWidget、SplitPane 等�
 
 ## 依赖准备
 
-需要 MSVC 2022、CMake、NMake、Qt 6.11.1 基础 SDK、Qt Multimedia，以及使用同一
-Qt 版本构建的 PrismQML C++ SDK。缺失的 Qt Multimedia 可以用项目内 venv 下载，
-不会修改系统 Python 或系统 Qt：
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install aqtinstall
-.\.venv\Scripts\aqt.exe install-qt windows desktop 6.11.1 win64_msvc2022_64 `
-    -m qtmultimedia -O .prism-sdk\qt
-```
+需要 MSVC 2022、CMake、NMake、Qt 6.11.1 基础 SDK、Qt Multimedia、Qt Image Formats，
+以及使用同一 Qt 版本构建的 PrismQML C++ SDK。Qt Image Formats 提供咪咕等来源 WebP
+封面所需的 `qwebp` 插件。通过 Qt Online Installer 或对应 SDK 的 MaintenanceTool，
+在同一个 Qt 6.11.1 MSVC 2022 64-bit 安装中勾选 Qt Multimedia 与 Qt Image Formats。
+当前 `aqtinstall 3.3.0` 尚未适配 Qt 6.11.1 按架构拆分后的仓库目录，不能把它作为
+这两个模块的增量安装命令。
 
 `.venv` 和 `.prism-sdk` 均已由 Git 忽略。Python 目录保留为迁移前的行为基线，
 仅用于回归测试，不参与 C++ 程序运行。
@@ -63,6 +59,8 @@ Copy-Item .\desktop-prismqml\run-local.config.example.psd1 `
 `%LOCALAPPDATA%\Melodex\desktop-build`，部署目录固定为
 `%LOCALAPPDATA%\Melodex\desktop-deploy`，不再创建带时间戳的临时目录，也不依赖当前
 PowerShell 会话里临时设置的环境变量。若本机目录需要调整，只修改一次本机配置文件。
+脚本会在构建前检查 Qt SDK 的 `qwebp` 插件，并在部署后再次检查固定部署目录中的副本，
+避免客户端在缺少 Qt Image Formats 时悄悄退化为“不支持 WebP”。
 为规避 MSVC 链接中文依赖路径的问题，配置指定的 PrismQML SDK 会自动同步到同一目录下
 的 `prism-sdk-cache`；CMake 和最终部署都使用这份固定缓存，不会混入另一版本的运行时。
 
