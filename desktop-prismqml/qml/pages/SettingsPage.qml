@@ -71,7 +71,7 @@ Item {
                     type: Fluent.Enums.settingCard.type_range
                     icon: Fluent.Enums.icon.music_note_2
                     title: "字体与字号"
-                    content: "宋体（固定） · 当前 "
+                    content: UserSettings.lyricsFontFamily + "（固定） · 当前 "
                              + UserSettings.lyricsFontSize + " px"
                     value: UserSettings.lyricsFontSize
                     from: UserSettings.lyricsFontSizeMinimum

@@ -140,7 +140,7 @@ Window {
         id: activeMetrics
         font.family: UserSettings.lyricsFontFamily
         font.pixelSize: UserSettings.lyricsFontSize
-        font.weight: Font.Medium
+        font.weight: Font.DemiBold
         text: lyricsWindow.activeText
     }
 
@@ -286,14 +286,14 @@ Window {
         fontFamily: UserSettings.lyricsFontFamily
         pixelSize: UserSettings.lyricsFontSize
         minimumPixelSize: UserSettings.lyricsFontSizeMinimum
-        bold: true
+        fontWeight: Font.DemiBold
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
         restingOpacity: 0.96
-        outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.90)
-        shadowColor: Qt.rgba(0, 0, 0, 0.72)
-        shadowBlur: 0.18
-        shadowVerticalOffset: 2
+        outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.52)
+        shadowColor: Fluent.Enums.transparent
+        shadowBlur: 0
+        shadowVerticalOffset: 0
     }
 
     Item {
@@ -314,7 +314,7 @@ Window {
             opacity: 0.92
             font.family: UserSettings.lyricsFontFamily
             font.pixelSize: lyricsWindow.secondaryFontSize
-            font.weight: Font.Medium
+            font.weight: Font.Normal
             font.letterSpacing: 0
             fontSizeMode: Text.Fit
             minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
@@ -322,16 +322,9 @@ Window {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
             style: Text.Outline
-            styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.88)
+            styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.46)
             renderType: Text.QtRendering
             renderTypeQuality: Text.VeryHighRenderTypeQuality
-            layer.enabled: true
-            layer.effect: Fluent.Shadow {
-                blur: 0.16
-                color: Qt.rgba(0, 0, 0, 0.68)
-                horizontalOffset: 0
-                verticalOffset: 2
-            }
         }
     }
 
