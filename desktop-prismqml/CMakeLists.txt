@@ -54,6 +54,7 @@ target_compile_definitions(melodex_desktop PRIVATE
 set(MELODEX_QML_FILES
     qml/main.qml
     qml/components/DesktopLyricsWindow.qml
+    qml/components/PlaybackQueueDrawer.qml
     qml/components/PlayerBar.qml
     qml/components/SongRow.qml
     qml/components/WordFill.qml

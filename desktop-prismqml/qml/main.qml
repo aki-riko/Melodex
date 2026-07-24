@@ -49,7 +49,13 @@ Item {
 
         onCloseRequested: {
             closeRequestAccepted = false
+            playbackQueueDrawer.close()
             hide()
+        }
+
+        onCurrentIndexChanged: {
+            if (currentIndex !== 3)
+                playbackQueueDrawer.close()
         }
 
         HomePage {
@@ -72,6 +78,7 @@ Item {
 
         NowPlayingPage {
             objectName: "nowPlayingPage"
+            onQueueRequested: playbackQueueDrawer.open()
         }
 
         SettingsPage {
@@ -86,6 +93,12 @@ Item {
         iconSource: AppConfig.iconUrl
         title: AppConfig.name
         subtitle: "正在载入桌面客户端"
+    }
+
+    PlaybackQueueDrawer {
+        id: playbackQueueDrawer
+        parent: mainWindow.contentItem
+        anchors.fill: parent
     }
 
     Connections {

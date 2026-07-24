@@ -23,6 +23,8 @@ class PlayerController final : public QObject {
     Q_PROPERTY(double position READ position NOTIFY positionChanged)
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(double volume READ volume NOTIFY volumeChanged)
+    Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
+    Q_PROPERTY(int queueIndex READ queueIndex NOTIFY queueChanged)
     Q_PROPERTY(QVariantList lyrics READ lyrics NOTIFY lyricsChanged)
     Q_PROPERTY(int currentLyricIndex READ currentLyricIndex
                    NOTIFY currentLyricIndexChanged)
@@ -40,6 +42,8 @@ public:
     double position() const;
     double duration() const;
     double volume() const;
+    QVariantList queue() const;
+    int queueIndex() const { return m_queueIndex; }
     QVariantList lyrics() const { return m_lyrics; }
     int currentLyricIndex() const { return m_currentLyricIndex; }
     double currentLyricProgress() const { return m_currentLyricProgress; }
@@ -48,6 +52,7 @@ public:
     QMediaPlayer *mediaPlayer() const { return m_player; }
 
     Q_INVOKABLE void playSong(const QVariantMap &song, const QVariantList &queue);
+    Q_INVOKABLE void playQueueIndex(int index);
     Q_INVOKABLE void togglePlay();
     Q_INVOKABLE void next();
     Q_INVOKABLE void previous();
@@ -64,6 +69,7 @@ signals:
     void positionChanged();
     void durationChanged();
     void volumeChanged();
+    void queueChanged();
     void lyricsChanged();
     void currentLyricIndexChanged();
     void currentLyricProgressChanged();

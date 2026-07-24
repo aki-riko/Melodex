@@ -7,6 +7,8 @@ import "../components"
 Item {
     id: root
 
+    signal queueRequested()
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Fluent.Enums.spacing.xxxl
@@ -32,6 +34,13 @@ Item {
                     text: "原生播放控制与同步歌词"
                     color: Fluent.Enums.secondaryForeground
                 }
+            }
+
+            Fluent.Button {
+                text: "播放列表（" + Player.queue.length + "）"
+                icon: Fluent.Enums.icon.collections
+                enabled: Player.queue.length > 0
+                onClicked: root.queueRequested()
             }
 
             Fluent.Tag {
