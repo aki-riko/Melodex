@@ -59,6 +59,22 @@ class LocalRunnerContractTests(unittest.TestCase):
         self.assertIn("$prismSdkRoot", runner)
         self.assertIn("[IO.FileShare]::None", runner)
 
+    def test_runner_requires_and_deploys_qt_webp_plugin(self) -> None:
+        runner = (DESKTOP_ROOT / "run-local.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("plugins\\imageformats\\qwebp.dll", runner)
+        self.assertIn("bin\\imageformats\\qwebp.dll", runner)
+        self.assertIn("Qt WebP image plugin (qtimageformats)", runner)
+        self.assertIn("Deployed Qt WebP image plugin", runner)
+        self.assertLess(
+            runner.index("$qtWebpPlugin ="),
+            runner.index("[Melodex] Running Python regression tests"),
+        )
+        self.assertGreater(
+            runner.index("$deployedWebpPlugin ="),
+            runner.index("Invoke-Native -Command $winDeployQt"),
+        )
+
     def test_readme_exposes_direct_executable_as_the_single_daily_command(self) -> None:
         readme = (DESKTOP_ROOT / "README.md").read_text(encoding="utf-8")
         daily_section = readme.split("## 日常启动", 1)[1].split(

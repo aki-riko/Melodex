@@ -98,6 +98,7 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - **本机日常启动的唯一指令**：在当前 PowerShell 直接执行 `& "$env:LOCALAPPDATA\Melodex\desktop-deploy\bin\melodex_desktop.exe"`。这条命令只运行固定部署目录里的现成客户端，不调用 Python、CMake、CTest、安装或部署，也不新开 PowerShell。给用户“启动客户端”的指令必须始终使用这一条，不得换成 `run-local.ps1`、临时脚本或构建命令。
 - `desktop-prismqml/run-local.ps1` 仅用于开发阶段需要完整执行 Python 回归、CMake 构建、CTest、Qt 部署和重启时；不得把它当成日常启动器。只有用户明确要求构建/完整验证时才可运行。
 - 本机 Qt、PrismQML SDK、Visual Studio、构建目录和部署目录只写入已被 Git 忽略的 `desktop-prismqml/run-local.config.psd1`；提交到仓库的 `run-local.config.example.psd1` 只保留占位配置，禁止提交本机绝对路径。
+- 桌面端必须安装与 Qt 6.11.1/工具链匹配的 **Qt Image Formats** 模块；咪咕等来源返回 WebP 封面时依赖 `plugins/imageformats/qwebp.dll`。`run-local.ps1` 必须在构建前检查 Qt SDK 插件、在 `windeployqt` 后检查固定部署目录副本，缺失即停止，禁止带着 `Unsupported image format` 继续启动。
 - 固定构建/部署目录为 `%LOCALAPPDATA%\Melodex\desktop-build` 与 `%LOCALAPPDATA%\Melodex\desktop-deploy`。脚本会把配置指定的同一 PrismQML SDK 同步到纯 ASCII 的 `prism-sdk-cache`，CMake 和运行时必须使用这一份，禁止通过 `PRISMQML_QML_DIR` 临时切换到其他版本。
 - 禁止再创建带时间戳或功能名的 `melodex-*build*`、`melodex-*deploy*` QA 目录；验证完成的客户端必须从固定部署目录启动。需要升级 SDK 时只修改本机配置并继续运行同一入口。
 

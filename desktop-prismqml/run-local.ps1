@@ -117,12 +117,14 @@ $configuredPrismConfig = Join-Path `
 $configuredPrismQml = Join-Path `
     $configuredPrismSdkRoot 'share\prism\qml\PrismQML\qmldir'
 $winDeployQt = Join-Path $qtRoot 'bin\windeployqt.exe'
+$qtWebpPlugin = Join-Path $qtRoot 'plugins\imageformats\qwebp.dll'
 
 Assert-File -Path $pythonExe -Description 'Desktop test Python'
 Assert-File -Path $configuredPrismConfig -Description 'Configured PrismQML CMake package'
 Assert-File -Path $configuredPrismQml -Description 'Configured PrismQML QML module'
 Assert-File -Path $vsDevShell -Description 'Visual Studio developer shell'
 Assert-File -Path $winDeployQt -Description 'Qt deployment tool'
+Assert-File -Path $qtWebpPlugin -Description 'Qt WebP image plugin (qtimageformats)'
 
 $prismSdkName = Split-Path -Leaf $configuredPrismSdkRoot
 $prismSdkCacheRoot = Join-Path $defaultOutputRoot 'prism-sdk-cache'
@@ -203,6 +205,8 @@ try {
         '--qml-deploy-dir', $deployedQmlRoot,
         $deployedExe
     )
+    $deployedWebpPlugin = Join-Path $deployDir 'bin\imageformats\qwebp.dll'
+    Assert-File -Path $deployedWebpPlugin -Description 'Deployed Qt WebP image plugin'
 
     # A stale session override can silently load a different PrismQML runtime.
     Remove-Item Env:PRISMQML_QML_DIR -ErrorAction SilentlyContinue
