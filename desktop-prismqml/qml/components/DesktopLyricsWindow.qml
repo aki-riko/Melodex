@@ -29,6 +29,9 @@ Window {
                                                  16,
                                                  Math.round(UserSettings.lyricsFontSize * 0.67)
                                              )
+    readonly property color lyricShadowColor: Qt.rgba(0.02, 0.025, 0.03, 0.48)
+    readonly property real lyricShadowBlur: 0.10
+    readonly property real lyricShadowVerticalOffset: 1
     readonly property int activeLineHeight: UserSettings.lyricsFontSize + 20
     readonly property int secondaryLineHeight: secondaryFontSize + 14
     readonly property int lyricSurfaceWidth: Math.round(Math.min(
@@ -292,9 +295,9 @@ Window {
         activeColor: UserSettings.lyricsPlayedColor
         restingOpacity: 0.96
         outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.52)
-        shadowColor: Fluent.Enums.transparent
-        shadowBlur: 0
-        shadowVerticalOffset: 0
+        shadowColor: lyricsWindow.lyricShadowColor
+        shadowBlur: lyricsWindow.lyricShadowBlur
+        shadowVerticalOffset: lyricsWindow.lyricShadowVerticalOffset
     }
 
     Item {
@@ -326,6 +329,13 @@ Window {
             styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.46)
             renderType: Text.QtRendering
             renderTypeQuality: Text.VeryHighRenderTypeQuality
+            layer.enabled: true
+            layer.effect: Fluent.Shadow {
+                blur: lyricsWindow.lyricShadowBlur
+                color: lyricsWindow.lyricShadowColor
+                horizontalOffset: 0
+                verticalOffset: lyricsWindow.lyricShadowVerticalOffset
+            }
         }
     }
 

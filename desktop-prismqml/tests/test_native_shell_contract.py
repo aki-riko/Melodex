@@ -208,12 +208,30 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("restingColor: UserSettings.lyricsUnplayedColor", lyrics_window)
         self.assertIn("activeColor: UserSettings.lyricsPlayedColor", lyrics_window)
         self.assertIn("outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.52)", lyrics_window)
-        self.assertIn("shadowColor: Fluent.Enums.transparent", lyrics_window)
-        self.assertIn("shadowBlur: 0", lyrics_window)
-        self.assertIn("shadowVerticalOffset: 0", lyrics_window)
+        self.assertIn(
+            "readonly property color lyricShadowColor: "
+            "Qt.rgba(0.02, 0.025, 0.03, 0.48)",
+            lyrics_window,
+        )
+        self.assertIn("readonly property real lyricShadowBlur: 0.10", lyrics_window)
+        self.assertIn(
+            "readonly property real lyricShadowVerticalOffset: 1", lyrics_window
+        )
+        self.assertIn("shadowColor: lyricsWindow.lyricShadowColor", lyrics_window)
+        self.assertIn("shadowBlur: lyricsWindow.lyricShadowBlur", lyrics_window)
+        self.assertIn(
+            "shadowVerticalOffset: lyricsWindow.lyricShadowVerticalOffset",
+            lyrics_window,
+        )
         self.assertIn("font.weight: Font.Normal", lyrics_window)
         self.assertIn("styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.46)", lyrics_window)
-        self.assertNotIn("layer.effect: Fluent.Shadow", lyrics_window)
+        self.assertEqual(1, lyrics_window.count("layer.effect: Fluent.Shadow"))
+        self.assertIn("blur: lyricsWindow.lyricShadowBlur", lyrics_window)
+        self.assertIn("color: lyricsWindow.lyricShadowColor", lyrics_window)
+        self.assertIn(
+            "verticalOffset: lyricsWindow.lyricShadowVerticalOffset",
+            lyrics_window,
+        )
         self.assertEqual(1, lyrics_window.count("renderType: Text.QtRendering"))
         self.assertEqual(1, lyrics_window.count("style: Text.Outline"))
         self.assertNotIn("renderType: Text.NativeRendering", lyrics_window)
