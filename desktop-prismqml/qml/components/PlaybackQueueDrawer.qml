@@ -79,6 +79,7 @@ Fluent.Drawer {
                         anchors.fill: parent
                         anchors.margins: Fluent.Enums.spacing.xxs
                         cardType: Fluent.Enums.card.type_hover
+                        contentPadding: Fluent.Enums.spacing.l
                         clickEnabled: true
                         onClicked: Player.playQueueIndex(index)
 

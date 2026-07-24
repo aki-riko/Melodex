@@ -75,10 +75,10 @@ Item {
             Layout.preferredHeight: 500
             Layout.alignment: Qt.AlignVCenter
             cardType: Fluent.Enums.card.type_elevated
+            contentPadding: Fluent.Enums.spacing.xxxl
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Fluent.Enums.spacing.xxxl
                 spacing: Fluent.Enums.spacing.l
 
                 Fluent.Label {
