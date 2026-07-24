@@ -55,6 +55,10 @@ class NormalizeServiceUrlTests(unittest.TestCase):
 
 
 class UserSettingsLyricsTests(unittest.TestCase):
+    def test_platform_lyrics_fonts_use_modern_cjk_sans_serif_families(self) -> None:
+        self.assertEqual("Microsoft YaHei UI", WINDOWS_LYRICS_FONT_FAMILY)
+        self.assertEqual("PingFang SC", MACOS_LYRICS_FONT_FAMILY)
+
     @staticmethod
     def _write_settings(config_root: Path, payload: dict[str, object]) -> None:
         settings_path = config_root / "MelodexTest" / "desktop-settings.json"

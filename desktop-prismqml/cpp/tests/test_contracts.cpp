@@ -24,7 +24,7 @@ private slots:
     void coverUrlUsesSharedQmlNetworkStack();
     void playerPublishesQueueContractToQml();
     void lyricsSupportWordAndLineTiming();
-    void lyricsTypographyUsesSystemCjkFont();
+    void lyricsTypographyUsesModernCjkFont();
     void playbackStateIsAccountScoped();
 };
 
@@ -123,15 +123,15 @@ void DesktopContractsTest::lyricsSupportWordAndLineTiming() {
     QVERIFY(melodex::lyricProgress(lines, 0, 0.75) > 0.5);
 }
 
-void DesktopContractsTest::lyricsTypographyUsesSystemCjkFont() {
+void DesktopContractsTest::lyricsTypographyUsesModernCjkFont() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     melodex::UserSettings settings(QStringLiteral("MelodexTypographyTest"),
                                    directory.path());
 #ifdef Q_OS_MACOS
-    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Songti SC"));
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("PingFang SC"));
 #else
-    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("SimSun"));
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Microsoft YaHei UI"));
 #endif
 }
 

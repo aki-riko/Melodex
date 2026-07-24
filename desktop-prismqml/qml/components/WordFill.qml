@@ -11,6 +11,7 @@ Item {
     property int minimumPixelSize: Fluent.Enums.typography.titleLarge
     property string fontFamily: Fluent.Enums.fontFamily
     property bool bold: true
+    property int fontWeight: bold ? Font.Bold : Font.DemiBold
     property color restingColor: Fluent.Enums.secondaryForeground
     property color activeColor: Fluent.Enums.accentColor
     property real restingOpacity: 0.96
@@ -30,7 +31,7 @@ Item {
         customTextColor: root.restingColor
         font.family: root.fontFamily
         font.pixelSize: root.pixelSize
-        font.weight: root.bold ? Font.Bold : Font.DemiBold
+        font.weight: root.fontWeight
         font.letterSpacing: 0
         fontSizeMode: Text.Fit
         minimumPixelSize: root.minimumPixelSize
@@ -42,7 +43,7 @@ Item {
         styleColor: root.outlineColor
         renderType: Text.QtRendering
         renderTypeQuality: Text.VeryHighRenderTypeQuality
-        layer.enabled: true
+        layer.enabled: root.shadowColor.a > 0
         layer.effect: Fluent.Shadow {
             blur: root.shadowBlur
             color: root.shadowColor
@@ -66,7 +67,7 @@ Item {
             customTextColor: root.activeColor
             font.family: root.fontFamily
             font.pixelSize: root.pixelSize
-            font.weight: root.bold ? Font.Bold : Font.DemiBold
+            font.weight: root.fontWeight
             font.letterSpacing: 0
             fontSizeMode: Text.Fit
             minimumPixelSize: root.minimumPixelSize
