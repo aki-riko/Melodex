@@ -9,6 +9,21 @@ Item {
 
     signal queueRequested()
 
+    function centerCurrentLyric() {
+        if (Player.currentLyricIndex < 0
+                || lyricList.count <= 0
+                || !lyricList.flickableItem) {
+            return
+        }
+
+        const itemExtent = lyricList.itemHeight + lyricList.listSpacing
+        const originY = lyricList.flickableItem.originY
+        const centeredY = originY
+                + Player.currentLyricIndex * itemExtent
+                - (lyricList.height - lyricList.itemHeight) / 2
+        lyricList.smoothScrollTo(centeredY)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Fluent.Enums.spacing.xxxl
@@ -144,7 +159,10 @@ Item {
                                 reuseItems: true
                                 bounceEnabled: false
                                 selectable: false
-                                currentIndex: Player.currentLyricIndex
+                                currentIndex: -1
+                                scrollDuration: Fluent.Enums.duration.slower
+                                scrollEasing: Easing.OutCubic
+                                onHeightChanged: Qt.callLater(root.centerCurrentLyric)
 
                                 delegate: Item {
                                     required property var modelData
@@ -236,14 +254,11 @@ Item {
         target: Player
 
         function onCurrentLyricIndexChanged() {
-            if (Player.currentLyricIndex >= 0
-                    && lyricList.count > 0
-                    && lyricList.flickableItem) {
-                lyricList.flickableItem.positionViewAtIndex(
-                    Player.currentLyricIndex,
-                    ListView.Center
-                )
-            }
+            Qt.callLater(root.centerCurrentLyric)
+        }
+
+        function onLyricsChanged() {
+            Qt.callLater(root.centerCurrentLyric)
         }
     }
 }
