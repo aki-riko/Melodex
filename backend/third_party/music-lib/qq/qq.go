@@ -64,6 +64,7 @@ func New(cookie string) *QQ {
 }
 
 var defaultQQ = New("")
+var qqSongDetailGet = utils.Get
 
 // joinQQNames joins artist names for display.
 func joinQQNames(names []string) string {
@@ -483,7 +484,7 @@ func (q *QQ) fetchSongDetail(songMID string) (*model.Song, error) {
 	params.Set("format", "json")
 
 	apiURL := "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg?" + params.Encode()
-	body, err := utils.Get(apiURL,
+	body, err := qqSongDetailGet(apiURL,
 		utils.WithHeader("User-Agent", UserAgent),
 		utils.WithHeader("Referer", SearchReferer),
 		utils.WithHeader("Cookie", q.cookie),
@@ -550,7 +551,7 @@ func (q *QQ) fetchSongDetailByID(songID string) (*model.Song, error) {
 	params.Set("format", "json")
 
 	apiURL := "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg?" + params.Encode()
-	body, err := utils.Get(apiURL,
+	body, err := qqSongDetailGet(apiURL,
 		utils.WithHeader("User-Agent", UserAgent),
 		utils.WithHeader("Referer", SearchReferer),
 		utils.WithHeader("Cookie", q.cookie),

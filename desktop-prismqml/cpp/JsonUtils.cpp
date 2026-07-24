@@ -24,16 +24,26 @@ double safeDuration(const QVariant &value) {
 
 QVariantMap normalizeSong(const QVariantMap &value) {
     QVariantMap result = value;
-    result.insert(QStringLiteral("id"), firstString(value, QStringLiteral("id"),
-                                                     QStringLiteral("ID")));
-    result.insert(QStringLiteral("source"), firstString(value, QStringLiteral("source"),
-                                                         QStringLiteral("Source")).toLower());
+    QString id = firstString(value, QStringLiteral("id"), QStringLiteral("ID"));
+    const QString source = firstString(value, QStringLiteral("source"),
+                                       QStringLiteral("Source")).toLower();
+    const QVariantMap extra = value.value(QStringLiteral("extra")).toMap();
+    if (source == QStringLiteral("qq") && (id.isEmpty() || id == QStringLiteral("0"))) {
+        for (const QString &key : {QStringLiteral("songmid"), QStringLiteral("song_id")}) {
+            const QString candidate = extra.value(key).toString().trimmed();
+            if (!candidate.isEmpty() && candidate != QStringLiteral("0")) {
+                id = candidate;
+                break;
+            }
+        }
+    }
+    result.insert(QStringLiteral("id"), id);
+    result.insert(QStringLiteral("source"), source);
     result.insert(QStringLiteral("name"), firstString(value, QStringLiteral("name"),
                                                        QStringLiteral("Name")));
     result.insert(QStringLiteral("artist"), firstString(value, QStringLiteral("artist"),
                                                          QStringLiteral("Artist")));
     QString album = firstString(value, QStringLiteral("album"), QStringLiteral("Album"));
-    const QVariantMap extra = value.value(QStringLiteral("extra")).toMap();
     if (album.isEmpty())
         album = extra.value(QStringLiteral("album")).toString().trimmed();
     result.insert(QStringLiteral("album"), album);
@@ -98,7 +108,8 @@ QUrlQuery songQuery(const QVariantMap &songValue, const QVariantMap &extraValues
                                QStringLiteral("album"), QStringLiteral("duration"),
                                QStringLiteral("cover")}) {
         const QString value = song.value(key).toString();
-        if (!value.isEmpty() && value != QStringLiteral("0"))
+        if (!value.isEmpty() &&
+            (key != QStringLiteral("duration") || value != QStringLiteral("0")))
             query.addQueryItem(key, value);
     }
     const QVariantMap extra = song.value(QStringLiteral("extra")).toMap();

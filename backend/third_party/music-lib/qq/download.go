@@ -13,15 +13,88 @@ import (
 
 func GetDownloadURL(s *model.Song) (string, error) { return defaultQQ.GetDownloadURL(s) }
 
+func usableQQSongMID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "0" {
+		return ""
+	}
+	return value
+}
+
+func positiveQQSongID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "0" {
+		return ""
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return ""
+		}
+	}
+	return value
+}
+
+func qqNumericSongID(s *model.Song) string {
+	if s == nil {
+		return ""
+	}
+	if s.Extra != nil {
+		if songID := positiveQQSongID(s.Extra["song_id"]); songID != "" {
+			return songID
+		}
+	}
+	return positiveQQSongID(s.ID)
+}
+
+func qqSongMIDFromSong(s *model.Song) string {
+	if s == nil {
+		return ""
+	}
+	if s.Extra != nil {
+		if songMID := usableQQSongMID(s.Extra["songmid"]); songMID != "" {
+			return songMID
+		}
+	}
+	id := usableQQSongMID(s.ID)
+	if id != qqNumericSongID(s) {
+		return id
+	}
+	return ""
+}
+
+func (q *QQ) resolveSongMID(s *model.Song) (string, error) {
+	if songMID := qqSongMIDFromSong(s); songMID != "" {
+		return songMID, nil
+	}
+	songID := qqNumericSongID(s)
+	if songID == "" {
+		return "", errors.New("qq song mid not found")
+	}
+	detail, err := q.fetchSongDetailByID(songID)
+	if err != nil {
+		return "", fmt.Errorf("resolve qq song mid: %w", err)
+	}
+	songMID := usableQQSongMID(detail.ID)
+	if songMID == "" {
+		return "", errors.New("qq song mid not found")
+	}
+	if s.Extra == nil {
+		s.Extra = make(map[string]string)
+	}
+	s.Extra["songmid"] = songMID
+	s.Extra["song_id"] = songID
+	return songMID, nil
+}
+
 // GetDownloadURL returns a download URL.
 func (q *QQ) GetDownloadURL(s *model.Song) (string, error) {
 	if s.Source != "qq" {
 		return "", errors.New("source mismatch")
 	}
 
-	songMID := s.ID
-	if s.Extra != nil && s.Extra["songmid"] != "" {
-		songMID = s.Extra["songmid"]
+	songMID, err := q.resolveSongMID(s)
+	if err != nil {
+		return "", err
 	}
 
 	uin, musicKey := qqCredentialFromCookie(q.cookie)
