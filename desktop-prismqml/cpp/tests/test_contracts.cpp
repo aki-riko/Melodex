@@ -23,6 +23,7 @@ private slots:
     void realSongMetadataNormalizesForRequests();
     void qqZeroSongMidUsesNumericSongId();
     void coverUrlUsesSharedQmlNetworkStack();
+    void invalidQqAlbumCoverFallsBackWithoutRequest();
     void playerPublishesQueueContractToQml();
     void lyricsSupportWordAndLineTiming();
     void lyricsTypographyUsesModernCjkFont();
@@ -109,20 +110,42 @@ void DesktopContractsTest::coverUrlUsesSharedQmlNetworkStack() {
     QVERIFY(settings.setServiceUrl(QStringLiteral("https://music.example.test/")));
     melodex::CookieStore cookies(directory.filePath(QStringLiteral("cookies.dat")));
     melodex::ApiClient api(&settings, &cookies);
-    const QString remoteCover =
-        QStringLiteral("https://y.gtimg.cn/music/photo_new/T002R300x300M000album.jpg");
-    const QUrl url(api.coverUrl({
+    const QString remoteCover = QStringLiteral(
+        "http://p1.music.126.net/8C0lwLE88j9ZwLyPQ9a4FA==/109951165595770076.jpg");
+    const QString encodedUrl = api.coverUrl({
         {QStringLiteral("id"), QStringLiteral("song-1")},
-        {QStringLiteral("source"), QStringLiteral("qq")},
+        {QStringLiteral("source"), QStringLiteral("netease")},
         {QStringLiteral("cover"), remoteCover},
-    }));
+    });
+    QVERIFY(encodedUrl.contains(QStringLiteral("url=http%3A%2F%2F")));
+    QVERIFY(!encodedUrl.contains(QStringLiteral("url=http://")));
+
+    const QUrl url(encodedUrl);
 
     QCOMPARE(url.scheme(), QStringLiteral("https"));
     QCOMPARE(url.host(), QStringLiteral("music.example.test"));
     QCOMPARE(url.path(), QStringLiteral("/music/cover_proxy"));
     const QUrlQuery query(url);
-    QCOMPARE(query.queryItemValue(QStringLiteral("url")), remoteCover);
-    QCOMPARE(query.queryItemValue(QStringLiteral("source")), QStringLiteral("qq"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("url"), QUrl::FullyDecoded), remoteCover);
+    QCOMPARE(query.queryItemValue(QStringLiteral("source")), QStringLiteral("netease"));
+}
+
+void DesktopContractsTest::invalidQqAlbumCoverFallsBackWithoutRequest() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    melodex::UserSettings settings(QStringLiteral("MelodexInvalidCoverTest"),
+                                   directory.path());
+    QVERIFY(settings.setServiceUrl(QStringLiteral("https://music.example.test/")));
+    melodex::CookieStore cookies(directory.filePath(QStringLiteral("cookies.dat")));
+    melodex::ApiClient api(&settings, &cookies);
+
+    QCOMPARE(api.coverUrl({
+                 {QStringLiteral("id"), QStringLiteral("613053895")},
+                 {QStringLiteral("source"), QStringLiteral("qq")},
+                 {QStringLiteral("cover"), QStringLiteral(
+                      "https://y.gtimg.cn/music/photo_new/T002R300x300M0000.jpg")},
+             }),
+             QString());
 }
 
 void DesktopContractsTest::playerPublishesQueueContractToQml() {
