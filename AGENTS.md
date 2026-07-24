@@ -88,6 +88,18 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - **用户搜索历史**(`search_history.go`,按 user_id 隔离):`search_history_rows` uniqueIndex(user_id,keyword) 去重更新时间,每人留 50 条,链接不入、userID=0 跳过。`GET/DELETE /music/search_history`(userAPI 仅登录,DELETE 带 keyword 删单条/不带清空)。前端 Download.js 未发起搜索时显「最近搜索」chips。
 - **接线坑**:`jsonSearchHandler` 在公开 `/api/v1` 组,要让登录用户搜索记入历史 → 给 `/api/v1` 挂 `attachUserOptional`(非阻塞,匿名照常,桌面注入 local)。InitDB AutoMigrate 加两表(幂等)。
 
+## PrismQML 桌面原生播放(2026-07)
+
+- `desktop-prismqml` 的解码与声卡输出由 Qt Multimedia C++ `QMediaPlayer/QAudioOutput` 完成；Python `PlayerController` 只负责队列、歌词、状态持久化和 QML 信号。
+- **音频数据面不得走 Python loopback 代理**：桌面端通过登录 cookie `POST /api/v1/playback_ticket`，服务端返回绑定 user_id/username/session_epoch/完整 stream 查询摘要的签名 URL；随后 `QMediaPlayer` 直接读取 `/music/download?...&playback_token=...`。`authRequired` 只允许该票据用于 `GET /music/download` 且必须 `stream=1`，修改 id/source/任意查询参数、改密码、禁用用户或票据过期都会失效。
+- 票据默认 6h，且永不超过 `MUSIC_DL_SESSION_MAX_AGE`；可用 `MUSIC_DL_PLAYBACK_TICKET_MAX_AGE` 配置(Go duration，最短 5m)。桌面端严格校验返回 URL 与配置的 Melodex 服务同源，拒绝跨域/嵌入凭据 URL；启动时必须关闭 Qt FFmpeg URL 诊断，禁止 `playback_token` 进入客户端日志。
+- 快速切歌必须以请求序号丢弃旧票据回调，禁止旧异步响应覆盖新曲。封面仍可走 loopback 鉴权代理(小对象)，但连续音频字节不可再由 Python 搬运。
+- 验证门禁：`desktop-prismqml/.venv/Scripts/python.exe -m unittest discover -s tests -v`；后端仍执行 `go build ./...` 与 `go test ./internal/web/ ./core/`。真实卡顿修复必须用同一首生产歌曲在机器负载下复验，不能只以单测代替听感/断供数据。
+- **本机统一入口**：桌面客户端的构建、Python 回归、CMake/CTest、Qt 部署、关闭旧进程与启动必须统一从仓库根目录执行 `.\desktop-prismqml\run-local.ps1`。不得再为单次修改拼接临时启动指令。
+- 本机 Qt、PrismQML SDK、Visual Studio、构建目录和部署目录只写入已被 Git 忽略的 `desktop-prismqml/run-local.config.psd1`；提交到仓库的 `run-local.config.example.psd1` 只保留占位配置，禁止提交本机绝对路径。
+- 固定构建/部署目录为 `%LOCALAPPDATA%\Melodex\desktop-build` 与 `%LOCALAPPDATA%\Melodex\desktop-deploy`。脚本会把配置指定的同一 PrismQML SDK 同步到纯 ASCII 的 `prism-sdk-cache`，CMake 和运行时必须使用这一份，禁止通过 `PRISMQML_QML_DIR` 临时切换到其他版本。
+- 禁止再创建带时间戳或功能名的 `melodex-*build*`、`melodex-*deploy*` QA 目录；验证完成的客户端必须从固定部署目录启动。需要升级 SDK 时只修改本机配置并继续运行同一入口。
+
 ## 开发运行
 
 ```bash
