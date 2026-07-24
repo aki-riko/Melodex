@@ -29,8 +29,9 @@ Window {
                                                  16,
                                                  Math.round(UserSettings.lyricsFontSize * 0.67)
                                              )
-    readonly property color lyricShadowColor: Qt.rgba(0.02, 0.025, 0.03, 0.48)
-    readonly property real lyricShadowBlur: 0.10
+    readonly property color lyricOutlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.82)
+    readonly property color lyricShadowColor: Qt.rgba(0.02, 0.025, 0.03, 0.30)
+    readonly property real lyricShadowBlur: 0
     readonly property real lyricShadowVerticalOffset: 1
     readonly property int activeLineHeight: UserSettings.lyricsFontSize + 20
     readonly property int secondaryLineHeight: secondaryFontSize + 14
@@ -294,7 +295,7 @@ Window {
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
         restingOpacity: 0.96
-        outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.52)
+        outlineColor: lyricsWindow.lyricOutlineColor
         shadowColor: lyricsWindow.lyricShadowColor
         shadowBlur: lyricsWindow.lyricShadowBlur
         shadowVerticalOffset: lyricsWindow.lyricShadowVerticalOffset
@@ -326,7 +327,7 @@ Window {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
             style: Text.Outline
-            styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.46)
+            styleColor: lyricsWindow.lyricOutlineColor
             renderType: Text.QtRendering
             renderTypeQuality: Text.VeryHighRenderTypeQuality
             layer.enabled: true
