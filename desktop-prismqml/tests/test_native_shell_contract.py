@@ -120,6 +120,12 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("distanceFromCurrent", source)
         self.assertIn("Behavior on opacity", source)
         self.assertIn("Behavior on scale", source)
+        self.assertIn("function centerCurrentLyric()", source)
+        self.assertIn("currentIndex: -1", source)
+        self.assertIn("scrollDuration: Fluent.Enums.duration.slower", source)
+        self.assertIn("scrollEasing: Easing.OutCubic", source)
+        self.assertIn("lyricList.smoothScrollTo(centeredY)", source)
+        self.assertNotIn("positionViewAtIndex", source)
 
     def test_pages_reuse_published_prismqml_components(self) -> None:
         home = (QML_ROOT / "pages" / "HomePage.qml").read_text(encoding="utf-8")
