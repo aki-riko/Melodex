@@ -95,7 +95,8 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - 票据默认 6h，且永不超过 `MUSIC_DL_SESSION_MAX_AGE`；可用 `MUSIC_DL_PLAYBACK_TICKET_MAX_AGE` 配置(Go duration，最短 5m)。桌面端严格校验返回 URL 与配置的 Melodex 服务同源，拒绝跨域/嵌入凭据 URL；启动时必须关闭 Qt FFmpeg URL 诊断，禁止 `playback_token` 进入客户端日志。
 - 快速切歌必须以请求序号丢弃旧票据回调，禁止旧异步响应覆盖新曲。封面仍可走 loopback 鉴权代理(小对象)，但连续音频字节不可再由 Python 搬运。
 - 验证门禁：`desktop-prismqml/.venv/Scripts/python.exe -m unittest discover -s tests -v`；后端仍执行 `go build ./...` 与 `go test ./internal/web/ ./core/`。真实卡顿修复必须用同一首生产歌曲在机器负载下复验，不能只以单测代替听感/断供数据。
-- **本机统一入口**：桌面客户端的构建、Python 回归、CMake/CTest、Qt 部署、关闭旧进程与启动必须统一从仓库根目录执行 `.\desktop-prismqml\run-local.ps1`。不得再为单次修改拼接临时启动指令。
+- **本机日常启动的唯一指令**：在当前 PowerShell 直接执行 `& "$env:LOCALAPPDATA\Melodex\desktop-deploy\bin\melodex_desktop.exe"`。这条命令只运行固定部署目录里的现成客户端，不调用 Python、CMake、CTest、安装或部署，也不新开 PowerShell。给用户“启动客户端”的指令必须始终使用这一条，不得换成 `run-local.ps1`、临时脚本或构建命令。
+- `desktop-prismqml/run-local.ps1` 仅用于开发阶段需要完整执行 Python 回归、CMake 构建、CTest、Qt 部署和重启时；不得把它当成日常启动器。只有用户明确要求构建/完整验证时才可运行。
 - 本机 Qt、PrismQML SDK、Visual Studio、构建目录和部署目录只写入已被 Git 忽略的 `desktop-prismqml/run-local.config.psd1`；提交到仓库的 `run-local.config.example.psd1` 只保留占位配置，禁止提交本机绝对路径。
 - 固定构建/部署目录为 `%LOCALAPPDATA%\Melodex\desktop-build` 与 `%LOCALAPPDATA%\Melodex\desktop-deploy`。脚本会把配置指定的同一 PrismQML SDK 同步到纯 ASCII 的 `prism-sdk-cache`，CMake 和运行时必须使用这一份，禁止通过 `PRISMQML_QML_DIR` 临时切换到其他版本。
 - 禁止再创建带时间戳或功能名的 `melodex-*build*`、`melodex-*deploy*` QA 目录；验证完成的客户端必须从固定部署目录启动。需要升级 SDK 时只修改本机配置并继续运行同一入口。
