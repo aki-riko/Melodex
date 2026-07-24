@@ -59,12 +59,31 @@ class LocalRunnerContractTests(unittest.TestCase):
         self.assertIn("$prismSdkRoot", runner)
         self.assertIn("[IO.FileShare]::None", runner)
 
-    def test_readme_exposes_the_single_daily_command(self) -> None:
+    def test_readme_exposes_direct_executable_as_the_single_daily_command(self) -> None:
         readme = (DESKTOP_ROOT / "README.md").read_text(encoding="utf-8")
+        daily_section = readme.split("## 日常启动", 1)[1].split(
+            "## 开发构建与完整验证", 1
+        )[0]
 
-        self.assertIn(".\\desktop-prismqml\\run-local.ps1", readme)
+        self.assertIn(
+            '& "$env:LOCALAPPDATA\\Melodex\\desktop-deploy\\bin\\melodex_desktop.exe"',
+            daily_section,
+        )
+        self.assertNotIn("run-local.ps1", daily_section)
+        self.assertNotIn("run-local.cmd", readme)
+        self.assertIn("不执行 Python 测试、CMake/CTest、安装或", daily_section)
         self.assertNotIn("MELODEX_BUILD_DIR", readme)
         self.assertNotIn("MELODEX_DEPLOY_DIR", readme)
+
+    def test_agents_requires_the_same_launch_only_command(self) -> None:
+        agents = (REPOSITORY_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        command = (
+            '& "$env:LOCALAPPDATA\\Melodex\\desktop-deploy\\bin\\melodex_desktop.exe"'
+        )
+
+        self.assertIn(command, agents)
+        self.assertIn("不调用 Python、CMake、CTest、安装或部署", agents)
+        self.assertIn("不得把它当成日常启动器", agents)
 
 
 if __name__ == "__main__":

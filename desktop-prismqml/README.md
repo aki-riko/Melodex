@@ -37,9 +37,20 @@ python -m venv .venv
 `.venv` 和 `.prism-sdk` 均已由 Git 忽略。Python 目录保留为迁移前的行为基线，
 仅用于回归测试，不参与 C++ 程序运行。
 
-## 统一构建、测试与启动
+## 日常启动
 
-桌面客户端只有一个日常入口。首次使用时复制本机配置模板，填写 Qt 和 Visual Studio
+客户端已经部署后，在任意当前 PowerShell 会话中始终执行这一条命令：
+
+```powershell
+& "$env:LOCALAPPDATA\Melodex\desktop-deploy\bin\melodex_desktop.exe"
+```
+
+这条命令直接运行固定部署目录里的现成客户端，不执行 Python 测试、CMake/CTest、安装或
+Qt 部署，也不会再启动一个 PowerShell 子进程。日常“启动客户端”只使用这一条。
+
+## 开发构建与完整验证
+
+仅在需要重新构建或做完整开发验证时，复制本机配置模板，填写 Qt 和 Visual Studio
 开发环境路径；`run-local.config.psd1` 已被 Git 忽略，本机路径不会进入仓库：
 
 ```powershell
@@ -47,13 +58,7 @@ Copy-Item .\desktop-prismqml\run-local.config.example.psd1 `
     .\desktop-prismqml\run-local.config.psd1
 ```
 
-以后无论代码是否有改动，都从仓库根目录执行同一条命令：
-
-```powershell
-.\desktop-prismqml\run-local.ps1
-```
-
-脚本会按固定顺序完成 Python 回归测试、CMake 配置与增量构建、CTest、安装、
+内部 `run-local.ps1` 会按固定顺序完成 Python 回归测试、CMake 配置与增量构建、CTest、安装、
 `windeployqt`、结束旧客户端和启动新客户端。默认构建目录固定为
 `%LOCALAPPDATA%\Melodex\desktop-build`，部署目录固定为
 `%LOCALAPPDATA%\Melodex\desktop-deploy`，不再创建带时间戳的临时目录，也不依赖当前
