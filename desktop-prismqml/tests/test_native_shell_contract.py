@@ -73,6 +73,21 @@ class NativeShellContractTests(unittest.TestCase):
             'displayValueFn: value => Math.round(value * 100) + "%"', source
         )
 
+    def test_now_playing_lyrics_use_an_immersive_karaoke_focus(self) -> None:
+        source = (QML_ROOT / "pages" / "NowPlayingPage.qml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('text: "同步歌词"', source)
+        self.assertIn('text: Player.playing ? "自动跟随" : "已暂停"', source)
+        self.assertIn("selectable: false", source)
+        self.assertNotIn("selectable: true", source)
+        self.assertIn("WordFill {", source)
+        self.assertIn("progress: Player.currentLyricProgress", source)
+        self.assertIn("distanceFromCurrent", source)
+        self.assertIn("Behavior on opacity", source)
+        self.assertIn("Behavior on scale", source)
+
     def test_pages_reuse_published_prismqml_components(self) -> None:
         home = (QML_ROOT / "pages" / "HomePage.qml").read_text(encoding="utf-8")
         settings = (QML_ROOT / "pages" / "SettingsPage.qml").read_text(
