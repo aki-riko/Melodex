@@ -190,6 +190,7 @@ Window {
         width: 212
         height: 38
         borderRadius: height / 2
+        contentPadding: Fluent.Enums.spacing.none
         interactionEnabled: false
         color: Qt.rgba(0.97, 0.98, 0.99, 0.94)
         border.width: Fluent.Enums.border.thin

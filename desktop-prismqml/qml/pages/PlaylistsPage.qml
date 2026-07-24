@@ -57,10 +57,10 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Fluent.Enums.spacing.xxxl
                 anchors.rightMargin: Fluent.Enums.spacing.m
+                contentPadding: Fluent.Enums.spacing.xl
 
                 Item {
                     anchors.fill: parent
-                    anchors.margins: Fluent.Enums.spacing.xl
 
                     RowLayout {
                         id: collectionHeader
@@ -151,10 +151,10 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Fluent.Enums.spacing.xxxl
                 anchors.leftMargin: Fluent.Enums.spacing.m
+                contentPadding: Fluent.Enums.spacing.xl
 
                 Item {
                     anchors.fill: parent
-                    anchors.margins: Fluent.Enums.spacing.xl
 
                     RowLayout {
                         id: playlistHeader

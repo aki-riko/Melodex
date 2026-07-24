@@ -17,10 +17,10 @@ Fluent.Card {
     implicitWidth: 420
     implicitHeight: 540
     cardType: Fluent.Enums.card.type_elevated
+    contentPadding: Fluent.Enums.spacing.xxl
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Fluent.Enums.spacing.xxl
         spacing: Fluent.Enums.spacing.l
 
         Item {
