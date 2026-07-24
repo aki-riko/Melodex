@@ -174,8 +174,8 @@ Item {
                                 visible: Player.hasLyrics
                                 type: Fluent.Enums.scroll.type_list
                                 model: Player.lyrics
-                                itemHeight: 52
-                                listSpacing: Fluent.Enums.spacing.xxs
+                                itemHeight: 36
+                                listSpacing: Fluent.Enums.spacing.none
                                 reuseItems: true
                                 bounceEnabled: false
                                 selectable: false
