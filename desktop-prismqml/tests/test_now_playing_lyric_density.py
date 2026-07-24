@@ -14,14 +14,14 @@ class NowPlayingLyricDensityTests(unittest.TestCase):
     def test_lyrics_use_compact_single_line_metrics(self) -> None:
         source = NOW_PLAYING_QML.read_text(encoding="utf-8")
 
-        self.assertIn("itemHeight: 52", source)
-        self.assertIn("listSpacing: Fluent.Enums.spacing.xxs", source)
+        self.assertIn("itemHeight: 36", source)
+        self.assertIn("listSpacing: Fluent.Enums.spacing.none", source)
         self.assertIn("pixelSize: Fluent.Enums.typography.titleLarge", source)
         self.assertIn("minimumPixelSize: Fluent.Enums.typography.body", source)
         self.assertIn("type: Fluent.Enums.label.type_body", source)
         self.assertIn("wrapMode: Text.NoWrap", source)
         self.assertIn("maximumLineCount: 1", source)
-        self.assertNotIn("itemHeight: 76", source)
+        self.assertNotIn("itemHeight: 52", source)
         self.assertNotIn("pixelSize: Fluent.Enums.typography.displayLarge", source)
 
 
