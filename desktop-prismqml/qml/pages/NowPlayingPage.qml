@@ -79,17 +79,43 @@ Item {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            spacing: Fluent.Enums.spacing.m
 
-                            Fluent.Label {
+                            Fluent.Icon {
+                                icon: Fluent.Enums.icon.music_note_2_play
+                                iconSize: Fluent.Enums.iconSize.l
+                                color: Fluent.Enums.accentColor
+                            }
+
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                type: Fluent.Enums.label.type_subtitle
-                                text: "歌词"
+                                spacing: Fluent.Enums.spacing.xxs
+
+                                Fluent.Label {
+                                    Layout.fillWidth: true
+                                    type: Fluent.Enums.label.type_subtitle
+                                    text: "同步歌词"
+                                }
+
+                                Fluent.Label {
+                                    Layout.fillWidth: true
+                                    type: Fluent.Enums.label.type_body_small
+                                    text: Player.currentSong.id
+                                          ? (Player.currentSong.name || "未知歌曲")
+                                            + "  ·  "
+                                            + (Player.currentSong.artist || "未知歌手")
+                                          : "播放歌曲后，歌词会自动跟随进度"
+                                    color: Fluent.Enums.secondaryForeground
+                                    elide: Text.ElideRight
+                                }
                             }
 
                             Fluent.Tag {
                                 visible: Player.hasLyrics
-                                status: Fluent.Enums.statusLevel.success
-                                text: "已同步"
+                                status: Player.playing
+                                        ? Fluent.Enums.statusLevel.success
+                                        : Fluent.Enums.statusLevel.info
+                                text: Player.playing ? "自动跟随" : "已暂停"
                             }
                         }
 
@@ -104,35 +130,80 @@ Item {
                                 visible: Player.hasLyrics
                                 type: Fluent.Enums.scroll.type_list
                                 model: Player.lyrics
-                                itemHeight: 56
-                                listSpacing: Fluent.Enums.spacing.xs
+                                itemHeight: 76
+                                listSpacing: Fluent.Enums.spacing.s
                                 reuseItems: true
                                 bounceEnabled: false
-                                selectable: true
+                                selectable: false
                                 currentIndex: Player.currentLyricIndex
 
                                 delegate: Item {
                                     required property var modelData
                                     required property int index
+                                    readonly property bool isCurrentLine:
+                                        index === Player.currentLyricIndex
+                                    readonly property int distanceFromCurrent:
+                                        Player.currentLyricIndex < 0
+                                        ? 0
+                                        : Math.abs(index - Player.currentLyricIndex)
 
                                     width: ListView.view ? ListView.view.width : 0
                                     height: lyricList.itemHeight
+                                    opacity: isCurrentLine
+                                             ? 1
+                                             : distanceFromCurrent <= 1
+                                               ? 0.72
+                                               : distanceFromCurrent === 2
+                                                 ? 0.52
+                                                 : 0.34
+                                    scale: isCurrentLine
+                                           ? 1
+                                           : distanceFromCurrent <= 1 ? 0.96 : 0.92
+
+                                    WordFill {
+                                        visible: parent.isCurrentLine
+                                        anchors.fill: parent
+                                        anchors.leftMargin: Fluent.Enums.spacing.xxl
+                                        anchors.rightMargin: Fluent.Enums.spacing.xxl
+                                        text: modelData.text || ""
+                                        progress: Player.currentLyricProgress
+                                        pixelSize: Fluent.Enums.typography.displayLarge
+                                        minimumPixelSize: Fluent.Enums.typography.titleLarge
+                                        fontFamily: Fluent.Enums.fontFamily
+                                        bold: true
+                                        restingColor: Fluent.Enums.secondaryForeground
+                                        activeColor: Fluent.Enums.accentColor
+                                        restingOpacity: 1
+                                        outlineColor: Fluent.Enums.transparent
+                                        shadowColor: Fluent.Enums.transparent
+                                        shadowBlur: 0
+                                        shadowVerticalOffset: 0
+                                    }
 
                                     Fluent.Label {
-                                        id: lyricText
+                                        visible: !parent.isCurrentLine
                                         anchors.fill: parent
-                                        anchors.leftMargin: Fluent.Enums.spacing.l
-                                        anchors.rightMargin: Fluent.Enums.spacing.l
-                                        type: index === Player.currentLyricIndex
-                                              ? Fluent.Enums.label.type_body_strong
-                                              : Fluent.Enums.label.type_body
+                                        anchors.leftMargin: Fluent.Enums.spacing.xxl
+                                        anchors.rightMargin: Fluent.Enums.spacing.xxl
+                                        type: Fluent.Enums.label.type_subtitle
                                         text: modelData.text || ""
-                                        color: index === Player.currentLyricIndex
-                                               ? Fluent.Enums.accentColor
-                                               : Fluent.Enums.secondaryForeground
+                                        color: Fluent.Enums.secondaryForeground
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
                                         elide: Text.ElideRight
+                                    }
+
+                                    Behavior on opacity {
+                                        NumberAnimation {
+                                            duration: Fluent.Enums.duration.normal
+                                        }
+                                    }
+
+                                    Behavior on scale {
+                                        NumberAnimation {
+                                            duration: Fluent.Enums.duration.normal
+                                            easing.type: Easing.OutCubic
+                                        }
                                     }
                                 }
                             }
