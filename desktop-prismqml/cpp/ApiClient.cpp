@@ -31,6 +31,15 @@ bool sameOrigin(const QUrl &left, const QUrl &right) {
            effectivePort(left) == effectivePort(right);
 }
 
+bool isKnownInvalidQqCover(const QString &source, const QString &cover) {
+    if (source.compare(QStringLiteral("qq"), Qt::CaseInsensitive) != 0)
+        return false;
+    const QUrl url(cover, QUrl::StrictMode);
+    return url.isValid() &&
+           url.host().compare(QStringLiteral("y.gtimg.cn"), Qt::CaseInsensitive) == 0 &&
+           url.fileName() == QStringLiteral("T002R300x300M0000.jpg");
+}
+
 }  // namespace
 
 QUrl resolvePlaybackUrl(const QString &serviceUrl, const QString &rawUrl) {
@@ -323,17 +332,23 @@ QString ApiClient::coverUrl(const QVariantMap &songValue) const {
     const QString cover = song.value(QStringLiteral("cover")).toString();
     if (cover.isEmpty())
         return {};
+    const QString source = song.value(QStringLiteral("source")).toString();
+    // QQ 用 albummid=0 拼出的地址固定返回 502，直接交给 QML 显示占位图。
+    if (isKnownInvalidQqCover(source, cover))
+        return {};
     try {
         QUrl url;
         if (cover.startsWith(QLatin1Char('/'))) {
             url = rootUrl(cover);
         } else {
             url = rootUrl(QStringLiteral("/music/cover_proxy"));
-            QUrlQuery query;
-            query.addQueryItem(QStringLiteral("url"), cover);
-            query.addQueryItem(QStringLiteral("source"),
-                               song.value(QStringLiteral("source")).toString());
-            url.setQuery(query);
+            // 嵌套 URL 必须按查询值完整转义。QUrlQuery 会保留其中的 ':' 和
+            // '/'，生产网关会把这种裸 URL 判成 SSRF 特征并返回 403。
+            const QString query =
+                QStringLiteral("url=%1&source=%2")
+                    .arg(QString::fromLatin1(QUrl::toPercentEncoding(cover)),
+                         QString::fromLatin1(QUrl::toPercentEncoding(source)));
+            url.setQuery(query, QUrl::StrictMode);
         }
         // QML Image 请求由 SharedNetworkAccessManagerFactory 统一携带登录 Cookie。
         // 图片不应经过面向连续音频字节设计的本机续传代理，否则图片加载失败时
