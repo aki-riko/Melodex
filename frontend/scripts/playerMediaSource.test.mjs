@@ -29,14 +29,14 @@ const segments = [
 ];
 
 assert.equal(CONTINUOUS_AUDIO_MIME, 'audio/mp4; codecs="flac"');
-assert.equal(MAX_BUFFER_AHEAD_SECONDS, 75);
-assert.equal(QUOTA_RETRY_BUFFER_AHEAD_SECONDS, 30);
+assert.equal(MAX_BUFFER_AHEAD_SECONDS, 36);
+assert.equal(QUOTA_RETRY_BUFFER_AHEAD_SECONDS, 12);
 assert.equal(PLAYBACK_CHUNK_MAX_ATTEMPTS, 6);
 assert.equal(PLAYBACK_CHUNK_RETRY_BASE_MS, 500);
 assert.equal(PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS, 30000);
 assert.equal(bufferedAheadSeconds({ buffered: { length: 1, end: () => 80 } }, 12), 68);
-assert.equal(shouldApplyBufferBackpressure(76), true, '超过 75 秒前向缓冲时必须暂停追加');
-assert.equal(shouldApplyBufferBackpressure(45), false, '缓冲消耗后应恢复网络读取和追加');
+assert.equal(shouldApplyBufferBackpressure(37), true, '超过 36 秒前向缓冲时必须暂停追加');
+assert.equal(shouldApplyBufferBackpressure(36), false, '缓冲回落到三个完整分块后应恢复追加');
 assert.equal(
   supportsContinuousMediaSource({ MediaSourceCtor: { isTypeSupported: (mime) => mime === CONTINUOUS_AUDIO_MIME } }),
   true,
@@ -185,6 +185,45 @@ class FakeMediaSource extends FakeEventTarget {
   }
 }
 
+class QuotaSensitiveSourceBuffer extends FakeSourceBuffer {
+  constructor() {
+    super();
+    this.start = 0;
+    this.quotaErrors = 0;
+    this.buffered = {
+      get length() { return 1; },
+      start: () => this.start,
+      end: () => this.end,
+    };
+  }
+
+  appendBuffer() {
+    // 对应生产真实失败：旧策略会先积累 75~84 秒高码率 FLAC，再被 Chrome
+    // 拒绝追加。测试把容量收紧到 48 秒，验证追加前主动回收，不依赖报错后补救。
+    if (this.end - this.start >= 48) {
+      this.quotaErrors += 1;
+      throw new DOMException('SourceBuffer is full', 'QuotaExceededError');
+    }
+    super.appendBuffer();
+  }
+
+  remove(_start, end) {
+    this.updating = true;
+    queueMicrotask(() => {
+      this.start = Math.max(this.start, end);
+      this.updating = false;
+      this.emit('updateend');
+    });
+  }
+}
+
+class QuotaSensitiveMediaSource extends FakeMediaSource {
+  constructor() {
+    super();
+    this.buffer = new QuotaSensitiveSourceBuffer();
+  }
+}
+
 const requestedChunkURLs = [];
 const fakeAudio = new FakeEventTarget();
 Object.assign(fakeAudio, {
@@ -281,6 +320,62 @@ assert.deepEqual(
   'MSE 自动预接下一段时,单曲循环必须再次追加当前歌曲而不是队列下一首',
 );
 assert.equal(repeatAudio.src, 'blob:repeat-media-source', '单曲循环也必须保持同一个 MediaSource URL');
+
+const quotaAudio = new FakeEventTarget();
+Object.assign(quotaAudio, {
+  src: '',
+  currentTime: 0,
+  load() {},
+  play: async () => {},
+});
+const quotaAudioAddEventListener = quotaAudio.addEventListener.bind(quotaAudio);
+quotaAudio.addEventListener = (name, callback) => {
+  quotaAudioAddEventListener(name, callback);
+  if (name === 'timeupdate') {
+    queueMicrotask(() => {
+      quotaAudio.currentTime += 12;
+      quotaAudio.emit('timeupdate');
+    });
+  }
+};
+const quotaPlayback = new ContinuousMediaSourcePlayback({
+  audio: quotaAudio,
+  MediaSourceCtor: QuotaSensitiveMediaSource,
+  createObjectURL: (mediaSource) => {
+    queueMicrotask(() => {
+      mediaSource.readyState = 'open';
+      mediaSource.emit('sourceopen');
+    });
+    return 'blob:quota-sensitive-media-source';
+  },
+  revokeObjectURL: () => {},
+  getSegmentUrl: (_song, chunkIndex) => `/quota/${chunkIndex}`,
+  getNextSong: () => null,
+  fetchImpl: async (url) => {
+    const chunkIndex = Number(url.split('/').at(-1));
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => ({
+          'content-type': 'audio/mp4',
+          'x-melodex-chunk-index': String(chunkIndex),
+          'x-melodex-chunk-final': chunkIndex === 9 ? '1' : '0',
+        }[name.toLowerCase()] ?? null),
+      },
+      arrayBuffer: async () => Uint8Array.from([chunkIndex + 1]).buffer,
+    };
+  },
+});
+await quotaPlayback.start(songs[0]);
+await quotaPlayback.appendPromise;
+assert.equal(
+  quotaPlayback.sourceBuffer.quotaErrors,
+  0,
+  '高码率长音频必须在 Chrome 配额报错前主动回收已播放区间',
+);
+assert.equal(quotaPlayback.segments[0].complete, true);
+assert.equal(quotaPlayback.segments[0].end, 120);
 
 const diagnostic = buildPlaybackDiagnostic({
   event: 'media_session_action',
