@@ -11,6 +11,13 @@ QML_ROOT = DESKTOP_ROOT / "qml"
 
 
 class NativeShellContractTests(unittest.TestCase):
+    def test_prismqml_dependency_is_pinned_to_outside_drawer_release(self) -> None:
+        requirements = (DESKTOP_ROOT / "requirements.txt").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual("prismqml==0.3.2.1", requirements.strip())
+
     def test_main_window_uses_prismqml_navigation_shell(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
@@ -29,6 +36,32 @@ class NativeShellContractTests(unittest.TestCase):
             "settingsPage",
         ):
             self.assertIn(f'objectName: "{object_name}"', source)
+
+    def test_now_playing_uses_native_outside_queue_drawer(self) -> None:
+        main = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
+        player = (QML_ROOT / "pages" / "NowPlayingPage.qml").read_text(
+            encoding="utf-8"
+        )
+        drawer = (QML_ROOT / "components" / "PlaybackQueueDrawer.qml").read_text(
+            encoding="utf-8"
+        )
+        header = (
+            DESKTOP_ROOT / "cpp" / "include" / "melodex" / "PlayerController.h"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("signal queueRequested()", player)
+        self.assertIn("Player.queue.length", player)
+        self.assertIn("onQueueRequested: playbackQueueDrawer.open()", main)
+        self.assertIn("parent: mainWindow.contentItem", main)
+        self.assertIn("Fluent.Drawer {", drawer)
+        self.assertIn("mode: Fluent.Enums.drawer.mode_outside", drawer)
+        self.assertIn("position: Fluent.Enums.position.right", drawer)
+        self.assertIn("model: Player.queue", drawer)
+        self.assertIn("currentIndex: Player.queueIndex", drawer)
+        self.assertIn("Player.playQueueIndex(index)", drawer)
+        self.assertIn("Q_PROPERTY(QVariantList queue", header)
+        self.assertIn("Q_PROPERTY(int queueIndex", header)
+        self.assertIn("Q_INVOKABLE void playQueueIndex(int index)", header)
 
     def test_settings_copy_does_not_pin_library_version(self) -> None:
         source = (QML_ROOT / "pages" / "SettingsPage.qml").read_text(

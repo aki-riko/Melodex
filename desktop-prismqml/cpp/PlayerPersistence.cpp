@@ -65,6 +65,7 @@ void PlayerController::restorePlaybackState() {
     m_pendingRestorePositionMs = positionMs;
     m_restoringState = positionMs > 0;
     setError({});
+    emit queueChanged();
     emit currentSongChanged();
     emit lyricsChanged();
     emit currentLyricIndexChanged();
@@ -148,6 +149,7 @@ void PlayerController::clearPlayback() {
     m_currentLyricIndex = -1;
     m_currentLyricProgress = 0.0;
     setError({});
+    emit queueChanged();
     emit currentSongChanged();
     emit positionChanged();
     emit durationChanged();

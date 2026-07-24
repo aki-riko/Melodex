@@ -5,6 +5,7 @@
 #include "melodex/JsonUtils.h"
 #include "melodex/Lyrics.h"
 #include "melodex/PlaybackStateStore.h"
+#include "melodex/PlayerController.h"
 #include "melodex/UserSettings.h"
 
 #include <QTemporaryDir>
@@ -21,6 +22,7 @@ private slots:
     void playbackUrlStaysOnAuthenticatedOrigin();
     void realSongMetadataNormalizesForRequests();
     void coverUrlUsesSharedQmlNetworkStack();
+    void playerPublishesQueueContractToQml();
     void lyricsSupportWordAndLineTiming();
     void lyricsTypographyUsesSystemCjkFont();
     void playbackStateIsAccountScoped();
@@ -99,6 +101,15 @@ void DesktopContractsTest::coverUrlUsesSharedQmlNetworkStack() {
     const QUrlQuery query(url);
     QCOMPARE(query.queryItemValue(QStringLiteral("url")), remoteCover);
     QCOMPARE(query.queryItemValue(QStringLiteral("source")), QStringLiteral("qq"));
+}
+
+void DesktopContractsTest::playerPublishesQueueContractToQml() {
+    const QMetaObject &metaObject = melodex::PlayerController::staticMetaObject;
+
+    QVERIFY(metaObject.indexOfProperty("queue") >= 0);
+    QVERIFY(metaObject.indexOfProperty("queueIndex") >= 0);
+    QVERIFY(metaObject.indexOfSignal("queueChanged()") >= 0);
+    QVERIFY(metaObject.indexOfMethod("playQueueIndex(int)") >= 0);
 }
 
 void DesktopContractsTest::lyricsSupportWordAndLineTiming() {

@@ -60,6 +60,8 @@ double PlayerController::duration() const { return m_player->duration() / 1000.0
 
 double PlayerController::volume() const { return m_audio->volume(); }
 
+QVariantList PlayerController::queue() const { return toVariantList(m_queue); }
+
 double PlayerController::visualPosition() const {
     double milliseconds = static_cast<double>(m_positionAnchorMs);
     if (playing() && m_positionAnchorClock.isValid()) {
@@ -109,6 +111,7 @@ void PlayerController::playSong(const QVariantMap &songValue,
     m_currentLyricIndex = -1;
     m_currentLyricProgress = 0.0;
     setError({});
+    emit queueChanged();
     emit currentSongChanged();
     emit lyricsChanged();
     emit currentLyricIndexChanged();
@@ -116,6 +119,12 @@ void PlayerController::playSong(const QVariantMap &songValue,
     requestStreamSource(song, true);
     m_api->loadLyrics(song);
     savePlaybackState(0.0);
+}
+
+void PlayerController::playQueueIndex(int index) {
+    if (index < 0 || index >= m_queue.size())
+        return;
+    playSong(m_queue.at(index), toVariantList(m_queue));
 }
 
 void PlayerController::togglePlay() {
