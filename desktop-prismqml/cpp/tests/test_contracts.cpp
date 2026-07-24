@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "melodex/ApiClient.h"
 #include "melodex/ApplicationConfig.h"
+#include "melodex/CookieStore.h"
 #include "melodex/JsonUtils.h"
 #include "melodex/Lyrics.h"
 #include "melodex/PlaybackStateStore.h"
@@ -8,6 +9,7 @@
 
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUrlQuery>
 #include <stdexcept>
 
 class DesktopContractsTest final : public QObject {
@@ -18,6 +20,7 @@ private slots:
     void serviceUrlRejectsUnsafeOrigins();
     void playbackUrlStaysOnAuthenticatedOrigin();
     void realSongMetadataNormalizesForRequests();
+    void coverUrlUsesSharedQmlNetworkStack();
     void lyricsSupportWordAndLineTiming();
     void lyricsTypographyUsesSystemCjkFont();
     void playbackStateIsAccountScoped();
@@ -72,6 +75,30 @@ void DesktopContractsTest::realSongMetadataNormalizesForRequests() {
     QCOMPARE(melodex::songKey(normalized), QStringLiteral("netease:2140404278"));
     QVERIFY(melodex::encodedQuery(melodex::songQuery(normalized))
                 .contains(QStringLiteral("id=2140404278")));
+}
+
+void DesktopContractsTest::coverUrlUsesSharedQmlNetworkStack() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    melodex::UserSettings settings(QStringLiteral("MelodexCoverTest"),
+                                   directory.path());
+    QVERIFY(settings.setServiceUrl(QStringLiteral("https://music.example.test/")));
+    melodex::CookieStore cookies(directory.filePath(QStringLiteral("cookies.dat")));
+    melodex::ApiClient api(&settings, &cookies);
+    const QString remoteCover =
+        QStringLiteral("https://y.gtimg.cn/music/photo_new/T002R300x300M000album.jpg");
+    const QUrl url(api.coverUrl({
+        {QStringLiteral("id"), QStringLiteral("song-1")},
+        {QStringLiteral("source"), QStringLiteral("qq")},
+        {QStringLiteral("cover"), remoteCover},
+    }));
+
+    QCOMPARE(url.scheme(), QStringLiteral("https"));
+    QCOMPARE(url.host(), QStringLiteral("music.example.test"));
+    QCOMPARE(url.path(), QStringLiteral("/music/cover_proxy"));
+    const QUrlQuery query(url);
+    QCOMPARE(query.queryItemValue(QStringLiteral("url")), remoteCover);
+    QCOMPARE(query.queryItemValue(QStringLiteral("source")), QStringLiteral("qq"));
 }
 
 void DesktopContractsTest::lyricsSupportWordAndLineTiming() {

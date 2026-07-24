@@ -24,6 +24,12 @@ Item {
         }
         return result
     }
+    readonly property string playlistCoverSource: {
+        var selected = Collections.selectedCollection || ({})
+        if (selected.cover) return Api.coverUrl(selected)
+        if (Collections.songs.length > 0) return Api.coverUrl(Collections.songs[0])
+        return ""
+    }
 
     function createPlaylist() {
         var name = newPlaylistName.text.trim()
@@ -163,7 +169,7 @@ Item {
                             Layout.preferredHeight: 64
                             visible: Boolean(Collections.selectedCollection.id)
                             radius: Fluent.Enums.radius.large
-                            source: Api.coverUrl(Collections.selectedCollection)
+                            source: root.playlistCoverSource
                             fillMode: Image.PreserveAspectCrop
                         }
 
