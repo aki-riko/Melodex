@@ -65,7 +65,6 @@ private:
                  bool expectText = false);
     void finishReply(QNetworkReply *reply, RequestCallback callback, bool expectText);
     QUrl rootUrl(const QString &path) const;
-    QByteArray cookieHeaderForUrl(const QUrl &url) const;
     QString responseError(QNetworkReply *reply, const QByteArray &raw,
                           const QByteArray &contentType) const;
     void setAuthenticated(bool authenticated, const QVariantMap &user);

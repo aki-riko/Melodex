@@ -63,18 +63,6 @@ QUrl ApiClient::rootUrl(const QString &path) const {
     return QUrl(m_settings->serviceUrl()).resolved(QUrl(relative));
 }
 
-QByteArray ApiClient::cookieHeaderForUrl(const QUrl &url) const {
-    QByteArray header;
-    if (!m_cookies)
-        return header;
-    for (const QNetworkCookie &cookie : m_cookies->cookiesForUrl(url)) {
-        if (!header.isEmpty())
-            header += "; ";
-        header += cookie.toRawForm(QNetworkCookie::NameAndValueOnly);
-    }
-    return header;
-}
-
 void ApiClient::setBusy(bool value) {
     if (value == m_busy)
         return;
@@ -347,12 +335,10 @@ QString ApiClient::coverUrl(const QVariantMap &songValue) const {
                                song.value(QStringLiteral("source")).toString());
             url.setQuery(query);
         }
-        if (!m_mediaProxy || !m_mediaProxy->isListening())
-            return url.toString(QUrl::FullyEncoded);
-        const QUrl localUrl =
-            m_mediaProxy->registerUrl(url, cookieHeaderForUrl(url));
-        return localUrl.isEmpty() ? url.toString(QUrl::FullyEncoded)
-                                  : localUrl.toString(QUrl::FullyEncoded);
+        // QML Image 请求由 SharedNetworkAccessManagerFactory 统一携带登录 Cookie。
+        // 图片不应经过面向连续音频字节设计的本机续传代理，否则图片加载失败时
+        // 会被误当成媒体续传故障，所有封面一起退回错误占位图。
+        return url.toString(QUrl::FullyEncoded);
     } catch (const std::invalid_argument &error) {
         qWarning().noquote() << "[WARN] 无法生成封面地址：" << error.what();
         return {};
