@@ -96,13 +96,14 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn('quitOptions.icon = QStringLiteral("Power")', source)
         self.assertNotIn("new prism::SystemTrayIcon", source)
 
-    def test_startup_uses_published_prismqml_splash_screen(self) -> None:
+    def test_startup_uses_single_shared_prismqml_splash_screen(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
-        self.assertIn("Fluent.SplashScreen {", source)
-        self.assertIn('_splashInstance: startupSplash', source)
-        self.assertIn('objectName: "startupSplashScreen"', source)
-        self.assertIn("parent: mainWindow.contentItem", source)
+        self.assertIn("splashIcon: AppConfig.iconUrl", source)
+        self.assertIn("splashTitle: AppConfig.name", source)
+        self.assertIn('splashSubtitle: "正在载入桌面客户端"', source)
+        self.assertNotIn("Fluent.SplashScreen {", source)
+        self.assertNotIn("_splashInstance:", source)
 
     def test_player_sliders_format_tooltips_for_their_units(self) -> None:
         source = (QML_ROOT / "components" / "PlayerBar.qml").read_text(
