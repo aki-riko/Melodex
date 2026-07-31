@@ -23,6 +23,10 @@ ApplicationConfig loadApplicationConfig(const QString &resourcePath) {
     result.applicationName = root.value(QStringLiteral("application_name")).toString();
     result.applicationVersion = root.value(QStringLiteral("application_version")).toString();
     result.applicationId = root.value(QStringLiteral("application_id")).toString();
+    result.applicationDescription =
+        root.value(QStringLiteral("application_description")).toString();
+    result.projectHomepage =
+        root.value(QStringLiteral("project_homepage")).toString();
     result.accentColor = root.value(QStringLiteral("accent_color")).toString();
     result.window.width = window.value(QStringLiteral("width")).toInt(result.window.width);
     result.window.height = window.value(QStringLiteral("height")).toInt(result.window.height);
@@ -30,7 +34,8 @@ ApplicationConfig loadApplicationConfig(const QString &resourcePath) {
         result.window.minimumWidth);
     result.window.minimumHeight = window.value(QStringLiteral("minimum_height")).toInt(
         result.window.minimumHeight);
-    if (result.applicationName.isEmpty() || result.applicationId.isEmpty())
+    if (result.applicationName.isEmpty() || result.applicationId.isEmpty() ||
+        result.applicationDescription.isEmpty() || result.projectHomepage.isEmpty())
         throw std::runtime_error("桌面客户端 app_config.json 缺少应用标识");
     return result;
 }

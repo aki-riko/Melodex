@@ -15,6 +15,8 @@ struct ApplicationConfig {
     QString applicationName;
     QString applicationVersion;
     QString applicationId;
+    QString applicationDescription;
+    QString projectHomepage;
     QString accentColor;
     WindowConfig window;
 };
