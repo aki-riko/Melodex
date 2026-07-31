@@ -45,7 +45,8 @@ Item {
         anchors.fill: parent
         orientation: Qt.Horizontal
         splitPosition: 0.34
-        minimumSize: 280
+        firstMinimumSize: 280
+        secondMinimumSize: 280
 
         firstContent: Item {
             anchors.fill: parent
