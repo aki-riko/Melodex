@@ -26,22 +26,31 @@ class AboutCardContractTests(unittest.TestCase):
             config["project_homepage"],
             "https://github.com/aki-riko/Melodex",
         )
-        self.assertIn(
-            "type: Fluent.Enums.settingCard.type_hyperlink", source
+        self.assertEqual(
+            config["framework_homepage"],
+            "https://github.com/aki-riko/PrismQML",
         )
+        self.assertIn("Fluent.SettingsCardCore", source)
         self.assertIn(
-            'title: AppConfig.name + " — " + AppConfig.description', source
+            'text: AppConfig.name + " — " + AppConfig.description', source
         )
-        self.assertIn('content: "版本 v" + AppConfig.version', source)
-        self.assertIn('+ " · 基于 PrismQML 引擎构建。"', source)
-        self.assertIn("url: AppConfig.projectHomepage", source)
-        self.assertIn('linkText: "项目主页"', source)
+        self.assertIn('text: "版本 v" + AppConfig.version + " · 基于"', source)
+        self.assertIn('text: "PrismQML"', source)
+        self.assertIn("url: AppConfig.frameworkHomepage", source)
+        self.assertIn('text: "引擎构建。"', source)
+        self.assertIn('text: "项目主页"', source)
+        self.assertIn("style: Fluent.Enums.button.style_hyperlink", source)
+        self.assertIn("AppConfig.projectHomepage", source)
         self.assertIn(
             '{QStringLiteral("description"), config.applicationDescription}',
             main_source,
         )
         self.assertIn(
             '{QStringLiteral("projectHomepage"), config.projectHomepage}',
+            main_source,
+        )
+        self.assertIn(
+            '{QStringLiteral("frameworkHomepage"), config.frameworkHomepage}',
             main_source,
         )
 

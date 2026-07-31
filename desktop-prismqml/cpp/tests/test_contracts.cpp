@@ -39,6 +39,8 @@ void DesktopContractsTest::applicationConfigLoadsPackagedContract() {
              QStringLiteral("全网音乐搜索、播放与下载客户端"));
     QCOMPARE(config.projectHomepage,
              QStringLiteral("https://github.com/aki-riko/Melodex"));
+    QCOMPARE(config.frameworkHomepage,
+             QStringLiteral("https://github.com/aki-riko/PrismQML"));
     QVERIFY(config.window.minimumWidth > 0);
 }
 
