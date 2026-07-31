@@ -32,7 +32,9 @@ Fluent.Card {
 
     implicitHeight: coverSize + Fluent.Enums.spacing.l * 2
     cardType: Fluent.Enums.card.type_elevated
+    clickEnabled: expandEnabled && Boolean(Player.currentSong.id)
     contentPadding: Fluent.Enums.spacing.l
+    onClicked: root.expandRequested()
 
     RowLayout {
         anchors.fill: parent

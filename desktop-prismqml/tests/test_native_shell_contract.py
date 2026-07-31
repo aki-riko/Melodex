@@ -117,8 +117,10 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn('objectName: "playerBarCover"', source)
         self.assertIn("implicitHeight: coverSize + Fluent.Enums.spacing.l * 2", source)
         self.assertGreaterEqual(source.count("Layout.alignment: Qt.AlignVCenter"), 10)
-        self.assertIn("onClicked:", source)
-        self.assertIn("root.expandRequested()", source)
+        self.assertIn(
+            "clickEnabled: expandEnabled && Boolean(Player.currentSong.id)", source
+        )
+        self.assertIn("onClicked: root.expandRequested()", source)
 
     def test_home_service_banner_is_persistent(self) -> None:
         source = (QML_ROOT / "pages" / "HomePage.qml").read_text(
