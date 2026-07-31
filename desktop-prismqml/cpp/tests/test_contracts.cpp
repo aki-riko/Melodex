@@ -31,6 +31,7 @@ private slots:
     void playbackStateIsAccountScoped();
     void playbackRestoreWaitsForSeekableStream();
     void playbackRestoreRemainsVisibleUntilPlayerConfirmsSeek();
+    void playbackRestoreDoesNotRestartAnOutstandingSeek();
 };
 
 void DesktopContractsTest::applicationConfigLoadsPackagedContract() {
@@ -297,6 +298,30 @@ void DesktopContractsTest::playbackRestoreRemainsVisibleUntilPlayerConfirmsSeek(
     QVERIFY(melodex::playbackRestoreReached(savedPosition, savedPosition));
     QCOMPARE(melodex::presentedPlaybackPosition(savedPosition, std::nullopt),
              savedPosition);
+}
+
+void DesktopContractsTest::playbackRestoreDoesNotRestartAnOutstandingSeek() {
+    constexpr qint64 savedPosition = 110762;
+    constexpr qint64 duration = 192000;
+
+    const auto beforePlayback = melodex::decidePlaybackRestore(
+        savedPosition, true, duration, false, false);
+    QVERIFY(!beforePlayback.targetMilliseconds.has_value());
+    QVERIFY(!beforePlayback.issueSeek);
+
+    const auto initial = melodex::decidePlaybackRestore(
+        savedPosition, true, duration, true, false);
+    QVERIFY(initial.targetMilliseconds.has_value());
+    QCOMPARE(*initial.targetMilliseconds, savedPosition);
+    QVERIFY(initial.issueSeek);
+
+    // seekable/mediaStatus/playbackState 可能连续到达；第一次 Range 定位仍在
+    // 等待时，点击播放不得再次 setPosition 并取消、重开同一定位请求。
+    const auto duplicate = melodex::decidePlaybackRestore(
+        savedPosition, true, duration, true, true);
+    QVERIFY(duplicate.targetMilliseconds.has_value());
+    QCOMPARE(*duplicate.targetMilliseconds, savedPosition);
+    QVERIFY(!duplicate.issueSeek);
 }
 
 QTEST_GUILESS_MAIN(DesktopContractsTest)

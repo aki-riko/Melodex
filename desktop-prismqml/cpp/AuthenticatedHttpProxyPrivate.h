@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QList>
 #include <QNetworkReply>
@@ -114,6 +115,11 @@ private:
     QByteArray m_pendingClientData;
     qint64 m_sent = 0;
     int m_resumeAttempts = 0;
+    QElapsedTimer m_localRequestClock;
+    QElapsedTimer m_upstreamClock;
+    bool m_timingEnabled = false;
+    bool m_metadataTimingLogged = false;
+    bool m_firstByteTimingLogged = false;
     bool m_requestParsed = false;
     bool m_responseStarted = false;
     bool m_replyIsResume = false;

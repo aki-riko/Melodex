@@ -5,7 +5,9 @@
 #include "melodex/UserSettings.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QMediaPlayer>
 #include <QTemporaryDir>
 #include <QThread>
@@ -45,8 +47,12 @@ int main(int argc, char *argv[]) {
     const QString expectedId = arguments.at(4);
     const int minimumSeconds = argumentInt(arguments, 5, 8);
     const int timeoutSeconds = argumentInt(arguments, 6, 90);
+    const bool resumeMode =
+        qEnvironmentVariableIntValue("MELODEX_PROBE_RESUME") == 1;
     const QString configuredRoot =
         qEnvironmentVariable("MELODEX_PROBE_CONFIG_ROOT").trimmed();
+    const QString sourceConfigRoot =
+        qEnvironmentVariable("MELODEX_PROBE_SOURCE_CONFIG_ROOT").trimmed();
     std::unique_ptr<QTemporaryDir> temporaryRoot;
     QString configRoot = configuredRoot;
     QString settingsName = QStringLiteral("Melodex");
@@ -58,6 +64,25 @@ int main(int argc, char *argv[]) {
         }
         configRoot = temporaryRoot->path();
         settingsName = QStringLiteral("MelodexProbe");
+        if (!sourceConfigRoot.isEmpty()) {
+            const QDir source(sourceConfigRoot);
+            const QString destination =
+                QDir(configRoot).filePath(settingsName);
+            if (!QDir().mkpath(destination)) {
+                qCritical() << "PLAYBACK_PROBE_FAIL: 无法创建隔离配置目录";
+                return 3;
+            }
+            for (const QString &name : {
+                     QStringLiteral("cookies.dat"),
+                     QStringLiteral("desktop-settings.json"),
+                     QStringLiteral("playback-state.json")}) {
+                if (!QFile::copy(source.filePath(name),
+                                 QDir(destination).filePath(name))) {
+                    qCritical() << "PLAYBACK_PROBE_FAIL: 无法复制隔离配置" << name;
+                    return 3;
+                }
+            }
+        }
     }
 
     melodex::UserSettings settings(settingsName, configRoot);
@@ -67,10 +92,11 @@ int main(int argc, char *argv[]) {
     melodex::ApiClient api(&settings, &cookies);
     melodex::PlayerController player(&api, &settings);
     player.setVolume(0.0);
-
     int result = 4;
     qint64 maximumPosition = 0;
+    qint64 restoredPosition = 0;
     QElapsedTimer playbackClock;
+    QElapsedTimer resumeClickClock;
     QTimer stressTimer;
     stressTimer.setInterval(250);
     QObject::connect(&stressTimer, &QTimer::timeout, &application,
@@ -80,6 +106,23 @@ int main(int argc, char *argv[]) {
                          if (!api.authenticated()) {
                              qCritical() << "PLAYBACK_PROBE_FAIL: 本地会话未认证";
                              application.exit(5);
+                             return;
+                         }
+                         if (resumeMode) {
+                             QTimer::singleShot(2000, &application, [&]() {
+                                 if (player.currentSong().isEmpty()) {
+                                     qCritical() << "PLAYBACK_PROBE_FAIL: 未恢复保存的歌曲";
+                                     application.exit(10);
+                                     return;
+                                 }
+                                 restoredPosition = static_cast<qint64>(
+                                     player.position() * 1000.0);
+                                 printProbeStatus(QStringLiteral(
+                                     "PLAYBACK_PROBE_RESUME_READY position_ms=%1")
+                                                      .arg(restoredPosition));
+                                 resumeClickClock.start();
+                                 player.togglePlay();
+                             });
                              return;
                          }
                          api.search(keyword);
@@ -121,6 +164,20 @@ int main(int argc, char *argv[]) {
     QObject::connect(player.mediaPlayer(), &QMediaPlayer::positionChanged,
                      &application, [&](qint64 position) {
                          maximumPosition = qMax(maximumPosition, position);
+                         if (resumeMode) {
+                             if (!resumeClickClock.isValid() ||
+                                 position <= restoredPosition + 250)
+                                 return;
+                             stressTimer.stop();
+                             printProbeStatus(QStringLiteral(
+                                 "PLAYBACK_PROBE_RESUME_OK restored_ms=%1 position_ms=%2 click_to_progress_ms=%3")
+                                                  .arg(restoredPosition)
+                                                  .arg(position)
+                                                  .arg(resumeClickClock.elapsed()));
+                             result = 0;
+                             application.quit();
+                             return;
+                         }
                          if (position < static_cast<qint64>(minimumSeconds) * 1000)
                              return;
                          stressTimer.stop();
