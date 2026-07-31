@@ -78,7 +78,7 @@ class NativeShellContractTests(unittest.TestCase):
         )
 
         self.assertNotIn("0.3.1.34", source)
-        self.assertIn("PrismQML 原生界面", source)
+        self.assertIn("基于 PrismQML 引擎构建。", source)
 
     def test_application_uses_light_fluent_skin(self) -> None:
         source = (DESKTOP_ROOT / "main.py").read_text(encoding="utf-8")

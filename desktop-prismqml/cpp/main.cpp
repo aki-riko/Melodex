@@ -91,6 +91,8 @@ QVariantMap configForQml(const melodex::ApplicationConfig &config) {
     return {
         {QStringLiteral("name"), config.applicationName},
         {QStringLiteral("version"), config.applicationVersion},
+        {QStringLiteral("description"), config.applicationDescription},
+        {QStringLiteral("projectHomepage"), config.projectHomepage},
         {QStringLiteral("windowWidth"), config.window.width},
         {QStringLiteral("windowHeight"), config.window.height},
         {QStringLiteral("minimumWindowWidth"), config.window.minimumWidth},

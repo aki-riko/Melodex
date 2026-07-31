@@ -144,10 +144,13 @@ Item {
 
                 Fluent.SettingsCard {
                     width: parent.width
-                    type: Fluent.Enums.settingCard.type_push
+                    type: Fluent.Enums.settingCard.type_hyperlink
                     icon: Fluent.Enums.icon.info
-                    title: AppConfig.name + " Desktop"
-                    content: "版本 " + AppConfig.version + "  ·  PrismQML 原生界面"
+                    title: AppConfig.name + " — " + AppConfig.description
+                    content: "版本 v" + AppConfig.version
+                             + " · 基于 PrismQML 引擎构建。"
+                    url: AppConfig.projectHomepage
+                    linkText: "项目主页"
                 }
             }
         }

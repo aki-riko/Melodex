@@ -35,6 +35,10 @@ void DesktopContractsTest::applicationConfigLoadsPackagedContract() {
         melodex::loadApplicationConfig(QStringLiteral(":/Melodex/app_config.json"));
     QCOMPARE(config.applicationName, QStringLiteral("Melodex"));
     QCOMPARE(config.applicationId, QStringLiteral("PrismQML.Melodex"));
+    QCOMPARE(config.applicationDescription,
+             QStringLiteral("全网音乐搜索、播放与下载客户端"));
+    QCOMPARE(config.projectHomepage,
+             QStringLiteral("https://github.com/aki-riko/Melodex"));
     QVERIFY(config.window.minimumWidth > 0);
 }
 
