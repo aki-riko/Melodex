@@ -132,10 +132,17 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn('title: "当前服务"', source)
         self.assertIn("duration: Fluent.Enums.duration.none", source)
 
-    def test_desktop_lyrics_slide_the_next_line_into_focus(self) -> None:
+    def test_desktop_lyrics_crossfade_while_sliding_the_next_line_into_focus(
+        self,
+    ) -> None:
         source = (QML_ROOT / "components" / "DesktopLyricsWindow.qml").read_text(
             encoding="utf-8"
         )
+        transition_start = source.index("ParallelAnimation {")
+        transition_end = source.index(
+            "\n    Fluent.WindowDragHandle", transition_start
+        )
+        transition = source[transition_start:transition_end]
 
         self.assertIn("id: lyricSlideTransition", source)
         self.assertIn("id: outgoingLyric", source)
@@ -146,6 +153,13 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("from: lyricsWindow.incomingActiveScale", source)
         self.assertIn("duration: Fluent.Enums.duration.slower", source)
         self.assertIn("easing.type: Easing.InOutCubic", source)
+        self.assertIn("lyricsWindow.activeLineHeight * 0.55", transition)
+        self.assertEqual(3, transition.count('property: "opacity"'))
+        for target in ("outgoingLyric", "activeLyric", "secondaryLyric"):
+            self.assertRegex(
+                transition,
+                rf'target: {target}; property: "opacity"',
+            )
         self.assertNotIn("Fluent.ToggleAnimation {", source)
 
     def test_now_playing_lyrics_use_an_immersive_karaoke_focus(self) -> None:
