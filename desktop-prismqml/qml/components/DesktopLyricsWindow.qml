@@ -127,10 +127,24 @@ Window {
     }
 
     function canAnimateForward(previousLineIndex, previousActiveText) {
-        return previousLineIndex >= 0
-               && displayLineIndex === previousLineIndex + 1
-               && previousActiveText.length > 0
-               && activeText.length > 0
+        if (previousLineIndex < 0
+                || previousActiveText.length === 0
+                || activeText.length === 0)
+            return false
+        if (displayLineIndex === previousLineIndex + 1)
+            return true
+        if (displayLineIndex <= previousLineIndex + 1
+                || previousLineIndex >= Player.lyrics.length)
+            return false
+
+        const previousTimestamp = Number(Player.lyrics[previousLineIndex].t)
+        for (let index = previousLineIndex + 1;
+             index < displayLineIndex;
+             ++index) {
+            if (Number(Player.lyrics[index].t) !== previousTimestamp)
+                return false
+        }
+        return true
     }
 
     function syncRenderedLyrics(animateForward) {

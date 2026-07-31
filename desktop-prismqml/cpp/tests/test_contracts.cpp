@@ -26,6 +26,7 @@ private slots:
     void invalidQqAlbumCoverFallsBackWithoutRequest();
     void playerPublishesQueueContractToQml();
     void lyricsSupportWordAndLineTiming();
+    void lyricsKeepProductionSameTimestampOrder();
     void lyricsTypographySupportsPersistedCjkFontPresets();
     void playbackStateIsAccountScoped();
     void playbackRestoreWaitsForSeekableStream();
@@ -173,6 +174,30 @@ void DesktopContractsTest::lyricsSupportWordAndLineTiming() {
     QCOMPARE(lines.constFirst().toMap().value(QStringLiteral("words")).toList().size(), 2);
     QCOMPARE(melodex::currentLyricIndex(lines, 1.2), 1);
     QVERIFY(melodex::lyricProgress(lines, 0, 0.75) > 0.5);
+}
+
+void DesktopContractsTest::lyricsKeepProductionSameTimestampOrder() {
+    const QVariantList lines = melodex::parseLrc(QStringLiteral(
+        "[00:44.88]冲[00:45.07]得[00:45.28]破[00:45.66]盲[00:46.03]点"
+        "[00:46.77] [00:46.77]找[00:47.40]到[00:47.70]光[00:48.34]点[00:50.78]\n"
+        "[00:44.88]cong [00:45.07]da [00:45.28]po [00:45.66]mang "
+        "[00:46.03]din [00:46.77] [00:46.77]zou [00:47.40]dou "
+        "[00:47.70]guong [00:48.34]din [00:50.78]\n"
+        "[00:51.11]TWINS：[00:51.73]\n"));
+
+    QCOMPARE(lines.size(), 3);
+    QCOMPARE(lines.at(0).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("冲得破盲点 找到光点"));
+    QCOMPARE(lines.at(1).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("cong da po mang din  zou dou guong din"));
+    QCOMPARE(lines.at(2).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("TWINS："));
+    QCOMPARE(melodex::currentLyricIndex(lines, 45.0), 0);
+    QCOMPARE(melodex::currentLyricIndex(lines, 51.2), 2);
+    QVERIFY(qAbs(lines.at(0).toMap().value(QStringLiteral("end")).toDouble() -
+                 51.11) < 0.001);
+    QVERIFY(qAbs(lines.at(1).toMap().value(QStringLiteral("end")).toDouble() -
+                 51.11) < 0.001);
 }
 
 void DesktopContractsTest::lyricsTypographySupportsPersistedCjkFontPresets() {

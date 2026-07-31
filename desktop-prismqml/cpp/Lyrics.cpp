@@ -21,6 +21,41 @@ double seconds(const QRegularExpressionMatch &match) {
            milliseconds / 1000.0;
 }
 
+double lineTimestamp(const QVariant &line) {
+    return line.toMap().value(QStringLiteral("t")).toDouble();
+}
+
+void fillEndTimes(QVariantList &lines) {
+    int groupStart = 0;
+    while (groupStart < lines.size()) {
+        const double groupTimestamp = lineTimestamp(lines.at(groupStart));
+        int groupEnd = groupStart + 1;
+        while (groupEnd < lines.size() &&
+               lineTimestamp(lines.at(groupEnd)) == groupTimestamp)
+            ++groupEnd;
+        const double lineEnd = groupEnd < lines.size()
+                                   ? lineTimestamp(lines.at(groupEnd))
+                                   : groupTimestamp + 5.0;
+        for (int lineIndex = groupStart; lineIndex < groupEnd; ++lineIndex) {
+            QVariantMap line = lines.at(lineIndex).toMap();
+            line.insert(QStringLiteral("end"), lineEnd);
+            QVariantList words = line.value(QStringLiteral("words")).toList();
+            for (int wordIndex = 0; wordIndex < words.size(); ++wordIndex) {
+                QVariantMap word = words.at(wordIndex).toMap();
+                const double wordEnd = wordIndex + 1 < words.size()
+                                           ? words.at(wordIndex + 1).toMap()
+                                                 .value(QStringLiteral("t")).toDouble()
+                                           : lineEnd;
+                word.insert(QStringLiteral("end"), wordEnd);
+                words[wordIndex] = word;
+            }
+            line.insert(QStringLiteral("words"), words);
+            lines[lineIndex] = line;
+        }
+        groupStart = groupEnd;
+    }
+}
+
 }  // namespace
 
 QVariantList parseLrc(const QString &raw) {
@@ -61,30 +96,11 @@ QVariantList parseLrc(const QString &raw) {
                                   {QStringLiteral("text"), text},
                                   {QStringLiteral("words"), words}});
     }
-    std::sort(output.begin(), output.end(), [](const QVariant &left, const QVariant &right) {
+    std::stable_sort(output.begin(), output.end(), [](const QVariant &left, const QVariant &right) {
         return left.toMap().value(QStringLiteral("t")).toDouble() <
                right.toMap().value(QStringLiteral("t")).toDouble();
     });
-    for (int lineIndex = 0; lineIndex < output.size(); ++lineIndex) {
-        QVariantMap line = output.at(lineIndex).toMap();
-        const double lineEnd = lineIndex + 1 < output.size()
-                                   ? output.at(lineIndex + 1).toMap()
-                                         .value(QStringLiteral("t")).toDouble()
-                                   : line.value(QStringLiteral("t")).toDouble() + 5.0;
-        line.insert(QStringLiteral("end"), lineEnd);
-        QVariantList words = line.value(QStringLiteral("words")).toList();
-        for (int wordIndex = 0; wordIndex < words.size(); ++wordIndex) {
-            QVariantMap word = words.at(wordIndex).toMap();
-            const double wordEnd = wordIndex + 1 < words.size()
-                                       ? words.at(wordIndex + 1).toMap()
-                                             .value(QStringLiteral("t")).toDouble()
-                                       : lineEnd;
-            word.insert(QStringLiteral("end"), wordEnd);
-            words[wordIndex] = word;
-        }
-        line.insert(QStringLiteral("words"), words);
-        output[lineIndex] = line;
-    }
+    fillEndTimes(output);
     return output;
 }
 
@@ -103,6 +119,11 @@ int currentLyricIndex(const QVariantList &lines, double positionSeconds) {
             high = middle - 1;
         }
     }
+    if (answer < 0)
+        return answer;
+    const double activeTimestamp = lineTimestamp(lines.at(answer));
+    while (answer > 0 && lineTimestamp(lines.at(answer - 1)) == activeTimestamp)
+        --answer;
     return answer;
 }
 
