@@ -6,6 +6,18 @@
 
 namespace melodex {
 
+std::optional<qint64> resolvePlaybackRestorePosition(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds) {
+    // Qt 可能先发布时长、后确认流可定位；此时 setPosition 会被忽略，
+    // 所以必须保留待恢复进度，等 seekableChanged 后再应用。
+    if (!seekable)
+        return std::nullopt;
+    qint64 target = qMax<qint64>(0, requestedMilliseconds);
+    if (durationMilliseconds > 0)
+        target = qMin(target, durationMilliseconds);
+    return target;
+}
+
 void PlayerController::onCurrentUserChanged() {
     savePlaybackState();
     m_saveTimer.stop();

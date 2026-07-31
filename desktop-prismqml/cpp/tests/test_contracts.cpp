@@ -28,6 +28,7 @@ private slots:
     void lyricsSupportWordAndLineTiming();
     void lyricsTypographySupportsPersistedCjkFontPresets();
     void playbackStateIsAccountScoped();
+    void playbackRestoreWaitsForSeekableStream();
 };
 
 void DesktopContractsTest::applicationConfigLoadsPackagedContract() {
@@ -215,6 +216,23 @@ void DesktopContractsTest::playbackStateIsAccountScoped() {
                        QStringLiteral("alice")).has_value());
     QVERIFY(!store.load(QStringLiteral("https://music.example.test/"),
                         QStringLiteral("bob")).has_value());
+}
+
+void DesktopContractsTest::playbackRestoreWaitsForSeekableStream() {
+    constexpr qint64 savedPosition = 80042;
+    constexpr qint64 duration = 203000;
+
+    QVERIFY(!melodex::resolvePlaybackRestorePosition(
+                 savedPosition, false, duration)
+                 .has_value());
+    const auto restored = melodex::resolvePlaybackRestorePosition(
+        savedPosition, true, duration);
+    QVERIFY(restored.has_value());
+    QCOMPARE(*restored, savedPosition);
+    const auto clamped = melodex::resolvePlaybackRestorePosition(
+        duration + 1000, true, duration);
+    QVERIFY(clamped.has_value());
+    QCOMPARE(*clamped, duration);
 }
 
 QTEST_GUILESS_MAIN(DesktopContractsTest)
