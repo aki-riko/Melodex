@@ -132,15 +132,21 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn('title: "当前服务"', source)
         self.assertIn("duration: Fluent.Enums.duration.none", source)
 
-    def test_desktop_lyrics_use_published_transition_effect(self) -> None:
+    def test_desktop_lyrics_slide_the_next_line_into_focus(self) -> None:
         source = (QML_ROOT / "components" / "DesktopLyricsWindow.qml").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("onDisplayLineIndexChanged:", source)
-        self.assertEqual(2, source.count("Fluent.ToggleAnimation {"))
+        self.assertIn("id: lyricSlideTransition", source)
+        self.assertIn("id: outgoingLyric", source)
+        self.assertIn("displayLineIndex === previousLineIndex + 1", source)
+        self.assertIn("target: outgoingLyric", source)
         self.assertIn("target: activeLyric", source)
-        self.assertIn("target: secondaryLyric", source)
+        self.assertIn('property: "scale"', source)
+        self.assertIn("from: lyricsWindow.incomingActiveScale", source)
+        self.assertIn("duration: Fluent.Enums.duration.slower", source)
+        self.assertIn("easing.type: Easing.InOutCubic", source)
+        self.assertNotIn("Fluent.ToggleAnimation {", source)
 
     def test_now_playing_lyrics_use_an_immersive_karaoke_focus(self) -> None:
         source = (QML_ROOT / "pages" / "NowPlayingPage.qml").read_text(
@@ -274,7 +280,7 @@ class NativeShellContractTests(unittest.TestCase):
             "verticalOffset: lyricsWindow.lyricShadowVerticalOffset",
             lyrics_window,
         )
-        self.assertEqual(2, lyrics_window.count("renderType: Text.CurveRendering"))
+        self.assertEqual(3, lyrics_window.count("renderType: Text.CurveRendering"))
         self.assertNotIn("renderType: Text.QtRendering", lyrics_window)
         self.assertEqual(1, lyrics_window.count("style: Text.Outline"))
         self.assertNotIn("renderType: Text.NativeRendering", lyrics_window)
