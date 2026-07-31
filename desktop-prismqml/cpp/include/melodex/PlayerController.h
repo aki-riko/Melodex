@@ -16,6 +16,9 @@ namespace melodex {
 class ApiClient;
 class UserSettings;
 
+std::optional<qint64> resolvePlaybackRestorePosition(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds);
+
 class PlayerController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantMap currentSong READ currentSong NOTIFY currentSongChanged)

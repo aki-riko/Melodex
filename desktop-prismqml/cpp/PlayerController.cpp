@@ -262,12 +262,11 @@ void PlayerController::requestStreamSource(const QVariantMap &song, bool autopla
 void PlayerController::applyPendingRestorePosition() {
     if (!m_pendingRestorePositionMs.has_value())
         return;
-    if (!m_player->isSeekable() && m_player->duration() <= 0)
+    const auto target = resolvePlaybackRestorePosition(
+        *m_pendingRestorePositionMs, m_player->isSeekable(), m_player->duration());
+    if (!target.has_value())
         return;
-    qint64 target = *m_pendingRestorePositionMs;
-    if (m_player->duration() > 0)
-        target = qMin(target, m_player->duration());
-    m_player->setPosition(target);
+    m_player->setPosition(*target);
     m_pendingRestorePositionMs.reset();
     m_restoringState = false;
     emit positionChanged();
