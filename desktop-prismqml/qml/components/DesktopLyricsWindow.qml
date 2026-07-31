@@ -137,11 +137,11 @@ Window {
                 || previousLineIndex >= Player.lyrics.length)
             return false
 
-        const displayTimestamp = Number(Player.lyrics[displayLineIndex].t)
+        const previousTimestamp = Number(Player.lyrics[previousLineIndex].t)
         for (let index = previousLineIndex + 1;
              index < displayLineIndex;
              ++index) {
-            if (Number(Player.lyrics[index].t) !== displayTimestamp)
+            if (Number(Player.lyrics[index].t) !== previousTimestamp)
                 return false
         }
         return true
