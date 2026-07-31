@@ -79,6 +79,10 @@ int PlayerController::visualLyricIndex(double positionSeconds) const {
     return melodex::currentLyricIndex(m_lyrics, qMax(0.0, positionSeconds));
 }
 
+int PlayerController::visualSecondaryLyricIndex(int activeIndex) const {
+    return melodex::secondaryLyricIndex(m_lyrics, activeIndex);
+}
+
 double PlayerController::visualLyricProgress(int index, double positionSeconds) const {
     return melodex::lyricProgress(m_lyrics, index, qMax(0.0, positionSeconds));
 }

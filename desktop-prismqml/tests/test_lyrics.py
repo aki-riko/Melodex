@@ -3,7 +3,11 @@
 
 import unittest
 
-from melodex_desktop.lyrics import current_lyric_index, parse_lrc
+from melodex_desktop.lyrics import (
+    current_lyric_index,
+    parse_lrc,
+    secondary_lyric_index,
+)
 
 
 class LyricsTests(unittest.TestCase):
@@ -43,6 +47,8 @@ class LyricsTests(unittest.TestCase):
             "[00:46.03]din [00:46.77] [00:46.77]zou [00:47.40]dou "
             "[00:47.70]guong [00:48.34]din [00:50.78]\n"
             "[00:51.11]TWINS：[00:51.73]\n"
+            "[00:52.14]让[00:52.34]二[00:52.62]人[00:52.96]划[00:53.27]破"
+            "[00:53.54]黑[00:53.94]夜[00:54.53]\n"
         )
 
         self.assertEqual(
@@ -51,10 +57,14 @@ class LyricsTests(unittest.TestCase):
                 "冲得破盲点 找到光点",
                 "cong da po mang din  zou dou guong din",
                 "TWINS：",
+                "让二人划破黑夜",
             ],
         )
-        self.assertEqual(current_lyric_index(lines, 45.0), 0)
+        active_index = current_lyric_index(lines, 45.0)
+        self.assertEqual(active_index, 1)
+        self.assertEqual(secondary_lyric_index(lines, active_index), 0)
         self.assertEqual(current_lyric_index(lines, 51.2), 2)
+        self.assertEqual(secondary_lyric_index(lines, 2), 3)
         self.assertAlmostEqual(lines[0]["end"], 51.11)
         self.assertAlmostEqual(lines[1]["end"], 51.11)
 
