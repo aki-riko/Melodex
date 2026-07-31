@@ -35,6 +35,29 @@ class LyricsTests(unittest.TestCase):
         self.assertEqual(current_lyric_index(lines, 4.99), 1)
         self.assertEqual(current_lyric_index(lines, 99), 2)
 
+    def test_same_timestamp_group_keeps_real_qq_source_order(self) -> None:
+        lines = parse_lrc(
+            "[00:44.88]冲[00:45.07]得[00:45.28]破[00:45.66]盲[00:46.03]点"
+            "[00:46.77] [00:46.77]找[00:47.40]到[00:47.70]光[00:48.34]点[00:50.78]\n"
+            "[00:44.88]cong [00:45.07]da [00:45.28]po [00:45.66]mang "
+            "[00:46.03]din [00:46.77] [00:46.77]zou [00:47.40]dou "
+            "[00:47.70]guong [00:48.34]din [00:50.78]\n"
+            "[00:51.11]TWINS：[00:51.73]\n"
+        )
+
+        self.assertEqual(
+            [line["text"] for line in lines],
+            [
+                "冲得破盲点 找到光点",
+                "cong da po mang din  zou dou guong din",
+                "TWINS：",
+            ],
+        )
+        self.assertEqual(current_lyric_index(lines, 45.0), 0)
+        self.assertEqual(current_lyric_index(lines, 51.2), 2)
+        self.assertAlmostEqual(lines[0]["end"], 51.11)
+        self.assertAlmostEqual(lines[1]["end"], 51.11)
+
     def test_empty_input_returns_empty_lines(self) -> None:
         self.assertEqual(parse_lrc(""), [])
         self.assertEqual(parse_lrc(None), [])
