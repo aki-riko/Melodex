@@ -28,6 +28,7 @@ Window {
     property string renderedActiveText: ""
     property string renderedNextText: ""
     property string outgoingActiveText: ""
+    property real lyricTransitionProgress: 1
     readonly property bool controlsVisible: !UserSettings.clickThrough
                                             && windowHover.hovered
     readonly property int secondaryFontSize: Math.max(
@@ -47,6 +48,17 @@ Window {
                                                    + (secondaryLineHeight - activeLineHeight) / 2
     readonly property real incomingActiveScale: secondaryFontSize
                                                        / Math.max(1, UserSettings.lyricsFontSize)
+    readonly property real outgoingExitProgress: Math.min(
+                                                      1,
+                                                      lyricTransitionProgress / 0.78
+                                                  )
+    readonly property real secondaryEntryProgress: Math.max(
+                                                       0,
+                                                       Math.min(
+                                                           1,
+                                                           (lyricTransitionProgress - 0.30) / 0.70
+                                                       )
+                                                   )
     readonly property int lyricSurfaceWidth: Math.round(Math.min(
                                                             width - 24,
                                                             Math.max(
@@ -110,13 +122,8 @@ Window {
             positionSaveTimer.restart()
     }
 
-    function settleLyricRows() {
-        outgoingLyric.opacity = 1
-        activeLyric.y = activeLineY
-        activeLyric.scale = 1
-        activeLyric.opacity = 1
-        secondaryLyric.y = secondaryLineY
-        secondaryLyric.opacity = 1
+    function finishLyricTransition() {
+        lyricTransitionProgress = 1
     }
 
     function canAnimateForward(previousLineIndex, previousActiveText) {
@@ -127,7 +134,7 @@ Window {
     }
 
     function syncRenderedLyrics(animateForward) {
-        lyricSlideTransition.stop()
+        lyricLineAdvance.stop()
 
         const previousLineIndex = renderedLineIndex
         const previousActiveText = renderedActiveText
@@ -140,17 +147,13 @@ Window {
         renderedLineIndex = displayLineIndex
         renderedActiveText = activeText
         renderedNextText = nextText
-        settleLyricRows()
+        lyricTransitionProgress = 1
 
         if (!shouldAnimate)
             return
 
-        outgoingLyric.y = activeLineY
-        activeLyric.y = incomingActiveY
-        activeLyric.scale = incomingActiveScale
-        activeLyric.opacity = 0.20
-        secondaryLyric.opacity = 0
-        lyricSlideTransition.start()
+        lyricTransitionProgress = 0
+        lyricLineAdvance.start()
     }
 
     function refreshRenderedLyrics() {
@@ -166,14 +169,6 @@ Window {
         if (positionReady)
             Qt.callLater(clampToVisibleArea)
     }
-    onActiveLineHeightChanged: {
-        if (componentReady && !lyricSlideTransition.running)
-            settleLyricRows()
-    }
-    onSecondaryLineHeightChanged: {
-        if (componentReady && !lyricSlideTransition.running)
-            settleLyricRows()
-    }
     onDisplayLineIndexChanged: {
         Qt.callLater(function() {
             if (componentReady && renderedLineIndex !== displayLineIndex)
@@ -185,7 +180,7 @@ Window {
         renderedLineIndex = displayLineIndex
         renderedActiveText = activeText
         renderedNextText = nextText
-        settleLyricRows()
+        finishLyricTransition()
         componentReady = true
         restorePosition()
     }
@@ -362,13 +357,17 @@ Window {
     WordFill {
         id: outgoingLyric
         z: 3
-        visible: lyricSlideTransition.running
+        visible: lyricLineAdvance.running
                  && lyricsWindow.outgoingActiveText.length > 0
         anchors.left: lyricSurface.left
         anchors.right: lyricSurface.right
         anchors.leftMargin: 34
         anchors.rightMargin: 34
         y: lyricsWindow.activeLineY
+           - lyricsWindow.activeLineHeight
+           * 0.45
+           * lyricsWindow.outgoingExitProgress
+        opacity: 1 - lyricsWindow.outgoingExitProgress
         height: lyricsWindow.activeLineHeight
         text: lyricsWindow.outgoingActiveText
         progress: 1
@@ -393,9 +392,15 @@ Window {
         anchors.right: lyricSurface.right
         anchors.leftMargin: 34
         anchors.rightMargin: 34
-        y: lyricsWindow.activeLineY
+        y: lyricsWindow.incomingActiveY
+           + (lyricsWindow.activeLineY - lyricsWindow.incomingActiveY)
+           * lyricsWindow.lyricTransitionProgress
         height: lyricsWindow.activeLineHeight
         transformOrigin: Item.Center
+        scale: lyricsWindow.incomingActiveScale
+               + (1 - lyricsWindow.incomingActiveScale)
+               * lyricsWindow.lyricTransitionProgress
+        opacity: 0.96 + 0.04 * lyricsWindow.lyricTransitionProgress
         text: lyricsWindow.renderedActiveText
         progress: lyricsWindow.renderedLineIndex >= 0
                   ? Player.visualLyricProgress(
@@ -425,7 +430,11 @@ Window {
         anchors.leftMargin: 42
         anchors.rightMargin: 42
         y: lyricsWindow.secondaryLineY
+           + lyricsWindow.secondaryLineHeight
+           * 0.35
+           * (1 - lyricsWindow.secondaryEntryProgress)
         height: lyricsWindow.secondaryLineHeight
+        opacity: lyricsWindow.secondaryEntryProgress
 
         Fluent.Label {
             anchors.fill: parent
@@ -456,37 +465,15 @@ Window {
         }
     }
 
-    ParallelAnimation {
-        id: lyricSlideTransition
-
-        NumberAnimation {
-            target: outgoingLyric
-            property: "y"
-            from: lyricsWindow.activeLineY
-            to: lyricsWindow.activeLineY - lyricsWindow.activeLineHeight * 0.55
-            duration: Fluent.Enums.duration.slower
-            easing.type: Easing.InOutCubic
-        }
-        NumberAnimation { target: outgoingLyric; property: "opacity"; from: 1; to: 0; duration: Fluent.Enums.duration.slower; easing.type: Easing.InCubic }
-        NumberAnimation {
-            target: activeLyric
-            property: "y"
-            from: lyricsWindow.incomingActiveY
-            to: lyricsWindow.activeLineY
-            duration: Fluent.Enums.duration.slower
-            easing.type: Easing.InOutCubic
-        }
-        NumberAnimation {
-            target: activeLyric
-            property: "scale"
-            from: lyricsWindow.incomingActiveScale
-            to: 1
-            duration: Fluent.Enums.duration.slower
-            easing.type: Easing.InOutCubic
-        }
-        NumberAnimation { target: activeLyric; property: "opacity"; from: 0.20; to: 1; duration: Fluent.Enums.duration.slower; easing.type: Easing.OutCubic }
-        NumberAnimation { target: secondaryLyric; property: "opacity"; from: 0; to: 1; duration: Fluent.Enums.duration.slower; easing.type: Easing.OutCubic }
-        onStopped: lyricsWindow.settleLyricRows()
+    NumberAnimation {
+        id: lyricLineAdvance
+        target: lyricsWindow
+        property: "lyricTransitionProgress"
+        from: 0
+        to: 1
+        duration: Fluent.Enums.duration.slower
+        easing.type: Easing.InOutCubic
+        onStopped: lyricsWindow.finishLyricTransition()
     }
 
     Fluent.WindowDragHandle {
