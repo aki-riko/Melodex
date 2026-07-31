@@ -10,6 +10,16 @@ DESKTOP_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PrismQmlUpgradeContractTests(unittest.TestCase):
+    def test_headless_selftest_validates_shared_splash_content(self) -> None:
+        source = (DESKTOP_ROOT / "cpp" / "main.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("validateSplashContract(mainWindow, config)", source)
+        self.assertIn("validateSplashDismissed(mainWindow)", source)
+        self.assertIn('QStringLiteral("windowSplashLoader")', source)
+        self.assertIn('splash->property("iconSource")', source)
+        self.assertIn('splash->property("title")', source)
+        self.assertIn('splash->property("subtitle")', source)
+
     def test_split_panes_use_per_side_minimum_sizes(self) -> None:
         cases = (
             ("qml/pages/PlaylistsPage.qml", 280),

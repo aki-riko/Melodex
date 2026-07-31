@@ -22,6 +22,7 @@
 #include <QQmlContext>
 #include <QTimer>
 #include <QUrl>
+#include <QVariant>
 #include <QVariantMap>
 #include <QWindow>
 #include <memory>
@@ -137,6 +138,44 @@ QObject *requiredChild(QObject *root, const QString &objectName) {
     return child;
 }
 
+bool validateSplashContract(QObject *mainWindow,
+                            const melodex::ApplicationConfig &config) {
+    const QList<QObject *> splashLoaders = mainWindow->findChildren<QObject *>(
+        QStringLiteral("windowSplashLoader"), Qt::FindChildrenRecursively);
+    if (splashLoaders.size() != 1) {
+        qCritical() << "[ERROR] PrismQML 共享启动页加载器数量异常："
+                    << splashLoaders.size();
+        return false;
+    }
+
+    QObject *splashLoader = splashLoaders.constFirst();
+    QObject *splash = qvariant_cast<QObject *>(splashLoader->property("item"));
+    const QString expectedIcon = QString::fromLatin1(kIconUrl);
+    const QString expectedSubtitle = QStringLiteral("正在载入桌面客户端");
+    if (!splashLoader->property("active").toBool() || !splash ||
+        splash->property("iconSource").toString() != expectedIcon ||
+        splash->property("title").toString() != config.applicationName ||
+        splash->property("subtitle").toString() != expectedSubtitle) {
+        qCritical() << "[ERROR] PrismQML 共享启动页内容契约未满足";
+        return false;
+    }
+    return true;
+}
+
+bool validateSplashDismissed(QObject *mainWindow) {
+    QObject *splashLoader = mainWindow->findChild<QObject *>(
+        QStringLiteral("windowSplashLoader"), Qt::FindChildrenRecursively);
+    QObject *splash = splashLoader
+        ? qvariant_cast<QObject *>(splashLoader->property("item"))
+        : nullptr;
+    if (!mainWindow->property("_splashDismissed").toBool() || !splash ||
+        splash->property("visible").toBool()) {
+        qCritical() << "[ERROR] PrismQML 共享启动页未按期完成退场";
+        return false;
+    }
+    return true;
+}
+
 void restoreMainWindow(QObject *mainWindow) {
     auto *window = qobject_cast<QWindow *>(mainWindow);
     if (!window)
@@ -230,8 +269,18 @@ int runApplication(int argc, char *argv[]) {
                      services.player, &melodex::PlayerController::flushPlaybackState);
 
     if (selfTest) {
-        qInfo() << "MELODEX_DESKTOP_SELFTEST_OK";
-        QTimer::singleShot(500, app.qapp(), &QCoreApplication::quit);
+        if (auto *window = qobject_cast<QWindow *>(mainWindow))
+            window->show();
+        if (!validateSplashContract(mainWindow, config))
+            return -1;
+        QTimer::singleShot(1500, app.qapp(), [mainWindow]() {
+            if (!validateSplashDismissed(mainWindow)) {
+                QCoreApplication::exit(-1);
+                return;
+            }
+            qInfo() << "MELODEX_DESKTOP_SELFTEST_OK";
+            QCoreApplication::quit();
+        });
     } else {
         if (auto *window = qobject_cast<QWindow *>(mainWindow))
             window->show();
