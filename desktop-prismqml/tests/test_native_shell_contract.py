@@ -11,12 +11,12 @@ QML_ROOT = DESKTOP_ROOT / "qml"
 
 
 class NativeShellContractTests(unittest.TestCase):
-    def test_prismqml_dependency_is_pinned_to_outside_drawer_release(self) -> None:
+    def test_prismqml_dependency_is_pinned_to_current_engine_release(self) -> None:
         requirements = (DESKTOP_ROOT / "requirements.txt").read_text(
             encoding="utf-8"
         )
 
-        self.assertEqual("prismqml==0.3.2.1", requirements.strip())
+        self.assertEqual("prismqml==0.3.3.9", requirements.strip())
 
     def test_main_window_uses_prismqml_navigation_shell(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
