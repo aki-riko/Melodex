@@ -21,6 +21,30 @@ struct ColorScheme {
     const char *unplayed;
 };
 
+struct FontPreset {
+    const char *name;
+    const char *family;
+};
+
+#ifdef Q_OS_MACOS
+constexpr std::array<FontPreset, 5> kFontPresets{{
+    {"苹方", "PingFang SC"},
+    {"华文楷体", "Kaiti SC"},
+    {"华文宋体", "Songti SC"},
+    {"华文黑体", "Heiti SC"},
+    {"华文仿宋", "STFangsong"},
+}};
+#else
+constexpr std::array<FontPreset, 6> kFontPresets{{
+    {"楷体", "KaiTi"},
+    {"微软雅黑", "Microsoft YaHei UI"},
+    {"等线", "DengXian"},
+    {"宋体", "SimSun"},
+    {"黑体", "SimHei"},
+    {"仿宋", "FangSong"},
+}};
+#endif
+
 constexpr std::array<ColorScheme, 8> kColorSchemes{{
     {"珊瑚绯", "#FFFFC6C6", "#FFEEEEEE"},
     {"暮霞", "#FFEEC1D1", "#FFEEEEEE"},
@@ -38,6 +62,14 @@ const ColorScheme &schemeByName(const QString &name) {
             return scheme;
     }
     return kColorSchemes.front();
+}
+
+const FontPreset &fontPresetByName(const QString &name) {
+    for (const FontPreset &preset : kFontPresets) {
+        if (QString::fromUtf8(preset.name) == name)
+            return preset;
+    }
+    return kFontPresets.front();
 }
 
 bool isLoopbackHost(const QString &host) {
@@ -79,6 +111,7 @@ UserSettings::UserSettings(const QString &appName, const QString &configRoot,
                              : configRoot;
     m_directory = QDir(root).filePath(appName);
     m_path = QDir(m_directory).filePath(QStringLiteral("desktop-settings.json"));
+    m_lyricsFontPreset = lyricsFontPresetNames().constFirst();
     load();
 }
 
@@ -106,6 +139,14 @@ void UserSettings::load() {
     m_lyricsVisible = payload.value(QStringLiteral("desktop_lyrics_visible")).toBool(true);
     const int fontSize = payload.value(QStringLiteral("desktop_lyrics_font_size")).toInt(36);
     m_lyricsFontSize = qBound(lyricsFontSizeMinimum(), fontSize, lyricsFontSizeMaximum());
+    const QString rawFontPreset =
+        payload.value(QStringLiteral("desktop_lyrics_font_preset"))
+            .toString(m_lyricsFontPreset);
+    if (lyricsFontPresetNames().contains(rawFontPreset)) {
+        m_lyricsFontPreset = rawFontPreset;
+    } else {
+        qWarning().noquote() << "[WARN] 忽略无效桌面歌词字体预设：" << rawFontPreset;
+    }
     const QString rawScheme = payload.value(QStringLiteral("desktop_lyrics_color_scheme"))
                                   .toString(QStringLiteral("珊瑚绯"));
     m_lyricsColorScheme = migratedColorScheme(rawScheme);
@@ -145,6 +186,7 @@ void UserSettings::save() const {
         {QStringLiteral("desktop_lyrics_click_through"), m_clickThrough},
         {QStringLiteral("desktop_lyrics_visible"), m_lyricsVisible},
         {QStringLiteral("desktop_lyrics_font_size"), m_lyricsFontSize},
+        {QStringLiteral("desktop_lyrics_font_preset"), m_lyricsFontPreset},
         {QStringLiteral("desktop_lyrics_color_scheme"), m_lyricsColorScheme},
         {QStringLiteral("desktop_lyrics_position_set"), m_lyricsPositionSet},
         {QStringLiteral("desktop_lyrics_x"), m_lyricsX},
@@ -163,11 +205,18 @@ void UserSettings::save() const {
 }
 
 QString UserSettings::lyricsFontFamily() const {
-#ifdef Q_OS_MACOS
-    return QStringLiteral("PingFang SC");
-#else
-    return QStringLiteral("Microsoft YaHei UI");
-#endif
+    return QString::fromUtf8(fontPresetByName(m_lyricsFontPreset).family);
+}
+
+QStringList UserSettings::lyricsFontPresetNames() const {
+    QStringList names;
+    for (const FontPreset &preset : kFontPresets)
+        names.append(QString::fromUtf8(preset.name));
+    return names;
+}
+
+int UserSettings::lyricsFontPresetIndex() const {
+    return lyricsFontPresetNames().indexOf(m_lyricsFontPreset);
 }
 
 QString UserSettings::lyricsUnplayedColor() const {
@@ -230,6 +279,20 @@ void UserSettings::setLyricsFontSize(int value) {
     m_lyricsFontSize = normalized;
     save();
     emit lyricsFontSizeChanged();
+}
+
+bool UserSettings::setLyricsFontPresetIndex(int index) {
+    const QStringList names = lyricsFontPresetNames();
+    if (index < 0 || index >= names.size()) {
+        qWarning() << "[WARN] 拒绝无效桌面歌词字体预设索引：" << index;
+        return false;
+    }
+    if (names.at(index) == m_lyricsFontPreset)
+        return true;
+    m_lyricsFontPreset = names.at(index);
+    save();
+    emit lyricsFontPresetChanged();
+    return true;
 }
 
 bool UserSettings::setLyricsColorSchemeIndex(int index) {

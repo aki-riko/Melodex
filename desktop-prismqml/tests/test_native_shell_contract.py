@@ -23,9 +23,9 @@ class NativeShellContractTests(unittest.TestCase):
 
         self.assertIn("Fluent.Windows {", source)
         self.assertNotIn("Fluent.WindowsCore {", source)
-        self.assertIn('key: "page_4"', source)
+        self.assertIn('key: "page_3"', source)
 
-    def test_native_shell_registers_all_five_pages(self) -> None:
+    def test_native_shell_merges_now_playing_into_global_player(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
         for object_name in (
@@ -36,6 +36,15 @@ class NativeShellContractTests(unittest.TestCase):
             "settingsPage",
         ):
             self.assertIn(f'objectName: "{object_name}"', source)
+        self.assertNotIn('{ text: "正在播放"', source)
+        self.assertIn('objectName: "globalPlayerBar"', source)
+        self.assertIn('objectName: "nowPlayingDrawer"', source)
+        self.assertIn("position: Fluent.Enums.position.bottom", source)
+        self.assertIn("onExpandRequested: nowPlayingDrawer.open()", source)
+
+        for page_name in ("HomePage.qml", "SearchPage.qml", "PlaylistsPage.qml"):
+            page = (QML_ROOT / "pages" / page_name).read_text(encoding="utf-8")
+            self.assertNotIn("openPlayerRequested", page)
 
     def test_now_playing_uses_native_outside_queue_drawer(self) -> None:
         main = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
@@ -105,6 +114,29 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn(
             'displayValueFn: value => Math.round(value * 100) + "%"', source
         )
+        self.assertIn('objectName: "playerBarCover"', source)
+        self.assertIn("implicitHeight: coverSize + Fluent.Enums.spacing.l * 2", source)
+        self.assertGreaterEqual(source.count("Layout.alignment: Qt.AlignVCenter"), 10)
+        self.assertIn("onClicked:", source)
+        self.assertIn("root.expandRequested()", source)
+
+    def test_home_service_banner_is_persistent(self) -> None:
+        source = (QML_ROOT / "pages" / "HomePage.qml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('title: "当前服务"', source)
+        self.assertIn("duration: Fluent.Enums.duration.none", source)
+
+    def test_desktop_lyrics_use_published_transition_effect(self) -> None:
+        source = (QML_ROOT / "components" / "DesktopLyricsWindow.qml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("onDisplayLineIndexChanged:", source)
+        self.assertEqual(2, source.count("Fluent.ToggleAnimation {"))
+        self.assertIn("target: activeLyric", source)
+        self.assertIn("target: secondaryLyric", source)
 
     def test_now_playing_lyrics_use_an_immersive_karaoke_focus(self) -> None:
         source = (QML_ROOT / "pages" / "NowPlayingPage.qml").read_text(
@@ -194,7 +226,8 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("UserSettings.setLyricsPosition(", lyrics_window)
         self.assertIn("UserSettings.lyricsFontSize", lyrics_window)
         self.assertIn("fontFamily: UserSettings.lyricsFontFamily", lyrics_window)
-        self.assertIn('content: UserSettings.lyricsFontFamily + "（固定） · 当前 "', settings)
+        self.assertIn("model: UserSettings.lyricsFontPresetNames", settings)
+        self.assertIn("currentIndex: UserSettings.lyricsFontPresetIndex", settings)
         self.assertIn("FrameAnimation {", lyrics_window)
         self.assertIn(
             "running: lyricsWindow.visible && Player.playing && Player.hasLyrics",
@@ -250,6 +283,7 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Fluent.Enums.settingCard.type_combobox", settings)
         self.assertNotIn("Fluent.Enums.settingCard.type_color", settings)
         self.assertIn("UserSettings.setLyricsFontSize", settings)
+        self.assertIn("UserSettings.setLyricsFontPresetIndex", settings)
         self.assertIn("UserSettings.setLyricsColorSchemeIndex", settings)
         self.assertNotIn("UserSettings.setLyricsUnplayedColor", settings)
         self.assertNotIn("UserSettings.setLyricsPlayedColor", settings)

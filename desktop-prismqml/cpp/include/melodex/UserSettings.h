@@ -15,7 +15,11 @@ class UserSettings final : public QObject {
     Q_PROPERTY(int lyricsFontSize READ lyricsFontSize NOTIFY lyricsFontSizeChanged)
     Q_PROPERTY(int lyricsFontSizeMinimum READ lyricsFontSizeMinimum CONSTANT)
     Q_PROPERTY(int lyricsFontSizeMaximum READ lyricsFontSizeMaximum CONSTANT)
-    Q_PROPERTY(QString lyricsFontFamily READ lyricsFontFamily CONSTANT)
+    Q_PROPERTY(QString lyricsFontFamily READ lyricsFontFamily
+                   NOTIFY lyricsFontPresetChanged)
+    Q_PROPERTY(QStringList lyricsFontPresetNames READ lyricsFontPresetNames CONSTANT)
+    Q_PROPERTY(int lyricsFontPresetIndex READ lyricsFontPresetIndex
+                   NOTIFY lyricsFontPresetChanged)
     Q_PROPERTY(QString lyricsUnplayedColor READ lyricsUnplayedColor
                    NOTIFY lyricsColorSchemeChanged)
     Q_PROPERTY(QString lyricsPlayedColor READ lyricsPlayedColor
@@ -38,6 +42,8 @@ public:
     int lyricsFontSizeMinimum() const { return 20; }
     int lyricsFontSizeMaximum() const { return 64; }
     QString lyricsFontFamily() const;
+    QStringList lyricsFontPresetNames() const;
+    int lyricsFontPresetIndex() const;
     QString lyricsUnplayedColor() const;
     QString lyricsPlayedColor() const;
     QStringList lyricsColorSchemeNames() const;
@@ -53,6 +59,7 @@ public:
     Q_INVOKABLE void setLyricsVisible(bool visible);
     Q_INVOKABLE void toggleLyricsVisible();
     Q_INVOKABLE void setLyricsFontSize(int value);
+    Q_INVOKABLE bool setLyricsFontPresetIndex(int index);
     Q_INVOKABLE bool setLyricsColorSchemeIndex(int index);
     Q_INVOKABLE void setLyricsPosition(int x, int y);
     Q_INVOKABLE void resetLyricsPosition();
@@ -62,6 +69,7 @@ signals:
     void clickThroughChanged();
     void lyricsVisibleChanged();
     void lyricsFontSizeChanged();
+    void lyricsFontPresetChanged();
     void lyricsColorSchemeChanged();
     void lyricsPositionChanged();
 
@@ -76,6 +84,7 @@ private:
     bool m_clickThrough = true;
     bool m_lyricsVisible = true;
     int m_lyricsFontSize = 36;
+    QString m_lyricsFontPreset;
     QString m_lyricsColorScheme = QStringLiteral("珊瑚绯");
     bool m_lyricsPositionSet = false;
     int m_lyricsX = 0;

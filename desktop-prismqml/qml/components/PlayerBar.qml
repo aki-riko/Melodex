@@ -6,6 +6,22 @@ import PrismQML as Fluent
 Fluent.Card {
     id: root
 
+    signal expandRequested()
+    signal queueRequested()
+
+    property bool expandEnabled: true
+    property bool queueEnabled: true
+    readonly property int coverSize: Fluent.Enums.controlSize.navItemHeight
+                                     + Fluent.Enums.spacing.xs
+    readonly property int lyricIndex: Player.currentLyricIndex
+    readonly property string contextText: {
+        if (Player.error)
+            return "播放失败 · " + Player.error
+        if (lyricIndex >= 0 && lyricIndex < Player.lyrics.length)
+            return Player.lyrics[lyricIndex].text || ""
+        return Player.currentSong.artist || "未知歌手"
+    }
+
     function timeText(seconds) {
         const safe = Math.max(0, Math.floor(seconds || 0))
         const minutes = Math.floor(safe / 60)
@@ -14,85 +30,104 @@ Fluent.Card {
                + ":" + (rest < 10 ? "0" : "") + rest
     }
 
-    implicitWidth: 420
-    implicitHeight: 540
+    implicitHeight: coverSize + Fluent.Enums.spacing.l * 2
     cardType: Fluent.Enums.card.type_elevated
-    contentPadding: Fluent.Enums.spacing.xxl
+    contentPadding: Fluent.Enums.spacing.l
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
-        spacing: Fluent.Enums.spacing.l
+        spacing: Fluent.Enums.spacing.m
 
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.minimumHeight: 180
-
-            Fluent.ImageWidget {
-                anchors.centerIn: parent
-                width: Math.min(parent.width, parent.height, 260)
-                height: width
-                radius: Fluent.Enums.radius.large
-                source: Api.coverUrl(Player.currentSong)
-                fillMode: Image.PreserveAspectCrop
+        Fluent.ImageWidget {
+            objectName: "playerBarCover"
+            Layout.preferredWidth: root.coverSize
+            Layout.preferredHeight: root.coverSize
+            Layout.alignment: Qt.AlignVCenter
+            radius: Fluent.Enums.radius.medium
+            source: Api.coverUrl(Player.currentSong)
+            fillMode: Image.PreserveAspectCrop
+            onClicked: {
+                if (root.expandEnabled && Player.currentSong.id)
+                    root.expandRequested()
             }
         }
 
-        Fluent.Label {
-            Layout.fillWidth: true
-            type: Fluent.Enums.label.type_subtitle
-            text: Player.currentSong.name || "尚未播放"
-            horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
-        }
+        ColumnLayout {
+            Layout.preferredWidth: 210
+            Layout.minimumWidth: 150
+            Layout.maximumWidth: 260
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Fluent.Enums.spacing.xxs
 
-        Fluent.Label {
-            Layout.fillWidth: true
-            type: Fluent.Enums.label.type_body
-            text: Player.currentSong.artist || "从搜索页选择一首歌曲"
-            color: Fluent.Enums.secondaryForeground
-            horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
-        }
-
-        RowLayout {
-            Layout.alignment: Qt.AlignHCenter
-            spacing: Fluent.Enums.spacing.l
-
-            Fluent.Button {
-                Layout.preferredWidth: 42
-                Layout.preferredHeight: 42
-                icon: Fluent.Enums.icon.previous
-                shape: Fluent.Enums.button.shape_pill
-                enabled: Boolean(Player.currentSong.id)
-                onClicked: Player.previous()
+            Fluent.Marquee {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 24
+                text: Player.currentSong.name || "尚未播放"
+                labelType: Fluent.Enums.label.type_body_strong
+                running: Player.playing
+                customTextColor: Fluent.Enums.textColor.primary
             }
-
-            Fluent.Button {
-                Layout.preferredWidth: 54
-                Layout.preferredHeight: 54
-                icon: Player.playing ? Fluent.Enums.icon.pause : Fluent.Enums.icon.play
-                style: Fluent.Enums.button.style_primary
-                shape: Fluent.Enums.button.shape_pill
-                enabled: Boolean(Player.currentSong.id)
-                onClicked: Player.togglePlay()
-            }
-
-            Fluent.Button {
-                Layout.preferredWidth: 42
-                Layout.preferredHeight: 42
-                icon: Fluent.Enums.icon.next
-                shape: Fluent.Enums.button.shape_pill
-                enabled: Boolean(Player.currentSong.id)
-                onClicked: Player.next()
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Fluent.Enums.spacing.m
 
             Fluent.Label {
+                Layout.fillWidth: true
+                type: Fluent.Enums.label.type_caption
+                text: root.contextText
+                color: Player.error
+                       ? Fluent.Enums.statusLevel.getColorByLevel(
+                             Fluent.Enums.statusLevel.error
+                         )
+                       : Fluent.Enums.secondaryForeground
+                wrapMode: Text.NoWrap
+                maximumLineCount: 1
+                elide: Text.ElideRight
+            }
+        }
+
+        Fluent.Button {
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 38
+            Layout.alignment: Qt.AlignVCenter
+            icon: Fluent.Enums.icon.previous
+            style: Fluent.Enums.button.style_transparent
+            shape: Fluent.Enums.button.shape_pill
+            enabled: Boolean(Player.currentSong.id)
+            toolTipText: "上一首"
+            onClicked: Player.previous()
+        }
+
+        Fluent.Button {
+            Layout.preferredWidth: 46
+            Layout.preferredHeight: 46
+            Layout.alignment: Qt.AlignVCenter
+            icon: Player.playing ? Fluent.Enums.icon.pause : Fluent.Enums.icon.play
+            style: Fluent.Enums.button.style_primary
+            shape: Fluent.Enums.button.shape_pill
+            enabled: Boolean(Player.currentSong.id)
+            toolTipText: Player.playing ? "暂停" : "播放"
+            onClicked: Player.togglePlay()
+        }
+
+        Fluent.Button {
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 38
+            Layout.alignment: Qt.AlignVCenter
+            icon: Fluent.Enums.icon.next
+            style: Fluent.Enums.button.style_transparent
+            shape: Fluent.Enums.button.shape_pill
+            enabled: Boolean(Player.currentSong.id)
+            toolTipText: "下一首"
+            onClicked: Player.next()
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 180
+            Layout.preferredHeight: 46
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Fluent.Enums.spacing.s
+
+            Fluent.Label {
+                Layout.alignment: Qt.AlignVCenter
                 type: Fluent.Enums.label.type_caption
                 text: root.timeText(Player.position)
                 color: Fluent.Enums.secondaryForeground
@@ -101,6 +136,7 @@ Fluent.Card {
             Fluent.Slider {
                 id: positionSlider
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
                 from: 0
                 to: Math.max(1, Player.duration)
                 stepSize: 0.25
@@ -116,6 +152,7 @@ Fluent.Card {
             }
 
             Fluent.Label {
+                Layout.alignment: Qt.AlignVCenter
                 type: Fluent.Enums.label.type_caption
                 text: root.timeText(Player.duration)
                 color: Fluent.Enums.secondaryForeground
@@ -123,18 +160,23 @@ Fluent.Card {
         }
 
         RowLayout {
-            Layout.fillWidth: true
-            spacing: Fluent.Enums.spacing.m
+            visible: root.width >= 900
+            Layout.preferredWidth: visible ? 112 : 0
+            Layout.preferredHeight: 46
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Fluent.Enums.spacing.xs
 
             Fluent.Icon {
+                Layout.alignment: Qt.AlignVCenter
                 icon: Fluent.Enums.icon.speaker_2
-                iconSize: Fluent.Enums.iconSize.m
+                iconSize: Fluent.Enums.iconSize.s
                 color: Fluent.Enums.secondaryForeground
             }
 
             Fluent.Slider {
                 id: volumeSlider
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
                 from: 0
                 to: 1
                 stepSize: 0.01
@@ -147,25 +189,32 @@ Fluent.Card {
                     value: Player.volume
                 }
             }
-
-            Fluent.Button {
-                text: UserSettings.lyricsVisible ? "隐藏桌面歌词" : "显示桌面歌词"
-                icon: Fluent.Enums.icon.desktop
-                style: UserSettings.lyricsVisible
-                       ? Fluent.Enums.button.style_primary
-                       : Fluent.Enums.button.style_default
-                onClicked: DesktopState.toggleLyricsVisible()
-            }
         }
 
-        Fluent.InfoBar {
-            Layout.fillWidth: true
-            Layout.preferredHeight: visible ? implicitHeight : 0
-            visible: Boolean(Player.error)
-            title: "播放失败"
-            message: Player.error
-            severity: "error"
-            closable: false
+        Fluent.Button {
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 38
+            Layout.alignment: Qt.AlignVCenter
+            icon: Fluent.Enums.icon.desktop
+            style: UserSettings.lyricsVisible
+                   ? Fluent.Enums.button.style_primary
+                   : Fluent.Enums.button.style_transparent
+            shape: Fluent.Enums.button.shape_pill
+            toolTipText: UserSettings.lyricsVisible ? "隐藏桌面歌词" : "显示桌面歌词"
+            onClicked: DesktopState.toggleLyricsVisible()
+        }
+
+        Fluent.Button {
+            visible: root.queueEnabled
+            Layout.preferredWidth: visible ? 38 : 0
+            Layout.preferredHeight: 38
+            Layout.alignment: Qt.AlignVCenter
+            icon: Fluent.Enums.icon.collections
+            style: Fluent.Enums.button.style_transparent
+            shape: Fluent.Enums.button.shape_pill
+            enabled: Player.queue.length > 0
+            toolTipText: "播放队列（" + Player.queue.length + "）"
+            onClicked: root.queueRequested()
         }
     }
 }

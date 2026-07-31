@@ -7,8 +7,6 @@ import "../components"
 Item {
     id: root
 
-    signal openPlayerRequested()
-
     function submit() {
         Api.search(searchInput.text)
     }
@@ -46,12 +44,6 @@ Item {
                 text: Api.searchResults.length + " 首"
             }
 
-            Fluent.Button {
-                visible: Boolean(Player.currentSong.id)
-                text: "正在播放"
-                icon: Fluent.Enums.icon.music_note_2_play
-                onClicked: root.openPlayerRequested()
-            }
         }
 
         RowLayout {

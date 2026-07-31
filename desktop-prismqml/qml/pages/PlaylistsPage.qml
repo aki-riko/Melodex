@@ -7,8 +7,6 @@ import "../components"
 Item {
     id: root
 
-    signal openPlayerRequested()
-
     readonly property var collectionItems: {
         var result = []
         for (var index = 0; index < Collections.collections.length; ++index) {
@@ -41,7 +39,6 @@ Item {
     function playAll() {
         if (Collections.songs.length === 0) return
         Player.playSong(Collections.songs[0], Collections.songs)
-        root.openPlayerRequested()
     }
 
     Fluent.SplitPane {
@@ -287,7 +284,6 @@ Item {
                                     queue: Collections.songs
                                     onPlayRequested: (song, queue) => {
                                         Player.playSong(song, queue)
-                                        root.openPlayerRequested()
                                     }
                                 }
                             }
