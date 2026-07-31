@@ -26,7 +26,7 @@ private slots:
     void invalidQqAlbumCoverFallsBackWithoutRequest();
     void playerPublishesQueueContractToQml();
     void lyricsSupportWordAndLineTiming();
-    void lyricsTypographyUsesModernCjkFont();
+    void lyricsTypographySupportsPersistedCjkFontPresets();
     void playbackStateIsAccountScoped();
 };
 
@@ -168,16 +168,30 @@ void DesktopContractsTest::lyricsSupportWordAndLineTiming() {
     QVERIFY(melodex::lyricProgress(lines, 0, 0.75) > 0.5);
 }
 
-void DesktopContractsTest::lyricsTypographyUsesModernCjkFont() {
+void DesktopContractsTest::lyricsTypographySupportsPersistedCjkFontPresets() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     melodex::UserSettings settings(QStringLiteral("MelodexTypographyTest"),
-                                   directory.path());
+                                    directory.path());
 #ifdef Q_OS_MACOS
     QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("PingFang SC"));
+    const QString selectedPreset = QStringLiteral("华文宋体");
+    const QString selectedFamily = QStringLiteral("Songti SC");
 #else
-    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("Microsoft YaHei UI"));
+    QCOMPARE(settings.lyricsFontFamily(), QStringLiteral("KaiTi"));
+    const QString selectedPreset = QStringLiteral("微软雅黑");
+    const QString selectedFamily = QStringLiteral("Microsoft YaHei UI");
 #endif
+    const int selectedIndex = settings.lyricsFontPresetNames().indexOf(selectedPreset);
+    QVERIFY(selectedIndex >= 0);
+    QVERIFY(settings.setLyricsFontPresetIndex(selectedIndex));
+    QCOMPARE(settings.lyricsFontFamily(), selectedFamily);
+
+    melodex::UserSettings restored(QStringLiteral("MelodexTypographyTest"),
+                                    directory.path());
+    QCOMPARE(restored.lyricsFontPresetIndex(), selectedIndex);
+    QCOMPARE(restored.lyricsFontFamily(), selectedFamily);
+    QVERIFY(!restored.setLyricsFontPresetIndex(restored.lyricsFontPresetNames().size()));
 }
 
 void DesktopContractsTest::playbackStateIsAccountScoped() {

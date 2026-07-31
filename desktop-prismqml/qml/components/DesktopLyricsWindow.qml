@@ -23,6 +23,7 @@ Window {
     readonly property string nextText: nextLine
                                        ? nextLine.text
                                        : (Player.currentSong.artist || "")
+    property bool lyricTransitionPulse: false
     readonly property bool controlsVisible: !UserSettings.clickThrough
                                             && windowHover.hovered
     readonly property int secondaryFontSize: Math.max(
@@ -104,6 +105,7 @@ Window {
         if (positionReady)
             Qt.callLater(clampToVisibleArea)
     }
+    onDisplayLineIndexChanged: lyricTransitionPulse = !lyricTransitionPulse
 
     Component.onCompleted: restorePosition()
 
@@ -302,6 +304,12 @@ Window {
         shadowVerticalOffset: lyricsWindow.lyricShadowVerticalOffset
     }
 
+    Fluent.ToggleAnimation {
+        target: activeLyric
+        running: lyricsWindow.lyricTransitionPulse
+        duration: Fluent.Enums.duration.normal
+    }
+
     Item {
         id: secondaryLyric
         z: 2
@@ -339,6 +347,12 @@ Window {
                 verticalOffset: lyricsWindow.lyricShadowVerticalOffset
             }
         }
+    }
+
+    Fluent.ToggleAnimation {
+        target: secondaryLyric
+        running: lyricsWindow.lyricTransitionPulse
+        duration: Fluent.Enums.duration.normal
     }
 
     Fluent.WindowDragHandle {

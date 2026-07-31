@@ -13,8 +13,7 @@ Item {
     readonly property var navigationModel: [
         { text: "概览", icon: Fluent.Enums.icon.home },
         { text: "搜索", icon: Fluent.Enums.icon.search },
-        { text: "歌单", icon: Fluent.Enums.icon.collections },
-        { text: "正在播放", icon: Fluent.Enums.icon.music_note_2 }
+        { text: "歌单", icon: Fluent.Enums.icon.collections }
     ]
 
     Fluent.Windows {
@@ -43,42 +42,34 @@ Item {
             {
                 text: Api.currentUser.username || "账户",
                 icon: Fluent.Enums.icon.person,
-                key: "page_4"
+                key: "page_3"
             }
         ] : []
 
         onCloseRequested: {
             closeRequestAccepted = false
             playbackQueueDrawer.close()
+            nowPlayingDrawer.close()
             hide()
         }
 
         onCurrentIndexChanged: {
-            if (currentIndex !== 3)
-                playbackQueueDrawer.close()
+            playbackQueueDrawer.close()
         }
 
         HomePage {
             objectName: "homePage"
             onOpenSearchRequested: mainWindow.currentIndex = 1
             onOpenPlaylistsRequested: mainWindow.currentIndex = 2
-            onOpenPlayerRequested: mainWindow.currentIndex = 3
-            onOpenSettingsRequested: mainWindow.currentIndex = 4
+            onOpenSettingsRequested: mainWindow.currentIndex = 3
         }
 
         SearchPage {
             objectName: "searchPage"
-            onOpenPlayerRequested: mainWindow.currentIndex = 3
         }
 
         PlaylistsPage {
             objectName: "playlistsPage"
-            onOpenPlayerRequested: mainWindow.currentIndex = 3
-        }
-
-        NowPlayingPage {
-            objectName: "nowPlayingPage"
-            onQueueRequested: playbackQueueDrawer.open()
         }
 
         SettingsPage {
@@ -95,6 +86,55 @@ Item {
         subtitle: "正在载入桌面客户端"
     }
 
+    Binding {
+        target: mainWindow.stackedWidget
+        property: "anchors.bottomMargin"
+        value: globalPlayerBar.visible
+               ? globalPlayerBar.height + Fluent.Enums.spacing.l * 2
+               : 0
+        when: mainWindow.stackedWidget !== null
+        restoreMode: Binding.RestoreBinding
+    }
+
+    PlayerBar {
+        id: globalPlayerBar
+        objectName: "globalPlayerBar"
+        parent: mainWindow.stackedWidget
+                ? mainWindow.stackedWidget.parent
+                : mainWindow.contentItem
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: Fluent.Enums.spacing.l
+        height: implicitHeight
+        visible: Api.authenticated && Boolean(Player.currentSong.id)
+        z: Fluent.Enums.zIndex.popup
+        onExpandRequested: nowPlayingDrawer.open()
+        onQueueRequested: playbackQueueDrawer.open()
+    }
+
+    Fluent.Drawer {
+        id: nowPlayingDrawer
+        objectName: "nowPlayingDrawer"
+        parent: mainWindow.contentItem
+        anchors.fill: parent
+        anchors.topMargin: mainWindow.titleBarHeight
+        position: Fluent.Enums.position.bottom
+        drawerHeight: height
+        modal: true
+        animationDuration: Fluent.Enums.duration.slow
+
+        NowPlayingPage {
+            objectName: "nowPlayingPage"
+            anchors.fill: parent
+            active: nowPlayingDrawer.opened
+            onCloseRequested: nowPlayingDrawer.close()
+            onQueueRequested: playbackQueueDrawer.open()
+        }
+
+        onClosed: playbackQueueDrawer.close()
+    }
+
     PlaybackQueueDrawer {
         id: playbackQueueDrawer
         parent: mainWindow.contentItem
@@ -106,6 +146,10 @@ Item {
 
         function onAuthenticatedChanged() {
             mainWindow.currentIndex = 0
+            if (!Api.authenticated) {
+                nowPlayingDrawer.close()
+                playbackQueueDrawer.close()
+            }
         }
     }
 

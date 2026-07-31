@@ -68,11 +68,23 @@ Item {
 
                 Fluent.SettingsCard {
                     width: parent.width
-                    type: Fluent.Enums.settingCard.type_range
+                    type: Fluent.Enums.settingCard.type_combobox
                     icon: Fluent.Enums.icon.music_note_2
-                    title: "字体与字号"
-                    content: UserSettings.lyricsFontFamily + "（固定） · 当前 "
-                             + UserSettings.lyricsFontSize + " px"
+                    title: "字体预设"
+                    content: "从适合中文歌词显示的系统字体中选择"
+                    model: UserSettings.lyricsFontPresetNames
+                    currentIndex: UserSettings.lyricsFontPresetIndex
+                    onIndexSelected: index => UserSettings.setLyricsFontPresetIndex(
+                                         index
+                                     )
+                }
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    type: Fluent.Enums.settingCard.type_range
+                    icon: Fluent.Enums.icon.font_increase
+                    title: "歌词字号"
+                    content: "当前 " + UserSettings.lyricsFontSize + " px"
                     value: UserSettings.lyricsFontSize
                     from: UserSettings.lyricsFontSizeMinimum
                     to: UserSettings.lyricsFontSizeMaximum

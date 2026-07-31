@@ -11,14 +11,18 @@ from pathlib import Path
 
 from melodex_desktop.config import (
     DEFAULT_LYRICS_COLOR_SCHEME,
+    DEFAULT_LYRICS_FONT_PRESET,
     DEFAULT_LYRICS_FONT_SIZE,
     DEFAULT_LYRICS_PLAYED_COLOR,
     DEFAULT_LYRICS_UNPLAYED_COLOR,
     LYRICS_FONT_SIZE_MAXIMUM,
     LYRICS_FONT_SIZE_MINIMUM,
     LYRICS_COLOR_SCHEMES,
+    LYRICS_FONT_PRESETS,
+    MACOS_LYRICS_FONT_PRESETS,
     MACOS_LYRICS_FONT_FAMILY,
     UserSettings,
+    WINDOWS_LYRICS_FONT_PRESETS,
     WINDOWS_LYRICS_FONT_FAMILY,
     normalize_service_url,
 )
@@ -55,8 +59,20 @@ class NormalizeServiceUrlTests(unittest.TestCase):
 
 
 class UserSettingsLyricsTests(unittest.TestCase):
-    def test_platform_lyrics_fonts_use_modern_cjk_sans_serif_families(self) -> None:
-        self.assertEqual("Microsoft YaHei UI", WINDOWS_LYRICS_FONT_FAMILY)
+    def test_platform_lyrics_fonts_use_requested_cjk_families(self) -> None:
+        self.assertEqual(
+            {
+                "楷体": "KaiTi",
+                "微软雅黑": "Microsoft YaHei UI",
+                "等线": "DengXian",
+                "宋体": "SimSun",
+                "黑体": "SimHei",
+                "仿宋": "FangSong",
+            },
+            WINDOWS_LYRICS_FONT_PRESETS,
+        )
+        self.assertEqual("苹方", next(iter(MACOS_LYRICS_FONT_PRESETS)))
+        self.assertEqual("KaiTi", WINDOWS_LYRICS_FONT_FAMILY)
         self.assertEqual("PingFang SC", MACOS_LYRICS_FONT_FAMILY)
 
     @staticmethod
@@ -73,11 +89,16 @@ class UserSettingsLyricsTests(unittest.TestCase):
             settings = UserSettings("MelodexTest", config_root=config_root)
 
             settings.setLyricsFontSize(48)
+            font_preset = "华文宋体" if sys.platform == "darwin" else "微软雅黑"
+            font_index = list(LYRICS_FONT_PRESETS).index(font_preset)
+            self.assertTrue(settings.setLyricsFontPresetIndex(font_index))
             preset_index = list(LYRICS_COLOR_SCHEMES).index("樱雾")
             self.assertTrue(settings.setLyricsColorSchemeIndex(preset_index))
 
             restored = UserSettings("MelodexTest", config_root=config_root)
             self.assertEqual(48, restored.lyricsFontSize)
+            self.assertEqual(font_index, restored.lyricsFontPresetIndex)
+            self.assertEqual(LYRICS_FONT_PRESETS[font_preset], restored.lyricsFontFamily)
             self.assertEqual("樱雾", restored.lyricsColorScheme)
             self.assertEqual("#FFFDD6EB", restored.lyricsPlayedColor)
             self.assertEqual("#FFEEEEEE", restored.lyricsUnplayedColor)
@@ -98,6 +119,7 @@ class UserSettingsLyricsTests(unittest.TestCase):
                 config_root,
                 {
                     "desktop_lyrics_font_size": "很大",
+                    "desktop_lyrics_font_preset": "不存在的字体",
                     "desktop_lyrics_color_scheme": "不存在的方案",
                 },
             )
@@ -107,6 +129,10 @@ class UserSettingsLyricsTests(unittest.TestCase):
 
             self.assertEqual(DEFAULT_LYRICS_FONT_SIZE, restored.lyricsFontSize)
             self.assertEqual(
+                LYRICS_FONT_PRESETS[DEFAULT_LYRICS_FONT_PRESET],
+                restored.lyricsFontFamily,
+            )
+            self.assertEqual(
                 DEFAULT_LYRICS_UNPLAYED_COLOR, restored.lyricsUnplayedColor
             )
             self.assertEqual(DEFAULT_LYRICS_PLAYED_COLOR, restored.lyricsPlayedColor)
@@ -114,19 +140,24 @@ class UserSettingsLyricsTests(unittest.TestCase):
                 DEFAULT_LYRICS_COLOR_SCHEME, restored.lyricsColorScheme
             )
             self.assertIn("无效桌面歌词字号", warnings.getvalue())
+            self.assertIn("无效桌面歌词字体预设", warnings.getvalue())
             self.assertIn("无效桌面歌词配色方案", warnings.getvalue())
 
-    def test_font_family_and_preset_colors_are_not_user_editable(self) -> None:
+    def test_font_family_uses_presets_while_colors_are_not_individually_editable(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_root = Path(temporary_directory)
             settings = UserSettings("MelodexTest", config_root=config_root)
 
-            expected_family = (
-                MACOS_LYRICS_FONT_FAMILY
-                if sys.platform == "darwin"
-                else WINDOWS_LYRICS_FONT_FAMILY
+            names = list(LYRICS_FONT_PRESETS)
+            self.assertEqual(names, settings.lyricsFontPresetNames)
+            self.assertEqual(0, settings.lyricsFontPresetIndex)
+            self.assertTrue(settings.setLyricsFontPresetIndex(len(names) - 1))
+            self.assertEqual(
+                LYRICS_FONT_PRESETS[names[-1]], settings.lyricsFontFamily
             )
-            self.assertEqual(expected_family, settings.lyricsFontFamily)
+            self.assertFalse(settings.setLyricsFontPresetIndex(len(names)))
             self.assertFalse(hasattr(settings, "setLyricsFontFamily"))
             self.assertFalse(hasattr(settings, "setLyricsPlayedColor"))
             self.assertFalse(hasattr(settings, "setLyricsUnplayedColor"))

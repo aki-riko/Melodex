@@ -36,12 +36,15 @@ class CardPaddingContractTests(unittest.TestCase):
     def test_every_card_owns_exactly_one_explicit_content_inset(self):
         expected = {
             "qml/pages/LoginPage.qml": ["Fluent.Enums.spacing.xxxl"],
-            "qml/pages/NowPlayingPage.qml": ["Fluent.Enums.spacing.xxl"],
+            "qml/pages/NowPlayingPage.qml": [
+                "Fluent.Enums.spacing.xxl",
+                "Fluent.Enums.spacing.xxl",
+            ],
             "qml/pages/PlaylistsPage.qml": [
                 "Fluent.Enums.spacing.xl",
                 "Fluent.Enums.spacing.xl",
             ],
-            "qml/components/PlayerBar.qml": ["Fluent.Enums.spacing.xxl"],
+            "qml/components/PlayerBar.qml": ["Fluent.Enums.spacing.l"],
             "qml/components/SongRow.qml": ["Fluent.Enums.spacing.l"],
             "qml/components/PlaybackQueueDrawer.qml": ["Fluent.Enums.spacing.l"],
             "qml/components/DesktopLyricsWindow.qml": ["Fluent.Enums.spacing.none"],
@@ -62,7 +65,7 @@ class CardPaddingContractTests(unittest.TestCase):
                 self.assertIn(f"contentPadding: {padding}", block, relative_path)
             card_count += len(blocks)
 
-        self.assertEqual(card_count, 8)
+        self.assertEqual(card_count, 9)
 
 
 if __name__ == "__main__":
