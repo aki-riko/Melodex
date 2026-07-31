@@ -237,7 +237,8 @@ class NativeShellContractTests(unittest.TestCase):
             "verticalOffset: lyricsWindow.lyricShadowVerticalOffset",
             lyrics_window,
         )
-        self.assertEqual(1, lyrics_window.count("renderType: Text.QtRendering"))
+        self.assertEqual(2, lyrics_window.count("renderType: Text.CurveRendering"))
+        self.assertNotIn("renderType: Text.QtRendering", lyrics_window)
         self.assertEqual(1, lyrics_window.count("style: Text.Outline"))
         self.assertNotIn("renderType: Text.NativeRendering", lyrics_window)
         self.assertIn("id: positionSaveTimer", lyrics_window)
@@ -260,9 +261,10 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("baseLabel.paintedWidth", word_fill)
         self.assertIn("root.textPaintedWidth * root.clampedProgress", word_fill)
         self.assertIn("property int fontWeight:", word_fill)
+        self.assertIn("property int renderType: Text.QtRendering", word_fill)
         self.assertEqual(2, word_fill.count("font.family: root.fontFamily"))
         self.assertEqual(2, word_fill.count("font.weight: root.fontWeight"))
-        self.assertEqual(2, word_fill.count("renderType: Text.QtRendering"))
+        self.assertEqual(2, word_fill.count("renderType: root.renderType"))
         self.assertEqual(2, word_fill.count("style: Text.Outline"))
         self.assertEqual(2, word_fill.count("styleColor: root.outlineColor"))
         self.assertEqual(2, word_fill.count("Text.VeryHighRenderTypeQuality"))
