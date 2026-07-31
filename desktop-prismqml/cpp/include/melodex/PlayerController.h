@@ -64,6 +64,7 @@ public:
     Q_INVOKABLE void flushPlaybackState();
     Q_INVOKABLE double visualPosition() const;
     Q_INVOKABLE int visualLyricIndex(double positionSeconds) const;
+    Q_INVOKABLE int visualSecondaryLyricIndex(int activeIndex) const;
     Q_INVOKABLE double visualLyricProgress(int index, double positionSeconds) const;
 
 signals:

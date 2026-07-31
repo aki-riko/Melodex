@@ -119,12 +119,20 @@ int currentLyricIndex(const QVariantList &lines, double positionSeconds) {
             high = middle - 1;
         }
     }
-    if (answer < 0)
-        return answer;
-    const double activeTimestamp = lineTimestamp(lines.at(answer));
-    while (answer > 0 && lineTimestamp(lines.at(answer - 1)) == activeTimestamp)
-        --answer;
     return answer;
+}
+
+int secondaryLyricIndex(const QVariantList &lines, int activeIndex) {
+    if (lines.isEmpty())
+        return -1;
+    if (activeIndex < 0)
+        return 0;
+    if (activeIndex >= lines.size())
+        return -1;
+    if (activeIndex > 0 &&
+        lineTimestamp(lines.at(activeIndex - 1)) == lineTimestamp(lines.at(activeIndex)))
+        return activeIndex - 1;
+    return activeIndex + 1 < lines.size() ? activeIndex + 1 : -1;
 }
 
 double lyricProgress(const QVariantList &lines, int index, double positionSeconds) {

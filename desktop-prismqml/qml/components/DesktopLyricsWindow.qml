@@ -12,11 +12,11 @@ Window {
     readonly property var activeLine: displayLineIndex >= 0
                                       && displayLineIndex < Player.lyrics.length
                                       ? Player.lyrics[displayLineIndex] : null
-    readonly property var nextLine: displayLineIndex >= 0
-                                    && displayLineIndex + 1 < Player.lyrics.length
-                                    ? Player.lyrics[displayLineIndex + 1]
-                                    : (displayLineIndex < 0 && Player.lyrics.length > 0
-                                       ? Player.lyrics[0] : null)
+    readonly property int secondaryLineIndex:
+        Player.visualSecondaryLyricIndex(displayLineIndex)
+    readonly property var nextLine: secondaryLineIndex >= 0
+                                    && secondaryLineIndex < Player.lyrics.length
+                                    ? Player.lyrics[secondaryLineIndex] : null
     readonly property string activeText: activeLine
                                          ? activeLine.text
                                          : (Player.currentSong.name || "")
@@ -137,11 +137,11 @@ Window {
                 || previousLineIndex >= Player.lyrics.length)
             return false
 
-        const previousTimestamp = Number(Player.lyrics[previousLineIndex].t)
+        const displayTimestamp = Number(Player.lyrics[displayLineIndex].t)
         for (let index = previousLineIndex + 1;
              index < displayLineIndex;
              ++index) {
-            if (Number(Player.lyrics[index].t) !== previousTimestamp)
+            if (Number(Player.lyrics[index].t) !== displayTimestamp)
                 return false
         }
         return true
