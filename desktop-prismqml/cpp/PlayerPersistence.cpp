@@ -18,6 +18,20 @@ std::optional<qint64> resolvePlaybackRestorePosition(
     return target;
 }
 
+qint64 presentedPlaybackPosition(
+    qint64 playerMilliseconds,
+    const std::optional<qint64> &pendingRestoreMilliseconds) {
+    return qMax<qint64>(
+        0, pendingRestoreMilliseconds.value_or(playerMilliseconds));
+}
+
+bool playbackRestoreReached(qint64 playerMilliseconds,
+                            qint64 requestedMilliseconds) {
+    constexpr qint64 kPositionToleranceMs = 1000;
+    return qAbs(playerMilliseconds - requestedMilliseconds) <=
+           kPositionToleranceMs;
+}
+
 void PlayerController::onCurrentUserChanged() {
     savePlaybackState();
     m_saveTimer.stop();

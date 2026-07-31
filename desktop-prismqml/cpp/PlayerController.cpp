@@ -54,7 +54,11 @@ bool PlayerController::playing() const {
     return m_player->playbackState() == QMediaPlayer::PlayingState;
 }
 
-double PlayerController::position() const { return m_player->position() / 1000.0; }
+double PlayerController::position() const {
+    return presentedPlaybackPosition(m_player->position(),
+                                     m_pendingRestorePositionMs) /
+           1000.0;
+}
 
 double PlayerController::duration() const { return m_player->duration() / 1000.0; }
 
@@ -63,6 +67,8 @@ double PlayerController::volume() const { return m_audio->volume(); }
 QVariantList PlayerController::queue() const { return toVariantList(m_queue); }
 
 double PlayerController::visualPosition() const {
+    if (m_pendingRestorePositionMs.has_value())
+        return position();
     double milliseconds = static_cast<double>(m_positionAnchorMs);
     if (playing() && m_positionAnchorClock.isValid()) {
         const double playbackRate =
@@ -180,6 +186,11 @@ void PlayerController::setVolume(double value) {
 
 void PlayerController::onPositionChanged(qint64 milliseconds) {
     updatePositionAnchor(milliseconds);
+    if (m_pendingRestorePositionMs.has_value() &&
+        playbackRestoreReached(milliseconds, *m_pendingRestorePositionMs)) {
+        m_pendingRestorePositionMs.reset();
+        m_restoringState = false;
+    }
     emit positionChanged();
     updateLyricPosition();
     if (!m_restoringState && !m_changingSource)
@@ -210,6 +221,8 @@ void PlayerController::updateLyricPosition() {
 void PlayerController::onPlaybackStateChanged(QMediaPlayer::PlaybackState state) {
     updatePositionAnchor(m_player->position());
     emit playingChanged();
+    if (m_pendingRestorePositionMs.has_value())
+        applyPendingRestorePosition();
     if (state != QMediaPlayer::PlayingState && !m_changingSource)
         savePlaybackState();
 }
@@ -270,9 +283,13 @@ void PlayerController::applyPendingRestorePosition() {
         *m_pendingRestorePositionMs, m_player->isSeekable(), m_player->duration());
     if (!target.has_value())
         return;
+    m_pendingRestorePositionMs = *target;
     m_player->setPosition(*target);
-    m_pendingRestorePositionMs.reset();
-    m_restoringState = false;
+    updatePositionAnchor(*target);
+    if (playbackRestoreReached(m_player->position(), *target)) {
+        m_pendingRestorePositionMs.reset();
+        m_restoringState = false;
+    }
     emit positionChanged();
 }
 

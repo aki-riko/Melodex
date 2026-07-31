@@ -30,6 +30,7 @@ private slots:
     void lyricsTypographySupportsPersistedCjkFontPresets();
     void playbackStateIsAccountScoped();
     void playbackRestoreWaitsForSeekableStream();
+    void playbackRestoreRemainsVisibleUntilPlayerConfirmsSeek();
 };
 
 void DesktopContractsTest::applicationConfigLoadsPackagedContract() {
@@ -283,6 +284,19 @@ void DesktopContractsTest::playbackRestoreWaitsForSeekableStream() {
         duration + 1000, true, duration);
     QVERIFY(clamped.has_value());
     QCOMPARE(*clamped, duration);
+}
+
+void DesktopContractsTest::playbackRestoreRemainsVisibleUntilPlayerConfirmsSeek() {
+    // 真实退出状态曾记录《凝眸（对唱版）》在 110.762 秒；网络流加载期间
+    // QMediaPlayer 仍报告 0，界面必须继续呈现并保留这条待恢复进度。
+    constexpr qint64 savedPosition = 110762;
+
+    QCOMPARE(melodex::presentedPlaybackPosition(0, savedPosition),
+             savedPosition);
+    QVERIFY(!melodex::playbackRestoreReached(0, savedPosition));
+    QVERIFY(melodex::playbackRestoreReached(savedPosition, savedPosition));
+    QCOMPARE(melodex::presentedPlaybackPosition(savedPosition, std::nullopt),
+             savedPosition);
 }
 
 QTEST_GUILESS_MAIN(DesktopContractsTest)
