@@ -18,6 +18,11 @@ class UserSettings;
 
 std::optional<qint64> resolvePlaybackRestorePosition(
     qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds);
+qint64 presentedPlaybackPosition(
+    qint64 playerMilliseconds,
+    const std::optional<qint64> &pendingRestoreMilliseconds);
+bool playbackRestoreReached(qint64 playerMilliseconds,
+                            qint64 requestedMilliseconds);
 
 class PlayerController final : public QObject {
     Q_OBJECT
