@@ -18,6 +18,15 @@ std::optional<qint64> resolvePlaybackRestorePosition(
     return target;
 }
 
+PlaybackRestoreDecision decidePlaybackRestore(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds,
+    bool playbackActive, bool seekAlreadyIssued) {
+    const auto target = resolvePlaybackRestorePosition(
+        requestedMilliseconds, seekable && playbackActive,
+        durationMilliseconds);
+    return {target, target.has_value() && !seekAlreadyIssued};
+}
+
 qint64 presentedPlaybackPosition(
     qint64 playerMilliseconds,
     const std::optional<qint64> &pendingRestoreMilliseconds) {
@@ -90,6 +99,7 @@ void PlayerController::restorePlaybackState() {
     m_currentLyricProgress = 0.0;
     m_pendingRestorePositionMs = positionMs;
     m_restoringState = positionMs > 0;
+    m_restoreSeekIssued = false;
     setError({});
     emit queueChanged();
     emit currentSongChanged();
@@ -164,6 +174,7 @@ void PlayerController::clearPlayback() {
     m_playWhenSourceReady = false;
     m_pendingRestorePositionMs.reset();
     m_restoringState = false;
+    m_restoreSeekIssued = false;
     m_changingSource = true;
     m_player->stop();
     m_player->setSource({});

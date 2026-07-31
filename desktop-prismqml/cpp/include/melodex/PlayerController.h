@@ -18,6 +18,13 @@ class UserSettings;
 
 std::optional<qint64> resolvePlaybackRestorePosition(
     qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds);
+struct PlaybackRestoreDecision {
+    std::optional<qint64> targetMilliseconds;
+    bool issueSeek = false;
+};
+PlaybackRestoreDecision decidePlaybackRestore(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds,
+    bool playbackActive, bool seekAlreadyIssued);
 qint64 presentedPlaybackPosition(
     qint64 playerMilliseconds,
     const std::optional<qint64> &pendingRestoreMilliseconds);
@@ -128,6 +135,7 @@ private:
     QString m_loadedSourceKey;
     bool m_playWhenSourceReady = false;
     bool m_changingSource = false;
+    bool m_restoreSeekIssued = false;
     QElapsedTimer m_positionAnchorClock;
     qint64 m_positionAnchorMs = 0;
     QTimer m_saveTimer;
