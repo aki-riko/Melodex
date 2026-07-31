@@ -292,6 +292,7 @@ Window {
         pixelSize: UserSettings.lyricsFontSize
         minimumPixelSize: UserSettings.lyricsFontSizeMinimum
         fontWeight: Font.DemiBold
+        renderType: Text.CurveRendering
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
         restingOpacity: 0.96
@@ -328,7 +329,7 @@ Window {
             elide: Text.ElideRight
             style: Text.Outline
             styleColor: lyricsWindow.lyricOutlineColor
-            renderType: Text.QtRendering
+            renderType: Text.CurveRendering
             renderTypeQuality: Text.VeryHighRenderTypeQuality
             layer.enabled: true
             layer.effect: Fluent.Shadow {

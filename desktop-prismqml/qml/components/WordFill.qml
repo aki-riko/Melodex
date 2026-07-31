@@ -12,6 +12,7 @@ Item {
     property string fontFamily: Fluent.Enums.fontFamily
     property bool bold: true
     property int fontWeight: bold ? Font.Bold : Font.DemiBold
+    property int renderType: Text.QtRendering
     property color restingColor: Fluent.Enums.secondaryForeground
     property color activeColor: Fluent.Enums.accentColor
     property real restingOpacity: 0.96
@@ -41,7 +42,7 @@ Item {
         opacity: root.restingOpacity
         style: Text.Outline
         styleColor: root.outlineColor
-        renderType: Text.QtRendering
+        renderType: root.renderType
         renderTypeQuality: Text.VeryHighRenderTypeQuality
         layer.enabled: root.shadowColor.a > 0
         layer.effect: Fluent.Shadow {
@@ -76,7 +77,7 @@ Item {
             elide: Text.ElideRight
             style: Text.Outline
             styleColor: root.outlineColor
-            renderType: Text.QtRendering
+            renderType: root.renderType
             renderTypeQuality: Text.VeryHighRenderTypeQuality
         }
     }
