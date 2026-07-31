@@ -111,6 +111,7 @@ Window {
     }
 
     function settleLyricRows() {
+        outgoingLyric.opacity = 1
         activeLyric.y = activeLineY
         activeLyric.scale = 1
         activeLyric.opacity = 1
@@ -147,6 +148,7 @@ Window {
         outgoingLyric.y = activeLineY
         activeLyric.y = incomingActiveY
         activeLyric.scale = incomingActiveScale
+        activeLyric.opacity = 0.20
         secondaryLyric.opacity = 0
         lyricSlideTransition.start()
     }
@@ -461,13 +463,11 @@ Window {
             target: outgoingLyric
             property: "y"
             from: lyricsWindow.activeLineY
-            to: lyricsWindow.activeLineY
-                - lyricsWindow.activeLineHeight
-                - lyricsWindow.activeLineTopMargin
+            to: lyricsWindow.activeLineY - lyricsWindow.activeLineHeight * 0.55
             duration: Fluent.Enums.duration.slower
             easing.type: Easing.InOutCubic
         }
-
+        NumberAnimation { target: outgoingLyric; property: "opacity"; from: 1; to: 0; duration: Fluent.Enums.duration.slower; easing.type: Easing.InCubic }
         NumberAnimation {
             target: activeLyric
             property: "y"
@@ -476,7 +476,6 @@ Window {
             duration: Fluent.Enums.duration.slower
             easing.type: Easing.InOutCubic
         }
-
         NumberAnimation {
             target: activeLyric
             property: "scale"
@@ -485,7 +484,8 @@ Window {
             duration: Fluent.Enums.duration.slower
             easing.type: Easing.InOutCubic
         }
-
+        NumberAnimation { target: activeLyric; property: "opacity"; from: 0.20; to: 1; duration: Fluent.Enums.duration.slower; easing.type: Easing.OutCubic }
+        NumberAnimation { target: secondaryLyric; property: "opacity"; from: 0; to: 1; duration: Fluent.Enums.duration.slower; easing.type: Easing.OutCubic }
         onStopped: lyricsWindow.settleLyricRows()
     }
 
