@@ -61,12 +61,28 @@ class LyricsTests(unittest.TestCase):
             ],
         )
         active_index = current_lyric_index(lines, 45.0)
-        self.assertEqual(active_index, 1)
-        self.assertEqual(secondary_lyric_index(lines, active_index), 0)
+        self.assertEqual(active_index, 0)
+        self.assertEqual(secondary_lyric_index(lines, active_index), 1)
         self.assertEqual(current_lyric_index(lines, 51.2), 2)
         self.assertEqual(secondary_lyric_index(lines, 2), 3)
         self.assertAlmostEqual(lines[0]["end"], 51.11)
         self.assertAlmostEqual(lines[1]["end"], 51.11)
+
+    def test_same_timestamp_group_does_not_force_companion_position(self) -> None:
+        lines = parse_lrc(
+            "[00:01.00]原文在前\n"
+            "[00:01.00]translation after\n"
+            "[00:03.00]translation before\n"
+            "[00:03.00]原文在后\n"
+        )
+
+        first_group = current_lyric_index(lines, 1.5)
+        self.assertEqual(lines[first_group]["text"], "原文在前")
+        self.assertEqual(lines[secondary_lyric_index(lines, first_group)]["text"], "translation after")
+
+        second_group = current_lyric_index(lines, 3.5)
+        self.assertEqual(lines[second_group]["text"], "translation before")
+        self.assertEqual(lines[secondary_lyric_index(lines, second_group)]["text"], "原文在后")
 
     def test_empty_input_returns_empty_lines(self) -> None:
         self.assertEqual(parse_lrc(""), [])

@@ -197,14 +197,32 @@ void DesktopContractsTest::lyricsKeepProductionSameTimestampOrder() {
     QCOMPARE(lines.at(3).toMap().value(QStringLiteral("text")).toString(),
              QStringLiteral("让二人划破黑夜"));
     const int activeIndex = melodex::currentLyricIndex(lines, 45.0);
-    QCOMPARE(activeIndex, 1);
-    QCOMPARE(melodex::secondaryLyricIndex(lines, activeIndex), 0);
+    QCOMPARE(activeIndex, 0);
+    QCOMPARE(melodex::secondaryLyricIndex(lines, activeIndex), 1);
     QCOMPARE(melodex::currentLyricIndex(lines, 51.2), 2);
     QCOMPARE(melodex::secondaryLyricIndex(lines, 2), 3);
     QVERIFY(qAbs(lines.at(0).toMap().value(QStringLiteral("end")).toDouble() -
                  51.11) < 0.001);
     QVERIFY(qAbs(lines.at(1).toMap().value(QStringLiteral("end")).toDouble() -
                  51.11) < 0.001);
+
+    const QVariantList mixedOrder = melodex::parseLrc(QStringLiteral(
+        "[00:01.00]原文在前\n"
+        "[00:01.00]translation after\n"
+        "[00:03.00]translation before\n"
+        "[00:03.00]原文在后\n"));
+    const int firstGroup = melodex::currentLyricIndex(mixedOrder, 1.5);
+    QCOMPARE(mixedOrder.at(firstGroup).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("原文在前"));
+    QCOMPARE(mixedOrder.at(melodex::secondaryLyricIndex(mixedOrder, firstGroup))
+                 .toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("translation after"));
+    const int secondGroup = melodex::currentLyricIndex(mixedOrder, 3.5);
+    QCOMPARE(mixedOrder.at(secondGroup).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("translation before"));
+    QCOMPARE(mixedOrder.at(melodex::secondaryLyricIndex(mixedOrder, secondGroup))
+                 .toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("原文在后"));
 }
 
 void DesktopContractsTest::lyricsTypographySupportsPersistedCjkFontPresets() {

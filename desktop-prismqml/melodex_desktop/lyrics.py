@@ -75,7 +75,7 @@ def parse_lrc(raw: str) -> list[dict]:
 
 
 def current_lyric_index(lines: list[dict], position: float) -> int:
-    """Return the last lyric line whose timestamp is not after position."""
+    """Return the first source-ordered line in the active timestamp group."""
 
     low = 0
     high = len(lines) - 1
@@ -87,11 +87,16 @@ def current_lyric_index(lines: list[dict], position: float) -> int:
             low = middle + 1
         else:
             high = middle - 1
+    if answer < 0:
+        return answer
+    active_timestamp = lines[answer]["t"]
+    while answer > 0 and lines[answer - 1]["t"] == active_timestamp:
+        answer -= 1
     return answer
 
 
 def secondary_lyric_index(lines: list[dict], active_index: int) -> int:
-    """Prefer a same-time companion before the active line, otherwise the next line."""
+    """Return the next source-ordered line without reclassifying lyric roles."""
 
     if not lines:
         return -1
@@ -99,6 +104,4 @@ def secondary_lyric_index(lines: list[dict], active_index: int) -> int:
         return 0
     if active_index >= len(lines):
         return -1
-    if active_index > 0 and lines[active_index - 1]["t"] == lines[active_index]["t"]:
-        return active_index - 1
     return active_index + 1 if active_index + 1 < len(lines) else -1
