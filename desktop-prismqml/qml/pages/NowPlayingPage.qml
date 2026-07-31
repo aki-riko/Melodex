@@ -111,7 +111,8 @@ Item {
             Layout.fillHeight: true
             orientation: Qt.Horizontal
             splitPosition: 0.46
-            minimumSize: 320
+            firstMinimumSize: 320
+            secondMinimumSize: 320
 
             firstContent: Item {
                 anchors.fill: parent
