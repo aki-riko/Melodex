@@ -132,34 +132,25 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn('title: "当前服务"', source)
         self.assertIn("duration: Fluent.Enums.duration.none", source)
 
-    def test_desktop_lyrics_crossfade_while_sliding_the_next_line_into_focus(
-        self,
-    ) -> None:
+    def test_desktop_lyrics_advance_rows_on_one_shared_timeline(self) -> None:
         source = (QML_ROOT / "components" / "DesktopLyricsWindow.qml").read_text(
             encoding="utf-8"
         )
-        transition_start = source.index("ParallelAnimation {")
-        transition_end = source.index(
-            "\n    Fluent.WindowDragHandle", transition_start
-        )
-        transition = source[transition_start:transition_end]
 
-        self.assertIn("id: lyricSlideTransition", source)
+        self.assertIn("property real lyricTransitionProgress: 1", source)
+        self.assertIn("readonly property real outgoingExitProgress", source)
+        self.assertIn("readonly property real secondaryEntryProgress", source)
+        self.assertIn("id: lyricLineAdvance", source)
         self.assertIn("id: outgoingLyric", source)
         self.assertIn("displayLineIndex === previousLineIndex + 1", source)
-        self.assertIn("target: outgoingLyric", source)
-        self.assertIn("target: activeLyric", source)
-        self.assertIn('property: "scale"', source)
-        self.assertIn("from: lyricsWindow.incomingActiveScale", source)
+        self.assertIn("target: lyricsWindow", source)
+        self.assertIn('property: "lyricTransitionProgress"', source)
         self.assertIn("duration: Fluent.Enums.duration.slower", source)
         self.assertIn("easing.type: Easing.InOutCubic", source)
-        self.assertIn("lyricsWindow.activeLineHeight * 0.55", transition)
-        self.assertEqual(3, transition.count('property: "opacity"'))
-        for target in ("outgoingLyric", "activeLyric", "secondaryLyric"):
-            self.assertRegex(
-                transition,
-                rf'target: {target}; property: "opacity"',
-            )
+        self.assertIn("opacity: 1 - lyricsWindow.outgoingExitProgress", source)
+        self.assertIn("scale: lyricsWindow.incomingActiveScale", source)
+        self.assertIn("opacity: lyricsWindow.secondaryEntryProgress", source)
+        self.assertNotIn("ParallelAnimation {", source)
         self.assertNotIn("Fluent.ToggleAnimation {", source)
 
     def test_now_playing_lyrics_use_an_immersive_karaoke_focus(self) -> None:
