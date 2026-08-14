@@ -401,9 +401,9 @@ func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
 	case "qq":
 		return extensions.NewQQ(c).SearchAlbum
 	case "kugou":
-		return adaptLegacyPlaylistSearch(kugou.New(c).SearchAlbum)
+		return extensions.NewKugou(c).SearchAlbum
 	case "kuwo":
-		return adaptLegacyPlaylistSearch(kuwo.New(c).SearchAlbum)
+		return extensions.NewKuwo(c).SearchAlbum
 	case "migu":
 		return adaptLegacyPlaylistSearch(migu.New(c).SearchAlbum)
 	case "jamendo":
@@ -429,9 +429,9 @@ func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
 	case "qq":
 		return extensions.NewQQ(c).SearchPlaylist
 	case "kugou":
-		return adaptLegacyPlaylistSearch(kugou.New(c).SearchPlaylist)
+		return extensions.NewKugou(c).SearchPlaylist
 	case "kuwo":
-		return adaptLegacyPlaylistSearch(kuwo.New(c).SearchPlaylist)
+		return extensions.NewKuwo(c).SearchPlaylist
 	case "migu":
 		return adaptLegacyPlaylistSearch(migu.New(c).SearchPlaylist)
 	case "jamendo":
@@ -461,9 +461,9 @@ func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
 	case "qq":
 		return extensions.NewQQ(c).GetAlbumSongs
 	case "kugou":
-		return adaptLegacySongDetail(kugou.New(c).GetAlbumSongs)
+		return extensions.NewKugou(c).GetAlbumSongs
 	case "kuwo":
-		return adaptLegacySongDetail(kuwo.New(c).GetAlbumSongs)
+		return extensions.NewKuwo(c).GetAlbumSongs
 	case "migu":
 		return adaptLegacySongDetail(migu.New(c).GetAlbumSongs)
 	case "jamendo":
@@ -489,9 +489,9 @@ func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
 	case "qq":
 		return extensions.NewQQ(c).GetPlaylistSongs
 	case "kugou":
-		return adaptLegacySongDetail(kugou.New(c).GetPlaylistSongs)
+		return extensions.NewKugou(c).GetPlaylistSongs
 	case "kuwo":
-		return adaptLegacySongDetail(kuwo.New(c).GetPlaylistSongs)
+		return extensions.NewKuwo(c).GetPlaylistSongs
 	case "migu":
 		return adaptLegacySongDetail(migu.New(c).GetPlaylistSongs)
 	case "jamendo":
@@ -521,9 +521,9 @@ func GetRecommendFunc(source string) func() ([]model.Playlist, error) {
 	case "qq":
 		return extensions.NewQQ(c).RecommendedPlaylists
 	case "kugou":
-		return adaptLegacyPlaylistList(kugou.New(c).GetRecommendedPlaylists)
+		return extensions.NewKugou(c).RecommendedPlaylists
 	case "kuwo":
-		return adaptLegacyPlaylistList(kuwo.New(c).GetRecommendedPlaylists)
+		return extensions.NewKuwo(c).RecommendedPlaylists
 	default:
 		return nil
 	}
@@ -537,9 +537,9 @@ func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
 	case "qq":
 		return extensions.NewQQ(c).PlaylistCategories
 	case "kugou":
-		return adaptLegacyCategories(kugou.New(c).GetPlaylistCategories)
+		return extensions.NewKugou(c).PlaylistCategories
 	case "kuwo":
-		return adaptLegacyCategories(kuwo.New(c).GetPlaylistCategories)
+		return extensions.NewKuwo(c).PlaylistCategories
 	case "migu":
 		return adaptLegacyCategories(migu.New(c).GetPlaylistCategories)
 	case "joox":
@@ -561,9 +561,9 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 	case "qq":
 		return extensions.NewQQ(c).CategoryPlaylists
 	case "kugou":
-		return adaptLegacyCategoryPlaylists(kugou.New(c).GetCategoryPlaylists)
+		return extensions.NewKugou(c).CategoryPlaylists
 	case "kuwo":
-		return adaptLegacyCategoryPlaylists(kuwo.New(c).GetCategoryPlaylists)
+		return extensions.NewKuwo(c).CategoryPlaylists
 	case "migu":
 		return adaptLegacyCategoryPlaylists(migu.New(c).GetCategoryPlaylists)
 	case "joox":
@@ -713,9 +713,16 @@ func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.
 	case "qq":
 		return extensions.NewQQ(c).ParsePlaylist
 	case "kugou":
-		return adaptLegacyCollectionParse(kugou.New(c).ParsePlaylist)
+		client := extensions.NewKugou(c)
+		legacySonglist := adaptLegacyCollectionParse(kugou.New(c).ParsePlaylist)
+		return func(link string) (*model.Playlist, []model.Song, error) {
+			if strings.Contains(strings.ToLower(link), "/songlist/") {
+				return legacySonglist(link)
+			}
+			return client.ParsePlaylist(link)
+		}
 	case "kuwo":
-		return adaptLegacyCollectionParse(kuwo.New(c).ParsePlaylist)
+		return extensions.NewKuwo(c).ParsePlaylist
 	case "migu":
 		return adaptLegacyCollectionParse(migu.New(c).ParsePlaylist)
 	case "jamendo":
@@ -745,9 +752,9 @@ func GetParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Son
 	case "qq":
 		return extensions.NewQQ(c).ParseAlbum
 	case "kugou":
-		return adaptLegacyCollectionParse(kugou.New(c).ParseAlbum)
+		return extensions.NewKugou(c).ParseAlbum
 	case "kuwo":
-		return adaptLegacyCollectionParse(kuwo.New(c).ParseAlbum)
+		return extensions.NewKuwo(c).ParseAlbum
 	case "migu":
 		return adaptLegacyCollectionParse(migu.New(c).ParseAlbum)
 	case "jamendo":
