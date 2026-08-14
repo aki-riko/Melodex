@@ -7,8 +7,8 @@ import (
 
 	"github.com/guohuiyuan/go-music-dl/core"
 	"github.com/guohuiyuan/go-music-dl/internal/maintenance"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"github.com/guohuiyuan/go-music-dl/internal/web"
-	"github.com/guohuiyuan/music-lib/model"
 	"github.com/spf13/cobra"
 )
 

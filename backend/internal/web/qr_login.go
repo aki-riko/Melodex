@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 func qrLoginCookieString(result *model.QRLoginResult) string {

@@ -10,8 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/guohuiyuan/music-lib/model"
-	"github.com/guohuiyuan/music-lib/soda"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"github.com/guohuiyuan/music-lib/utils"
 )
 
@@ -347,19 +346,18 @@ func sanitizeDownloadPathSegment(value string) string {
 
 func fetchSongAudio(song *model.Song) ([]byte, string, error) {
 	if song.Source == "soda" {
-		cookie := CM.Get("soda")
-		sodaInst := soda.New(cookie)
-		info, err := sodaInst.GetDownloadInfo(song)
+		media, err := ResolveProviderMedia(song)
 		if err != nil {
 			return nil, "", err
 		}
-
-		encryptedData, _, err := FetchBytesWithMime(info.URL, "soda")
+		if media.PlayAuth == "" {
+			return nil, "", errors.New("provider returned no soda play auth")
+		}
+		encryptedData, _, err := FetchBytesWithMime(media.URL, "soda")
 		if err != nil {
 			return nil, "", err
 		}
-
-		finalData, err := soda.DecryptAudio(encryptedData, info.PlayAuth)
+		finalData, err := DecryptSodaAudio(encryptedData, media.PlayAuth)
 		if err != nil {
 			return nil, "", err
 		}

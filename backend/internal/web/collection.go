@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

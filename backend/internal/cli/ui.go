@@ -21,19 +21,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/apple"
-	"github.com/guohuiyuan/music-lib/bilibili"
-	"github.com/guohuiyuan/music-lib/fivesing"
-	"github.com/guohuiyuan/music-lib/jamendo"
-	"github.com/guohuiyuan/music-lib/joox"
-	"github.com/guohuiyuan/music-lib/kugou"
-	"github.com/guohuiyuan/music-lib/kuwo"
-	"github.com/guohuiyuan/music-lib/migu"
-	"github.com/guohuiyuan/music-lib/model"
-	"github.com/guohuiyuan/music-lib/netease"
-	"github.com/guohuiyuan/music-lib/qianqian"
-	"github.com/guohuiyuan/music-lib/qq"
-	"github.com/guohuiyuan/music-lib/soda"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"github.com/guohuiyuan/music-lib/utils"
 )
 
@@ -167,373 +155,57 @@ func defaultSourcesForSearchType(searchType string) []string {
 // --- 工厂函数 ---
 
 func getSearchFunc(source string) func(string) ([]model.Song, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).Search
-	case "qq":
-		return qq.New(c).Search
-	case "kugou":
-		return kugou.New(c).Search
-	case "kuwo":
-		return kuwo.New(c).Search
-	case "migu":
-		return migu.New(c).Search
-	case "soda":
-		return soda.New(c).Search
-	case "bilibili":
-		return bilibili.New(c).Search
-	case "fivesing":
-		return fivesing.New(c).Search
-	case "jamendo":
-		return jamendo.New(c).Search
-	case "joox":
-		return joox.New(c).Search
-	case "qianqian":
-		return qianqian.New(c).Search
-	case "apple":
-		return apple.New(c).Search
-	default:
-		return nil
-	}
+	return core.GetSearchFunc(source)
 }
 
 func getDownloadFunc(source string) func(*model.Song) (string, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).GetDownloadURL
-	case "qq":
-		return qq.New(c).GetDownloadURL
-	case "kugou":
-		return kugou.New(c).GetDownloadURL
-	case "kuwo":
-		return kuwo.New(c).GetDownloadURL
-	case "migu":
-		return migu.New(c).GetDownloadURL
-	case "soda":
-		return soda.New(c).GetDownloadURL
-	case "bilibili":
-		return bilibili.New(c).GetDownloadURL
-	case "fivesing":
-		return fivesing.New(c).GetDownloadURL
-	case "jamendo":
-		return jamendo.New(c).GetDownloadURL
-	case "joox":
-		return joox.New(c).GetDownloadURL
-	case "qianqian":
-		return qianqian.New(c).GetDownloadURL
-	case "apple":
-		return apple.New(c).GetDownloadURL
-	default:
-		return nil
-	}
+	return core.GetDownloadFunc(source)
 }
 
 func getLyricFunc(source string) func(*model.Song) (string, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).GetLyrics
-	case "qq":
-		return qq.New(c).GetLyrics
-	case "kugou":
-		return kugou.New(c).GetLyrics
-	case "kuwo":
-		return kuwo.New(c).GetLyrics
-	case "migu":
-		return migu.New(c).GetLyrics
-	case "soda":
-		return soda.New(c).GetLyrics
-	case "bilibili":
-		return bilibili.New(c).GetLyrics
-	case "fivesing":
-		return fivesing.New(c).GetLyrics
-	case "jamendo":
-		return jamendo.New(c).GetLyrics
-	case "joox":
-		return joox.New(c).GetLyrics
-	case "qianqian":
-		return qianqian.New(c).GetLyrics
-	case "apple":
-		return apple.New(c).GetLyrics
-	default:
-		return nil
-	}
+	return core.GetLyricFunc(source)
 }
 
 // 新增：Parse 工厂函数
 func getParseFunc(source string) func(string) (*model.Song, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).Parse
-	case "qq":
-		return qq.New(c).Parse
-	case "kugou":
-		return kugou.New(c).Parse
-	case "kuwo":
-		return kuwo.New(c).Parse
-	case "migu":
-		return migu.New(c).Parse
-	case "soda":
-		return soda.New(c).Parse
-	case "bilibili":
-		return bilibili.New(c).Parse
-	case "fivesing":
-		return fivesing.New(c).Parse
-	case "jamendo":
-		return jamendo.New(c).Parse
-	case "joox":
-		return joox.New(c).Parse
-	case "qianqian":
-		return qianqian.New(c).Parse
-	case "apple":
-		return apple.New(c).Parse
-	default:
-		return nil
-	}
+	return core.GetParseFunc(source)
 }
 
 // 新增：歌单搜索工厂
 func getPlaylistSearchFunc(source string) func(string) ([]model.Playlist, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).SearchPlaylist
-	case "qq":
-		return qq.New(c).SearchPlaylist
-	case "kugou":
-		return kugou.New(c).SearchPlaylist
-	case "kuwo":
-		return kuwo.New(c).SearchPlaylist
-	case "migu":
-		return migu.New(c).SearchPlaylist
-	case "jamendo":
-		return jamendo.New(c).SearchPlaylist
-	case "joox":
-		return joox.New(c).SearchPlaylist
-	case "qianqian":
-		return qianqian.New(c).SearchPlaylist
-	case "bilibili":
-		return bilibili.New(c).SearchPlaylist
-	case "soda":
-		return soda.New(c).SearchPlaylist
-	case "fivesing":
-		return fivesing.New(c).SearchPlaylist
-	case "apple":
-		return apple.New(c).SearchPlaylist
-	default:
-		return nil
-	}
+	return core.GetPlaylistSearchFunc(source)
 }
 
 func getAlbumSearchFunc(source string) func(string) ([]model.Playlist, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).SearchAlbum
-	case "qq":
-		return qq.New(c).SearchAlbum
-	case "kugou":
-		return kugou.New(c).SearchAlbum
-	case "kuwo":
-		return kuwo.New(c).SearchAlbum
-	case "migu":
-		return migu.New(c).SearchAlbum
-	case "jamendo":
-		return jamendo.New(c).SearchAlbum
-	case "joox":
-		return joox.New(c).SearchAlbum
-	case "qianqian":
-		return qianqian.New(c).SearchAlbum
-	case "soda":
-		return soda.New(c).SearchAlbum
-	case "apple":
-		return apple.New(c).SearchAlbum
-	default:
-		return nil
-	}
+	return core.GetAlbumSearchFunc(source)
 }
 
 // 新增：歌单详情工厂
 func getPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).GetPlaylistSongs
-	case "qq":
-		return qq.New(c).GetPlaylistSongs
-	case "kugou":
-		return kugou.New(c).GetPlaylistSongs
-	case "kuwo":
-		return kuwo.New(c).GetPlaylistSongs
-	case "migu":
-		return migu.New(c).GetPlaylistSongs
-	case "jamendo":
-		return jamendo.New(c).GetPlaylistSongs
-	case "joox":
-		return joox.New(c).GetPlaylistSongs
-	case "qianqian":
-		return qianqian.New(c).GetPlaylistSongs
-	case "bilibili":
-		return bilibili.New(c).GetPlaylistSongs
-	case "soda":
-		return soda.New(c).GetPlaylistSongs
-	case "fivesing":
-		return fivesing.New(c).GetPlaylistSongs
-	case "apple":
-		return apple.New(c).GetPlaylistSongs
-	default:
-		return nil
-	}
+	return core.GetPlaylistDetailFunc(source)
 }
 
 func getAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).GetAlbumSongs
-	case "qq":
-		return qq.New(c).GetAlbumSongs
-	case "kugou":
-		return kugou.New(c).GetAlbumSongs
-	case "kuwo":
-		return kuwo.New(c).GetAlbumSongs
-	case "migu":
-		return migu.New(c).GetAlbumSongs
-	case "jamendo":
-		return jamendo.New(c).GetAlbumSongs
-	case "joox":
-		return joox.New(c).GetAlbumSongs
-	case "qianqian":
-		return qianqian.New(c).GetAlbumSongs
-	case "soda":
-		return soda.New(c).GetAlbumSongs
-	case "apple":
-		return apple.New(c).GetAlbumSongs
-	default:
-		return nil
-	}
+	return core.GetAlbumDetailFunc(source)
 }
 
 // 新增：每日推荐歌单工厂 (仅支持 qq, netease, kuwo, kugou)
 func getRecommendFunc(source string) func() ([]model.Playlist, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).GetRecommendedPlaylists
-	case "qq":
-		return qq.New(c).GetRecommendedPlaylists
-	case "kugou":
-		return kugou.New(c).GetRecommendedPlaylists
-	case "kuwo":
-		return kuwo.New(c).GetRecommendedPlaylists
-	default:
-		return nil
-	}
+	return core.GetRecommendFunc(source)
 }
 
 // 新增：歌单解析工厂
 func getParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.Song, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).ParsePlaylist
-	case "qq":
-		return qq.New(c).ParsePlaylist
-	case "kugou":
-		return kugou.New(c).ParsePlaylist
-	case "kuwo":
-		return kuwo.New(c).ParsePlaylist
-	case "migu":
-		return migu.New(c).ParsePlaylist
-	case "jamendo":
-		return jamendo.New(c).ParsePlaylist
-	case "joox":
-		return joox.New(c).ParsePlaylist
-	case "qianqian":
-		return qianqian.New(c).ParsePlaylist
-	case "bilibili":
-		return bilibili.New(c).ParsePlaylist
-	case "soda":
-		return soda.New(c).ParsePlaylist
-	case "fivesing":
-		return fivesing.New(c).ParsePlaylist
-	case "apple":
-		return apple.New(c).ParsePlaylist
-	default:
-		return nil
-	}
+	return core.GetParsePlaylistFunc(source)
 }
 
 func getParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Song, error) {
-	c := cm.Get(source)
-	switch source {
-	case "netease":
-		return netease.New(c).ParseAlbum
-	case "qq":
-		return qq.New(c).ParseAlbum
-	case "kugou":
-		return kugou.New(c).ParseAlbum
-	case "kuwo":
-		return kuwo.New(c).ParseAlbum
-	case "migu":
-		return migu.New(c).ParseAlbum
-	case "jamendo":
-		return jamendo.New(c).ParseAlbum
-	case "joox":
-		return joox.New(c).ParseAlbum
-	case "qianqian":
-		return qianqian.New(c).ParseAlbum
-	case "soda":
-		return soda.New(c).ParseAlbum
-	case "apple":
-		return apple.New(c).ParseAlbum
-	default:
-		return nil
-	}
+	return core.GetParseAlbumFunc(source)
 }
 
 // 新增：自动检测链接来源
 func detectSource(link string) string {
-	if strings.Contains(link, "163.com") {
-		return "netease"
-	}
-	if strings.Contains(link, "qq.com") {
-		return "qq"
-	}
-	if strings.Contains(link, "kugou.com") {
-		return "kugou"
-	}
-	if strings.Contains(link, "kuwo.cn") {
-		return "kuwo"
-	}
-	if strings.Contains(link, "migu.cn") {
-		return "migu"
-	}
-	if strings.Contains(link, "joox.com") {
-		return "joox"
-	}
-	if strings.Contains(link, "bilibili.com") || strings.Contains(link, "b23.tv") {
-		return "bilibili"
-	}
-	if strings.Contains(link, "douyin.com") || strings.Contains(link, "qishui") {
-		return "soda"
-	}
-	if strings.Contains(link, "91q.com") {
-		return "qianqian"
-	}
-	if strings.Contains(link, "5sing") {
-		return "fivesing"
-	}
-	if strings.Contains(link, "jamendo.com") {
-		return "jamendo"
-	}
-	if strings.Contains(link, "music.apple.com") || strings.Contains(link, "itunes.apple.com") {
-		return "apple"
-	}
-	return ""
+	return core.DetectSource(link)
 }
 
 // --- 程序状态 ---
@@ -1348,14 +1020,12 @@ func downloadSongWithCookie(song *model.Song, outDir string, withCover bool, wit
 
 	// Soda 特殊处理 (加密)
 	if song.Source == "soda" {
-		cookie := cm.Get("soda")
-		sodaInst := soda.New(cookie)
-		info, err := sodaInst.GetDownloadInfo(song)
+		media, err := core.ResolveProviderMedia(song)
 		if err != nil {
 			return err
 		}
 
-		req, _ := http.NewRequest("GET", info.URL, nil)
+		req, _ := http.NewRequest("GET", media.URL, nil)
 		req.Header.Set("User-Agent", UA_Common)
 		resp, err := (&http.Client{}).Do(req)
 		if err != nil {
@@ -1364,7 +1034,7 @@ func downloadSongWithCookie(song *model.Song, outDir string, withCover bool, wit
 		defer resp.Body.Close()
 
 		encryptedData, _ := io.ReadAll(resp.Body)
-		finalData, err = soda.DecryptAudio(encryptedData, info.PlayAuth)
+		finalData, err = core.DecryptSodaAudio(encryptedData, media.PlayAuth)
 		if err != nil {
 			return err
 		}

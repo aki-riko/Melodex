@@ -19,8 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
-	"github.com/guohuiyuan/music-lib/soda"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"github.com/guohuiyuan/music-lib/utils"
 )
 
@@ -861,15 +860,17 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		}
 
 		if source == "soda" {
-			cookie := core.CM.Get("soda")
-			sodaInst := soda.New(cookie)
-			info, err := sodaInst.GetDownloadInfo(tempSong)
+			media, err := core.ResolveProviderMedia(tempSong)
 			if err != nil {
 				markQualityCacheInvalid(*tempSong)
 				c.String(502, "Soda info error")
 				return
 			}
-			req, reqErr := core.BuildSourceRequest("GET", info.URL, "soda", "")
+			if media.PlayAuth == "" {
+				c.String(502, "Soda auth error")
+				return
+			}
+			req, reqErr := core.BuildSourceRequest("GET", media.URL, "soda", "")
 			if reqErr != nil {
 				c.String(502, "Soda request error")
 				return
@@ -885,7 +886,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 				c.String(502, "Soda response too large")
 				return
 			}
-			finalData, err := soda.DecryptAudio(encryptedData, info.PlayAuth)
+			finalData, err := core.DecryptSodaAudio(encryptedData, media.PlayAuth)
 			if err != nil {
 				c.String(500, "Decrypt failed")
 				return

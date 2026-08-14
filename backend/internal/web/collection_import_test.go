@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 // testUserID 是测试 router 注入的当前用户 id(在 initCollectionDBForTest 中创建)。

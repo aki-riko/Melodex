@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 // RegisterJSONAPIRoutes 注册供 React 前端使用的纯 JSON 接口,挂在 /api/v1 下。

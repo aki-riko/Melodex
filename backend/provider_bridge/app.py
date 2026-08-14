@@ -51,6 +51,7 @@ def song_to_payload(song: Any, source: str, rank: int) -> dict[str, Any]:
         probe = {}
     size = _integer(raw.get("file_size_bytes") or probe.get("file_size_bytes"))
     headers = raw.get("default_download_headers") or {}
+    raw_data = raw.get("raw_data") or {}
     lyric = _string(raw.get("lyric"))
     ext = _string(raw.get("ext")).removeprefix(".").lower()
     extra = {
@@ -62,6 +63,8 @@ def song_to_payload(song: Any, source: str, rank: int) -> dict[str, Any]:
         extra["lyric"] = lyric
     if headers:
         extra["download_headers"] = json.dumps(headers, ensure_ascii=False, separators=(",", ":"))
+    if isinstance(raw_data, dict) and _string(raw_data.get("play_auth")):
+        extra["play_auth"] = _string(raw_data.get("play_auth"))
     if ext in {"flac", "wav", "alac", "ape", "wv", "tta", "dsf", "dff"}:
         extra["has_lossless"] = "1"
     return {
