@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/go-music-dl/core"
 	"github.com/guohuiyuan/music-lib/model"
-	"github.com/guohuiyuan/music-lib/soda"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -119,15 +118,6 @@ func inspectSongQuality(song model.Song, duration int) qualityInspectResult {
 }
 
 func resolveQualityDownloadURL(song model.Song) (string, error) {
-	if song.Source == "soda" {
-		cookie := core.CM.Get("soda")
-		sodaInst := soda.New(cookie)
-		info, err := sodaInst.GetDownloadInfo(&model.Song{ID: song.ID, Source: song.Source, Extra: song.Extra})
-		if err != nil {
-			return "", err
-		}
-		return info.URL, nil
-	}
 	fn := core.GetDownloadFunc(song.Source)
 	if fn == nil {
 		return "", fmt.Errorf("unsupported source")
