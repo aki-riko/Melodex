@@ -27,7 +27,7 @@ func TestDownloadNeteaseFLACWithCookieRegression(t *testing.T) {
 		CM.mu.Unlock()
 	})
 
-	result, err := DownloadSongData(&model.Song{
+	result, err := DownloadSongData(&model.Track{
 		ID:     "496869422",
 		Source: "netease",
 		Name:   "Netease FLAC Regression",
@@ -60,7 +60,7 @@ func TestProbeNeteaseFLACRangeRegression(t *testing.T) {
 		CM.mu.Unlock()
 	})
 
-	urlStr, err := GetDownloadFunc("netease")(&model.Song{ID: "496869422", Source: "netease"})
+	urlStr, err := GetDownloadFunc("netease")(&model.Track{ID: "496869422", Source: "netease"})
 	if err != nil {
 		t.Fatalf("GetDownloadFunc returned error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestNeteaseFLACTimingDiagnostic(t *testing.T) {
 		CM.mu.Unlock()
 	})
 
-	song := &model.Song{ID: "496869422", Source: "netease"}
+	song := &model.Track{ID: "496869422", Source: "netease"}
 	fn := GetDownloadFunc("netease")
 
 	start := time.Now()
@@ -118,7 +118,7 @@ func TestNeteaseFLACTimingDiagnostic(t *testing.T) {
 	t.Logf("cold GetDownloadURL=%s ext=%q", time.Since(start).Round(time.Millisecond), song.Ext)
 
 	start = time.Now()
-	cachedURL, err := fn(&model.Song{ID: "496869422", Source: "netease"})
+	cachedURL, err := fn(&model.Track{ID: "496869422", Source: "netease"})
 	if err != nil {
 		t.Fatalf("cached GetDownloadURL returned error: %v", err)
 	}

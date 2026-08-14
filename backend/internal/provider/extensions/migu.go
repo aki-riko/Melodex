@@ -43,11 +43,11 @@ func miguHeaders() http.Header {
 	return headers
 }
 
-func (client *Migu) SearchPlaylist(keyword string) ([]model.Playlist, error) {
+func (client *Migu) SearchPlaylist(keyword string) ([]model.RemoteCollection, error) {
 	return client.searchPlaylists(keyword, 1, 30)
 }
 
-func (client *Migu) searchPlaylists(keyword string, page, limit int) ([]model.Playlist, error) {
+func (client *Migu) searchPlaylists(keyword string, page, limit int) ([]model.RemoteCollection, error) {
 	query := miguSearchQuery(keyword, page, limit, `{"song":0,"album":0,"singer":0,"tagSong":0,"mvSong":0,"songlist":1,"bestShow":1}`)
 	payload, err := getJSON(miguSearchBaseURL+"/search_all.do?"+query.Encode(), client.Cookie, miguHeaders())
 	if err != nil {
@@ -56,7 +56,7 @@ func (client *Migu) searchPlaylists(keyword string, page, limit int) ([]model.Pl
 	return miguPlaylists(at(payload, "songListResultData", "result")), nil
 }
 
-func (client *Migu) SearchAlbum(keyword string) ([]model.Playlist, error) {
+func (client *Migu) SearchAlbum(keyword string) ([]model.RemoteCollection, error) {
 	query := miguSearchQuery(keyword, 1, 30, `{"song":0,"album":1,"singer":0,"tagSong":0,"mvSong":0,"songlist":0,"bestShow":1}`)
 	payload, err := getJSON(miguSearchBaseURL+"/search_all.do?"+query.Encode(), client.Cookie, miguHeaders())
 	if err != nil {
@@ -82,15 +82,15 @@ func miguSearchQuery(keyword string, page, limit int, searchSwitch string) url.V
 	}
 }
 
-func (client *Migu) GetPlaylistSongs(id string) ([]model.Song, error) {
+func (client *Migu) GetPlaylistSongs(id string) ([]model.Track, error) {
 	return client.playlistSongs(id)
 }
 
-func (client *Migu) GetAlbumSongs(id string) ([]model.Song, error) {
+func (client *Migu) GetAlbumSongs(id string) ([]model.Track, error) {
 	return client.albumSongs(id)
 }
 
-func (client *Migu) Playlist(id string) (*model.Playlist, []model.Song, error) {
+func (client *Migu) Playlist(id string) (*model.RemoteCollection, []model.Track, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, nil, fmt.Errorf("migu playlist id is empty")
@@ -101,7 +101,7 @@ func (client *Migu) Playlist(id string) (*model.Playlist, []model.Song, error) {
 	}
 	playlist, infoErr := client.playlistInfo(id)
 	if infoErr != nil {
-		playlist = model.Playlist{ID: id, Name: id, Source: "migu", Link: miguPlaylistLink(id)}
+		playlist = model.RemoteCollection{ID: id, Name: id, Source: "migu", Link: miguPlaylistLink(id)}
 	}
 	if playlist.TrackCount == 0 {
 		playlist.TrackCount = len(songs)
@@ -112,7 +112,7 @@ func (client *Migu) Playlist(id string) (*model.Playlist, []model.Song, error) {
 	return &playlist, songs, nil
 }
 
-func (client *Migu) Album(id string) (*model.Playlist, []model.Song, error) {
+func (client *Migu) Album(id string) (*model.RemoteCollection, []model.Track, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, nil, fmt.Errorf("migu album id is empty")
@@ -152,18 +152,18 @@ func (client *Migu) Album(id string) (*model.Playlist, []model.Song, error) {
 	return &album, songs, nil
 }
 
-func (client *Migu) playlistInfo(id string) (model.Playlist, error) {
+func (client *Migu) playlistInfo(id string) (model.RemoteCollection, error) {
 	query := url.Values{"needSimple": {"00"}, "resourceType": {"2021"}, "resourceId": {id}}
 	payload, err := getJSON(miguContentBaseURL+"/MIGUM2.0/v1.0/content/resourceinfo.do?"+query.Encode(), client.Cookie, miguHeaders())
 	if err != nil {
-		return model.Playlist{}, err
+		return model.RemoteCollection{}, err
 	}
 	if err := validateMiguPayload(payload, "playlist info"); err != nil {
-		return model.Playlist{}, err
+		return model.RemoteCollection{}, err
 	}
 	resources := array(payload["resource"])
 	if len(resources) == 0 {
-		return model.Playlist{}, errorsForEmpty("migu playlist info")
+		return model.RemoteCollection{}, errorsForEmpty("migu playlist info")
 	}
 	raw := object(resources[0])
 	playlistID := firstText(raw, "musicListId", "id")
@@ -174,7 +174,7 @@ func (client *Migu) playlistInfo(id string) (model.Playlist, error) {
 	if cover == "" {
 		cover = firstText(object(raw["imgItem"]), "img", "webpImg", "imgOri")
 	}
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID: playlistID, Name: firstText(raw, "title", "name"), Cover: normalizeMiguImageURL(cover),
 		TrackCount: integer(raw["musicNum"]), PlayCount: integer(at(raw, "opNumItem", "playNum")),
 		Creator: text(raw["ownerName"]), Description: text(raw["summary"]), Source: "migu",
@@ -182,26 +182,26 @@ func (client *Migu) playlistInfo(id string) (model.Playlist, error) {
 	}, nil
 }
 
-func (client *Migu) playlistSongs(id string) ([]model.Song, error) {
+func (client *Migu) playlistSongs(id string) ([]model.Track, error) {
 	return client.collectionSongs(
 		miguContentBaseURL+"/MIGUM3.0/resource/playlist/song/v2.0",
 		"playlistId", strings.TrimSpace(id), "migu playlist",
 	)
 }
 
-func (client *Migu) albumSongs(id string) ([]model.Song, error) {
+func (client *Migu) albumSongs(id string) ([]model.Track, error) {
 	return client.collectionSongs(
 		miguContentBaseURL+"/MIGUM2.0/v1.0/content/queryAlbumSong",
 		"albumId", strings.TrimSpace(id), "migu album",
 	)
 }
 
-func (client *Migu) collectionSongs(endpoint, idKey, id, operation string) ([]model.Song, error) {
+func (client *Migu) collectionSongs(endpoint, idKey, id, operation string) ([]model.Track, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%s id is empty", operation)
 	}
 	const pageSize = 50
-	result := make([]model.Song, 0)
+	result := make([]model.Track, 0)
 	seen := make(map[string]struct{})
 	for page := 1; page <= 100; page++ {
 		query := url.Values{
@@ -233,7 +233,7 @@ func (client *Migu) collectionSongs(endpoint, idKey, id, operation string) ([]mo
 	return result, nil
 }
 
-func (client *Migu) ParsePlaylist(link string) (*model.Playlist, []model.Song, error) {
+func (client *Migu) ParsePlaylist(link string) (*model.RemoteCollection, []model.Track, error) {
 	link = strings.TrimSpace(link)
 	for _, pattern := range miguPlaylistLinkPatterns {
 		if matches := pattern.FindStringSubmatch(link); len(matches) == 2 {
@@ -246,7 +246,7 @@ func (client *Migu) ParsePlaylist(link string) (*model.Playlist, []model.Song, e
 	return nil, nil, fmt.Errorf("invalid migu playlist link")
 }
 
-func (client *Migu) ParseAlbum(link string) (*model.Playlist, []model.Song, error) {
+func (client *Migu) ParseAlbum(link string) (*model.RemoteCollection, []model.Track, error) {
 	for _, pattern := range miguAlbumLinkPatterns {
 		if matches := pattern.FindStringSubmatch(strings.TrimSpace(link)); len(matches) == 2 {
 			return client.Album(matches[1])
@@ -255,7 +255,7 @@ func (client *Migu) ParseAlbum(link string) (*model.Playlist, []model.Song, erro
 	return nil, nil, fmt.Errorf("invalid migu album link")
 }
 
-func (client *Migu) PlaylistCategories() ([]model.PlaylistCategory, error) {
+func (client *Migu) PlaylistCategories() ([]model.RemoteCategory, error) {
 	values := []struct {
 		group string
 		name  string
@@ -268,16 +268,16 @@ func (client *Migu) PlaylistCategories() ([]model.PlaylistCategory, error) {
 		{"场景", "影视", true}, {"场景", "ACG", false}, {"场景", "治愈", false},
 		{"场景", "运动", false}, {"场景", "学习", false}, {"场景", "睡前", false},
 	}
-	result := []model.PlaylistCategory{{ID: "", Name: "全部", Group: "全部", Source: "migu"}}
+	result := []model.RemoteCategory{{ID: "", Name: "全部", Group: "全部", Source: "migu"}}
 	for _, value := range values {
-		result = append(result, model.PlaylistCategory{
+		result = append(result, model.RemoteCategory{
 			ID: value.name, Name: value.name, Group: value.group, Source: "migu", Hot: value.hot,
 		})
 	}
 	return result, nil
 }
 
-func (client *Migu) CategoryPlaylists(categoryID string, page, limit int) ([]model.Playlist, error) {
+func (client *Migu) CategoryPlaylists(categoryID string, page, limit int) ([]model.RemoteCollection, error) {
 	categoryID = strings.TrimSpace(categoryID)
 	if categoryID == "" {
 		categoryID = "华语"
@@ -306,9 +306,9 @@ func validateMiguPayload(payload map[string]interface{}, operation string) error
 	return nil
 }
 
-func miguSongs(value interface{}) []model.Song {
+func miguSongs(value interface{}) []model.Track {
 	items := array(value)
-	result := make([]model.Song, 0, len(items))
+	result := make([]model.Track, 0, len(items))
 	for _, item := range items {
 		raw := object(item)
 		id := firstText(raw, "contentId", "songId", "copyrightId", "id")
@@ -340,7 +340,7 @@ func miguSongs(value interface{}) []model.Song {
 		if cover == "" {
 			cover = pickMiguImage(firstArray(raw, "imgItems", "albumImgs"))
 		}
-		result = append(result, model.Song{
+		result = append(result, model.Track{
 			ID: id, Name: name, Artist: artist, Album: album, AlbumID: albumID,
 			Duration: duration, Size: size, Bitrate: bitrate, Source: "migu", Ext: ext,
 			Cover: normalizeMiguImageURL(cover), Link: "https://music.migu.cn/v3/music/song/" + id,
@@ -353,9 +353,9 @@ func miguSongs(value interface{}) []model.Song {
 	return result
 }
 
-func miguPlaylists(value interface{}) []model.Playlist {
+func miguPlaylists(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		raw := object(item)
 		id := text(raw["id"])
@@ -367,7 +367,7 @@ func miguPlaylists(value interface{}) []model.Playlist {
 		if cover == "" {
 			cover = pickMiguImage(raw["imgItems"])
 		}
-		result = append(result, model.Playlist{
+		result = append(result, model.RemoteCollection{
 			ID: id, Name: name, Cover: normalizeMiguImageURL(cover), TrackCount: integer(raw["musicNum"]),
 			PlayCount: integer(raw["playNum"]), Creator: firstText(raw, "userName", "ownerName"),
 			Source: "migu", Link: miguPlaylistLink(id),
@@ -377,16 +377,16 @@ func miguPlaylists(value interface{}) []model.Playlist {
 	return result
 }
 
-func miguAlbums(value interface{}) []model.Playlist {
+func miguAlbums(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		raw := object(item)
 		id := text(raw["id"])
 		if id == "" {
 			continue
 		}
-		result = append(result, model.Playlist{
+		result = append(result, model.RemoteCollection{
 			ID: id, Name: text(raw["name"]), Cover: normalizeMiguImageURL(pickMiguImage(raw["imgItems"])),
 			Creator: text(raw["singer"]), Description: firstText(raw, "desc", "publishDate"),
 			Source: "migu", Link: miguAlbumLink(id),
@@ -396,12 +396,12 @@ func miguAlbums(value interface{}) []model.Playlist {
 	return result
 }
 
-func miguAlbumDetail(raw map[string]interface{}, fallbackID string) model.Playlist {
+func miguAlbumDetail(raw map[string]interface{}, fallbackID string) model.RemoteCollection {
 	id := firstText(raw, "albumId", "id")
 	if id == "" {
 		id = fallbackID
 	}
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID: id, Name: text(raw["title"]), Cover: normalizeMiguImageURL(pickMiguImage(raw["imgItems"])),
 		TrackCount: integer(raw["totalCount"]), PlayCount: integer(at(raw, "opNumItem", "playNum")),
 		Creator: text(raw["singer"]), Description: text(raw["summary"]), Source: "migu",

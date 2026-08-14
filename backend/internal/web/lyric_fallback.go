@@ -19,11 +19,11 @@ var lyricFuncProvider = core.GetLyricFunc
 
 type lyricFallbackResult struct {
 	lyric string
-	song  model.Song
+	song  model.Track
 	err   error
 }
 
-func loadLyricWithFallback(song *model.Song) (string, *model.Song, error) {
+func loadLyricWithFallback(song *model.Track) (string, *model.Track, error) {
 	if song == nil {
 		return "", nil, errors.New("missing song")
 	}
@@ -49,11 +49,11 @@ func loadLyricWithFallback(song *model.Song) (string, *model.Song, error) {
 
 // LoadLyricWithFallback exposes the same strict same-song fallback used by the
 // Web lyric endpoint to trusted in-process maintenance commands.
-func LoadLyricWithFallback(song *model.Song) (string, *model.Song, error) {
+func LoadLyricWithFallback(song *model.Track) (string, *model.Track, error) {
 	return loadLyricWithFallback(song)
 }
 
-func findFallbackLyric(song *model.Song) (string, *model.Song, error) {
+func findFallbackLyric(song *model.Track) (string, *model.Track, error) {
 	name := strings.TrimSpace(song.Name)
 	artist := strings.TrimSpace(song.Artist)
 	if name == "" || artist == "" || song.Duration <= 0 {
@@ -80,7 +80,7 @@ func findFallbackLyric(song *model.Song) (string, *model.Song, error) {
 	return "", nil, fallbackErr
 }
 
-func startFallbackLyricSearches(song *model.Song) (<-chan lyricFallbackResult, int) {
+func startFallbackLyricSearches(song *model.Track) (<-chan lyricFallbackResult, int) {
 	sources := switchCandidateSources(song.Source, "")
 	results := make(chan lyricFallbackResult, len(sources))
 	started := 0
@@ -91,21 +91,21 @@ func startFallbackLyricSearches(song *model.Song) (<-chan lyricFallbackResult, i
 			continue
 		}
 		started++
-		go func(source string, searchFn func(string) ([]model.Song, error), lyricFn func(*model.Song) (string, error)) {
+		go func(source string, searchFn func(string) ([]model.Track, error), lyricFn func(*model.Track) (string, error)) {
 			results <- searchFallbackLyricSource(song, source, searchFn, lyricFn)
 		}(source, searchFn, lyricFn)
 	}
 	return results, started
 }
 
-func searchFallbackLyricSource(song *model.Song, source string, searchFn func(string) ([]model.Song, error), lyricFn func(*model.Song) (string, error)) lyricFallbackResult {
+func searchFallbackLyricSource(song *model.Track, source string, searchFn func(string) ([]model.Track, error), lyricFn func(*model.Track) (string, error)) lyricFallbackResult {
 	keyword := strings.TrimSpace(song.Name + " " + song.Artist)
 	candidates := searchSwitchSourceCandidates(source, searchFn, keyword, song.Name, song.Artist, song.Duration)
 	sortSwitchCandidates(candidates)
 	return fetchStrictLyricCandidates(song, source, candidates, lyricFn)
 }
 
-func fetchStrictLyricCandidates(song *model.Song, source string, candidates []switchCandidate, lyricFn func(*model.Song) (string, error)) lyricFallbackResult {
+func fetchStrictLyricCandidates(song *model.Track, source string, candidates []switchCandidate, lyricFn func(*model.Track) (string, error)) lyricFallbackResult {
 	var candidateErr error
 	strictMatches := 0
 	for _, candidate := range candidates {
@@ -129,7 +129,7 @@ func fetchStrictLyricCandidates(song *model.Song, source string, candidates []sw
 	return lyricFallbackResult{err: fmt.Errorf("source %s has no strict song match", source)}
 }
 
-func isStrictLyricFallbackCandidate(song *model.Song, candidate switchCandidate) bool {
+func isStrictLyricFallbackCandidate(song *model.Track, candidate switchCandidate) bool {
 	if song == nil || song.Duration <= 0 || candidate.song.Duration <= 0 {
 		return false
 	}
@@ -149,7 +149,7 @@ func isStrictLyricFallbackCandidate(song *model.Song, candidate switchCandidate)
 	return core.IntAbs(song.Duration-candidate.song.Duration) <= lyricFallbackMaxDurationDiff
 }
 
-func fetchLyricWithTimeout(fn func(*model.Song) (string, error), song *model.Song) (string, error) {
+func fetchLyricWithTimeout(fn func(*model.Track) (string, error), song *model.Track) (string, error) {
 	type response struct {
 		lyric string
 		err   error

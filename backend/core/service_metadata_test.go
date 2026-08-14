@@ -16,7 +16,7 @@ func TestEmbedSongMetadataWritesReadableMP3ID3v23LyricsAndCover(t *testing.T) {
 	lyric := "[00:01.00]歌词测试"
 	cover := []byte{0xff, 0xd8, 0xff, 0xd9}
 
-	embedded, err := EmbedSongMetadata(audioData, &model.Song{
+	embedded, err := EmbedSongMetadata(audioData, &model.Track{
 		Name:   "测试歌",
 		Artist: "测试歌手",
 		Album:  "测试专辑",
@@ -58,12 +58,12 @@ func TestEmbedSongMetadataWritesReadableMP3ID3v23LyricsAndCover(t *testing.T) {
 
 func TestEmbedSongMetadataReplacesExistingMP3ID3Tag(t *testing.T) {
 	audioData := []byte{0xff, 0xfb, 0x90, 0x64}
-	first, err := EmbedSongMetadata(audioData, &model.Song{Name: "旧歌", Artist: "旧歌手", Album: "旧专辑", Ext: "mp3"}, "旧歌词", nil, "")
+	first, err := EmbedSongMetadata(audioData, &model.Track{Name: "旧歌", Artist: "旧歌手", Album: "旧专辑", Ext: "mp3"}, "旧歌词", nil, "")
 	if err != nil {
 		t.Fatalf("first EmbedSongMetadata() error = %v", err)
 	}
 
-	second, err := EmbedSongMetadata(first, &model.Song{Name: "新歌", Artist: "新歌手", Album: "新专辑", Ext: "mp3"}, "新歌词", nil, "")
+	second, err := EmbedSongMetadata(first, &model.Track{Name: "新歌", Artist: "新歌手", Album: "新专辑", Ext: "mp3"}, "新歌词", nil, "")
 	if err != nil {
 		t.Fatalf("second EmbedSongMetadata() error = %v", err)
 	}
@@ -83,12 +83,12 @@ func TestEmbedSongMetadataReplacesExistingMP3ID3Tag(t *testing.T) {
 func TestEmbedSongMetadataPreservesExistingMP3MetadataWhenMissing(t *testing.T) {
 	audioData := []byte{0xff, 0xfb, 0x90, 0x64}
 	cover := []byte{0xff, 0xd8, 0xff, 0xd9}
-	first, err := EmbedSongMetadata(audioData, &model.Song{Name: "旧歌", Artist: "旧歌手", Album: "旧专辑", Ext: "mp3"}, "旧歌词", cover, "image/jpeg")
+	first, err := EmbedSongMetadata(audioData, &model.Track{Name: "旧歌", Artist: "旧歌手", Album: "旧专辑", Ext: "mp3"}, "旧歌词", cover, "image/jpeg")
 	if err != nil {
 		t.Fatalf("first EmbedSongMetadata() error = %v", err)
 	}
 
-	second, err := EmbedSongMetadata(first, &model.Song{Name: "新歌", Artist: "新歌手", Ext: "mp3"}, "", nil, "")
+	second, err := EmbedSongMetadata(first, &model.Track{Name: "新歌", Artist: "新歌手", Ext: "mp3"}, "", nil, "")
 	if err != nil {
 		t.Fatalf("second EmbedSongMetadata() error = %v", err)
 	}
@@ -125,7 +125,7 @@ func TestEmbedSongMetadataPreservesUntouchedMP3ID3Frames(t *testing.T) {
 	tagged = append(tagged, frameData...)
 	tagged = append(tagged, audioData...)
 
-	embedded, err := EmbedSongMetadata(tagged, &model.Song{Name: "New Title", Artist: "New Artist", Album: "New Album", Ext: "mp3"}, "New lyric", nil, "")
+	embedded, err := EmbedSongMetadata(tagged, &model.Track{Name: "New Title", Artist: "New Artist", Album: "New Album", Ext: "mp3"}, "New lyric", nil, "")
 	if err != nil {
 		t.Fatalf("EmbedSongMetadata() error = %v", err)
 	}
@@ -182,7 +182,7 @@ func TestEmbedSongMetadataPreservesFLACMetadataWhenAddingAlbum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(source.flac): %v", err)
 	}
-	embedded, err := EmbedSongMetadata(audioData, &model.Song{Album: "New Album", Ext: "flac"}, "", nil, "")
+	embedded, err := EmbedSongMetadata(audioData, &model.Track{Album: "New Album", Ext: "flac"}, "", nil, "")
 	if err != nil {
 		t.Fatalf("EmbedSongMetadata() error = %v", err)
 	}

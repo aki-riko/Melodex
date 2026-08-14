@@ -37,7 +37,7 @@ func kugouHeaders() http.Header {
 	return headers
 }
 
-func (client *Kugou) SearchPlaylist(keyword string) ([]model.Playlist, error) {
+func (client *Kugou) SearchPlaylist(keyword string) ([]model.RemoteCollection, error) {
 	query := url.Values{
 		"keyword": {strings.TrimSpace(keyword)}, "page": {"1"}, "pagesize": {"30"},
 		"userid": {"0"}, "clientver": {""}, "platform": {"WebFilter"}, "filter": {"0"},
@@ -49,7 +49,7 @@ func (client *Kugou) SearchPlaylist(keyword string) ([]model.Playlist, error) {
 	return kugouPlaylists(at(payload, "data", "lists")), nil
 }
 
-func (client *Kugou) SearchAlbum(keyword string) ([]model.Playlist, error) {
+func (client *Kugou) SearchAlbum(keyword string) ([]model.RemoteCollection, error) {
 	query := url.Values{
 		"keyword": {strings.TrimSpace(keyword)}, "page": {"1"}, "pagesize": {"30"},
 		"userid": {"0"}, "clientver": {""}, "platform": {"WebFilter"}, "filter": {"0"},
@@ -61,17 +61,17 @@ func (client *Kugou) SearchAlbum(keyword string) ([]model.Playlist, error) {
 	return kugouAlbums(at(payload, "data", "lists")), nil
 }
 
-func (client *Kugou) GetPlaylistSongs(id string) ([]model.Song, error) {
+func (client *Kugou) GetPlaylistSongs(id string) ([]model.Track, error) {
 	_, songs, err := client.Playlist(id)
 	return songs, err
 }
 
-func (client *Kugou) GetAlbumSongs(id string) ([]model.Song, error) {
+func (client *Kugou) GetAlbumSongs(id string) ([]model.Track, error) {
 	_, songs, err := client.Album(id)
 	return songs, err
 }
 
-func (client *Kugou) Playlist(id string) (*model.Playlist, []model.Song, error) {
+func (client *Kugou) Playlist(id string) (*model.RemoteCollection, []model.Track, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, nil, fmt.Errorf("kugou playlist id is empty")
@@ -102,7 +102,7 @@ func (client *Kugou) Playlist(id string) (*model.Playlist, []model.Song, error) 
 	return &playlist, songs, nil
 }
 
-func (client *Kugou) Album(id string) (*model.Playlist, []model.Song, error) {
+func (client *Kugou) Album(id string) (*model.RemoteCollection, []model.Track, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, nil, fmt.Errorf("kugou album id is empty")
@@ -145,9 +145,9 @@ func (client *Kugou) Album(id string) (*model.Playlist, []model.Song, error) {
 	return &album, songs, nil
 }
 
-func (client *Kugou) collectionSongs(route, idKey, id string) ([]model.Song, error) {
+func (client *Kugou) collectionSongs(route, idKey, id string) ([]model.Track, error) {
 	const pageSize = 300
-	result := make([]model.Song, 0)
+	result := make([]model.Track, 0)
 	for page := 1; page <= 100; page++ {
 		query := url.Values{
 			idKey: {id}, "page": {strconv.Itoa(page)}, "pagesize": {strconv.Itoa(pageSize)},
@@ -173,7 +173,7 @@ func (client *Kugou) collectionSongs(route, idKey, id string) ([]model.Song, err
 	return result, nil
 }
 
-func (client *Kugou) ParsePlaylist(link string) (*model.Playlist, []model.Song, error) {
+func (client *Kugou) ParsePlaylist(link string) (*model.RemoteCollection, []model.Track, error) {
 	matches := kugouPlaylistLinkPattern.FindStringSubmatch(strings.TrimSpace(link))
 	if len(matches) != 2 {
 		return nil, nil, fmt.Errorf("invalid kugou playlist link")
@@ -181,7 +181,7 @@ func (client *Kugou) ParsePlaylist(link string) (*model.Playlist, []model.Song, 
 	return client.Playlist(matches[1])
 }
 
-func (client *Kugou) ParseAlbum(link string) (*model.Playlist, []model.Song, error) {
+func (client *Kugou) ParseAlbum(link string) (*model.RemoteCollection, []model.Track, error) {
 	matches := kugouAlbumLinkPattern.FindStringSubmatch(strings.TrimSpace(link))
 	if len(matches) != 2 {
 		return nil, nil, fmt.Errorf("invalid kugou album link")
@@ -189,7 +189,7 @@ func (client *Kugou) ParseAlbum(link string) (*model.Playlist, []model.Song, err
 	return client.Album(matches[1])
 }
 
-func (client *Kugou) RecommendedPlaylists() ([]model.Playlist, error) {
+func (client *Kugou) RecommendedPlaylists() ([]model.RemoteCollection, error) {
 	payload, err := getJSON(kugouMobileWebBaseURL+"/plist/index&json=true", client.Cookie, kugouHeaders())
 	if err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func (client *Kugou) RecommendedPlaylists() ([]model.Playlist, error) {
 	return playlists, nil
 }
 
-func (client *Kugou) PlaylistCategories() ([]model.PlaylistCategory, error) {
+func (client *Kugou) PlaylistCategories() ([]model.RemoteCategory, error) {
 	payload, err := getJSON(kugouMobileBaseURL+"/api/v3/tag/list?pid=0&apiver=2&plat=0", client.Cookie, kugouHeaders())
 	if err != nil {
 		return nil, err
@@ -209,7 +209,7 @@ func (client *Kugou) PlaylistCategories() ([]model.PlaylistCategory, error) {
 	if err := validateKugouPayload(payload, "playlist categories"); err != nil {
 		return nil, err
 	}
-	result := []model.PlaylistCategory{{ID: "", Name: "全部", Group: "全部", Source: "kugou"}}
+	result := []model.RemoteCategory{{ID: "", Name: "全部", Group: "全部", Source: "kugou"}}
 	for _, groupValue := range array(at(payload, "data", "info")) {
 		group := object(groupValue)
 		groupName := text(group["name"])
@@ -224,7 +224,7 @@ func (client *Kugou) PlaylistCategories() ([]model.PlaylistCategory, error) {
 			if tagID == "" {
 				tagID = "0"
 			}
-			result = append(result, model.PlaylistCategory{
+			result = append(result, model.RemoteCategory{
 				ID: id + ":" + tagID, Name: name, Group: groupName, Source: "kugou",
 				Hot:   integer(child["is_hot"]) == 1,
 				Extra: map[string]string{"id": id, "tag_id": tagID},
@@ -234,7 +234,7 @@ func (client *Kugou) PlaylistCategories() ([]model.PlaylistCategory, error) {
 	return result, nil
 }
 
-func (client *Kugou) CategoryPlaylists(categoryID string, page, limit int) ([]model.Playlist, error) {
+func (client *Kugou) CategoryPlaylists(categoryID string, page, limit int) ([]model.RemoteCollection, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -282,9 +282,9 @@ func validateKugouPayload(payload map[string]interface{}, operation string) erro
 	return nil
 }
 
-func kugouSongs(value interface{}) []model.Song {
+func kugouSongs(value interface{}) []model.Track {
 	items := array(value)
-	result := make([]model.Song, 0, len(items))
+	result := make([]model.Track, 0, len(items))
 	for _, item := range items {
 		raw := object(item)
 		id := firstText(raw, "hash", "origin_hash", "sqhash", "320hash")
@@ -311,7 +311,7 @@ func kugouSongs(value interface{}) []model.Song {
 		if bitrate == 0 && duration > 0 && size > 0 {
 			bitrate = int(size * 8 / 1000 / int64(duration))
 		}
-		result = append(result, model.Song{
+		result = append(result, model.Track{
 			ID: id, Name: name, Artist: artist, Album: album, AlbumID: albumID,
 			Duration: duration, Size: size, Bitrate: bitrate, Source: "kugou", Cover: cover,
 			Link: "https://www.kugou.com/song/#hash=" + id,
@@ -325,9 +325,9 @@ func kugouSongs(value interface{}) []model.Song {
 	return result
 }
 
-func kugouPlaylists(value interface{}) []model.Playlist {
+func kugouPlaylists(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		playlist := kugouPlaylist(object(item))
 		if playlist.ID != "" {
@@ -337,19 +337,19 @@ func kugouPlaylists(value interface{}) []model.Playlist {
 	return result
 }
 
-func kugouPlaylist(raw map[string]interface{}) model.Playlist {
+func kugouPlaylist(raw map[string]interface{}) model.RemoteCollection {
 	id := firstText(raw, "specialid", "global_specialid")
 	creator := firstText(raw, "nickname", "username", "singername")
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID: id, Name: text(raw["specialname"]), Cover: replaceImageSize(firstText(raw, "img", "imgurl"), "240"),
 		TrackCount: firstInteger(raw, "song_count", "songcount"), PlayCount: firstInteger(raw, "total_play_count", "playcount"),
 		Creator: creator, Description: text(raw["intro"]), Source: "kugou", Link: kugouPlaylistLink(id),
 	}
 }
 
-func kugouAlbums(value interface{}) []model.Playlist {
+func kugouAlbums(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		album := kugouAlbum(object(item))
 		if album.ID != "" {
@@ -359,9 +359,9 @@ func kugouAlbums(value interface{}) []model.Playlist {
 	return result
 }
 
-func kugouAlbum(raw map[string]interface{}) model.Playlist {
+func kugouAlbum(raw map[string]interface{}) model.RemoteCollection {
 	id := text(raw["albumid"])
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID: id, Name: text(raw["albumname"]), Cover: replaceImageSize(firstText(raw, "img", "imgurl"), "240"),
 		TrackCount: firstInteger(raw, "songcount", "song_count"), PlayCount: firstInteger(raw, "play_count", "playcount"),
 		Creator: firstText(raw, "singer", "singername"), Description: text(raw["intro"]),

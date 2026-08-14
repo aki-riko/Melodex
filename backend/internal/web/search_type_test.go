@@ -28,7 +28,7 @@ func TestDefaultSourcesForSearchType(t *testing.T) {
 }
 
 func TestPrioritizeAlbumsBySourcePutsCredentialedSourceFirst(t *testing.T) {
-	albums := []model.Playlist{
+	albums := []model.RemoteCollection{
 		{ID: "kg-1", Name: "永夜星河 影视原声大碟", Source: "kugou"},
 		{ID: "kw-1", Name: "永夜星河", Source: "kuwo"},
 		{ID: "qq-1", Name: "永夜星河 影视原声大碟", Source: "qq"},
@@ -53,7 +53,7 @@ func TestPrioritizeAlbumsBySourcePutsCredentialedSourceFirst(t *testing.T) {
 }
 
 func TestPrioritizeAlbumsBySourceUsesRequestedOrderWithoutCredentials(t *testing.T) {
-	albums := []model.Playlist{
+	albums := []model.RemoteCollection{
 		{ID: "kg-1", Source: "kugou"},
 		{ID: "qq-1", Source: "qq"},
 		{ID: "ne-1", Source: "netease"},

@@ -52,7 +52,7 @@ var playbackChunkJobStore = struct {
 	jobs map[string]*playbackChunkJob
 }{jobs: make(map[string]*playbackChunkJob)}
 
-func playbackChunkHandler(c *gin.Context, song *model.Song, rawChunk string) {
+func playbackChunkHandler(c *gin.Context, song *model.Track, rawChunk string) {
 	chunkIndex, err := strconv.Atoi(rawChunk)
 	if err != nil || chunkIndex < 0 || chunkIndex > playbackChunkMaxIndex {
 		c.String(http.StatusBadRequest, "Invalid chunk")
@@ -84,7 +84,7 @@ func playbackChunkHandler(c *gin.Context, song *model.Song, rawChunk string) {
 	}
 }
 
-func getOrCreatePlaybackChunkJob(c *gin.Context, song *model.Song, chunkIndex int) (*playbackChunkJob, error) {
+func getOrCreatePlaybackChunkJob(c *gin.Context, song *model.Track, chunkIndex int) (*playbackChunkJob, error) {
 	key, err := playbackChunkJobKey(currentUserID(c), currentUserIsAdmin(c), song)
 	if err != nil {
 		return nil, err
@@ -170,7 +170,7 @@ func prunePlaybackChunkJobsLocked() {
 	}
 }
 
-func newPlaybackChunkJob(key string, song *model.Song, sourceKind string) (*playbackChunkJob, error) {
+func newPlaybackChunkJob(key string, song *model.Track, sourceKind string) (*playbackChunkJob, error) {
 	dir, err := os.MkdirTemp("", "melodex-playback-chunks-*")
 	if err != nil {
 		return nil, fmt.Errorf("create chunk dir: %w", err)
@@ -335,11 +335,11 @@ func servePlaybackChunk(c *gin.Context, job *playbackChunkJob, chunkPath string,
 	return err
 }
 
-func playbackChunkJobKey(userID uint, admin bool, song *model.Song) (string, error) {
+func playbackChunkJobKey(userID uint, admin bool, song *model.Track) (string, error) {
 	payload, err := json.Marshal(struct {
-		UserID uint        `json:"user_id"`
-		Admin  bool        `json:"admin"`
-		Song   *model.Song `json:"song"`
+		UserID uint         `json:"user_id"`
+		Admin  bool         `json:"admin"`
+		Song   *model.Track `json:"song"`
 	}{UserID: userID, Admin: admin, Song: song})
 	if err != nil {
 		return "", fmt.Errorf("encode playback chunk key: %w", err)

@@ -55,7 +55,7 @@ func TestSplitArtistTokens(t *testing.T) {
 }
 
 func TestFilterSongsByExactArtist(t *testing.T) {
-	songs := []model.Song{
+	songs := []model.Track{
 		{Name: "Song A", Artist: "\u5468\u6770\u4f26/\u6768\u745e\u4ee3"},
 		{Name: "Song B", Artist: "\u5468\u6770\u4f26"},
 		{Name: "Song C", Artist: "\u5f20\u5b66\u53cb"},
@@ -63,7 +63,7 @@ func TestFilterSongsByExactArtist(t *testing.T) {
 	}
 
 	got := filterSongsByExactArtist(songs, " \u5468\u6770\u4f26 ")
-	want := []model.Song{
+	want := []model.Track{
 		{Name: "Song A", Artist: "\u5468\u6770\u4f26/\u6768\u745e\u4ee3"},
 		{Name: "Song B", Artist: "\u5468\u6770\u4f26"},
 	}
@@ -73,7 +73,7 @@ func TestFilterSongsByExactArtist(t *testing.T) {
 	}
 
 	got = filterSongsByExactArtist(songs, "ac/dc")
-	want = []model.Song{
+	want = []model.Track{
 		{Name: "Song D", Artist: "AC/DC"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -84,27 +84,27 @@ func TestFilterSongsByExactArtist(t *testing.T) {
 func TestSongAlbumID(t *testing.T) {
 	tests := []struct {
 		name string
-		song model.Song
+		song model.Track
 		want string
 	}{
 		{
 			name: "prefer explicit album id",
-			song: model.Song{AlbumID: "123", Extra: map[string]string{"album_id": "456"}},
+			song: model.Track{AlbumID: "123", Extra: map[string]string{"album_id": "456"}},
 			want: "123",
 		},
 		{
 			name: "fallback to extra album id",
-			song: model.Song{Extra: map[string]string{"album_id": "456"}},
+			song: model.Track{Extra: map[string]string{"album_id": "456"}},
 			want: "456",
 		},
 		{
 			name: "fallback to qq album mid alias",
-			song: model.Song{Extra: map[string]string{"albumMid": "mid-456"}},
+			song: model.Track{Extra: map[string]string{"albumMid": "mid-456"}},
 			want: "mid-456",
 		},
 		{
 			name: "empty when missing",
-			song: model.Song{},
+			song: model.Track{},
 			want: "",
 		},
 	}
@@ -119,7 +119,7 @@ func TestSongAlbumID(t *testing.T) {
 }
 
 func TestPickBestAlbumMatch(t *testing.T) {
-	albums := []model.Playlist{
+	albums := []model.RemoteCollection{
 		{ID: "1", Name: "\u7a3b\u9999", Creator: "\u5176\u4ed6\u6b4c\u624b"},
 		{ID: "2", Name: "\u7a3b\u9999", Creator: "\u5468\u6770\u4f26"},
 		{ID: "3", Name: "\u6211\u5f88\u5fd9", Creator: "\u5468\u6770\u4f26"},

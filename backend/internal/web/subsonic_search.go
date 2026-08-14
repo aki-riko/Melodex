@@ -142,7 +142,7 @@ func extraKey(source, id string) string {
 // encodeOnlineSongID 把在线源歌曲编码成 Subsonic id。
 // 每个字段独立 base64url 编码后用 "." 连接(. 不在 base64url 字母表中,
 // 故字段内含任意字节都不会破坏分隔)。extra 另存映射表。
-func encodeOnlineSongID(song model.Song) string {
+func encodeOnlineSongID(song model.Track) string {
 	globalExtraStore.put(extraKey(song.Source, song.ID), song.Extra)
 	fields := []string{song.Source, song.ID, song.Name, song.Artist, song.Album, song.Cover}
 	encoded := make([]string, len(fields))
@@ -154,23 +154,23 @@ func encodeOnlineSongID(song model.Song) string {
 
 // decodeOnlineSongID 还原在线源歌曲(含从映射表取回 extra)。
 // 返回 ok=false 表示这不是合法的在线源 id。
-func decodeOnlineSongID(id string) (model.Song, bool) {
+func decodeOnlineSongID(id string) (model.Track, bool) {
 	if !strings.HasPrefix(id, onlineSongIDPrefix) {
-		return model.Song{}, false
+		return model.Track{}, false
 	}
 	tokens := strings.Split(strings.TrimPrefix(id, onlineSongIDPrefix), ".")
 	if len(tokens) < 6 {
-		return model.Song{}, false
+		return model.Track{}, false
 	}
 	fields := make([]string, 6)
 	for i := 0; i < 6; i++ {
 		raw, err := base64.RawURLEncoding.DecodeString(tokens[i])
 		if err != nil {
-			return model.Song{}, false
+			return model.Track{}, false
 		}
 		fields[i] = string(raw)
 	}
-	song := model.Song{
+	song := model.Track{
 		Source: fields[0],
 		ID:     fields[1],
 		Name:   fields[2],
@@ -204,7 +204,7 @@ func decodeLocalSongID(id string) (string, bool) {
 // 用 NewSourceRangeFetch(与 stream 同一下载路径),它按文件魔数判真实格式 +
 // 返回真实总大小 —— 关键:GetDownloadFunc 直连可能拿到 128k mp3,而 stream
 // 走 RangeFetch 拿到 VIP FLAC,两者不一致会导致声明 mp3 实流 FLAC 播不出。
-func liveCheckSong(song model.Song) (ok bool, size int64, ext string) {
+func liveCheckSong(song model.Track) (ok bool, size int64, ext string) {
 	fn := core.GetDownloadFunc(song.Source)
 	if fn == nil {
 		return false, 0, ""
@@ -277,13 +277,13 @@ func detectRealExt(urlStr, contentType string) string {
 // liveCheckSongs 并发验活一批歌曲,过滤死链/版权受限,只返回能播的。
 // 限并发(默认 6,与前端 useLiveCheck 一致)避免压垮上游。
 // 给每首存活歌曲回填真实 Size/Bitrate(用于 Subsonic song 元素展示)。
-func liveCheckSongs(songs []model.Song, concurrency int) []model.Song {
+func liveCheckSongs(songs []model.Track, concurrency int) []model.Track {
 	if concurrency <= 0 {
 		concurrency = 6
 	}
 	type result struct {
 		idx  int
-		song model.Song
+		song model.Track
 		ok   bool
 	}
 	sem := make(chan struct{}, concurrency)
@@ -291,7 +291,7 @@ func liveCheckSongs(songs []model.Song, concurrency int) []model.Song {
 	var wg sync.WaitGroup
 	for i, s := range songs {
 		wg.Add(1)
-		go func(idx int, song model.Song) {
+		go func(idx int, song model.Track) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -315,13 +315,13 @@ func liveCheckSongs(songs []model.Song, concurrency int) []model.Song {
 	close(resCh)
 
 	// 按原始顺序收集存活结果(保持搜索相关性排序)。
-	alive := make([]model.Song, len(songs))
+	alive := make([]model.Track, len(songs))
 	keep := make([]bool, len(songs))
 	for r := range resCh {
 		alive[r.idx] = r.song
 		keep[r.idx] = r.ok
 	}
-	out := make([]model.Song, 0, len(songs))
+	out := make([]model.Track, 0, len(songs))
 	for i := range alive {
 		if keep[i] {
 			out = append(out, alive[i])
@@ -357,7 +357,7 @@ func estimateDuration(size int64, bitrate int, suffix string) int {
 	return int(sec)
 }
 
-func songToSubsonicChild(song model.Song) subsonicChild {
+func songToSubsonicChild(song model.Track) subsonicChild {
 	id := encodeOnlineSongID(song)
 	suffix := strings.ToLower(strings.TrimPrefix(song.Ext, "."))
 	if suffix == "" {
@@ -477,7 +477,7 @@ func subsonicSearch3(c *gin.Context) {
 // relevanceScore 与前端 Download.js 的 relevanceScore 一致:
 // 歌名完全相等=1000/开头=600/包含=400/否则多词命中(歌名+2 歌手+1)*50;
 // 歌手也含 query 再 +80。分越高越相关。
-func relevanceScore(song model.Song, query string) int {
+func relevanceScore(song model.Track, query string) int {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return 0
@@ -537,7 +537,7 @@ func hasTitleAndArtistIntent(name, artist, query string) bool {
 // 上游第1名=600,每靠后一名减 25,封底 0。上游自身的相关性排序最懂"哪个是原唱"
 // (原唱在各源搜索里通常名次靠前),故给名次较高权重;译名/别名搜索时本地字符串
 // 匹配不到(relevanceScore=0),也靠这个分把上游认为相关的结果顶上来。
-func upstreamRankScore(song model.Song) int {
+func upstreamRankScore(song model.Track) int {
 	if song.Extra == nil {
 		return 0
 	}
@@ -555,7 +555,7 @@ func upstreamRankScore(song model.Song) int {
 // coverPenalty 翻唱/演奏/改编版的降权惩罚。无"原唱"元数据时,靠歌名/艺人里的
 // 特征词近似识别非原唱版本(Cover/翻唱/钢琴版/手指弹奏/演奏曲/伴奏/remix/DJ 等),
 // 减分让原唱版排到这些版本前面。惩罚分调得比本地相关性档位大,确保跨档压制。
-func coverPenalty(song model.Song) int {
+func coverPenalty(song model.Track) int {
 	hay := strings.ToLower(song.Name + " " + song.Artist)
 	// 强特征(明显非原唱):钢琴/伴奏/演奏/纯音乐/手指弹奏等,重罚。
 	strongMarkers := []string{
@@ -587,7 +587,7 @@ func coverPenalty(song model.Song) int {
 //   - is_paid=1(付费单曲 ≈ 正版)→ 额外 +200
 //
 // bitrate 取 song.Bitrate(搜索结果已带回真实码率,非 0)。
-func officialBonus(song model.Song) int {
+func officialBonus(song model.Track) int {
 	bonus := 0
 	switch {
 	case song.Bitrate >= 800:
@@ -618,7 +618,7 @@ func officialBonus(song model.Song) int {
 //     第1名 rank==0),避免一首歌名完全无关但码率高的歌靠音质分白白盖过相关的原唱。
 //   - 无任何音质信号的"完全匹配"(疑似译名翻唱白嫖名字)本地分封顶到 600,
 //     不让它靠一个译名就稳占榜首;有音质信号的完全匹配不受限。
-func combinedScore(song model.Song, query string) int {
+func combinedScore(song model.Track, query string) int {
 	local := relevanceScore(song, query)
 	rank := upstreamRankScore(song)
 	// 相关判定:歌名沾边(local>0)或本源搜索置顶(rank==0)才给音质/正版加分。
@@ -637,12 +637,12 @@ func combinedScore(song model.Song, query string) int {
 	return local + rank + bonus - coverPenalty(song)
 }
 
-func isExactTitleMatch(song model.Song, query string) bool {
+func isExactTitleMatch(song model.Track, query string) bool {
 	return strings.EqualFold(strings.TrimSpace(song.Name), strings.TrimSpace(query))
 }
 
 // isUpstreamTop 判断该歌是否为某上游源的搜索第1名(_rank==0)。
-func isUpstreamTop(song model.Song) bool {
+func isUpstreamTop(song model.Track) bool {
 	if song.Extra == nil {
 		return false
 	}
@@ -652,7 +652,7 @@ func isUpstreamTop(song model.Song) bool {
 // sortSongsByRelevance 原地排序:综合分(本地相关+上游名次)降序,
 // 同分按真实码率(验活回填的 Bitrate)降序(无损正版顶到翻唱前 ≈ 近似原唱置顶),
 // 再同则保持稳定。
-func sortSongsByRelevance(songs []model.Song, query string) {
+func sortSongsByRelevance(songs []model.Track, query string) {
 	sort.SliceStable(songs, func(i, j int) bool {
 		si, sj := combinedScore(songs[i], query), combinedScore(songs[j], query)
 		if si != sj {

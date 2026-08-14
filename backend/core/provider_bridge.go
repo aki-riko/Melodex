@@ -29,7 +29,7 @@ var providerBridgeSources = map[string]struct{}{
 }
 
 type providerSongCacheEntry struct {
-	song      providermodel.Song
+	song      providermodel.Track
 	expiresAt time.Time
 }
 
@@ -76,7 +76,7 @@ func getProviderBridgeClient() (*bridge.Client, error) {
 	return client, nil
 }
 
-func searchProviderSongs(source, keyword, cookie string) ([]providermodel.Song, error) {
+func searchProviderSongs(source, keyword, cookie string) ([]providermodel.Track, error) {
 	client, err := getProviderBridgeClient()
 	if err != nil {
 		return nil, err
@@ -87,7 +87,7 @@ func searchProviderSongs(source, keyword, cookie string) ([]providermodel.Song, 
 	if err != nil {
 		return nil, err
 	}
-	publicSongs := make([]providermodel.Song, 0, len(songs))
+	publicSongs := make([]providermodel.Track, 0, len(songs))
 	for _, song := range songs {
 		cacheProviderSong(song, cookie)
 		publicSongs = append(publicSongs, publicProviderSong(song))
@@ -95,9 +95,9 @@ func searchProviderSongs(source, keyword, cookie string) ([]providermodel.Song, 
 	return publicSongs, nil
 }
 
-func resolveProviderSong(source string, song *providermodel.Song, cookie string) (providermodel.Song, error) {
+func resolveProviderSong(source string, song *providermodel.Track, cookie string) (providermodel.Track, error) {
 	if song == nil {
-		return providermodel.Song{}, errors.New("song is nil")
+		return providermodel.Track{}, errors.New("song is nil")
 	}
 	if cached, ok := loadProviderSong(source, song.ID, cookie); ok {
 		return cached, nil
@@ -111,18 +111,18 @@ func resolveProviderSong(source string, song *providermodel.Song, cookie string)
 		keyword = strings.TrimSpace(song.ID)
 	}
 	if keyword == "" {
-		return providermodel.Song{}, errors.New("missing provider lookup data")
+		return providermodel.Track{}, errors.New("missing provider lookup data")
 	}
 
 	client, err := getProviderBridgeClient()
 	if err != nil {
-		return providermodel.Song{}, err
+		return providermodel.Track{}, err
 	}
 	candidates, err := client.Search(context.Background(), bridge.SearchRequest{
 		Source: source, Keyword: keyword, Limit: 20, Cookie: cookie,
 	})
 	if err != nil {
-		return providermodel.Song{}, err
+		return providermodel.Track{}, err
 	}
 	for _, candidate := range candidates {
 		cacheProviderSong(candidate, cookie)
@@ -131,7 +131,7 @@ func resolveProviderSong(source string, song *providermodel.Song, cookie string)
 		}
 	}
 	if len(candidates) == 0 {
-		return providermodel.Song{}, errors.New("provider returned no matching songs")
+		return providermodel.Track{}, errors.New("provider returned no matching songs")
 	}
 
 	bestIndex := -1
@@ -144,12 +144,12 @@ func resolveProviderSong(source string, song *providermodel.Song, cookie string)
 		}
 	}
 	if bestIndex < 0 || bestScore < 0.75 {
-		return providermodel.Song{}, errors.New("provider returned no matching song identity")
+		return providermodel.Track{}, errors.New("provider returned no matching song identity")
 	}
 	return candidates[bestIndex], nil
 }
 
-func providerDownloadURL(source string, song *providermodel.Song) (string, error) {
+func providerDownloadURL(source string, song *providermodel.Track) (string, error) {
 	media, err := ResolveProviderMedia(song)
 	if err != nil {
 		return "", err
@@ -157,7 +157,7 @@ func providerDownloadURL(source string, song *providermodel.Song) (string, error
 	return media.URL, nil
 }
 
-func ResolveProviderMedia(song *providermodel.Song) (ProviderMedia, error) {
+func ResolveProviderMedia(song *providermodel.Track) (ProviderMedia, error) {
 	if song == nil {
 		return ProviderMedia{}, errors.New("song is nil")
 	}
@@ -176,7 +176,7 @@ func ResolveProviderMedia(song *providermodel.Song) (ProviderMedia, error) {
 	return ProviderMedia{URL: urlStr, PlayAuth: strings.TrimSpace(resolved.Extra["play_auth"])}, nil
 }
 
-func providerLyrics(source string, song *providermodel.Song) (string, error) {
+func providerLyrics(source string, song *providermodel.Track) (string, error) {
 	resolved, err := resolveProviderSong(source, song, cookieForSource(source))
 	if err != nil {
 		return "", err
@@ -188,7 +188,7 @@ func providerLyrics(source string, song *providermodel.Song) (string, error) {
 	return lyric, nil
 }
 
-func cacheProviderSong(song providermodel.Song, cookie string) {
+func cacheProviderSong(song providermodel.Track, cookie string) {
 	song.Source = strings.TrimSpace(song.Source)
 	song.ID = strings.TrimSpace(song.ID)
 	if song.Source == "" || song.ID == "" {
@@ -199,16 +199,16 @@ func cacheProviderSong(song providermodel.Song, cookie string) {
 	cacheProviderHeaders(song)
 }
 
-func loadProviderSong(source, id, cookie string) (providermodel.Song, bool) {
+func loadProviderSong(source, id, cookie string) (providermodel.Track, bool) {
 	key := providerSongCacheKey(source, id, cookie)
 	raw, ok := providerSongCache.Load(key)
 	if !ok {
-		return providermodel.Song{}, false
+		return providermodel.Track{}, false
 	}
 	entry, ok := raw.(providerSongCacheEntry)
 	if !ok || time.Now().After(entry.expiresAt) {
 		providerSongCache.Delete(key)
-		return providermodel.Song{}, false
+		return providermodel.Track{}, false
 	}
 	return cloneProviderSong(entry.song), true
 }
@@ -218,7 +218,7 @@ func providerSongCacheKey(source, id, cookie string) string {
 	return strings.TrimSpace(source) + "\x00" + strings.TrimSpace(id) + "\x00" + hex.EncodeToString(digest[:])
 }
 
-func publicProviderSong(song providermodel.Song) providermodel.Song {
+func publicProviderSong(song providermodel.Track) providermodel.Track {
 	extra := cloneStringMap(song.Extra)
 	delete(extra, "download_headers")
 	delete(extra, "lyric")
@@ -230,7 +230,7 @@ func publicProviderSong(song providermodel.Song) providermodel.Song {
 	if lookup != "" {
 		extra["provider_lookup"] = lookup
 	}
-	return providermodel.Song{
+	return providermodel.Track{
 		ID: song.ID, Name: song.Name, Artist: song.Artist, Album: song.Album,
 		AlbumID: song.AlbumID, Duration: song.Duration, Size: song.Size,
 		Bitrate: song.Bitrate, Source: song.Source, Ext: song.Ext,
@@ -239,7 +239,7 @@ func publicProviderSong(song providermodel.Song) providermodel.Song {
 	}
 }
 
-func cloneProviderSong(song providermodel.Song) providermodel.Song {
+func cloneProviderSong(song providermodel.Track) providermodel.Track {
 	song.Extra = cloneStringMap(song.Extra)
 	return song
 }
@@ -255,7 +255,7 @@ func cloneStringMap(values map[string]string) map[string]string {
 	return cloned
 }
 
-func cacheProviderHeaders(song providermodel.Song) {
+func cacheProviderHeaders(song providermodel.Track) {
 	urlStr := strings.TrimSpace(song.URL)
 	rawHeaders := strings.TrimSpace(song.Extra["download_headers"])
 	if urlStr == "" || rawHeaders == "" {

@@ -310,7 +310,6 @@ func StartWithOptions(port string, opts StartOptions) {
 	RegisterPlayHistoryRoutes(userAPI)
 	RegisterPlaybackDiagnosticRoutes(userAPI)
 	RegisterFavoriteRoutes(userAPI)
-	RegisterUpdateRoutes(userAPI)
 
 	// 供 React 前端使用的纯 JSON 接口(/api/v1),复用 /music 下的下载与媒体接口。
 	// 敏感接口(登录/cookie)复用同一套管理员鉴权。

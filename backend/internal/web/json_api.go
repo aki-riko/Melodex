@@ -3,7 +3,6 @@ package web
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,7 +14,7 @@ import (
 )
 
 // RegisterJSONAPIRoutes 注册供 React 前端使用的纯 JSON 接口,挂在 /api/v1 下。
-// 与原有 /music/* 的 HTMX(HTML 片段)路由并存,互不影响。
+// /music 仅保留下载、媒体、歌单等兼容接口,不再提供旧 HTML 页面。
 //
 // 安全模型:健康检查与登录/setup/register 公开;搜索/歌单/专辑/推荐等读接口默认要求登录。
 // 改写状态的敏感接口(扫码登录写 cookie、清除 cookie)挂到管理员鉴权之后。
@@ -158,7 +157,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	// 依登录态返回,不缓存:各用户/各登录态的歌单不同,缓存会串。
 	userSecure.GET("/user_playlists", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), userPlaylistSourceNamesGetter())
-		out := jsonPlaylistTabsResponse{Tabs: loadPlaylistTabsJSON(sources, func(src string) ([]model.Playlist, error) {
+		out := jsonPlaylistTabsResponse{Tabs: loadPlaylistTabsJSON(sources, func(src string) ([]model.RemoteCollection, error) {
 			fn := userPlaylistsFuncProvider(src)
 			if fn == nil {
 				return nil, fmt.Errorf("该源不支持个人歌单")
@@ -246,54 +245,8 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 // 这些接口会改写登录态或读取登录状态,必须在鉴权之后(由调用方决定是否套 authRequired)。
 func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 
-	// 创建二维码登录会话
-	api.POST("/qr_login/:source", func(c *gin.Context) {
-		source := strings.TrimSpace(c.Param("source"))
-		fn := core.GetQRLoginCreateFunc(source)
-		if fn == nil {
-			c.JSON(404, gin.H{"error": "该源不支持二维码登录"})
-			return
-		}
-		session, err := fn()
-		if err != nil {
-			c.JSON(502, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, session)
-	})
-
-	// 轮询二维码登录状态;成功则保存 cookie
-	api.GET("/qr_login/:source", func(c *gin.Context) {
-		source := strings.TrimSpace(c.Param("source"))
-		key := strings.TrimSpace(c.Query("key"))
-		if key == "" {
-			c.JSON(400, gin.H{"error": "缺少 key"})
-			return
-		}
-		fn := core.GetQRLoginCheckFunc(source)
-		if fn == nil {
-			c.JSON(404, gin.H{"error": "该源不支持二维码登录"})
-			return
-		}
-		result, err := fn(key)
-		if err != nil {
-			c.JSON(502, gin.H{"error": err.Error()})
-			return
-		}
-		if result != nil && result.Phase != model.LoginWaiting {
-			log.Printf("qr login status source=%s status=%s message=%q extra=%v", source, result.Phase, result.Detail, result.Metadata)
-		}
-		if result != nil && result.Phase == model.LoginSucceeded {
-			cookie := qrLoginCookieString(result)
-			if cookie != "" {
-				cookieSource := qrLoginCookieSource(source)
-				result.RawCookie = cookie
-				core.CM.SetAll(map[string]string{cookieSource: cookie})
-				core.CM.Save()
-			}
-		}
-		c.JSON(200, result)
-	})
+	api.POST("/qr_login/:source", startProviderLogin)
+	api.GET("/qr_login/:source", pollProviderLogin)
 
 	// 读取已保存的 cookie(仅返回各源是否已登录,不回显 cookie 明文)
 	api.GET("/cookies", func(c *gin.Context) {
@@ -304,7 +257,7 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 		detailCache := map[string]core.CookieStatusDetail{}
 
 		statusFor := func(source string) core.CookieStatusDetail {
-			cookieSource := qrLoginCookieSource(source)
+			cookieSource := canonicalCookieProvider(source)
 			if detail, ok := detailCache[cookieSource]; ok {
 				detail.Source = source
 				return detail
@@ -331,7 +284,7 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 	// 清除某源 cookie(退出登录)。SetAll 对空值执行删除(见 core.CookieManager.SetAll)。
 	api.DELETE("/cookies/:source", func(c *gin.Context) {
 		source := strings.TrimSpace(c.Param("source"))
-		core.CM.SetAll(map[string]string{qrLoginCookieSource(source): ""})
+		core.CM.SetAll(map[string]string{canonicalCookieProvider(source): ""})
 		core.CM.Save()
 		c.JSON(200, gin.H{"status": "ok"})
 	})
@@ -347,30 +300,30 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 			c.JSON(400, gin.H{"error": "cookie 不能为空"})
 			return
 		}
-		core.CM.SetAll(map[string]string{qrLoginCookieSource(source): strings.TrimSpace(req.Cookie)})
+		core.CM.SetAll(map[string]string{canonicalCookieProvider(source): strings.TrimSpace(req.Cookie)})
 		core.CM.Save()
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 }
 
-// jsonSearchSongResult 在 model.Song 基础上附带前端友好的展示字段。
+// jsonSearchSongResult 在 model.Track 基础上附带前端友好的展示字段。
 type jsonSearchResponse struct {
-	Songs       []model.Song     `json:"songs"`
-	Playlists   []model.Playlist `json:"playlists"`
-	Type        string           `json:"type"`
-	Keyword     string           `json:"keyword"`
-	ExactArtist string           `json:"exact_artist,omitempty"`
-	Sources     []string         `json:"sources"`
-	Error       string           `json:"error,omitempty"`
+	Songs       []model.Track            `json:"songs"`
+	Playlists   []model.RemoteCollection `json:"playlists"`
+	Type        string                   `json:"type"`
+	Keyword     string                   `json:"keyword"`
+	ExactArtist string                   `json:"exact_artist,omitempty"`
+	Sources     []string                 `json:"sources"`
+	Error       string                   `json:"error,omitempty"`
 	cachedResponseMeta
 }
 
 type jsonSongListResponse struct {
-	Songs  []model.Song `json:"songs"`
-	Type   string       `json:"type"`
-	Source string       `json:"source"`
-	Link   string       `json:"link"`
-	Error  string       `json:"error,omitempty"`
+	Songs  []model.Track `json:"songs"`
+	Type   string        `json:"type"`
+	Source string        `json:"source"`
+	Link   string        `json:"link"`
+	Error  string        `json:"error,omitempty"`
 	cachedResponseMeta
 }
 
@@ -380,10 +333,10 @@ type jsonPlaylistTabsResponse struct {
 }
 
 type jsonPlaylistTab struct {
-	Source     string           `json:"source"`
-	SourceName string           `json:"source_name"`
-	Playlists  []model.Playlist `json:"playlists"`
-	Error      string           `json:"error,omitempty"`
+	Source     string                   `json:"source"`
+	SourceName string                   `json:"source_name"`
+	Playlists  []model.RemoteCollection `json:"playlists"`
+	Error      string                   `json:"error,omitempty"`
 }
 
 type jsonPlaylistCategoriesResponse struct {
@@ -392,16 +345,16 @@ type jsonPlaylistCategoriesResponse struct {
 }
 
 type jsonPlaylistCategorySource struct {
-	Source     string                   `json:"source"`
-	SourceName string                   `json:"source_name"`
-	Categories []model.PlaylistCategory `json:"categories"`
-	Error      string                   `json:"error,omitempty"`
+	Source     string                 `json:"source"`
+	SourceName string                 `json:"source_name"`
+	Categories []model.RemoteCategory `json:"categories"`
+	Error      string                 `json:"error,omitempty"`
 }
 
 type jsonPlaylistListResponse struct {
-	Playlists []model.Playlist `json:"playlists"`
-	Source    string           `json:"source"`
-	Error     string           `json:"error,omitempty"`
+	Playlists []model.RemoteCollection `json:"playlists"`
+	Source    string                   `json:"source"`
+	Error     string                   `json:"error,omitempty"`
 	cachedResponseMeta
 }
 
@@ -419,8 +372,8 @@ func jsonSearchHandler(c *gin.Context) {
 	}
 
 	resp := jsonSearchResponse{
-		Songs:       []model.Song{},
-		Playlists:   []model.Playlist{},
+		Songs:       []model.Track{},
+		Playlists:   []model.RemoteCollection{},
 		Type:        searchType,
 		Keyword:     keyword,
 		ExactArtist: exactArtist,
@@ -537,8 +490,8 @@ func isTrackSearchType(searchType string) bool {
 
 func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources []string) jsonSearchResponse {
 	resp := jsonSearchResponse{
-		Songs:       []model.Song{},
-		Playlists:   []model.Playlist{},
+		Songs:       []model.Track{},
+		Playlists:   []model.RemoteCollection{},
 		Type:        searchType,
 		Keyword:     keyword,
 		ExactArtist: exactArtist,
@@ -570,7 +523,7 @@ func applyAlbumSourcePreference(resp *jsonSearchResponse) {
 	prioritizeAlbumsBySource(resp.Playlists, resp.Sources, core.CM.GetAll())
 }
 
-func prioritizeAlbumsBySource(albums []model.Playlist, sources []string, cookies map[string]string) {
+func prioritizeAlbumsBySource(albums []model.RemoteCollection, sources []string, cookies map[string]string) {
 	if len(albums) < 2 {
 		return
 	}
@@ -623,12 +576,12 @@ func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sourc
 
 func buildSongListDetailResponse(contentType, id, src string) jsonSongListResponse {
 	resp := jsonSongListResponse{
-		Songs:  []model.Song{},
+		Songs:  []model.Track{},
 		Type:   contentType,
 		Source: src,
 		Link:   core.GetOriginalLink(src, id, contentType),
 	}
-	var fn func(string) ([]model.Song, error)
+	var fn func(string) ([]model.Track, error)
 	if contentType == "album" {
 		fn = core.GetAlbumDetailFunc(src)
 	} else {
@@ -640,7 +593,7 @@ func buildSongListDetailResponse(contentType, id, src string) jsonSongListRespon
 	}
 	songs, err := fn(id)
 	if songs == nil {
-		songs = []model.Song{}
+		songs = []model.Track{}
 	}
 	for i := range songs {
 		if strings.TrimSpace(songs[i].Source) == "" {
@@ -659,7 +612,7 @@ func buildSongListDetailResponse(contentType, id, src string) jsonSongListRespon
 }
 
 func buildRecommendResponse(sources []string) jsonPlaylistTabsResponse {
-	return jsonPlaylistTabsResponse{Tabs: loadPlaylistTabsJSON(sources, func(src string) ([]model.Playlist, error) {
+	return jsonPlaylistTabsResponse{Tabs: loadPlaylistTabsJSON(sources, func(src string) ([]model.RemoteCollection, error) {
 		fn := core.GetRecommendFunc(src)
 		if fn == nil {
 			return nil, fmt.Errorf("该源不支持推荐歌单")
@@ -682,7 +635,7 @@ func buildPlaylistCategoriesResponse(sources []string) jsonPlaylistCategoriesRes
 			Categories: cats,
 		}
 		if entry.Categories == nil {
-			entry.Categories = []model.PlaylistCategory{}
+			entry.Categories = []model.RemoteCategory{}
 		}
 		if err != nil {
 			entry.Error = err.Error()
@@ -693,7 +646,7 @@ func buildPlaylistCategoriesResponse(sources []string) jsonPlaylistCategoriesRes
 }
 
 func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListResponse {
-	resp := jsonPlaylistListResponse{Playlists: []model.Playlist{}, Source: source}
+	resp := jsonPlaylistListResponse{Playlists: []model.RemoteCollection{}, Source: source}
 	fn := core.GetCategoryPlaylistsFunc(source)
 	if fn == nil {
 		resp.Error = "该源不支持歌单分类"
@@ -701,7 +654,7 @@ func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListR
 	}
 	playlists, err := fn(categoryID, 1, 120)
 	if playlists == nil {
-		playlists = []model.Playlist{}
+		playlists = []model.RemoteCollection{}
 	}
 	for i := range playlists {
 		playlists[i].Source = source
@@ -714,9 +667,9 @@ func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListR
 }
 
 // concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
-func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]model.Song, []model.Playlist) {
-	allSongs := []model.Song{}
-	allPlaylists := []model.Playlist{}
+func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]model.Track, []model.RemoteCollection) {
+	allSongs := []model.Track{}
+	allPlaylists := []model.RemoteCollection{}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
@@ -788,12 +741,12 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 	return allSongs, allPlaylists
 }
 
-func augmentLyricSearchOriginals(source string, songs []model.Song, searchFn func(string) ([]model.Song, error)) []model.Song {
+func augmentLyricSearchOriginals(source string, songs []model.Track, searchFn func(string) ([]model.Track, error)) []model.Track {
 	if len(songs) == 0 || searchFn == nil {
 		return songs
 	}
 
-	out := make([]model.Song, 0, len(songs)+4)
+	out := make([]model.Track, 0, len(songs)+4)
 	seen := make(map[string]struct{}, len(songs)+4)
 	for _, song := range songs {
 		for _, candidate := range findInferredLyricOriginals(source, song, searchFn) {
@@ -820,12 +773,12 @@ func augmentLyricSearchOriginals(source string, songs []model.Song, searchFn fun
 	return out
 }
 
-func searchInferredLyricOriginalCandidates(keyword string) ([]model.Song, error) {
+func searchInferredLyricOriginalCandidates(keyword string) ([]model.Track, error) {
 	songs, _ := concurrentKeywordSearch(keyword, "song", defaultSourcesForSearchType("song"))
 	return songs, nil
 }
 
-func findInferredLyricOriginals(source string, song model.Song, searchFn func(string) ([]model.Song, error)) []model.Song {
+func findInferredLyricOriginals(source string, song model.Track, searchFn func(string) ([]model.Track, error)) []model.Track {
 	artist, title, ok := inferredOriginalFromQuotedTitle(song.Name)
 	if !ok || artistMatches(song.Artist, artist) {
 		return nil
@@ -836,7 +789,7 @@ func findInferredLyricOriginals(source string, song model.Song, searchFn func(st
 		return nil
 	}
 
-	out := []model.Song{}
+	out := []model.Track{}
 	targetTitle := normalizeLookupText(title)
 	for i, candidate := range results {
 		if normalizeLookupText(candidate.Name) != targetTitle || !artistMatches(candidate.Artist, artist) {
@@ -858,7 +811,7 @@ func findInferredLyricOriginals(source string, song model.Song, searchFn func(st
 	return out
 }
 
-func inferredLyricOriginalRank(song model.Song, candidateRank int) string {
+func inferredLyricOriginalRank(song model.Track, candidateRank int) string {
 	rank := 0
 	if song.Extra != nil {
 		if parsed, err := strconv.Atoi(song.Extra["_rank"]); err == nil && parsed >= 0 {
@@ -907,7 +860,7 @@ func artistMatches(value, target string) bool {
 	return false
 }
 
-func songResultKey(song model.Song) string {
+func songResultKey(song model.Track) string {
 	source := strings.TrimSpace(song.Source)
 	id := strings.TrimSpace(song.ID)
 	if id == "" && song.Extra != nil {
@@ -925,9 +878,9 @@ func songResultKey(song model.Song) string {
 }
 
 // parseLinkSearch 解析粘贴的链接(歌曲/歌单/专辑),返回结果与最终类型。
-func parseLinkSearch(link, searchType string) ([]model.Song, []model.Playlist, string, string) {
-	songs := []model.Song{}
-	playlists := []model.Playlist{}
+func parseLinkSearch(link, searchType string) ([]model.Track, []model.RemoteCollection, string, string) {
+	songs := []model.Track{}
+	playlists := []model.RemoteCollection{}
 
 	src := core.DetectSource(link)
 	if src == "" {
@@ -964,12 +917,12 @@ func parseLinkSearch(link, searchType string) ([]model.Song, []model.Playlist, s
 }
 
 // loadPlaylistTabsJSON 按源加载歌单,整理为前端友好的分栏结构。
-func loadPlaylistTabsJSON(sources []string, loader func(string) ([]model.Playlist, error)) []jsonPlaylistTab {
+func loadPlaylistTabsJSON(sources []string, loader func(string) ([]model.RemoteCollection, error)) []jsonPlaylistTab {
 	tabs := []jsonPlaylistTab{}
 	for _, src := range sources {
 		playlists, err := loader(src)
 		if playlists == nil {
-			playlists = []model.Playlist{}
+			playlists = []model.RemoteCollection{}
 		}
 		for i := range playlists {
 			playlists[i].Source = src

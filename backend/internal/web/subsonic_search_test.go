@@ -11,7 +11,7 @@ import (
 )
 
 func TestOnlineSongIDRoundtrip(t *testing.T) {
-	song := model.Song{
+	song := model.Track{
 		Source: "netease",
 		ID:     "12345",
 		Name:   "晴天",
@@ -41,7 +41,7 @@ func TestOnlineSongIDRoundtrip(t *testing.T) {
 
 func TestOnlineSongIDHandlesSpecialChars(t *testing.T) {
 	// 含分隔符、斜杠、中文、空格的字段不能破坏编解码。
-	song := model.Song{
+	song := model.Track{
 		Source: "qq",
 		ID:     "a/b+c=d",
 		Name:   "Song | Name",
@@ -137,7 +137,7 @@ func TestEstimateDuration(t *testing.T) {
 func TestSongToSubsonicChildFillsDuration(t *testing.T) {
 	// 源没给 duration(=0)但有 size:必须估算出非零 duration,
 	// 否则音流没时长会反复重拉死循环。
-	song := model.Song{
+	song := model.Track{
 		Source: "qq", ID: "x", Name: "t", Artist: "a",
 		Ext: "flac", Size: 35661811, Duration: 0, Bitrate: 0,
 	}
@@ -223,11 +223,11 @@ func TestOfficialBonusFlipsTranslationCover(t *testing.T) {
 	//  - 译名翻唱 Cherisy 珍珠星的距离:本地完全匹配=1000,但无无损授权
 	// 期望:原唱综合分 > 翻唱(正版信号翻盘)
 	q := "珍珠星的距离"
-	orig := model.Song{
+	orig := model.Track{
 		Name: "スピカテリブル", Artist: "内田彩",
 		Extra: map[string]string{"_rank": "0", "has_lossless": "1", "is_paid": "1"},
 	}
-	transCover := model.Song{
+	transCover := model.Track{
 		Name: "珍珠星的距离", Artist: "Cherisy",
 		Extra: map[string]string{"_rank": "0"}, // 无 has_lossless
 	}
@@ -239,31 +239,31 @@ func TestOfficialBonusFlipsTranslationCover(t *testing.T) {
 
 func TestOfficialBonus(t *testing.T) {
 	// 真实码率主信号
-	if officialBonus(model.Song{Bitrate: 999}) != 600 {
+	if officialBonus(model.Track{Bitrate: 999}) != 600 {
 		t.Fatal("无损码率(≥800)应+600")
 	}
-	if officialBonus(model.Song{Bitrate: 320}) != 300 {
+	if officialBonus(model.Track{Bitrate: 320}) != 300 {
 		t.Fatal("高品码率(≥320)应+300")
 	}
-	if officialBonus(model.Song{Bitrate: 128}) != 0 {
+	if officialBonus(model.Track{Bitrate: 128}) != 0 {
 		t.Fatal("低码率应0")
 	}
 	// has_lossless 兜底:源声明无损但码率字段缺失(=0)仍按无损档
-	if officialBonus(model.Song{Extra: map[string]string{"has_lossless": "1"}}) != 600 {
+	if officialBonus(model.Track{Extra: map[string]string{"has_lossless": "1"}}) != 600 {
 		t.Fatal("has_lossless兜底应+600")
 	}
 	// is_paid 叠加
-	if officialBonus(model.Song{Bitrate: 999, Extra: map[string]string{"is_paid": "1"}}) != 800 {
+	if officialBonus(model.Track{Bitrate: 999, Extra: map[string]string{"is_paid": "1"}}) != 800 {
 		t.Fatal("无损+付费应+800")
 	}
-	if officialBonus(model.Song{}) != 0 {
+	if officialBonus(model.Track{}) != 0 {
 		t.Fatal("无信号应0")
 	}
 }
 
 func TestUpstreamRankScore(t *testing.T) {
-	mk := func(rank string) model.Song {
-		return model.Song{Extra: map[string]string{"_rank": rank}}
+	mk := func(rank string) model.Track {
+		return model.Track{Extra: map[string]string{"_rank": rank}}
 	}
 	if upstreamRankScore(mk("0")) != 600 {
 		t.Fatal("上游第1名应=600")
@@ -274,7 +274,7 @@ func TestUpstreamRankScore(t *testing.T) {
 	if upstreamRankScore(mk("100")) != 0 {
 		t.Fatal("极靠后应封底0")
 	}
-	if upstreamRankScore(model.Song{}) != 0 {
+	if upstreamRankScore(model.Track{}) != 0 {
 		t.Fatal("无rank应=0")
 	}
 }
@@ -283,8 +283,8 @@ func TestCombinedScoreTranslationName(t *testing.T) {
 	// 译名场景:query="珍珠星的距离",原名"スピカテリブル"本地匹配=0,
 	// 但上游把它排第1(rank=0)→ 综合分应=500,能顶上来。
 	q := "珍珠星的距离"
-	orig := model.Song{Name: "スピカテリブル", Artist: "内田彩", Extra: map[string]string{"_rank": "0"}}
-	other := model.Song{Name: "别的歌", Artist: "X", Extra: map[string]string{"_rank": "5"}}
+	orig := model.Track{Name: "スピカテリブル", Artist: "内田彩", Extra: map[string]string{"_rank": "0"}}
+	other := model.Track{Name: "别的歌", Artist: "X", Extra: map[string]string{"_rank": "5"}}
 
 	so := combinedScore(orig, q)
 	oo := combinedScore(other, q)
@@ -300,8 +300,8 @@ func TestCombinedScoreDirectHitNotBroken(t *testing.T) {
 	// 直接命中场景:搜"晴天",本地完全匹配=1000 主导,
 	// 不能被一首上游排第1但歌名不匹配的歌盖过。
 	q := "晴天"
-	hit := model.Song{Name: "晴天", Artist: "周杰伦", Extra: map[string]string{"_rank": "8"}}
-	upstreamTop := model.Song{Name: "无关歌", Artist: "Y", Extra: map[string]string{"_rank": "0"}}
+	hit := model.Track{Name: "晴天", Artist: "周杰伦", Extra: map[string]string{"_rank": "8"}}
+	upstreamTop := model.Track{Name: "无关歌", Artist: "Y", Extra: map[string]string{"_rank": "0"}}
 
 	if combinedScore(hit, q) <= combinedScore(upstreamTop, q) {
 		t.Fatalf("直接命中歌名(本地1000)应高于仅上游第1的无关歌: hit=%d top=%d",
@@ -311,7 +311,7 @@ func TestCombinedScoreDirectHitNotBroken(t *testing.T) {
 
 func TestSortSongsByRelevanceWithUpstream(t *testing.T) {
 	q := "珍珠星的距离"
-	songs := []model.Song{
+	songs := []model.Track{
 		{Name: "无关A", Artist: "A", Extra: map[string]string{"_rank": "3"}, Bitrate: 999},
 		{Name: "スピカテリブル", Artist: "内田彩", Extra: map[string]string{"_rank": "0"}, Bitrate: 128},
 		{Name: "无关B", Artist: "B", Extra: map[string]string{"_rank": "1"}, Bitrate: 320},
@@ -328,11 +328,11 @@ func TestSortSongsByRelevanceWithUpstream(t *testing.T) {
 // 修复后用真实码率做信号,原唱(921→无损档+600)应排在翻唱(320→高品+300)前。
 func TestSortByRealBitrateNotLosslessField(t *testing.T) {
 	q := "爱的回归线"
-	orig := model.Song{ // 咪咕原唱:高码率,但源不产 has_lossless 字段
+	orig := model.Track{ // 咪咕原唱:高码率,但源不产 has_lossless 字段
 		Name: "爱的回归线", Artist: "陈韵若、陈每文",
 		Extra: map[string]string{"_rank": "0"}, Bitrate: 921,
 	}
-	cover := model.Song{ // 网易云翻唱:低码率,但有 has_lossless 字段
+	cover := model.Track{ // 网易云翻唱:低码率,但有 has_lossless 字段
 		Name: "爱的回归线", Artist: "Sasablue",
 		Extra: map[string]string{"_rank": "1", "has_lossless": "1"}, Bitrate: 320,
 	}
@@ -344,10 +344,10 @@ func TestSortByRealBitrateNotLosslessField(t *testing.T) {
 
 func TestRelevanceScore(t *testing.T) {
 	q := "晴天"
-	exact := model.Song{Name: "晴天", Artist: "周杰伦"}
-	prefix := model.Song{Name: "晴天娃娃", Artist: "X"}
-	contain := model.Song{Name: "好想见你的晴天", Artist: "Y"}
-	noise := model.Song{Name: "完全无关", Artist: "Z"}
+	exact := model.Track{Name: "晴天", Artist: "周杰伦"}
+	prefix := model.Track{Name: "晴天娃娃", Artist: "X"}
+	contain := model.Track{Name: "好想见你的晴天", Artist: "Y"}
+	noise := model.Track{Name: "完全无关", Artist: "Z"}
 
 	if relevanceScore(exact, q) <= relevanceScore(prefix, q) {
 		t.Fatal("完全相等应高于前缀匹配")
@@ -359,14 +359,14 @@ func TestRelevanceScore(t *testing.T) {
 		t.Fatalf("噪声应为 0, 实际 %d", relevanceScore(noise, q))
 	}
 	// 多词:歌名命中+歌手命中
-	multi := relevanceScore(model.Song{Name: "晴天", Artist: "周杰伦"}, "周杰伦 晴天")
+	multi := relevanceScore(model.Track{Name: "晴天", Artist: "周杰伦"}, "周杰伦 晴天")
 	if multi <= 0 {
 		t.Fatalf("多词命中应 >0, 实际 %d", multi)
 	}
 }
 
 func TestSortSongsByRelevanceHonorsArtistIntent(t *testing.T) {
-	songs := []model.Song{
+	songs := []model.Track{
 		{
 			Name:    "遇萤",
 			Artist:  "李蚊香",
@@ -395,7 +395,7 @@ func TestSortSongsByRelevanceHonorsArtistIntent(t *testing.T) {
 }
 
 func TestSortSongsByRelevanceHonorsOSTArtistIntent(t *testing.T) {
-	songs := []model.Song{
+	songs := []model.Track{
 		{
 			Name:    "遇萤",
 			Artist:  "霍尊",
@@ -426,7 +426,7 @@ func TestSortSongsByRelevanceHonorsOSTArtistIntent(t *testing.T) {
 }
 
 func TestSortSongsByRelevancePrefersExactTitleUpstreamTop(t *testing.T) {
-	songs := []model.Song{
+	songs := []model.Track{
 		{
 			Name:    "遇萤",
 			Artist:  "李蚊香",
@@ -450,7 +450,7 @@ func TestSortSongsByRelevancePrefersExactTitleUpstreamTop(t *testing.T) {
 
 func TestSortSongsByRelevance(t *testing.T) {
 	q := "晴天"
-	songs := []model.Song{
+	songs := []model.Track{
 		{Name: "无关歌", Artist: "A", Bitrate: 999},  // 噪声,应沉底
 		{Name: "晴天", Artist: "周杰伦", Bitrate: 900}, // 完全相等原唱 → 应最前
 		{Name: "晴天娃娃", Artist: "B", Bitrate: 320}, // 前缀匹配
@@ -469,7 +469,7 @@ func TestSortSongsByRelevance(t *testing.T) {
 
 func TestCoverPenaltyDemotesCover(t *testing.T) {
 	q := "晴天"
-	songs := []model.Song{
+	songs := []model.Track{
 		{Name: "晴天", Artist: "翻唱歌手", Bitrate: 999},    // 标记翻唱,应被压
 		{Name: "晴天", Artist: "周杰伦", Bitrate: 128},     // 原唱低码率
 		{Name: "晴天 (钢琴版)", Artist: "X", Bitrate: 900}, // 钢琴版,重罚
@@ -506,7 +506,7 @@ func TestCandidateLimit(t *testing.T) {
 }
 
 func TestSongToSubsonicChild(t *testing.T) {
-	song := model.Song{
+	song := model.Track{
 		Source: "netease", ID: "1", Name: "晴天", Artist: "周杰伦",
 		Album: "叶惠美", Duration: 269, Bitrate: 320, Size: 10000000,
 		Ext: "flac", Cover: "http://x/c.jpg",

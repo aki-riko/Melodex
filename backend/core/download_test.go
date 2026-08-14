@@ -9,7 +9,7 @@ import (
 )
 
 func TestBuildDownloadFilenameUsesTemplate(t *testing.T) {
-	song := &model.Song{
+	song := &model.Track{
 		ID:     "12345",
 		Source: "netease",
 		Name:   "没地址的信",

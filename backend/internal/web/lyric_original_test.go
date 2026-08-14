@@ -13,7 +13,7 @@ const (
 )
 
 func TestAugmentLyricSearchOriginalsPromotesInferredOriginal(t *testing.T) {
-	lyricHit := model.Song{
+	lyricHit := model.Track{
 		Source: "qq",
 		ID:     "cover-mid",
 		Name:   "艾辰《错位时空》",
@@ -25,11 +25,11 @@ func TestAugmentLyricSearchOriginalsPromotesInferredOriginal(t *testing.T) {
 		},
 	}
 
-	got := augmentLyricSearchOriginals("qq", []model.Song{lyricHit}, func(keyword string) ([]model.Song, error) {
+	got := augmentLyricSearchOriginals("qq", []model.Track{lyricHit}, func(keyword string) ([]model.Track, error) {
 		if keyword != "错位时空 艾辰" {
 			t.Fatalf("keyword = %q, want 错位时空 艾辰", keyword)
 		}
-		return []model.Song{
+		return []model.Track{
 			{Name: "艾辰《错位时空》", Artist: "谷梁小璇", ID: "cover-mid"},
 			{Name: "错位时空", Artist: "洛天依", ID: "other-mid"},
 			{Name: "错位时空", Artist: "艾辰", ID: "original-mid", Extra: map[string]string{"songmid": "original-mid"}},
@@ -54,7 +54,7 @@ func TestAugmentLyricSearchOriginalsPromotesInferredOriginal(t *testing.T) {
 }
 
 func TestAugmentLyricSearchOriginalsKeepsMultiSourceCandidate(t *testing.T) {
-	lyricHit := model.Song{
+	lyricHit := model.Track{
 		Source: "qq",
 		ID:     "cover-mid",
 		Name:   lyricOriginalArtist + "\u300a" + lyricOriginalTitle + "\u300b",
@@ -66,12 +66,12 @@ func TestAugmentLyricSearchOriginalsKeepsMultiSourceCandidate(t *testing.T) {
 		},
 	}
 
-	got := augmentLyricSearchOriginals("qq", []model.Song{lyricHit}, func(keyword string) ([]model.Song, error) {
+	got := augmentLyricSearchOriginals("qq", []model.Track{lyricHit}, func(keyword string) ([]model.Track, error) {
 		want := lyricOriginalTitle + " " + lyricOriginalArtist
 		if keyword != want {
 			t.Fatalf("keyword = %q, want %q", keyword, want)
 		}
-		return []model.Song{
+		return []model.Track{
 			{
 				Source: "qq",
 				Name:   lyricOriginalTitle,
@@ -100,7 +100,7 @@ func TestAugmentLyricSearchOriginalsKeepsMultiSourceCandidate(t *testing.T) {
 }
 
 func TestAugmentLyricSearchOriginalsSkipsWhenQuotedArtistMatchesSinger(t *testing.T) {
-	hit := model.Song{
+	hit := model.Track{
 		Source: "qq",
 		ID:     "original-mid",
 		Name:   "艾辰《错位时空》",
@@ -108,7 +108,7 @@ func TestAugmentLyricSearchOriginalsSkipsWhenQuotedArtistMatchesSinger(t *testin
 	}
 
 	called := false
-	got := augmentLyricSearchOriginals("qq", []model.Song{hit}, func(keyword string) ([]model.Song, error) {
+	got := augmentLyricSearchOriginals("qq", []model.Track{hit}, func(keyword string) ([]model.Track, error) {
 		called = true
 		return nil, nil
 	})

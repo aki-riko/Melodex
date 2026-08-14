@@ -41,7 +41,7 @@ func TestKugouAndKuwoModelMapping(t *testing.T) {
 		t.Fatalf("unexpected kugou song: %#v", kugou)
 	}
 
-	collection := model.Playlist{ID: "14365066", Name: "叶惠美", Cover: "http://cover.test/album.jpg"}
+	collection := model.RemoteCollection{ID: "14365066", Name: "叶惠美", Cover: "http://cover.test/album.jpg"}
 	kuwo := kuwoSongs([]interface{}{map[string]interface{}{
 		"musicrid": "MUSIC_123", "name": "晴天", "artist": "周杰伦", "duration": "269",
 	}}, collection)
@@ -216,9 +216,9 @@ func TestLiveMiguCollectionFlow(t *testing.T) {
 func assertBrowseFlow(
 	t *testing.T,
 	source string,
-	recommended func() ([]model.Playlist, error),
-	categories func() ([]model.PlaylistCategory, error),
-	categoryPlaylists func(string, int, int) ([]model.Playlist, error),
+	recommended func() ([]model.RemoteCollection, error),
+	categories func() ([]model.RemoteCategory, error),
+	categoryPlaylists func(string, int, int) ([]model.RemoteCollection, error),
 ) {
 	t.Helper()
 	if playlists, err := recommended(); err != nil || len(playlists) == 0 {

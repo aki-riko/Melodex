@@ -42,7 +42,7 @@ var backfillLyricsCmd = &cobra.Command{
 			Limit:       backfillLyricsLimit,
 			Delay:       backfillLyricsDelay,
 			Output:      cmd.OutOrStdout(),
-			FetchLyric: func(_ string, song *model.Song) (string, *model.Song, error) {
+			FetchLyric: func(_ string, song *model.Track) (string, *model.Track, error) {
 				return web.LoadLyricWithFallback(song)
 			},
 		})

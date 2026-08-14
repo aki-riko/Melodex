@@ -180,8 +180,8 @@ func runPlaylistIntegration(t *testing.T, tt playlistIntegrationCase) {
 	t.Fatalf("%s playlist integration failed", tt.source)
 }
 
-func verifyPlaylistCandidate(source string, candidate playlistCandidate, detailFn func(string) ([]model.Song, error), parseFn func(string) (*model.Playlist, []model.Song, error)) error {
-	var songs []model.Song
+func verifyPlaylistCandidate(source string, candidate playlistCandidate, detailFn func(string) ([]model.Track, error), parseFn func(string) (*model.RemoteCollection, []model.Track, error)) error {
+	var songs []model.Track
 	var err error
 	for i := 0; i < 2; i++ {
 		songs, err = detailFn(candidate.id)
@@ -200,8 +200,8 @@ func verifyPlaylistCandidate(source string, candidate playlistCandidate, detailF
 		return fmt.Errorf("%s GetPlaylistSongs(%q) returned no songs", source, candidate.id)
 	}
 
-	var playlist *model.Playlist
-	var parsedSongs []model.Song
+	var playlist *model.RemoteCollection
+	var parsedSongs []model.Track
 	for i := 0; i < 2; i++ {
 		playlist, parsedSongs, err = parseFn(candidate.link)
 		if err == nil && playlist != nil && playlist.ID != "" && len(parsedSongs) > 0 {

@@ -27,8 +27,8 @@ type SearchRequest struct {
 }
 
 type searchResponse struct {
-	Songs []model.Song `json:"songs"`
-	Error string       `json:"error,omitempty"`
+	Songs []model.Track `json:"songs"`
+	Error string        `json:"error,omitempty"`
 }
 
 func NewClient(rawBaseURL string, httpClient *http.Client) (*Client, error) {
@@ -48,7 +48,7 @@ func NewClient(rawBaseURL string, httpClient *http.Client) (*Client, error) {
 	return &Client{baseURL: parsed, httpClient: httpClient}, nil
 }
 
-func (c *Client) Search(ctx context.Context, request SearchRequest) ([]model.Song, error) {
+func (c *Client) Search(ctx context.Context, request SearchRequest) ([]model.Track, error) {
 	request.Source = strings.TrimSpace(request.Source)
 	request.Keyword = strings.TrimSpace(request.Keyword)
 	if request.Source == "" || request.Keyword == "" {
@@ -84,7 +84,7 @@ func (c *Client) Search(ctx context.Context, request SearchRequest) ([]model.Son
 		return nil, errors.New(payload.Error)
 	}
 	if payload.Songs == nil {
-		payload.Songs = []model.Song{}
+		payload.Songs = []model.Track{}
 	}
 	return payload.Songs, nil
 }

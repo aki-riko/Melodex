@@ -1,15 +1,8 @@
 package model
 
-import (
-	"errors"
-	"fmt"
-)
-
-var ErrPlaylistCategoriesUnsupported = errors.New("playlist categories not supported")
-var ErrUserPlaylistsUnsupported = errors.New("user playlists not supported")
-
-// Song is the stable Melodex representation shared by provider adapters.
-type Song struct {
+// Track is the provider-neutral audio item consumed by Melodex services.
+// JSON names are the public API contract and intentionally remain stable.
+type Track struct {
 	ID        string            `json:"id"`
 	Name      string            `json:"name"`
 	Artist    string            `json:"artist"`
@@ -28,7 +21,8 @@ type Song struct {
 	IsVIP     bool              `json:"is_vip,omitempty"`
 }
 
-type Playlist struct {
+// RemoteCollection represents an album or playlist owned by a provider.
+type RemoteCollection struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Cover       string            `json:"cover"`
@@ -41,7 +35,8 @@ type Playlist struct {
 	Extra       map[string]string `json:"extra,omitempty"`
 }
 
-type PlaylistCategory struct {
+// RemoteCategory groups provider collections for browse endpoints.
+type RemoteCategory struct {
 	ID     string            `json:"id"`
 	Name   string            `json:"name"`
 	Group  string            `json:"group"`
@@ -49,29 +44,4 @@ type PlaylistCategory struct {
 	Count  int               `json:"count"`
 	Hot    bool              `json:"hot,omitempty"`
 	Extra  map[string]string `json:"extra,omitempty"`
-}
-
-func (s *Song) FormatDuration() string {
-	if s.Duration == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%02d:%02d", s.Duration/60, s.Duration%60)
-}
-
-func (s *Song) FormatSize() string {
-	if s.Size == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%.2f MB", float64(s.Size)/1024/1024)
-}
-
-func (s *Song) FormatBitrate() string {
-	if s.Bitrate == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%d kbps", s.Bitrate)
-}
-
-func (s *Song) Display() string {
-	return s.Name + " - " + s.Artist
 }

@@ -30,7 +30,7 @@ func qqHeaders() http.Header {
 	return headers
 }
 
-func (client *QQ) SearchPlaylist(keyword string) ([]model.Playlist, error) {
+func (client *QQ) SearchPlaylist(keyword string) ([]model.RemoteCollection, error) {
 	payload, err := client.search(keyword, 3)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func (client *QQ) SearchPlaylist(keyword string) ([]model.Playlist, error) {
 	return qqPlaylists(at(payload, "req", "data", "body", "songlist", "list")), nil
 }
 
-func (client *QQ) SearchAlbum(keyword string) ([]model.Playlist, error) {
+func (client *QQ) SearchAlbum(keyword string) ([]model.RemoteCollection, error) {
 	payload, err := client.search(keyword, 2)
 	if err != nil {
 		return nil, err
@@ -59,17 +59,17 @@ func (client *QQ) search(keyword string, searchType int) (map[string]interface{}
 	return postJSON(qqMusicUURL, client.Cookie, qqHeaders(), payload)
 }
 
-func (client *QQ) GetPlaylistSongs(id string) ([]model.Song, error) {
+func (client *QQ) GetPlaylistSongs(id string) ([]model.Track, error) {
 	_, songs, err := client.Playlist(id)
 	return songs, err
 }
 
-func (client *QQ) GetAlbumSongs(id string) ([]model.Song, error) {
+func (client *QQ) GetAlbumSongs(id string) ([]model.Track, error) {
 	_, songs, err := client.Album(id)
 	return songs, err
 }
 
-func (client *QQ) Playlist(id string) (*model.Playlist, []model.Song, error) {
+func (client *QQ) Playlist(id string) (*model.RemoteCollection, []model.Track, error) {
 	query := url.Values{
 		"type": {"1"}, "json": {"1"}, "utf8": {"1"}, "onlysong": {"0"},
 		"disstid": {strings.TrimSpace(id)}, "format": {"json"},
@@ -87,7 +87,7 @@ func (client *QQ) Playlist(id string) (*model.Playlist, []model.Song, error) {
 	return &playlist, qqSongs(raw["songlist"]), nil
 }
 
-func (client *QQ) ParsePlaylist(link string) (*model.Playlist, []model.Song, error) {
+func (client *QQ) ParsePlaylist(link string) (*model.RemoteCollection, []model.Track, error) {
 	id := linkID(link, "id", "disstid")
 	if id == "" {
 		return nil, nil, fmt.Errorf("qq playlist link has no id")
@@ -95,7 +95,7 @@ func (client *QQ) ParsePlaylist(link string) (*model.Playlist, []model.Song, err
 	return client.Playlist(id)
 }
 
-func (client *QQ) Album(id string) (*model.Playlist, []model.Song, error) {
+func (client *QQ) Album(id string) (*model.RemoteCollection, []model.Track, error) {
 	query := url.Values{"albummid": {strings.TrimSpace(id)}, "format": {"json"}}
 	payload, err := getJSON(qqLegacyBaseURL+"/v8/fcg-bin/fcg_v8_album_info_cp.fcg?"+query.Encode(), client.Cookie, qqHeaders())
 	if err != nil {
@@ -109,7 +109,7 @@ func (client *QQ) Album(id string) (*model.Playlist, []model.Song, error) {
 	return &album, qqSongs(raw["list"]), nil
 }
 
-func (client *QQ) ParseAlbum(link string) (*model.Playlist, []model.Song, error) {
+func (client *QQ) ParseAlbum(link string) (*model.RemoteCollection, []model.Track, error) {
 	id := linkID(link, "albummid")
 	if id == "" {
 		return nil, nil, fmt.Errorf("qq album link has no id")
@@ -117,16 +117,16 @@ func (client *QQ) ParseAlbum(link string) (*model.Playlist, []model.Song, error)
 	return client.Album(id)
 }
 
-func (client *QQ) RecommendedPlaylists() ([]model.Playlist, error) {
+func (client *QQ) RecommendedPlaylists() ([]model.RemoteCollection, error) {
 	return client.CategoryPlaylists("10000000", 1, 30)
 }
 
-func (client *QQ) PlaylistCategories() ([]model.PlaylistCategory, error) {
+func (client *QQ) PlaylistCategories() ([]model.RemoteCategory, error) {
 	payload, err := getJSON(qqLegacyBaseURL+"/splcloud/fcgi-bin/fcg_get_diss_tag_conf.fcg?format=json", client.Cookie, qqHeaders())
 	if err != nil {
 		return nil, err
 	}
-	result := make([]model.PlaylistCategory, 0)
+	result := make([]model.RemoteCategory, 0)
 	for _, groupValue := range array(at(payload, "data", "categories")) {
 		group := object(groupValue)
 		groupName := text(group["categoryGroupName"])
@@ -137,13 +137,13 @@ func (client *QQ) PlaylistCategories() ([]model.PlaylistCategory, error) {
 			if id == "" || name == "" {
 				continue
 			}
-			result = append(result, model.PlaylistCategory{ID: id, Name: name, Group: groupName, Source: "qq", Hot: id == "10000000"})
+			result = append(result, model.RemoteCategory{ID: id, Name: name, Group: groupName, Source: "qq", Hot: id == "10000000"})
 		}
 	}
 	return result, nil
 }
 
-func (client *QQ) CategoryPlaylists(categoryID string, page, limit int) ([]model.Playlist, error) {
+func (client *QQ) CategoryPlaylists(categoryID string, page, limit int) ([]model.RemoteCollection, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -162,7 +162,7 @@ func (client *QQ) CategoryPlaylists(categoryID string, page, limit int) ([]model
 	return qqPlaylists(at(payload, "data", "list")), nil
 }
 
-func (client *QQ) UserPlaylists(page, limit int) ([]model.Playlist, error) {
+func (client *QQ) UserPlaylists(page, limit int) ([]model.RemoteCollection, error) {
 	uin := qqCookieUIN(client.Cookie)
 	if uin == "" {
 		return nil, fmt.Errorf("qq login cookie is required")
@@ -188,9 +188,9 @@ func (client *QQ) UserPlaylists(page, limit int) ([]model.Playlist, error) {
 	return qqPlaylists(items), nil
 }
 
-func qqSongs(value interface{}) []model.Song {
+func qqSongs(value interface{}) []model.Track {
 	items := array(value)
-	result := make([]model.Song, 0, len(items))
+	result := make([]model.Track, 0, len(items))
 	for _, item := range items {
 		raw := object(item)
 		id := text(raw["songmid"])
@@ -227,7 +227,7 @@ func qqSongs(value interface{}) []model.Song {
 		if int64Value(raw["sizeflac"]) > 0 {
 			extra["has_lossless"] = "1"
 		}
-		result = append(result, model.Song{
+		result = append(result, model.Track{
 			ID: id, Name: name, Artist: joinNames(artists, "name"), Album: albumName,
 			AlbumID: albumID, Duration: integer(raw["interval"]), Source: "qq",
 			Cover: qqAlbumCover(albumID), Extra: extra,
@@ -236,9 +236,9 @@ func qqSongs(value interface{}) []model.Song {
 	return result
 }
 
-func qqPlaylists(value interface{}) []model.Playlist {
+func qqPlaylists(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		playlist := qqPlaylist(object(item))
 		if playlist.ID != "" {
@@ -248,7 +248,7 @@ func qqPlaylists(value interface{}) []model.Playlist {
 	return result
 }
 
-func qqPlaylist(raw map[string]interface{}) model.Playlist {
+func qqPlaylist(raw map[string]interface{}) model.RemoteCollection {
 	id := text(raw["dissid"])
 	if id == "" {
 		id = text(raw["disstid"])
@@ -262,7 +262,7 @@ func qqPlaylist(raw map[string]interface{}) model.Playlist {
 	if trackCount == 0 {
 		trackCount = integer(raw["songnum"])
 	}
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID: id, Name: name, Cover: cover, TrackCount: trackCount,
 		PlayCount: integer(raw["listennum"]), Creator: text(at(raw, "creator", "name")),
 		Description: text(raw["introduction"]), Source: "qq",
@@ -270,9 +270,9 @@ func qqPlaylist(raw map[string]interface{}) model.Playlist {
 	}
 }
 
-func qqAlbums(value interface{}) []model.Playlist {
+func qqAlbums(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		album := qqAlbum(object(item))
 		if album.ID != "" {
@@ -282,7 +282,7 @@ func qqAlbums(value interface{}) []model.Playlist {
 	return result
 }
 
-func qqAlbum(raw map[string]interface{}) model.Playlist {
+func qqAlbum(raw map[string]interface{}) model.RemoteCollection {
 	id := text(raw["albumMID"])
 	if id == "" {
 		id = text(raw["mid"])
@@ -303,7 +303,7 @@ func qqAlbum(raw map[string]interface{}) model.Playlist {
 	if count == 0 {
 		count = integer(raw["total_song_num"])
 	}
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID: id, Name: name, Cover: cover, TrackCount: count, Creator: creator,
 		Description: text(raw["desc"]), Source: "qq",
 		Link: "https://y.qq.com/n/ryqq/albumDetail/" + id,

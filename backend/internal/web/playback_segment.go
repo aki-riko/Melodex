@@ -59,7 +59,7 @@ func playbackSegmentHandler(c *gin.Context) {
 		return
 	}
 
-	song := &model.Song{
+	song := &model.Track{
 		ID:     id,
 		Source: source,
 		Name:   strings.TrimSpace(c.Query("name")),
@@ -176,7 +176,7 @@ func compactFFmpegError(message string) string {
 	return message
 }
 
-func openPlaybackSegmentInput(c *gin.Context, song *model.Song) (*playbackSegmentInput, error) {
+func openPlaybackSegmentInput(c *gin.Context, song *model.Track) (*playbackSegmentInput, error) {
 	if isLocalMusicSource(song.Source) {
 		return openLocalPlaybackSegmentInput(c, song.ID, "local")
 	}
@@ -281,7 +281,7 @@ func openLocalPlaybackSegmentInput(c *gin.Context, id string, sourceKind string)
 	}, nil
 }
 
-func openSodaPlaybackSegmentInput(song *model.Song) (*playbackSegmentInput, error) {
+func openSodaPlaybackSegmentInput(song *model.Track) (*playbackSegmentInput, error) {
 	media, err := core.ResolveProviderMedia(song)
 	if err != nil {
 		markQualityCacheInvalid(*song)

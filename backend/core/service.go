@@ -280,19 +280,19 @@ func cookieStatusError(err error) string {
 // 工厂函数映射
 // ==========================================
 
-type SearchFunc func(keyword string) ([]model.Song, error)
-type SearchPlaylistFunc func(keyword string) ([]model.Playlist, error)
-type PlaylistCategoriesFunc func() ([]model.PlaylistCategory, error)
-type CategoryPlaylistsFunc func(string, int, int) ([]model.Playlist, error)
+type SearchFunc func(keyword string) ([]model.Track, error)
+type SearchPlaylistFunc func(keyword string) ([]model.RemoteCollection, error)
+type PlaylistCategoriesFunc func() ([]model.RemoteCategory, error)
+type CategoryPlaylistsFunc func(string, int, int) ([]model.RemoteCollection, error)
 type QRLoginCreateFunc func() (*model.LoginChallenge, error)
 type QRLoginCheckFunc func(string) (*model.LoginResult, error)
-type UserPlaylistsFunc func(page, limit int) ([]model.Playlist, error)
+type UserPlaylistsFunc func(page, limit int) ([]model.RemoteCollection, error)
 
 func GetSearchFunc(source string) SearchFunc {
 	if !providerBridgeSupports(source) {
 		return nil
 	}
-	return func(keyword string) ([]model.Song, error) {
+	return func(keyword string) ([]model.Track, error) {
 		return searchProviderSongs(source, keyword, cookieForSource(source))
 	}
 }
@@ -342,7 +342,7 @@ func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
 	}
 }
 
-func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
+func GetAlbumDetailFunc(source string) func(string) ([]model.Track, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
@@ -360,7 +360,7 @@ func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
 	}
 }
 
-func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
+func GetPlaylistDetailFunc(source string) func(string) ([]model.Track, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
@@ -378,7 +378,7 @@ func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
 	}
 }
 
-func GetRecommendFunc(source string) func() ([]model.Playlist, error) {
+func GetRecommendFunc(source string) func() ([]model.RemoteCollection, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
@@ -476,29 +476,29 @@ func GetRecommendSourceNames() []string {
 	return []string{"netease", "qq", "kugou", "kuwo"}
 }
 
-func GetDownloadFunc(source string) func(*model.Song) (string, error) {
+func GetDownloadFunc(source string) func(*model.Track) (string, error) {
 	if !providerBridgeSupports(source) {
 		return nil
 	}
-	return func(song *model.Song) (string, error) {
+	return func(song *model.Track) (string, error) {
 		return providerDownloadURL(source, song)
 	}
 }
 
-func GetLyricFunc(source string) func(*model.Song) (string, error) {
+func GetLyricFunc(source string) func(*model.Track) (string, error) {
 	if !providerBridgeSupports(source) {
 		return nil
 	}
-	return func(song *model.Song) (string, error) {
+	return func(song *model.Track) (string, error) {
 		return providerLyrics(source, song)
 	}
 }
 
-func GetParseFunc(source string) func(string) (*model.Song, error) {
+func GetParseFunc(source string) func(string) (*model.Track, error) {
 	return nil
 }
 
-func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.Song, error) {
+func GetParsePlaylistFunc(source string) func(string) (*model.RemoteCollection, []model.Track, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
@@ -516,7 +516,7 @@ func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.
 	}
 }
 
-func GetParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Song, error) {
+func GetParseAlbumFunc(source string) func(string) (*model.RemoteCollection, []model.Track, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
@@ -715,7 +715,7 @@ func BuildSourceRequest(method, urlStr, source, rangeHeader string) (*http.Reque
 	return req, nil
 }
 
-func ValidatePlayable(song *model.Song) bool {
+func ValidatePlayable(song *model.Track) bool {
 	if song == nil || song.ID == "" || song.Source == "" {
 		return false
 	}
@@ -1633,7 +1633,7 @@ func resolveRangeHeader(value string, total int64) (int64, int64, bool, bool) {
 	return start, end, true, true
 }
 
-func EmbedSongMetadata(audioData []byte, song *model.Song, lyric string, coverData []byte, coverMime string) ([]byte, error) {
+func EmbedSongMetadata(audioData []byte, song *model.Track, lyric string, coverData []byte, coverMime string) ([]byte, error) {
 	if len(audioData) == 0 {
 		return nil, errors.New("empty audio data")
 	}

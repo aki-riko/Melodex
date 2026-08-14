@@ -22,7 +22,7 @@ func TestProviderBridgeSearchDownloadAndLyrics(t *testing.T) {
 			t.Fatalf("unexpected provider request: %s %s", r.Method, r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"songs": []providermodel.Song{{
+			"songs": []providermodel.Track{{
 				ID: "song-1", Source: "qq", Name: "晴天", Artist: "周杰伦",
 				URL: "https://media.example.test/audio.flac", Ext: "flac",
 				Extra: map[string]string{

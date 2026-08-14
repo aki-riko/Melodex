@@ -27,22 +27,22 @@ func TestFindBestSwitchSongReturnsBeforeSlowSourcesOnHighConfidenceMatch(t *test
 
 	switchAllSourceNames = func() []string { return []string{"slow", "fast"} }
 	switchDefaultSourceNames = func() []string { return []string{"slow", "fast"} }
-	switchSearchFuncProvider = func(source string) func(string) ([]model.Song, error) {
+	switchSearchFuncProvider = func(source string) func(string) ([]model.Track, error) {
 		switch source {
 		case "slow":
-			return func(string) ([]model.Song, error) {
+			return func(string) ([]model.Track, error) {
 				time.Sleep(2 * time.Second)
-				return []model.Song{{ID: "slow-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
+				return []model.Track{{ID: "slow-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
 			}
 		case "fast":
-			return func(string) ([]model.Song, error) {
-				return []model.Song{{ID: "fast-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
+			return func(string) ([]model.Track, error) {
+				return []model.Track{{ID: "fast-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
 			}
 		default:
 			return nil
 		}
 	}
-	switchValidatePlayable = func(song *model.Song) bool {
+	switchValidatePlayable = func(song *model.Track) bool {
 		return song != nil && song.ID == "fast-song"
 	}
 
@@ -65,7 +65,7 @@ func TestFindBestSwitchSongReturnsBeforeSlowSourcesOnHighConfidenceMatch(t *test
 func TestValidateSwitchCandidatesKeepsRankedOrderWithParallelChecks(t *testing.T) {
 	withSwitchSourceTestHooks(t)
 
-	switchValidatePlayable = func(song *model.Song) bool {
+	switchValidatePlayable = func(song *model.Track) bool {
 		if song != nil && song.ID == "best" {
 			time.Sleep(100 * time.Millisecond)
 			return true
@@ -74,8 +74,8 @@ func TestValidateSwitchCandidatesKeepsRankedOrderWithParallelChecks(t *testing.T
 	}
 
 	candidates := []switchCandidate{
-		{song: model.Song{ID: "best", Source: "fast"}, score: 1},
-		{song: model.Song{ID: "second", Source: "fast"}, score: 0.99},
+		{song: model.Track{ID: "best", Source: "fast"}, score: 1},
+		{song: model.Track{ID: "second", Source: "fast"}, score: 0.99},
 	}
 	got, score, ok := validateSwitchCandidates(candidates)
 	if !ok {

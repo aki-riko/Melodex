@@ -157,7 +157,7 @@ func (c Collection) originalLink() string {
 	return core.GetOriginalLink(source, c.ExternalID, c.normalizedContentType())
 }
 
-func (c Collection) playlistCard() model.Playlist {
+func (c Collection) playlistCard() model.RemoteCollection {
 	trackCount := c.TrackCount
 	if c.isManual() {
 		trackCount = countSavedSongs(c.ID)
@@ -172,7 +172,7 @@ func (c Collection) playlistCard() model.Playlist {
 		extra["remote_source"] = remoteSource
 	}
 
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID:          fmt.Sprint(c.ID),
 		Name:        c.Name,
 		Description: c.Description,
@@ -425,7 +425,7 @@ func loadOwnedCollection(collectionID string, userID uint) (*Collection, error) 
 	return &collection, nil
 }
 
-func loadCollectionSongs(collection *Collection) ([]model.Song, error) {
+func loadCollectionSongs(collection *Collection) ([]model.Track, error) {
 	if collection == nil {
 		return nil, fmt.Errorf("collection is nil")
 	}
@@ -435,16 +435,16 @@ func loadCollectionSongs(collection *Collection) ([]model.Song, error) {
 	return loadSavedSongs(collection.ID)
 }
 
-func loadSavedSongs(collectionID uint) ([]model.Song, error) {
+func loadSavedSongs(collectionID uint) ([]model.Track, error) {
 	var savedSongs []SavedSong
 	if err := db.Where("collection_id = ?", collectionID).Order("id DESC").Find(&savedSongs).Error; err != nil {
 		return nil, err
 	}
 
-	songs := make([]model.Song, 0, len(savedSongs))
+	songs := make([]model.Track, 0, len(savedSongs))
 	for _, ss := range savedSongs {
 		extra := hydrateSavedSongAlbumMetadata(&ss, decodeSongExtraMap(ss.Extra))
-		songs = append(songs, model.Song{
+		songs = append(songs, model.Track{
 			ID:       ss.SongID,
 			Source:   ss.Source,
 			Name:     ss.Name,
@@ -460,7 +460,7 @@ func loadSavedSongs(collectionID uint) ([]model.Song, error) {
 	return songs, nil
 }
 
-func saveSongToManualCollection(collectionID uint, song model.Song) (bool, error) {
+func saveSongToManualCollection(collectionID uint, song model.Track) (bool, error) {
 	songID := strings.TrimSpace(song.ID)
 	source := strings.TrimSpace(song.Source)
 	if songID == "" || source == "" {
@@ -485,7 +485,7 @@ func saveSongToManualCollection(collectionID uint, song model.Song) (bool, error
 	return result.RowsAffected > 0, nil
 }
 
-func saveSongsToManualCollection(collectionID uint, songs []model.Song) (int, error) {
+func saveSongsToManualCollection(collectionID uint, songs []model.Track) (int, error) {
 	added := 0
 	for _, song := range songs {
 		ok, err := saveSongToManualCollection(collectionID, song)
@@ -499,7 +499,7 @@ func saveSongsToManualCollection(collectionID uint, songs []model.Song) (int, er
 	return added, nil
 }
 
-func loadImportedCollectionSongs(collection *Collection) ([]model.Song, error) {
+func loadImportedCollectionSongs(collection *Collection) ([]model.Track, error) {
 	if collection == nil || !collection.isImported() {
 		return nil, fmt.Errorf("collection is not imported")
 	}
@@ -549,7 +549,7 @@ func loadImportedCollectionSongs(collection *Collection) ([]model.Song, error) {
 	return nil, fmt.Errorf("failed to fetch imported %s songs", contentType)
 }
 
-func ensureSongSource(songs []model.Song, source string) []model.Song {
+func ensureSongSource(songs []model.Track, source string) []model.Track {
 	for i := range songs {
 		if strings.TrimSpace(songs[i].Source) == "" {
 			songs[i].Source = source
@@ -806,10 +806,10 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 	}
 
 	resp := make([]gin.H, 0, len(savedSongs))
-	warmSongs := make([]model.Song, 0, len(savedSongs))
+	warmSongs := make([]model.Track, 0, len(savedSongs))
 	for _, s := range savedSongs {
 		extraMap := hydrateSavedSongAlbumMetadata(&s, decodeSongExtraMap(s.Extra))
-		warmSongs = append(warmSongs, model.Song{
+		warmSongs = append(warmSongs, model.Track{
 			ID:       s.SongID,
 			Source:   s.Source,
 			Duration: s.Duration,
@@ -1062,7 +1062,7 @@ func RegisterCollectionRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		_, err = saveSongToManualCollection(collection.ID, model.Song{
+		_, err = saveSongToManualCollection(collection.ID, model.Track{
 			ID:       req.SongID,
 			Source:   req.Source,
 			Name:     req.Name,

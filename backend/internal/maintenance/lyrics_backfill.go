@@ -47,7 +47,7 @@ type LyricsBackfillOptions struct {
 	Limit             int
 	Delay             time.Duration
 	Output            io.Writer
-	FetchLyric        func(source string, song *model.Song) (string, *model.Song, error)
+	FetchLyric        func(source string, song *model.Track) (string, *model.Track, error)
 	ReadEmbeddedLyric func(audioPath string) (string, error)
 	ReadDuration      func(audioPath string) (int, error)
 }
@@ -77,7 +77,7 @@ type candidateResult struct {
 	status      string
 	detail      string
 	fetched     bool
-	matchedSong *model.Song
+	matchedSong *model.Track
 }
 
 func BackfillLyrics(ctx context.Context, db *gorm.DB, options LyricsBackfillOptions) (LyricsBackfillSummary, error) {
@@ -317,7 +317,7 @@ func fetchAndStoreLyric(audioPath string, record downloadRecord, options LyricsB
 	if durationErr != nil {
 		fmt.Fprintf(options.Output, "WARN duration rel=%q error=%q\n", record.RelPath, durationErr.Error())
 	}
-	song := &model.Song{ID: record.SongID, Source: record.Source, Name: record.Name, Artist: record.Artist, Duration: duration}
+	song := &model.Track{ID: record.SongID, Source: record.Source, Name: record.Name, Artist: record.Artist, Duration: duration}
 	lyrics, matchedSong, err := options.FetchLyric(record.Source, song)
 	if errors.Is(err, errUnsupportedSource) {
 		return candidateResult{status: "unsupported", detail: err.Error(), fetched: true}
@@ -335,7 +335,7 @@ func fetchAndStoreLyric(audioPath string, record downloadRecord, options LyricsB
 	return writeFetchedSidecar(audioPath, lyrics, timedLines, matchedSong)
 }
 
-func fetchLyricFromSource(source string, song *model.Song) (string, *model.Song, error) {
+func fetchLyricFromSource(source string, song *model.Track) (string, *model.Track, error) {
 	fetch := core.GetLyricFunc(source)
 	if fetch == nil {
 		return "", nil, fmt.Errorf("%w: %s", errUnsupportedSource, source)
@@ -411,7 +411,7 @@ func normalizeUsableLyrics(raw string) (string, int, bool) {
 	return lyrics + "\n", timedLines, true
 }
 
-func writeFetchedSidecar(audioPath, lyrics string, timedLines int, matchedSong *model.Song) candidateResult {
+func writeFetchedSidecar(audioPath, lyrics string, timedLines int, matchedSong *model.Track) candidateResult {
 	sidecarPath := strings.TrimSuffix(audioPath, filepath.Ext(audioPath)) + ".lrc"
 	file, err := os.OpenFile(sidecarPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if os.IsExist(err) {

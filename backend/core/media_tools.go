@@ -13,33 +13,38 @@ const (
 	ffprobeEnvName = "MUSIC_DL_FFPROBE"
 )
 
+type mediaToolSpec struct {
+	environment string
+	executable  string
+}
+
 func ResolveFFmpegPath() (string, error) {
-	return resolveMediaToolPath(ffmpegEnvName, "ffmpeg")
+	return locateMediaTool(mediaToolSpec{environment: ffmpegEnvName, executable: "ffmpeg"})
 }
 
 func ResolveFFprobePath() (string, error) {
-	return resolveMediaToolPath(ffprobeEnvName, "ffprobe")
+	return locateMediaTool(mediaToolSpec{environment: ffprobeEnvName, executable: "ffprobe"})
 }
 
-func resolveMediaToolPath(envName, toolName string) (string, error) {
-	configured := strings.TrimSpace(os.Getenv(envName))
-	if configured != "" {
-		return validateConfiguredMediaTool(envName, configured)
+func locateMediaTool(spec mediaToolSpec) (string, error) {
+	configured := strings.TrimSpace(os.Getenv(spec.environment))
+	if configured == "" {
+		return exec.LookPath(spec.executable)
 	}
-	return exec.LookPath(toolName)
-}
-
-func validateConfiguredMediaTool(envName, path string) (string, error) {
-	if !filepath.IsAbs(path) {
-		return exec.LookPath(path)
+	if !filepath.IsAbs(configured) {
+		resolved, err := exec.LookPath(configured)
+		if err != nil {
+			return "", fmt.Errorf("resolve %s=%q: %w", spec.environment, configured, err)
+		}
+		return resolved, nil
 	}
 
-	info, err := os.Stat(path)
+	info, err := os.Stat(configured)
 	if err != nil {
-		return "", fmt.Errorf("%s points to %q: %w", envName, path, err)
+		return "", fmt.Errorf("inspect %s=%q: %w", spec.environment, configured, err)
 	}
-	if info.IsDir() {
-		return "", fmt.Errorf("%s points to a directory: %q", envName, path)
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s must point to a regular file: %q", spec.environment, configured)
 	}
-	return path, nil
+	return configured, nil
 }

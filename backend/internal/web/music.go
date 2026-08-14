@@ -64,7 +64,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		}
 
 		duration, _ := strconv.Atoi(durStr)
-		result := inspectSongQualityCached(model.Song{ID: id, Source: src, Duration: duration, Extra: extra}, duration)
+		result := inspectSongQualityCached(model.Track{ID: id, Source: src, Duration: duration, Extra: extra}, duration)
 		c.JSON(200, qualityResultPayload(result))
 	})
 
@@ -140,7 +140,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 		}
 
 		settings := core.GetWebSettings()
-		tempSong := &model.Song{ID: id, Source: source, Name: name, Artist: artist, Album: album, Duration: duration, Cover: coverURL, Extra: extra}
+		tempSong := &model.Track{ID: id, Source: source, Name: name, Artist: artist, Album: album, Duration: duration, Cover: coverURL, Extra: extra}
 
 		// Web 播放本地优先:只要当前用户的“服务器”状态能命中真实文件,
 		// 就直接从 NAS 发流,不再依赖可能已失效的 QQ/网易/酷我等在线地址。
@@ -560,9 +560,9 @@ func saveWebAssetToLocal(filename string, data []byte) (string, string, error) {
 	return savedPath, savedFilename, nil
 }
 
-func lyricSongFromQuery(c *gin.Context) *model.Song {
+func lyricSongFromQuery(c *gin.Context) *model.Track {
 	duration, _ := strconv.Atoi(strings.TrimSpace(c.Query("duration")))
-	return &model.Song{
+	return &model.Track{
 		ID:       strings.TrimSpace(c.Query("id")),
 		Source:   strings.TrimSpace(c.Query("source")),
 		Name:     strings.TrimSpace(c.Query("name")),
@@ -574,7 +574,7 @@ func lyricSongFromQuery(c *gin.Context) *model.Song {
 }
 
 type switchCandidate struct {
-	song    model.Song
+	song    model.Track
 	score   float64
 	durDiff int
 }
@@ -585,7 +585,7 @@ type switchSearchResult struct {
 }
 
 var (
-	switchSearchFuncProvider = func(source string) func(string) ([]model.Song, error) {
+	switchSearchFuncProvider = func(source string) func(string) ([]model.Track, error) {
 		return core.GetSearchFunc(source)
 	}
 	switchValidatePlayable   = core.ValidatePlayable
@@ -601,7 +601,7 @@ const (
 	switchParallelValidationParallel = 6
 )
 
-func findBestSwitchSong(name string, artist string, current string, target string, origDuration int) (*model.Song, float64, error) {
+func findBestSwitchSong(name string, artist string, current string, target string, origDuration int) (*model.Track, float64, error) {
 	name = strings.TrimSpace(name)
 	artist = strings.TrimSpace(artist)
 	current = strings.TrimSpace(current)
@@ -627,7 +627,7 @@ func findBestSwitchSong(name string, artist string, current string, target strin
 
 	for _, src := range sources {
 		wg.Add(1)
-		go func(s string, f func(string) ([]model.Song, error)) {
+		go func(s string, f func(string) ([]model.Track, error)) {
 			defer wg.Done()
 			sourceCandidates := searchSwitchSourceCandidates(s, f, keyword, name, artist, origDuration)
 			if len(sourceCandidates) == 0 {
@@ -708,13 +708,13 @@ func isSwitchSourceAllowed(source string, current string) bool {
 	return true
 }
 
-func searchSwitchSourceCandidates(source string, fn func(string) ([]model.Song, error), keyword string, name string, artist string, origDuration int) []switchCandidate {
+func searchSwitchSourceCandidates(source string, fn func(string) ([]model.Track, error), keyword string, name string, artist string, origDuration int) []switchCandidate {
 	type searchResponse struct {
-		songs []model.Song
+		songs []model.Track
 		err   error
 	}
 
-	callSearch := func(query string) ([]model.Song, error) {
+	callSearch := func(query string) ([]model.Track, error) {
 		done := make(chan searchResponse, 1)
 		go func() {
 			res, err := fn(query)
@@ -783,7 +783,7 @@ func isHighConfidenceSwitchCandidate(candidate switchCandidate, origDuration int
 	return true
 }
 
-func validateSwitchCandidates(candidates []switchCandidate) (*model.Song, float64, bool) {
+func validateSwitchCandidates(candidates []switchCandidate) (*model.Track, float64, bool) {
 	limit := len(candidates)
 	if limit > switchParallelValidationLimit {
 		limit = switchParallelValidationLimit

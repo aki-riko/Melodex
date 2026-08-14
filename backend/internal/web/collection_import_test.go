@@ -191,15 +191,15 @@ func TestImportCollectionEndpointMergesIntoManualCollection(t *testing.T) {
 	}
 
 	origPlaylistDetail := playlistDetailFuncProvider
-	playlistDetailFuncProvider = func(source string) func(string) ([]model.Song, error) {
+	playlistDetailFuncProvider = func(source string) func(string) ([]model.Track, error) {
 		if source != "qq" {
 			t.Fatalf("playlist detail source = %q, want qq", source)
 		}
-		return func(id string) ([]model.Song, error) {
+		return func(id string) ([]model.Track, error) {
 			if id != "playlist-merge" {
 				t.Fatalf("playlist detail id = %q, want playlist-merge", id)
 			}
-			return []model.Song{
+			return []model.Track{
 				{ID: "song-1", Source: "qq", Name: "Existing Song", Artist: "Artist A"},
 				{ID: "song-2", Name: "New Song", Artist: "Artist B", Album: "Album B", AlbumID: "album-b"},
 			}, nil
@@ -340,7 +340,7 @@ func TestManualCollectionSongsBackfillAlbumFromSearchCache(t *testing.T) {
 		t.Fatalf("create saved song: %v", err)
 	}
 	payload, err := json.Marshal(jsonSearchResponse{
-		Songs: []model.Song{{
+		Songs: []model.Track{{
 			ID:      "song-1",
 			Source:  "qq",
 			Name:    "Song One",
@@ -392,15 +392,15 @@ func TestImportedCollectionSongsEndpointUsesLiveFetchAndBlocksMutations(t *testi
 	}
 
 	origPlaylistDetail := playlistDetailFuncProvider
-	playlistDetailFuncProvider = func(source string) func(string) ([]model.Song, error) {
+	playlistDetailFuncProvider = func(source string) func(string) ([]model.Track, error) {
 		if source != "qq" {
 			t.Fatalf("playlist detail source = %q, want qq", source)
 		}
-		return func(id string) ([]model.Song, error) {
+		return func(id string) ([]model.Track, error) {
 			if id != "playlist-1" {
 				t.Fatalf("playlist detail id = %q, want playlist-1", id)
 			}
-			return []model.Song{
+			return []model.Track{
 				{ID: "song-1", Source: "qq", Name: "Song One", Artist: "Artist A"},
 				{ID: "song-2", Source: "qq", Name: "Song Two", Artist: "Artist B"},
 			}, nil
@@ -499,18 +499,18 @@ func TestManualCollectionSongsEndpointSupportsBatchDelete(t *testing.T) {
 func TestLoadImportedCollectionSongsFallsBackToParse(t *testing.T) {
 	origPlaylistDetail := playlistDetailFuncProvider
 	origParsePlaylist := parsePlaylistFuncProvider
-	playlistDetailFuncProvider = func(string) func(string) ([]model.Song, error) {
+	playlistDetailFuncProvider = func(string) func(string) ([]model.Track, error) {
 		return nil
 	}
-	parsePlaylistFuncProvider = func(source string) func(string) (*model.Playlist, []model.Song, error) {
+	parsePlaylistFuncProvider = func(source string) func(string) (*model.RemoteCollection, []model.Track, error) {
 		if source != "qq" {
 			t.Fatalf("parse playlist source = %q, want qq", source)
 		}
-		return func(link string) (*model.Playlist, []model.Song, error) {
+		return func(link string) (*model.RemoteCollection, []model.Track, error) {
 			if link != "https://example.com/playlist/1" {
 				t.Fatalf("parse playlist link = %q, want https://example.com/playlist/1", link)
 			}
-			return &model.Playlist{ID: "playlist-1"}, []model.Song{
+			return &model.RemoteCollection{ID: "playlist-1"}, []model.Track{
 				{ID: "song-parse", Name: "Parsed Song", Artist: "Parser"},
 			}, nil
 		}

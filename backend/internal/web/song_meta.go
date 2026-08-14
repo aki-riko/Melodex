@@ -8,98 +8,95 @@ import (
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
-var artistKeywordSeparatorPattern = regexp.MustCompile(`(?i)\s+(?:feat(?:uring)?\.?|ft\.?|with|x)\s+`)
-
-var commonArtistSeparatorReplacer = strings.NewReplacer(
-	"\u3001", "|",
-	",", "|",
-	"\uFF0C", "|",
-	";", "|",
-	"\uFF1B", "|",
-	"|", "|",
+var (
+	artistJoinWordPattern = regexp.MustCompile(`(?i)\s+(?:feat(?:uring)?\.?|ft\.?|with|x)\s+`)
+	spacedArtistJoiner    = regexp.MustCompile("\\s+(?:/|\uFF0F|&|\uFF06)\\s+")
 )
-
-var eastAsianArtistSeparatorReplacer = strings.NewReplacer(
-	"/", "|",
-	"\uFF0F", "|",
-	"&", "|",
-	"\uFF06", "|",
-)
-
-var spacedArtistSeparatorPattern = regexp.MustCompile("\\s+(?:/|\uFF0F|&|\uFF06)\\s+")
 
 func normalizeArtistToken(artist string) string {
-	artist = strings.TrimSpace(strings.ToLower(artist))
-	if artist == "" {
-		return ""
-	}
-	return strings.Join(strings.Fields(artist), " ")
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(artist))), " ")
 }
 
-func containsEastAsianRune(s string) bool {
-	for _, r := range s {
-		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
+func containsEastAsianRune(value string) bool {
+	for _, character := range value {
+		if unicode.In(character, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
 			return true
 		}
 	}
 	return false
 }
 
+func isCommonArtistSeparator(character rune) bool {
+	switch character {
+	case '\u3001', ',', '\uFF0C', ';', '\uFF1B', '|':
+		return true
+	default:
+		return false
+	}
+}
+
 func trimArtistToken(value string) string {
-	value = strings.TrimSpace(value)
-	value = strings.Trim(value, "-_/\u00B7\u2022|\\,\uFF0C\u3001;\uFF1B&\uFF06")
-	return strings.TrimSpace(value)
+	const edgeSeparators = "-_ /\uFF0F\u00B7\u2022|\\,\uFF0C\u3001;\uFF1B&\uFF06"
+	return strings.TrimFunc(value, func(character rune) bool {
+		return unicode.IsSpace(character) || strings.ContainsRune(edgeSeparators, character)
+	})
 }
 
 func splitArtistTokens(artist string) []string {
-	artist = strings.TrimSpace(artist)
-	if artist == "" {
+	original := strings.TrimSpace(artist)
+	if original == "" {
 		return []string{}
 	}
 
-	normalized := artistKeywordSeparatorPattern.ReplaceAllString(artist, "|")
-	normalized = commonArtistSeparatorReplacer.Replace(normalized)
-	if containsEastAsianRune(artist) {
-		normalized = eastAsianArtistSeparatorReplacer.Replace(normalized)
-	} else {
-		normalized = spacedArtistSeparatorPattern.ReplaceAllString(normalized, "|")
+	segmented := artistJoinWordPattern.ReplaceAllString(original, "|")
+	eastAsian := containsEastAsianRune(original)
+	var builder strings.Builder
+	for _, character := range segmented {
+		separator := isCommonArtistSeparator(character)
+		if eastAsian && (character == '/' || character == '\uFF0F' || character == '&' || character == '\uFF06') {
+			separator = true
+		}
+		if separator {
+			builder.WriteByte('|')
+		} else {
+			builder.WriteRune(character)
+		}
+	}
+	segmented = builder.String()
+	if !eastAsian {
+		segmented = spacedArtistJoiner.ReplaceAllString(segmented, "|")
 	}
 
-	parts := strings.Split(normalized, "|")
-	tokens := make([]string, 0, len(parts))
-	seen := make(map[string]struct{}, len(parts))
-	for _, part := range parts {
-		part = trimArtistToken(part)
-		if part == "" {
+	seen := make(map[string]struct{})
+	artists := make([]string, 0)
+	for _, candidate := range strings.Split(segmented, "|") {
+		candidate = trimArtistToken(candidate)
+		canonical := normalizeArtistToken(candidate)
+		if canonical == "" {
 			continue
 		}
-		key := normalizeArtistToken(part)
-		if key == "" {
+		if _, duplicate := seen[canonical]; duplicate {
 			continue
 		}
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		tokens = append(tokens, part)
+		seen[canonical] = struct{}{}
+		artists = append(artists, candidate)
 	}
-
-	if len(tokens) == 0 {
-		return []string{artist}
+	if len(artists) == 0 {
+		return []string{original}
 	}
-	return tokens
+	return artists
 }
 
-func filterSongsByExactArtist(songs []model.Song, exactArtist string) []model.Song {
-	exactArtist = normalizeArtistToken(exactArtist)
-	if exactArtist == "" {
+func filterSongsByExactArtist(songs []model.Track, exactArtist string) []model.Track {
+	target := normalizeArtistToken(exactArtist)
+	if target == "" {
 		return songs
 	}
 
-	filtered := make([]model.Song, 0, len(songs))
+	filtered := make([]model.Track, 0, len(songs))
 	for _, song := range songs {
 		for _, artist := range splitArtistTokens(song.Artist) {
-			if normalizeArtistToken(artist) == exactArtist {
+			if normalizeArtistToken(artist) == target {
 				filtered = append(filtered, song)
 				break
 			}
@@ -108,12 +105,9 @@ func filterSongsByExactArtist(songs []model.Song, exactArtist string) []model.So
 	return filtered
 }
 
-func songAlbumID(song model.Song) string {
-	if id := strings.TrimSpace(song.AlbumID); id != "" {
-		return id
-	}
-	if song.Extra == nil {
-		return ""
+func songAlbumID(song model.Track) string {
+	if explicit := strings.TrimSpace(song.AlbumID); explicit != "" {
+		return explicit
 	}
 	return extraMapAlbumID(song.Extra)
 }

@@ -16,9 +16,9 @@ const searchSuggestionMaxLimit = 60
 const searchSuggestionCacheScanRows = 240
 
 type jsonSearchSuggestionsResponse struct {
-	Keywords []string     `json:"keywords"`
-	Songs    []model.Song `json:"songs"`
-	Error    string       `json:"error,omitempty"`
+	Keywords []string      `json:"keywords"`
+	Songs    []model.Track `json:"songs"`
+	Error    string        `json:"error,omitempty"`
 }
 
 func jsonSearchSuggestionsHandler(c *gin.Context) {
@@ -26,7 +26,7 @@ func jsonSearchSuggestionsHandler(c *gin.Context) {
 	limit := parseSearchSuggestionLimit(c.Query("limit"))
 	resp := jsonSearchSuggestionsResponse{
 		Keywords: []string{},
-		Songs:    []model.Song{},
+		Songs:    []model.Track{},
 	}
 	if query == "" || len([]rune(compactSuggestionText(query))) < 2 {
 		c.JSON(http.StatusOK, resp)
@@ -82,9 +82,9 @@ func suggestSearchHistoryKeywords(userID uint, query string, limit int) []string
 	return out
 }
 
-func suggestSearchCacheSongs(query string, limit int) []model.Song {
+func suggestSearchCacheSongs(query string, limit int) []model.Track {
 	if db == nil || limit <= 0 {
-		return []model.Song{}
+		return []model.Track{}
 	}
 	var rows []searchCacheRow
 	like := "%" + strings.ToLower(strings.TrimSpace(query)) + "%"
@@ -92,10 +92,10 @@ func suggestSearchCacheSongs(query string, limit int) []model.Song {
 		Order("created_at DESC").
 		Limit(searchSuggestionCacheScanRows).
 		Find(&rows).Error; err != nil {
-		return []model.Song{}
+		return []model.Track{}
 	}
 	q := compactSuggestionText(query)
-	out := make([]model.Song, 0, limit)
+	out := make([]model.Track, 0, limit)
 	seen := map[string]struct{}{}
 	for _, row := range rows {
 		var cached jsonSearchResponse
@@ -123,7 +123,7 @@ func suggestSearchCacheSongs(query string, limit int) []model.Song {
 	return out
 }
 
-func songMatchesSuggestion(song model.Song, compactQuery string) bool {
+func songMatchesSuggestion(song model.Track, compactQuery string) bool {
 	if compactQuery == "" {
 		return false
 	}
@@ -135,7 +135,7 @@ func songMatchesSuggestion(song model.Song, compactQuery string) bool {
 	return strings.Contains(haystack, compactQuery)
 }
 
-func searchSuggestionSongKey(song model.Song) string {
+func searchSuggestionSongKey(song model.Track) string {
 	source := strings.TrimSpace(song.Source)
 	id := strings.TrimSpace(song.ID)
 	if source != "" && id != "" {

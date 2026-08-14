@@ -254,7 +254,7 @@ func TestLocalMusicListIncludesEmbeddedCover(t *testing.T) {
 	coverBytes := []byte{0xff, 0xd8, 0xff, 0xd9}
 	embedded, err := core.EmbedSongMetadata(
 		[]byte{0xff, 0xfb, 0x90, 0x64, 0x00, 0x00, 0x00, 0x00},
-		&model.Song{Name: "Embedded Cover", Artist: "Local Artist", Album: "Local Album", Ext: "mp3"},
+		&model.Track{Name: "Embedded Cover", Artist: "Local Artist", Album: "Local Album", Ext: "mp3"},
 		"",
 		coverBytes,
 		"image/jpeg",

@@ -22,7 +22,7 @@ func TestSearchMapsProviderResponse(t *testing.T) {
 		if request.Source != "netease" || request.Keyword != "周杰伦 晴天" {
 			t.Fatalf("unexpected payload: %#v", request)
 		}
-		_ = json.NewEncoder(w).Encode(searchResponse{Songs: []model.Song{{
+		_ = json.NewEncoder(w).Encode(searchResponse{Songs: []model.Track{{
 			ID: "song-1", Source: "netease", Name: "晴天", Artist: "周杰伦",
 		}}})
 	}))
