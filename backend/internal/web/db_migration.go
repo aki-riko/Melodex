@@ -1,8 +1,6 @@
 package web
 
 import (
-	"os"
-
 	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -17,10 +15,8 @@ func migrateLegacySQLiteWebData() error {
 	if legacyPath == "" {
 		return nil
 	}
-	if _, err := os.Stat(legacyPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
+	exists, err := regularFileExists(legacyPath)
+	if err != nil || !exists {
 		return err
 	}
 

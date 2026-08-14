@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -80,7 +81,8 @@ func localMusicCoverRoute(c *gin.Context) {
 		return
 	}
 	data, mimeType, ext, err := readLocalMusicCover(track)
-	if err != nil || len(data) == 0 {
+	coverAvailable := err == nil && len(data) > 0
+	if !coverAvailable {
 		c.Status(http.StatusNotFound)
 		return
 	}
@@ -100,11 +102,7 @@ func uploadLocalMusicRoute(c *gin.Context) {
 	limitRequestBody(c, localMusicMaxUploadRequestBytes)
 	file, err := c.FormFile("file")
 	if err != nil {
-		if isRequestBodyTooLarge(err) {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "文件过大,单个上传上限 200MB"})
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要上传的音乐文件"})
+		writeUploadParseError(c, err)
 		return
 	}
 	if file.Size > localMusicMaxUploadBytes {
@@ -113,7 +111,7 @@ func uploadLocalMusicRoute(c *gin.Context) {
 	}
 	track, err := saveUploadedLocalMusic(file)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeLocalUploadFailure(c, err)
 		return
 	}
 	if err := recordDownload(
@@ -130,6 +128,18 @@ func uploadLocalMusicRoute(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "track": track})
 }
 
+func writeLocalUploadFailure(c *gin.Context, err error) {
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+}
+
+func writeUploadParseError(c *gin.Context, err error) {
+	if isRequestBodyTooLarge(err) {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "文件过大,单个上传上限 200MB"})
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要上传的音乐文件"})
+}
+
 func deleteLocalMusicRoute(c *gin.Context) {
 	if err := deleteLocalMusicTrackForUser(
 		c.Query("id"), currentUserID(c), currentUserIsAdmin(c),
@@ -142,11 +152,11 @@ func deleteLocalMusicRoute(c *gin.Context) {
 
 func addLocalMusicToCollectionRoute(c *gin.Context) {
 	collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
-	if err != nil {
+	if err != nil || collection == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "歌单不存在"})
 		return
 	}
-	if collection.isImported() {
+	if err := validateLocalCollectionTarget(collection); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "外部导入歌单/专辑不支持直接添加本地音乐"})
 		return
 	}
@@ -189,4 +199,14 @@ func addLocalMusicToCollectionRoute(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": "ok", "duplicate": result.RowsAffected == 0, "song": song,
 	})
+}
+
+func validateLocalCollectionTarget(collection *Collection) error {
+	if collection == nil {
+		return errors.New("missing collection")
+	}
+	if collection.isImported() {
+		return errors.New("imported collections are read-only")
+	}
+	return nil
 }

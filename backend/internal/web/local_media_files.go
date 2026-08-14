@@ -26,11 +26,7 @@ func saveUploadedLocalMusic(file *multipart.FileHeader) (*localMusicTrack, error
 	if err != nil {
 		return nil, err
 	}
-	dir := localMusicDownloadDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	root, err := filepath.Abs(dir)
+	root, err := prepareLocalUploadDirectory(localMusicDownloadDir())
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +66,13 @@ func saveUploadedLocalMusic(file *multipart.FileHeader) (*localMusicTrack, error
 	}
 	invalidateLocalMusicScanCache()
 	return track, nil
+}
+
+func prepareLocalUploadDirectory(directory string) (string, error) {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", fmt.Errorf("create local music directory: %w", err)
+	}
+	return filepath.Abs(directory)
 }
 
 func createUniqueLocalMusicFile(dir, filename string) (*os.File, string, error) {
@@ -119,23 +122,23 @@ func uniqueLocalMusicPath(dir, filename string) string {
 }
 
 type localProbeResult struct {
-	Duration int
-	Bitrate  int
-	Title    string
-	Artist   string
 	Album    string
+	Artist   string
+	Title    string
+	Bitrate  int
+	Duration int
 }
 
 type localProbePayload struct {
-	Format  localProbeStream   `json:"format"`
 	Streams []localProbeStream `json:"streams"`
+	Format  localProbeStream   `json:"format"`
 }
 
 type localProbeStream struct {
-	CodecType string            `json:"codec_type"`
-	Duration  string            `json:"duration"`
-	BitRate   string            `json:"bit_rate"`
 	Tags      map[string]string `json:"tags"`
+	BitRate   string            `json:"bit_rate"`
+	Duration  string            `json:"duration"`
+	CodecType string            `json:"codec_type"`
 }
 
 func probeLocalMusicTrack(track *localMusicTrack) (*localProbeResult, error) {
@@ -201,18 +204,22 @@ func applyLocalProbeResult(track *localMusicTrack, probe *localProbeResult) {
 		return
 	}
 	if track.Extra == nil {
-		track.Extra = make(map[string]string)
+		track.Extra = map[string]string{}
 	}
 	if probe.Duration > 0 {
 		track.Duration = probe.Duration
-		track.Extra["duration"] = strconv.Itoa(probe.Duration)
+		storeProbeNumber(track.Extra, "duration", probe.Duration)
 	}
 	setMissingMetadata(track, "title", strings.TrimSpace(probe.Title))
 	setMissingMetadata(track, "artist", strings.TrimSpace(probe.Artist))
 	setMissingMetadata(track, "album", strings.TrimSpace(probe.Album))
 	if probe.Bitrate > 0 {
-		track.Extra["bitrate"] = strconv.Itoa(probe.Bitrate)
+		storeProbeNumber(track.Extra, "bitrate", probe.Bitrate)
 	}
+}
+
+func storeProbeNumber(extra map[string]string, name string, value int) {
+	extra[name] = strconv.Itoa(value)
 }
 
 func secondsFromProbe(raw string) int {
@@ -273,24 +280,33 @@ func localMusicExactSidecarFile(audioPath string, extensions []string) (string, 
 	base := strings.TrimSuffix(audioPath, filepath.Ext(audioPath))
 	for _, ext := range extensions {
 		candidate := base + ext
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		if isRegularLocalAsset(candidate) {
 			return candidate, ext, true
 		}
 	}
 	return "", "", false
 }
 
+func isRegularLocalAsset(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func readLocalMusicPicture(audioPath string) (*tag.Picture, error) {
+	metadata, err := readLocalTag(audioPath)
+	if err != nil {
+		return nil, err
+	}
+	return metadata.Picture(), nil
+}
+
+func readLocalTag(audioPath string) (tag.Metadata, error) {
 	file, err := os.Open(audioPath)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
-	metadata, err := tag.ReadFrom(file)
-	if err != nil {
-		return nil, err
-	}
-	return metadata.Picture(), nil
+	return tag.ReadFrom(file)
 }
 
 func readLocalMusicLyrics(audioPath string) (string, error) {
@@ -305,79 +321,84 @@ func readLocalMusicLyrics(audioPath string) (string, error) {
 			return lyrics, nil
 		}
 	}
-	sidecar, _, ok := localMusicSidecarFile(audioPath, localMusicLyricExts)
-	if !ok {
+	return readSidecarLocalLyrics(audioPath)
+}
+
+func readSidecarLocalLyrics(audioPath string) (string, error) {
+	path, _, found := localMusicSidecarFile(audioPath, localMusicLyricExts)
+	if !found {
 		return "", errors.New("local lyric not found")
 	}
-	data, err := os.ReadFile(sidecar)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read local lyric: %w", err)
 	}
-	lyrics := strings.TrimSpace(string(data))
-	if lyrics == "" {
-		return "", errors.New("local lyric is empty")
+	if lyrics := strings.TrimSpace(string(data)); lyrics != "" {
+		return lyrics, nil
 	}
-	return lyrics, nil
+	return "", errors.New("local lyric is empty")
 }
 
 func readLocalMusicCover(track *localMusicTrack) ([]byte, string, string, error) {
 	if track == nil {
 		return nil, "", "", errors.New("empty local music track")
 	}
-	if picture, err := readLocalMusicPicture(track.absPath); err == nil && picture != nil && len(picture.Data) > 0 {
-		mimeType := strings.TrimSpace(picture.MIMEType)
-		if mimeType == "" {
-			mimeType = http.DetectContentType(picture.Data)
-		}
-		if !strings.HasPrefix(mimeType, "image/") {
-			mimeType = "image/jpeg"
-		}
-		return picture.Data, mimeType, imageExtByMime(mimeType), nil
+	if data, mimeType, ext, ok := embeddedLocalCover(track.absPath); ok {
+		return data, mimeType, ext, nil
 	}
-	sidecar, ext, ok := localMusicSidecarFile(track.absPath, localMusicCoverExts)
-	if !ok {
+	return readSidecarLocalCover(track.absPath)
+}
+
+func readSidecarLocalCover(audioPath string) ([]byte, string, string, error) {
+	path, ext, found := localMusicSidecarFile(audioPath, localMusicCoverExts)
+	if !found {
 		return nil, "", "", errors.New("local cover not found")
 	}
-	data, err := os.ReadFile(sidecar)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", fmt.Errorf("read local cover: %w", err)
 	}
 	return data, localImageMimeByExt(ext), ext, nil
 }
 
-func localImageMimeByExt(ext string) string {
-	switch strings.ToLower(ext) {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".webp":
-		return "image/webp"
-	case ".bmp":
-		return "image/bmp"
-	case ".gif":
-		return "image/gif"
-	default:
-		if detected := mime.TypeByExtension(ext); strings.HasPrefix(detected, "image/") {
-			return detected
-		}
-		return "image/jpeg"
+func embeddedLocalCover(audioPath string) ([]byte, string, string, bool) {
+	picture, err := readLocalMusicPicture(audioPath)
+	if err != nil || picture == nil || len(picture.Data) == 0 {
+		return nil, "", "", false
 	}
+	mimeType := strings.TrimSpace(picture.MIMEType)
+	if mimeType == "" {
+		mimeType = http.DetectContentType(picture.Data)
+	}
+	if !strings.HasPrefix(mimeType, "image/") {
+		mimeType = "image/jpeg"
+	}
+	return picture.Data, mimeType, imageExtByMime(mimeType), true
+}
+
+func localImageMimeByExt(ext string) string {
+	known := map[string]string{
+		".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+		".webp": "image/webp", ".bmp": "image/bmp", ".gif": "image/gif",
+	}
+	if value := known[strings.ToLower(ext)]; value != "" {
+		return value
+	}
+	if detected := mime.TypeByExtension(ext); strings.HasPrefix(detected, "image/") {
+		return detected
+	}
+	return "image/jpeg"
 }
 
 func imageExtByMime(mimeType string) string {
-	switch strings.ToLower(strings.TrimSpace(mimeType)) {
-	case "image/png":
-		return ".png"
-	case "image/webp":
-		return ".webp"
-	case "image/bmp", "image/x-ms-bmp":
-		return ".bmp"
-	case "image/gif":
-		return ".gif"
-	default:
-		return ".jpg"
+	extensions := map[string]string{
+		"image/png": ".png", "image/webp": ".webp", "image/bmp": ".bmp",
+		"image/x-ms-bmp": ".bmp", "image/gif": ".gif",
 	}
+	if ext := extensions[strings.ToLower(strings.TrimSpace(mimeType))]; ext != "" {
+		return ext
+	}
+	return ".jpg"
 }
 
 func localMusicCoverFilename(track *localMusicTrack, ext string) string {
@@ -392,14 +413,8 @@ func localMusicLyricFilename(track *localMusicTrack) string {
 }
 
 func localAssetFilename(track *localMusicTrack, ext string) string {
-	name := strings.TrimSpace(track.Name)
-	if name == "" {
-		name = strings.TrimSuffix(track.Filename, filepath.Ext(track.Filename))
-	}
-	artist := strings.TrimSpace(track.Artist)
-	if artist == "" {
-		artist = "Unknown"
-	}
+	name := firstNonEmpty(strings.TrimSpace(track.Name), strings.TrimSuffix(track.Filename, filepath.Ext(track.Filename)))
+	artist := firstNonEmpty(strings.TrimSpace(track.Artist), "Unknown")
 	return fileutil.SanitizeFilename(fmt.Sprintf("%s - %s%s", name, artist, ext))
 }
 
@@ -423,14 +438,19 @@ func serveLocalMusicLyric(c *gin.Context, song *model.Track, download bool, save
 		writeMissingLocalLyric(c, download)
 		return
 	}
-	lyrics = formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
+	formatted := formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
+	writeLocalLyricResponse(c, track, formatted, download, len(saveLocal) > 0 && saveLocal[0])
+}
+
+func writeLocalLyricResponse(c *gin.Context, track *localMusicTrack, lyrics string, download, saveLocal bool) {
 	c.Header("X-Lyric-Format", classifyLyricFormat(lyrics))
+	filename := localMusicLyricFilename(track)
+	if download && saveLocal {
+		saveWebAssetResponse(c, filename, []byte(lyrics))
+		return
+	}
 	if download {
-		if len(saveLocal) > 0 && saveLocal[0] {
-			saveWebAssetResponse(c, localMusicLyricFilename(track), []byte(lyrics))
-			return
-		}
-		setDownloadHeader(c, localMusicLyricFilename(track))
+		setDownloadHeader(c, filename)
 	}
 	c.String(http.StatusOK, lyrics)
 }
@@ -540,28 +560,28 @@ func deleteLocalMusicTrackForUser(id string, userID uint, admin bool) error {
 		return nil
 	}
 
-	stillReferenced, err := deleteDownloadRecordForUser(userID, rel)
-	if err != nil {
+	if err := removeUserOwnedLocalFile(track, userID, rel); err != nil {
 		return err
-	}
-	if !stillReferenced {
-		if err := os.Remove(track.absPath); err != nil {
-			// Restore visibility when physical deletion fails after ownership removal.
-			_ = recordDownload(userID, rel, localMusicSource, track.ID, track.Name, track.Artist)
-			return err
-		}
 	}
 	invalidateLocalMusicScanCache()
 	return nil
 }
 
-func serveLocalMusicDownload(c *gin.Context, id string, saveLocal bool) {
-	track, err := localMusicTrackByID(id)
-	if err != nil {
-		c.String(http.StatusNotFound, "Local music not found")
-		return
+func removeUserOwnedLocalFile(track *localMusicTrack, userID uint, rel string) error {
+	shared, err := deleteDownloadRecordForUser(userID, rel)
+	if err != nil || shared {
+		return err
 	}
-	allowed, err := localMusicReadAllowed(c, track)
+	if err := os.Remove(track.absPath); err == nil {
+		return nil
+	} else {
+		_ = recordDownload(userID, rel, localMusicSource, track.ID, track.Name, track.Artist)
+		return err
+	}
+}
+
+func serveLocalMusicDownload(c *gin.Context, id string, saveLocal bool) {
+	track, allowed, err := resolveLocalMusicRead(c, id)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "ownership check failed")
 		return
@@ -576,16 +596,25 @@ func serveLocalMusicDownload(c *gin.Context, id string, saveLocal bool) {
 		})
 		return
 	}
-	file, err := os.Open(track.absPath)
+	media, err := os.Open(track.absPath)
 	if err != nil {
 		c.String(http.StatusNotFound, "Local music not found")
 		return
 	}
-	defer file.Close()
+	defer media.Close()
 	c.Header("Content-Type", localAudioMimeByExt(track.Ext))
 	setDownloadHeader(c, track.Filename)
 	clearWriteDeadline(c)
-	http.ServeContent(c.Writer, c.Request, track.Filename, track.modTime, file)
+	http.ServeContent(c.Writer, c.Request, track.Filename, track.modTime, media)
+}
+
+func resolveLocalMusicRead(c *gin.Context, id string) (*localMusicTrack, bool, error) {
+	track, err := localMusicTrackByID(id)
+	if err != nil {
+		return nil, false, nil
+	}
+	allowed, err := localMusicReadAllowed(c, track)
+	return track, allowed, err
 }
 
 func localMusicReadAllowed(c *gin.Context, track *localMusicTrack) (bool, error) {
@@ -604,12 +633,9 @@ func localMusicReadAllowed(c *gin.Context, track *localMusicTrack) (bool, error)
 }
 
 func localAudioMimeByExt(ext string) string {
-	switch strings.ToLower(strings.TrimPrefix(ext, ".")) {
-	case "aac":
-		return "audio/aac"
-	case "wav":
-		return "audio/wav"
-	default:
-		return core.AudioMimeByExt(ext)
+	overrides := map[string]string{"aac": "audio/aac", "wav": "audio/wav"}
+	if value := overrides[strings.ToLower(strings.TrimPrefix(ext, "."))]; value != "" {
+		return value
 	}
+	return core.AudioMimeByExt(ext)
 }

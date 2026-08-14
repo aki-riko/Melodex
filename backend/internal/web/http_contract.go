@@ -43,16 +43,15 @@ func isLegacyWebPagePath(requestPath string) bool {
 }
 
 func defaultSourcesForSearchType(searchType string) []string {
-	switch searchType {
-	case "playlist":
-		return core.GetPlaylistSourceNames()
-	case "album":
-		return core.GetAlbumSourceNames()
-	case "lyric":
-		return core.GetLyricSearchSourceNames()
-	default:
-		return core.GetDefaultSourceNames()
+	providers := map[string]func() []string{
+		"playlist": core.GetPlaylistSourceNames,
+		"album":    core.GetAlbumSourceNames,
+		"lyric":    core.GetLyricSearchSourceNames,
 	}
+	if provider := providers[strings.TrimSpace(searchType)]; provider != nil {
+		return provider()
+	}
+	return core.GetDefaultSourceNames()
 }
 
 func corsAllowedOrigins() map[string]bool {
@@ -117,18 +116,22 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 }
 
 func setDownloadHeader(c *gin.Context, filename string) {
-	filename = strings.ReplaceAll(strings.TrimSpace(filename), "\\", "/")
-	if slash := strings.LastIndex(filename, "/"); slash >= 0 {
-		filename = strings.TrimSpace(filename[slash+1:])
-	}
-	if filename == "" {
-		filename = "download"
-	}
+	filename = cleanDownloadFilename(filename)
 	fallback := asciiDownloadFilenameFallback(filename)
 	c.Header("Content-Disposition", fmt.Sprintf(
 		"attachment; filename=\"%s\"; filename*=UTF-8''%s",
 		fallback, url.PathEscape(filename),
 	))
+}
+
+func cleanDownloadFilename(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	segments := strings.Split(value, "/")
+	filename := strings.TrimSpace(segments[len(segments)-1])
+	if filename == "" {
+		return "download"
+	}
+	return filename
 }
 
 func asciiDownloadFilenameFallback(filename string) string {

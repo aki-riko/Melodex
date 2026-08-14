@@ -48,21 +48,24 @@ func splitArtistTokens(value string) []string {
 	result := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
-		part = trimArtistToken(part)
-		key := normalizeArtistToken(part)
-		if key == "" {
-			continue
-		}
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, part)
+		appendArtistToken(&result, seen, trimArtistToken(part))
 	}
 	if len(result) == 0 {
 		return []string{value}
 	}
 	return result
+}
+
+func appendArtistToken(result *[]string, seen map[string]struct{}, value string) {
+	key := normalizeArtistToken(value)
+	if key == "" {
+		return
+	}
+	if _, duplicate := seen[key]; duplicate {
+		return
+	}
+	seen[key] = struct{}{}
+	*result = append(*result, value)
 }
 
 func trimArtistToken(value string) string {

@@ -13,14 +13,14 @@ import (
 )
 
 type DownloadedSong struct {
+	RemovedPaths []string
 	Data         []byte
 	Ext          string
-	ContentType  string
-	Filename     string
-	SavedPath    string
-	Warning      string
 	Skipped      bool
-	RemovedPaths []string
+	ContentType  string
+	SavedPath    string
+	Filename     string
+	Warning      string
 }
 
 type downloadEnrichment struct {

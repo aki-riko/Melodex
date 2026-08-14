@@ -21,20 +21,18 @@ type switchSearchResult struct {
 	candidates []switchCandidate
 }
 
-var (
-	switchSearchFuncProvider = func(source string) func(string) ([]model.Track, error) { return core.GetSearchFunc(source) }
-	switchValidatePlayable   = core.ValidatePlayable
-	switchAllSourceNames     = core.GetAllSourceNames
-	switchDefaultSourceNames = core.GetDefaultSourceNames
-)
+var switchSearchFuncProvider = func(source string) func(string) ([]model.Track, error) {
+	return core.GetSearchFunc(source)
+}
+var switchValidatePlayable = core.ValidatePlayable
+var switchAllSourceNames = core.GetAllSourceNames
+var switchDefaultSourceNames = core.GetDefaultSourceNames
 
-const (
-	switchMaxCandidatesPerSource     = 8
-	switchSourceSearchTimeout        = 6 * time.Second
-	switchHighConfidenceScore        = 0.98
-	switchParallelValidationLimit    = 12
-	switchParallelValidationParallel = 6
-)
+const switchMaxCandidatesPerSource = 8
+const switchSourceSearchTimeout = 6 * time.Second
+const switchHighConfidenceScore = 0.98
+const switchParallelValidationLimit = 12
+const switchParallelValidationParallel = 6
 
 func findBestSwitchSong(name, artist, current, target string, originalDuration int) (*model.Track, float64, error) {
 	name, artist = strings.TrimSpace(name), strings.TrimSpace(artist)

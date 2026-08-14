@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -483,8 +484,8 @@ func coverProxyRoute(c *gin.Context) {
 		c.Status(http.StatusForbidden)
 		return
 	}
-	data, contentType, err := core.GetCachedCover(coverURL, strings.TrimSpace(c.Query("source")))
-	if err != nil || len(data) == 0 {
+	data, contentType, err := loadProxyCover(coverURL, c.Query("source"))
+	if err != nil {
 		c.Status(http.StatusBadGateway)
 		return
 	}
@@ -493,6 +494,17 @@ func coverProxyRoute(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "public, max-age=604800")
 	c.Data(http.StatusOK, contentType, data)
+}
+
+func loadProxyCover(coverURL, source string) ([]byte, string, error) {
+	data, contentType, err := core.GetCachedCover(coverURL, strings.TrimSpace(source))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) == 0 {
+		return nil, "", errors.New("empty cover response")
+	}
+	return data, contentType, nil
 }
 
 func lyricRoute(c *gin.Context) {
@@ -504,13 +516,17 @@ func lyricRoute(c *gin.Context) {
 	lyrics, matched, err := loadLyricWithFallback(track)
 	if err != nil || lyrics == "" {
 		log.Printf("[lyric] fetch source=%q id=%q name=%q artist=%q: %v", track.Source, track.ID, track.Name, track.Artist, err)
-		c.String(http.StatusOK, "[00:00.00] 暂无歌词")
+		writeUnavailableLyric(c)
 		return
 	}
 	lyrics = formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
 	c.Header("X-Lyric-Format", classifyLyricFormat(lyrics))
 	setLyricSourceHeaders(c, track, matched)
 	c.String(http.StatusOK, lyrics)
+}
+
+func writeUnavailableLyric(c *gin.Context) {
+	c.String(http.StatusOK, "[00:00.00] 暂无歌词")
 }
 
 func setLyricSourceHeaders(c *gin.Context, requested, matched *model.Track) {
@@ -525,11 +541,11 @@ func setLyricSourceHeaders(c *gin.Context, requested, matched *model.Track) {
 
 func saveWebAssetResponse(c *gin.Context, filename string, data []byte) {
 	savedPath, savedFilename, err := saveWebAssetToLocal(filename, data)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "saved": true, "path": savedPath, "filename": savedFilename})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "saved": true, "path": savedPath, "filename": savedFilename})
+	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 }
 
 func saveWebAssetToLocal(filename string, data []byte) (string, string, error) {

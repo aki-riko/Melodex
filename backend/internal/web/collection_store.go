@@ -1,11 +1,11 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/glebarez/sqlite"
@@ -116,10 +116,7 @@ func mergeFavoriteCollectionSongs(targetID, duplicateID uint) error {
 }
 
 func legacyFavoritesDBPath() string {
-	if configured := strings.TrimSpace(os.Getenv("MUSIC_DL_FAVORITES_DB")); configured != "" {
-		return configured
-	}
-	return legacyFavoritesDBFile
+	return firstNonEmpty(os.Getenv("MUSIC_DL_FAVORITES_DB"), legacyFavoritesDBFile)
 }
 
 func migrateLegacyFavorites(unifiedPath string) error {
@@ -127,14 +124,12 @@ func migrateLegacyFavorites(unifiedPath string) error {
 	if legacyPath == "" || legacyPath == filepath.Clean(unifiedPath) {
 		return nil
 	}
-	if _, err := os.Stat(legacyPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
+	exists, err := regularFileExists(legacyPath)
+	if err != nil || !exists {
 		return err
 	}
 	var existing int64
-	if err := db.Model(&Collection{}).Count(&existing).Error; err != nil || existing > 0 {
+	if err = db.Model(&Collection{}).Count(&existing).Error; err != nil || existing > 0 {
 		return err
 	}
 	collections, songs, err := readLegacyFavorites(legacyPath)
@@ -160,6 +155,17 @@ func migrateLegacyFavorites(unifiedPath string) error {
 		}
 	}
 	return removeLegacyFavoritesFiles(legacyPath)
+}
+
+func regularFileExists(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !info.IsDir(), nil
 }
 
 func readLegacyFavorites(path string) ([]Collection, []SavedSong, error) {

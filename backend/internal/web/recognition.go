@@ -473,14 +473,14 @@ type acrCloudRecognitionResponse struct {
 	} `json:"status"`
 	Metadata struct {
 		Music []struct {
-			Title       string `json:"title"`
-			Score       int    `json:"score"`
-			ReleaseDate string `json:"release_date"`
-			PlayOffset  int    `json:"play_offset_ms"`
-			Artists     []struct {
+			Artists []struct {
 				Name string `json:"name"`
 			} `json:"artists"`
-			Album struct {
+			Score       int    `json:"score"`
+			PlayOffset  int    `json:"play_offset_ms"`
+			Title       string `json:"title"`
+			ReleaseDate string `json:"release_date"`
+			Album       struct {
 				Name string `json:"name"`
 			} `json:"album"`
 			ExternalIDs struct {

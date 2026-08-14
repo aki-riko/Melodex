@@ -10,18 +10,12 @@ import (
 )
 
 func resetConfigStateForTest() {
-	if configDB != nil {
-		if sqlDB, err := configDB.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	}
-	configDB = nil
-	configInitErr = nil
-	configInit = sync.Once{}
-
+	closeConfigDatabase()
 	CM.mu.Lock()
 	CM.cookies = map[string]string{}
 	CM.mu.Unlock()
+	configDB, configInitErr = nil, nil
+	configInit = sync.Once{}
 }
 
 func isolateConfigStore(t *testing.T) string {
@@ -86,13 +80,13 @@ func TestWebSettingsDefaultsAndNormalization(t *testing.T) {
 	}
 
 	configured := WebSettings{
-		EmbedDownload:            true,
-		DownloadToLocal:          true,
 		DownloadFilenameTemplate: "{artist} - {name}.{ext}",
-		DisableFloatingLyrics:    true,
 		WebPageSize:              100,
+		EmbedDownload:            true,
 		CliPageSize:              120,
+		DownloadToLocal:          true,
 		DownloadConcurrency:      5,
+		DisableFloatingLyrics:    true,
 		AutoSwitchInvalidSources: false,
 		VgChangeCover:            true,
 		VgChangeAudio:            true,

@@ -11,12 +11,14 @@ import (
 // setupUserTestDB 用临时 settings.db 初始化一个干净的库(含用户/归属迁移)。
 func setupUserTestDB(t *testing.T) {
 	t.Helper()
-	baseDir := t.TempDir()
-	settingsDB := filepath.Join(baseDir, "data", "settings.db")
-	legacyDB := filepath.Join(baseDir, "data", "favorites.db")
-	t.Setenv("MUSIC_DL_CONFIG_DB", settingsDB)
-	t.Setenv("MUSIC_DL_FAVORITES_DB", legacyDB)
-	t.Setenv("MUSIC_DL_COOKIE_FILE", filepath.Join(baseDir, "data", "cookies.json"))
+	dataDir := filepath.Join(t.TempDir(), "data")
+	for key, filename := range map[string]string{
+		"MUSIC_DL_CONFIG_DB":    "settings.db",
+		"MUSIC_DL_FAVORITES_DB": "favorites.db",
+		"MUSIC_DL_COOKIE_FILE":  "cookies.json",
+	} {
+		t.Setenv(key, filepath.Join(dataDir, filename))
+	}
 	resetCollectionStateForTest()
 	t.Cleanup(resetCollectionStateForTest)
 	InitDB()

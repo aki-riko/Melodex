@@ -17,6 +17,18 @@ type favoriteStatusItem struct {
 	Favorited bool   `json:"favorited,omitempty"`
 }
 
+type favoriteToggleRequest struct {
+	SongID   string      `json:"id"`
+	Source   string      `json:"source"`
+	Name     string      `json:"name"`
+	Artist   string      `json:"artist"`
+	Album    string      `json:"album"`
+	AlbumID  string      `json:"album_id"`
+	Cover    string      `json:"cover"`
+	Duration int         `json:"duration"`
+	Extra    interface{} `json:"extra"`
+}
+
 func favoritePairKey(source, songID string) string {
 	return strings.TrimSpace(source) + "\x1f" + strings.TrimSpace(songID)
 }
@@ -169,17 +181,7 @@ func RegisterFavoriteRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
 			return
 		}
-		var req struct {
-			SongID   string      `json:"id"`
-			Source   string      `json:"source"`
-			Name     string      `json:"name"`
-			Artist   string      `json:"artist"`
-			Album    string      `json:"album"`
-			AlbumID  string      `json:"album_id"`
-			Cover    string      `json:"cover"`
-			Duration int         `json:"duration"`
-			Extra    interface{} `json:"extra"`
-		}
+		var req favoriteToggleRequest
 		if c.ShouldBindJSON(&req) != nil || strings.TrimSpace(req.SongID) == "" || strings.TrimSpace(req.Source) == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误,缺少 id 或 source"})
 			return
@@ -205,21 +207,24 @@ func RegisterFavoriteRoutes(api *gin.RouterGroup) {
 			return
 		}
 
-		extraStr := encodeSongExtraWithMetadata(req.Extra, req.Album, req.AlbumID)
-		song := SavedSong{
-			CollectionID: fav.ID,
-			SongID:       req.SongID,
-			Source:       req.Source,
-			Name:         req.Name,
-			Artist:       req.Artist,
-			Cover:        req.Cover,
-			Duration:     req.Duration,
-			Extra:        extraStr,
-		}
+		song := favoriteRequestSong(fav.ID, req)
 		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&song).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "收藏失败"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"favorited": true})
 	})
+}
+
+func favoriteRequestSong(collectionID uint, request favoriteToggleRequest) SavedSong {
+	return SavedSong{
+		CollectionID: collectionID,
+		SongID:       request.SongID,
+		Source:       request.Source,
+		Name:         request.Name,
+		Artist:       request.Artist,
+		Cover:        request.Cover,
+		Duration:     request.Duration,
+		Extra:        encodeSongExtraWithMetadata(request.Extra, request.Album, request.AlbumID),
+	}
 }
