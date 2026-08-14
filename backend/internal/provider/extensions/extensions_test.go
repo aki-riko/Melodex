@@ -74,6 +74,24 @@ func TestNormalizeSingleQuotedJSON(t *testing.T) {
 	}
 }
 
+func TestMiguModelMapping(t *testing.T) {
+	songs := miguSongs([]interface{}{map[string]interface{}{
+		"contentId": "600902000006889366", "copyrightId": "60054701923",
+		"songName": "晴天", "duration": float64(270), "albumId": "8592", "album": "叶惠美",
+		"img1":       "/data/oss/resource/cover.webp",
+		"singerList": []interface{}{map[string]interface{}{"name": "周杰伦"}},
+		"audioFormats": []interface{}{map[string]interface{}{
+			"resourceType": "E", "formatType": "SQ", "asize": "31529675", "aformat": "011002",
+		}},
+	}})
+	if len(songs) != 1 || songs[0].ID != "600902000006889366" || songs[0].Ext != "flac" || songs[0].Artist != "周杰伦" {
+		t.Fatalf("unexpected migu song: %#v", songs)
+	}
+	if songs[0].Cover != "https://d.musicapp.migu.cn/data/oss/resource/cover.webp" {
+		t.Fatalf("unexpected migu cover: %q", songs[0].Cover)
+	}
+}
+
 func TestLiveNeteasePlaylistFlow(t *testing.T) {
 	if os.Getenv("MELODEX_LIVE_EXTENSIONS") != "1" {
 		t.Skip("set MELODEX_LIVE_EXTENSIONS=1 to run live platform checks")
@@ -158,6 +176,41 @@ func TestLiveKugouAndKuwoBrowseFlow(t *testing.T) {
 		t.Fatalf("kuwo playlist detail: songs=%d err=%v", len(songs), err)
 	}
 	assertBrowseFlow(t, "kuwo", kuwo.RecommendedPlaylists, kuwo.PlaylistCategories, kuwo.CategoryPlaylists)
+}
+
+func TestLiveMiguCollectionFlow(t *testing.T) {
+	if os.Getenv("MELODEX_LIVE_EXTENSIONS") != "1" {
+		t.Skip("set MELODEX_LIVE_EXTENSIONS=1 to run live platform checks")
+	}
+	client := NewMigu("")
+	playlists, err := client.SearchPlaylist("周杰伦")
+	if err != nil || len(playlists) == 0 {
+		t.Fatalf("migu search playlists: count=%d err=%v", len(playlists), err)
+	}
+	if playlist, songs, err := client.Playlist(playlists[0].ID); err != nil || playlist == nil || len(songs) == 0 {
+		t.Fatalf("migu playlist detail: playlist=%#v songs=%d err=%v", playlist, len(songs), err)
+	}
+
+	albums, err := client.SearchAlbum("周杰伦")
+	if err != nil || len(albums) == 0 {
+		t.Fatalf("migu search albums: count=%d err=%v", len(albums), err)
+	}
+	foundKnownAlbum := false
+	for _, album := range albums {
+		if album.ID == "8592" {
+			foundKnownAlbum = true
+			break
+		}
+	}
+	if !foundKnownAlbum {
+		t.Fatal("migu search did not return known album 8592")
+	}
+	if album, songs, err := client.Album("8592"); err != nil || album == nil || len(songs) == 0 {
+		t.Fatalf("migu album detail: album=%#v songs=%d err=%v", album, len(songs), err)
+	}
+	if playlists, err := client.CategoryPlaylists("华语", 1, 2); err != nil || len(playlists) == 0 {
+		t.Fatalf("migu category playlists: count=%d err=%v", len(playlists), err)
+	}
 }
 
 func assertBrowseFlow(
