@@ -18,6 +18,8 @@ backend/dist/
 # 通用
 .DS_Store
 *.log
+__pycache__/
+*.py[cod]
 .idea/
 .vscode/
 _merge_src/
