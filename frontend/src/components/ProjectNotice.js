@@ -1,28 +1,31 @@
 import React, { useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 
-// 页脚:作为 FAQ 同款折叠项展示项目与开源说明。
-const Footer = () => {
-  const [open, setOpen] = useState(false);
-  const Icon = open ? Minus : Plus;
+const PROJECT_URL = 'https://github.com/aki-riko/Melodex';
+const BACKEND_URL = 'https://github.com/guohuiyuan/go-music-dl';
+const DESIGN_URL = 'https://codepen.io/alowenthal/pen/rxboRv';
+
+export default function ProjectNotice() {
+  const [expanded, setExpanded] = useState(false);
+  const Icon = expanded ? Minus : Plus;
 
   return (
     <div className="border border-border">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setExpanded((value) => !value)}
         className="w-full cursor-pointer flex justify-between items-center gap-4 p-4 bg-muted text-left"
-        aria-expanded={open}
+        aria-expanded={expanded}
       >
         <h2 className="min-w-0 text-lg md:text-xl font-semibold text-foreground">项目与开源说明</h2>
         <Icon size={18} className="flex-shrink-0 text-foreground" />
       </button>
-      {open && (
+      {expanded && (
         <div className="p-4 bg-card border-t-2 border-border text-sm text-muted-foreground">
           <p className="text-foreground/90">
             © 2024-2026 Melodex ·{' '}
             <a
-              href="https://github.com/aki-riko/Melodex"
+              href={PROJECT_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-primary"
@@ -33,25 +36,18 @@ const Footer = () => {
           </p>
           <p className="mt-1">自托管 PWA 音乐搜索、服务器下载与离线缓存工具。</p>
           <p className="mt-3 text-xs opacity-70">
-            基于开源项目{' '}
-            <a href="https://github.com/guohuiyuan/go-music-dl" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">go-music-dl</a>
-            {' '}(AGPL-3.0)与{' '}
-            <a href="https://github.com/peter-bf/tunescout" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">TuneScout</a>
-            {' '}构建;界面设计改编自 Adam Lowenthal 的 Spotify Artist Page UI(
-            <a
-              href="https://codepen.io/alowenthal/pen/rxboRv"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-primary"
-            >
-              CodePen
+            后端基于{' '}
+            <a href={BACKEND_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+              go-music-dl
             </a>
-            ,MIT 许可)。本项目整体采用 AGPL-3.0。
+            {' '}(AGPL-3.0);Web 前端功能由 Melodex 实现,界面视觉改编自 Adam Lowenthal 的{' '}
+            <a href={DESIGN_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+              Spotify Artist Page UI
+            </a>
+            {' '}(MIT)。本项目整体采用 AGPL-3.0。
           </p>
         </div>
       )}
     </div>
   );
-};
-
-export default Footer;
+}

@@ -2,14 +2,14 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// TuneScout+ 前端构建配置(从 CRA 迁移而来)。
+// Melodex PWA front-end build configuration.
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,
-      includeAssets: ['favicon.ico', 'favicon-32.png', 'logo192.png', 'logo512.png'],
+      includeAssets: ['favicon-32.png', 'logo192.png', 'logo512.png'],
       manifest: {
         name: 'Melodex',
         short_name: 'Melodex',
@@ -41,7 +41,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tunescout-images',
+              cacheName: 'melodex-images',
               expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 3600 },
             },
           },

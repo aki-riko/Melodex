@@ -1,7 +1,8 @@
 # 第三方资源许可声明 / Third-Party Licenses
 
-Melodex 由两个开源项目合并而来,并改编了第三方界面设计。在此一并致谢,
-保留各自的版权与许可声明。Melodex 整体采用 **AGPL-3.0**(继承自 go-music-dl)。
+Melodex 后端基于开源音乐服务构建,Web 前端改编了第三方界面设计。
+此处保留当前源码实际使用部分的版权与许可声明。Melodex 整体采用
+**AGPL-3.0**(继承自 go-music-dl)。
 
 ---
 
@@ -23,16 +24,6 @@ Melodex 的后端(多源搜索 / 下载 / 在线播放 / Subsonic facade 等)在
 - 原作者 / Author: **guohuiyuan**
 - 原作出处 / Source: https://github.com/guohuiyuan/music-lib
 - 许可 / License: **AGPL-3.0**
-
-## TuneScout (前端来源)
-
-Melodex 的 React 前端在 **peter-bf/tunescout** 基础上改造而来
-(原为音乐发现页 UI),本项目将其重构为暗色 Spotify 风并接入 go-music-dl 后端。
-
-- 原作者 / Author: **peter-bf**
-- 原作出处 / Source: https://github.com/peter-bf/tunescout
-
----
 
 ## Spotify Artist Page UI (视觉设计参考)
 
@@ -72,4 +63,4 @@ SOFTWARE.
 
 ---
 
-> 注:MIT 资源(Spotify UI 皮肤)并入 AGPL 项目合规,仅需保留上述版权与许可声明。
+> 注:MIT 视觉资源并入 AGPL 项目时保留上述版权与许可声明。

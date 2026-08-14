@@ -5,7 +5,7 @@ import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CH
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useServerDownloads } from '../contexts/ServerDownloadsContext';
-import { formatDuration } from '../utils/format';
+import { formatDuration } from '../utils/mediaFormat';
 import { sourceLabel } from '../utils/sourceLabels';
 import { normalizeSong } from '../utils/songFields';
 import { songIdentityKey } from '../utils/songIdentity';
