@@ -405,7 +405,7 @@ func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
 	case "kuwo":
 		return extensions.NewKuwo(c).SearchAlbum
 	case "migu":
-		return adaptLegacyPlaylistSearch(migu.New(c).SearchAlbum)
+		return extensions.NewMigu(c).SearchAlbum
 	case "jamendo":
 		return adaptLegacyPlaylistSearch(jamendo.New(c).SearchAlbum)
 	case "joox":
@@ -433,7 +433,7 @@ func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
 	case "kuwo":
 		return extensions.NewKuwo(c).SearchPlaylist
 	case "migu":
-		return adaptLegacyPlaylistSearch(migu.New(c).SearchPlaylist)
+		return extensions.NewMigu(c).SearchPlaylist
 	case "jamendo":
 		return adaptLegacyPlaylistSearch(jamendo.New(c).SearchPlaylist)
 	case "joox":
@@ -465,7 +465,7 @@ func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
 	case "kuwo":
 		return extensions.NewKuwo(c).GetAlbumSongs
 	case "migu":
-		return adaptLegacySongDetail(migu.New(c).GetAlbumSongs)
+		return extensions.NewMigu(c).GetAlbumSongs
 	case "jamendo":
 		return adaptLegacySongDetail(jamendo.New(c).GetAlbumSongs)
 	case "joox":
@@ -493,7 +493,7 @@ func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
 	case "kuwo":
 		return extensions.NewKuwo(c).GetPlaylistSongs
 	case "migu":
-		return adaptLegacySongDetail(migu.New(c).GetPlaylistSongs)
+		return extensions.NewMigu(c).GetPlaylistSongs
 	case "jamendo":
 		return adaptLegacySongDetail(jamendo.New(c).GetPlaylistSongs)
 	case "joox":
@@ -541,7 +541,7 @@ func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
 	case "kuwo":
 		return extensions.NewKuwo(c).PlaylistCategories
 	case "migu":
-		return adaptLegacyCategories(migu.New(c).GetPlaylistCategories)
+		return extensions.NewMigu(c).PlaylistCategories
 	case "joox":
 		return adaptLegacyCategories(joox.New(c).GetPlaylistCategories)
 	case "qianqian":
@@ -565,7 +565,7 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 	case "kuwo":
 		return extensions.NewKuwo(c).CategoryPlaylists
 	case "migu":
-		return adaptLegacyCategoryPlaylists(migu.New(c).GetCategoryPlaylists)
+		return extensions.NewMigu(c).CategoryPlaylists
 	case "joox":
 		return adaptLegacyCategoryPlaylists(joox.New(c).GetCategoryPlaylists)
 	case "qianqian":
@@ -724,7 +724,7 @@ func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.
 	case "kuwo":
 		return extensions.NewKuwo(c).ParsePlaylist
 	case "migu":
-		return adaptLegacyCollectionParse(migu.New(c).ParsePlaylist)
+		return extensions.NewMigu(c).ParsePlaylist
 	case "jamendo":
 		return adaptLegacyCollectionParse(jamendo.New(c).ParsePlaylist)
 	case "joox":
@@ -756,7 +756,7 @@ func GetParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Son
 	case "kuwo":
 		return extensions.NewKuwo(c).ParseAlbum
 	case "migu":
-		return adaptLegacyCollectionParse(migu.New(c).ParseAlbum)
+		return extensions.NewMigu(c).ParseAlbum
 	case "jamendo":
 		return adaptLegacyCollectionParse(jamendo.New(c).ParseAlbum)
 	case "joox":

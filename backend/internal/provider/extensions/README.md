@@ -9,9 +9,9 @@ that the pinned upstream does not expose, such as playlist and album browsing,
 category lists, user playlists, and QR login. These files use Melodex's stable
 provider models and do not import the legacy provider module being removed.
 
-The Kugou and Kuwo playlist/album implementations were written against public
-platform HTTP responses verified on 2026-08-15. Their mapping tests use local
-fixtures, while opt-in live tests are enabled with
+The Kugou, Kuwo, and Migu playlist/album implementations were written against
+public platform HTTP responses verified on 2026-08-15. Their mapping tests use
+local fixtures, while opt-in live tests are enabled with
 `MELODEX_LIVE_EXTENSIONS=1`.
 
 Do not copy provider code into this directory without recording its immutable
