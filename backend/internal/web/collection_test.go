@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/glebarez/sqlite"
-	"github.com/guohuiyuan/go-music-dl/core"
 	"gorm.io/gorm"
 )
 

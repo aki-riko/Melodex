@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 type playlistCandidate struct {
@@ -24,7 +24,7 @@ type playlistIntegrationCase struct {
 }
 
 func TestAlbumFactoriesAndSourceList(t *testing.T) {
-	supported := []string{"netease", "qq", "kugou", "kuwo", "migu", "jamendo", "joox", "qianqian", "soda", "apple"}
+	supported := []string{"netease", "qq", "kugou", "kuwo", "migu"}
 	for _, source := range supported {
 		if fn := GetAlbumSearchFunc(source); fn == nil {
 			t.Fatalf("GetAlbumSearchFunc(%q) returned nil", source)
@@ -43,7 +43,7 @@ func TestAlbumFactoriesAndSourceList(t *testing.T) {
 }
 
 func TestPlaylistFactoriesAndSourceList(t *testing.T) {
-	supported := []string{"netease", "qq", "kugou", "kuwo", "migu", "jamendo", "joox", "qianqian", "bilibili", "soda", "fivesing", "apple"}
+	supported := []string{"netease", "qq", "kugou", "kuwo", "migu"}
 	for _, source := range supported {
 		if fn := GetPlaylistSearchFunc(source); fn == nil {
 			t.Fatalf("GetPlaylistSearchFunc(%q) returned nil", source)
@@ -62,7 +62,7 @@ func TestPlaylistFactoriesAndSourceList(t *testing.T) {
 }
 
 func TestUserPlaylistFactoriesAndSourceList(t *testing.T) {
-	supported := []string{"netease", "qq", "kugou", "soda"}
+	supported := []string{"netease", "qq"}
 	for _, source := range supported {
 		if fn := GetUserPlaylistsFunc(source); fn == nil {
 			t.Fatalf("GetUserPlaylistsFunc(%q) returned nil", source)
@@ -71,53 +71,6 @@ func TestUserPlaylistFactoriesAndSourceList(t *testing.T) {
 
 	if got := GetUserPlaylistSourceNames(); !reflect.DeepEqual(got, supported) {
 		t.Fatalf("GetUserPlaylistSourceNames() = %v, want %v", got, supported)
-	}
-}
-
-func TestJooxPlaylistIntegration(t *testing.T) {
-	requireIntegration(t)
-	runPlaylistIntegration(t, playlistIntegrationCase{
-		source:       "joox",
-		keyword:      "Taylor",
-		fallbackID:   "YrcoxvVy7I2fJqO2sCzUaA==",
-		fallbackLink: "https://www.joox.com/hk/playlist/YrcoxvVy7I2fJqO2sCzUaA==",
-	})
-}
-
-func TestUpgradedSongParseIntegration(t *testing.T) {
-	requireIntegration(t)
-
-	tests := []struct {
-		source string
-		link   string
-	}{
-		{source: "qianqian", link: "https://music.91q.com/song/T10038909559"},
-		{source: "joox", link: "https://www.joox.com/hk/single/12Q4rvA6Cj+vquLW8B8NDw=="},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.source, func(t *testing.T) {
-			parseFn := GetParseFunc(tt.source)
-			if parseFn == nil {
-				t.Fatalf("%s parse func is not wired", tt.source)
-			}
-
-			var lastErr error
-			for i := 0; i < 3; i++ {
-				parsedSong, err := parseFn(tt.link)
-				if err == nil && parsedSong != nil && parsedSong.ID != "" {
-					return
-				}
-				if err != nil {
-					lastErr = err
-				}
-				time.Sleep(time.Second)
-			}
-			if lastErr != nil {
-				t.Fatalf("%s Parse(%q) failed: %v", tt.source, tt.link, lastErr)
-			}
-			t.Fatalf("%s Parse(%q) returned invalid song", tt.source, tt.link)
-		})
 	}
 }
 
@@ -130,26 +83,6 @@ func TestUpgradedPlaylistIntegration(t *testing.T) {
 			keyword:      "周杰伦",
 			fallbackID:   "228114498",
 			fallbackLink: "https://music.migu.cn/v5/#/playlist?playlistId=228114498&playlistType=ordinary",
-		},
-		{
-			source:         "qianqian",
-			keyword:        "周杰伦",
-			fallbackID:     "309319",
-			fallbackLink:   "https://music.91q.com/songlist/309319",
-			searchOptional: true,
-		},
-		{
-			source:         "jamendo",
-			keyword:        "music",
-			fallbackID:     "500608900",
-			fallbackLink:   "https://www.jamendo.com/playlist/500608900/indie",
-			searchOptional: true,
-		},
-		{
-			source:       "joox",
-			keyword:      "Taylor",
-			fallbackID:   "YrcoxvVy7I2fJqO2sCzUaA==",
-			fallbackLink: "https://www.joox.com/hk/playlist/YrcoxvVy7I2fJqO2sCzUaA==",
 		},
 	}
 

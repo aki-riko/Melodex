@@ -21,21 +21,9 @@ import (
 	"unicode"
 	"unicode/utf16"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/extensions"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/dhowden/tag"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/extensions"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
-	"github.com/guohuiyuan/music-lib/apple"
-	"github.com/guohuiyuan/music-lib/bilibili"
-	"github.com/guohuiyuan/music-lib/fivesing"
-	"github.com/guohuiyuan/music-lib/jamendo"
-	"github.com/guohuiyuan/music-lib/joox"
-	"github.com/guohuiyuan/music-lib/kugou"
-	"github.com/guohuiyuan/music-lib/kuwo"
-	"github.com/guohuiyuan/music-lib/migu"
-	"github.com/guohuiyuan/music-lib/netease"
-	"github.com/guohuiyuan/music-lib/qianqian"
-	"github.com/guohuiyuan/music-lib/qq"
-	"github.com/guohuiyuan/music-lib/soda"
 	"gorm.io/gorm"
 )
 
@@ -60,8 +48,6 @@ type CookieManager struct {
 }
 
 var CM = &CookieManager{cookies: make(map[string]string)}
-
-var qqCookieRefreshMu sync.Mutex
 
 type CookieStatusDetail struct {
 	Source       string          `json:"source"`
@@ -151,61 +137,7 @@ func (m *CookieManager) GetAll() map[string]string {
 }
 
 func cookieForSource(source string) string {
-	cookie := CM.Get(source)
-	if normalizeCookieStatusSource(source) != "qq" {
-		return cookie
-	}
-	return refreshQQCookieIfNeeded(cookie)
-}
-
-func refreshQQCookieIfNeeded(cookie string) string {
-	if !qq.CookieNeedsRefresh(cookie, time.Now()) {
-		return cookie
-	}
-
-	refreshed, err := refreshQQCookie(cookie, false)
-	if err != nil {
-		logQQCookieRefreshFailure(err)
-		return cookie
-	}
-	return refreshed
-}
-
-func refreshQQCookieAfterReject(cookie string) (string, error) {
-	return refreshQQCookie(cookie, true)
-}
-
-func refreshQQCookie(cookie string, force bool) (string, error) {
-	qqCookieRefreshMu.Lock()
-	defer qqCookieRefreshMu.Unlock()
-
-	latest := CM.Get("qq")
-	if latest == "" {
-		return cookie, fmt.Errorf("qq cookie is empty")
-	}
-	if !force && latest != cookie && !qq.CookieNeedsRefresh(latest, time.Now()) {
-		return latest, nil
-	}
-	if !qq.CookieRefreshable(latest) {
-		return latest, fmt.Errorf("qq cookie is not refreshable")
-	}
-
-	refreshed, err := qq.RefreshLoginCookie(latest)
-	if err != nil || strings.TrimSpace(refreshed) == "" {
-		if err == nil {
-			err = fmt.Errorf("qq refresh returned empty cookie")
-		}
-		return latest, err
-	}
-	CM.SetAll(map[string]string{"qq": refreshed})
-	CM.Save()
-	return refreshed, nil
-}
-
-func logQQCookieRefreshFailure(err error) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "QQ cookie refresh failed: %v\n", err)
-	}
+	return CM.Get(source)
 }
 
 func CookieFingerprintForSource(source string) string {
@@ -252,7 +184,7 @@ func normalizeCookieStatusSource(source string) string {
 
 func cookieStatusVerifiable(source string) bool {
 	switch normalizeCookieStatusSource(source) {
-	case "netease", "qq", "kugou", "bilibili", "soda":
+	case "netease":
 		return true
 	default:
 		return false
@@ -263,24 +195,6 @@ func probeCookieVIPStatus(source, cookie string) (bool, error) {
 	switch normalizeCookieStatusSource(source) {
 	case "netease":
 		return extensions.NewNetease(cookie).IsVIPAccount()
-	case "qq":
-		current := refreshQQCookieIfNeeded(cookie)
-		vip, err := qq.New(current).IsVipAccount()
-		if err == nil || !qq.CookieRefreshable(current) {
-			return vip, err
-		}
-		refreshed, refreshErr := refreshQQCookieAfterReject(current)
-		if refreshErr != nil {
-			logQQCookieRefreshFailure(refreshErr)
-			return vip, err
-		}
-		return qq.New(refreshed).IsVipAccount()
-	case "kugou":
-		return kugou.New(cookie).IsVipAccount()
-	case "bilibili":
-		return bilibili.New(cookie).IsVipAccount()
-	case "soda":
-		return soda.New(cookie).IsVipAccount()
 	default:
 		return false, nil
 	}
@@ -384,10 +298,9 @@ func GetSearchFunc(source string) SearchFunc {
 }
 
 func GetLyricSearchFunc(source string) SearchFunc {
-	c := cookieForSource(source)
 	switch source {
 	case "qq":
-		return adaptLegacySongSearch(qq.New(c).SearchLyrics)
+		return GetSearchFunc(source)
 	default:
 		return nil
 	}
@@ -406,16 +319,6 @@ func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
 		return extensions.NewKuwo(c).SearchAlbum
 	case "migu":
 		return extensions.NewMigu(c).SearchAlbum
-	case "jamendo":
-		return adaptLegacyPlaylistSearch(jamendo.New(c).SearchAlbum)
-	case "joox":
-		return adaptLegacyPlaylistSearch(joox.New(c).SearchAlbum)
-	case "qianqian":
-		return adaptLegacyPlaylistSearch(qianqian.New(c).SearchAlbum)
-	case "soda":
-		return adaptLegacyPlaylistSearch(soda.New(c).SearchAlbum)
-	case "apple":
-		return adaptLegacyPlaylistSearch(apple.New(c).SearchAlbum)
 	default:
 		return nil
 	}
@@ -434,20 +337,6 @@ func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
 		return extensions.NewKuwo(c).SearchPlaylist
 	case "migu":
 		return extensions.NewMigu(c).SearchPlaylist
-	case "jamendo":
-		return adaptLegacyPlaylistSearch(jamendo.New(c).SearchPlaylist)
-	case "joox":
-		return adaptLegacyPlaylistSearch(joox.New(c).SearchPlaylist)
-	case "qianqian":
-		return adaptLegacyPlaylistSearch(qianqian.New(c).SearchPlaylist)
-	case "bilibili":
-		return adaptLegacyPlaylistSearch(bilibili.New(c).SearchPlaylist)
-	case "soda":
-		return adaptLegacyPlaylistSearch(soda.New(c).SearchPlaylist)
-	case "fivesing":
-		return adaptLegacyPlaylistSearch(fivesing.New(c).SearchPlaylist)
-	case "apple":
-		return adaptLegacyPlaylistSearch(apple.New(c).SearchPlaylist)
 	default:
 		return nil
 	}
@@ -466,16 +355,6 @@ func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
 		return extensions.NewKuwo(c).GetAlbumSongs
 	case "migu":
 		return extensions.NewMigu(c).GetAlbumSongs
-	case "jamendo":
-		return adaptLegacySongDetail(jamendo.New(c).GetAlbumSongs)
-	case "joox":
-		return adaptLegacySongDetail(joox.New(c).GetAlbumSongs)
-	case "qianqian":
-		return adaptLegacySongDetail(qianqian.New(c).GetAlbumSongs)
-	case "soda":
-		return adaptLegacySongDetail(soda.New(c).GetAlbumSongs)
-	case "apple":
-		return adaptLegacySongDetail(apple.New(c).GetAlbumSongs)
 	default:
 		return nil
 	}
@@ -494,20 +373,6 @@ func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
 		return extensions.NewKuwo(c).GetPlaylistSongs
 	case "migu":
 		return extensions.NewMigu(c).GetPlaylistSongs
-	case "jamendo":
-		return adaptLegacySongDetail(jamendo.New(c).GetPlaylistSongs)
-	case "joox":
-		return adaptLegacySongDetail(joox.New(c).GetPlaylistSongs)
-	case "qianqian":
-		return adaptLegacySongDetail(qianqian.New(c).GetPlaylistSongs)
-	case "bilibili":
-		return adaptLegacySongDetail(bilibili.New(c).GetPlaylistSongs)
-	case "soda":
-		return adaptLegacySongDetail(soda.New(c).GetPlaylistSongs)
-	case "fivesing":
-		return adaptLegacySongDetail(fivesing.New(c).GetPlaylistSongs)
-	case "apple":
-		return adaptLegacySongDetail(apple.New(c).GetPlaylistSongs)
 	default:
 		return nil
 	}
@@ -542,12 +407,6 @@ func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
 		return extensions.NewKuwo(c).PlaylistCategories
 	case "migu":
 		return extensions.NewMigu(c).PlaylistCategories
-	case "joox":
-		return adaptLegacyCategories(joox.New(c).GetPlaylistCategories)
-	case "qianqian":
-		return adaptLegacyCategories(qianqian.New(c).GetPlaylistCategories)
-	case "apple":
-		return adaptLegacyCategories(apple.New(c).GetPlaylistCategories)
 	default:
 		return nil
 	}
@@ -566,12 +425,6 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 		return extensions.NewKuwo(c).CategoryPlaylists
 	case "migu":
 		return extensions.NewMigu(c).CategoryPlaylists
-	case "joox":
-		return adaptLegacyCategoryPlaylists(joox.New(c).GetCategoryPlaylists)
-	case "qianqian":
-		return adaptLegacyCategoryPlaylists(qianqian.New(c).GetCategoryPlaylists)
-	case "apple":
-		return adaptLegacyCategoryPlaylists(apple.New(c).GetCategoryPlaylists)
 	default:
 		return nil
 	}
@@ -581,20 +434,6 @@ func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 	switch source {
 	case "netease":
 		return extensions.NeteaseCreateQRLogin
-	case "qq":
-		return adaptLegacyQRCreate(qq.CreateMobileQRLogin)
-	case "qq_connect":
-		return adaptLegacyQRCreate(qq.CreateQRLogin)
-	case "qq_mobile":
-		return adaptLegacyQRCreate(qq.CreateMobileQRLogin)
-	case "qq_wx":
-		return adaptLegacyQRCreate(qq.CreateWXQRLogin)
-	case "kugou":
-		return adaptLegacyQRCreate(kugou.CreateQRLogin)
-	case "bilibili":
-		return adaptLegacyQRCreate(bilibili.CreateQRLogin)
-	case "soda":
-		return adaptLegacyQRCreate(soda.CreateQRLogin)
 	default:
 		return nil
 	}
@@ -604,27 +443,13 @@ func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
 	switch source {
 	case "netease":
 		return extensions.NeteaseCheckQRLogin
-	case "qq":
-		return adaptLegacyQRCheck(qq.CheckMobileQRLogin)
-	case "qq_connect":
-		return adaptLegacyQRCheck(qq.CheckQRLogin)
-	case "qq_mobile":
-		return adaptLegacyQRCheck(qq.CheckMobileQRLogin)
-	case "qq_wx":
-		return adaptLegacyQRCheck(qq.CheckWXQRLogin)
-	case "kugou":
-		return adaptLegacyQRCheck(kugou.CheckQRLogin)
-	case "bilibili":
-		return adaptLegacyQRCheck(bilibili.CheckQRLogin)
-	case "soda":
-		return adaptLegacyQRCheck(soda.CheckQRLogin)
 	default:
 		return nil
 	}
 }
 
 func GetQRLoginSourceNames() []string {
-	return []string{"netease", "qq", "qq_connect", "qq_wx", "kugou", "bilibili", "soda"}
+	return []string{"netease"}
 }
 
 func GetCookieSourceNames() []string {
@@ -638,17 +463,13 @@ func GetUserPlaylistsFunc(source string) UserPlaylistsFunc {
 		return extensions.NewNetease(c).UserPlaylists
 	case "qq":
 		return extensions.NewQQ(c).UserPlaylists
-	case "kugou":
-		return adaptLegacyUserPlaylists(kugou.New(c).GetUserPlaylists)
-	case "soda":
-		return adaptLegacyUserPlaylists(soda.New(c).GetUserPlaylists)
 	default:
 		return nil
 	}
 }
 
 func GetUserPlaylistSourceNames() []string {
-	return []string{"netease", "qq", "kugou", "soda"}
+	return []string{"netease", "qq"}
 }
 
 func GetRecommendSourceNames() []string {
@@ -674,35 +495,7 @@ func GetLyricFunc(source string) func(*model.Song) (string, error) {
 }
 
 func GetParseFunc(source string) func(string) (*model.Song, error) {
-	c := cookieForSource(source)
-	switch source {
-	case "netease":
-		return adaptLegacySongParse(netease.New(c).Parse)
-	case "qq":
-		return adaptLegacySongParse(qq.New(c).Parse)
-	case "kugou":
-		return adaptLegacySongParse(kugou.New(c).Parse)
-	case "kuwo":
-		return adaptLegacySongParse(kuwo.New(c).Parse)
-	case "migu":
-		return adaptLegacySongParse(migu.New(c).Parse)
-	case "soda":
-		return adaptLegacySongParse(soda.New(c).Parse)
-	case "bilibili":
-		return adaptLegacySongParse(bilibili.New(c).Parse)
-	case "fivesing":
-		return adaptLegacySongParse(fivesing.New(c).Parse)
-	case "jamendo":
-		return adaptLegacySongParse(jamendo.New(c).Parse)
-	case "joox":
-		return adaptLegacySongParse(joox.New(c).Parse)
-	case "qianqian":
-		return adaptLegacySongParse(qianqian.New(c).Parse)
-	case "apple":
-		return adaptLegacySongParse(apple.New(c).Parse)
-	default:
-		return nil
-	}
+	return nil
 }
 
 func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.Song, error) {
@@ -713,32 +506,11 @@ func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.
 	case "qq":
 		return extensions.NewQQ(c).ParsePlaylist
 	case "kugou":
-		client := extensions.NewKugou(c)
-		legacySonglist := adaptLegacyCollectionParse(kugou.New(c).ParsePlaylist)
-		return func(link string) (*model.Playlist, []model.Song, error) {
-			if strings.Contains(strings.ToLower(link), "/songlist/") {
-				return legacySonglist(link)
-			}
-			return client.ParsePlaylist(link)
-		}
+		return extensions.NewKugou(c).ParsePlaylist
 	case "kuwo":
 		return extensions.NewKuwo(c).ParsePlaylist
 	case "migu":
 		return extensions.NewMigu(c).ParsePlaylist
-	case "jamendo":
-		return adaptLegacyCollectionParse(jamendo.New(c).ParsePlaylist)
-	case "joox":
-		return adaptLegacyCollectionParse(joox.New(c).ParsePlaylist)
-	case "qianqian":
-		return adaptLegacyCollectionParse(qianqian.New(c).ParsePlaylist)
-	case "bilibili":
-		return adaptLegacyCollectionParse(bilibili.New(c).ParsePlaylist)
-	case "soda":
-		return adaptLegacyCollectionParse(soda.New(c).ParsePlaylist)
-	case "fivesing":
-		return adaptLegacyCollectionParse(fivesing.New(c).ParsePlaylist)
-	case "apple":
-		return adaptLegacyCollectionParse(apple.New(c).ParsePlaylist)
 	default:
 		return nil
 	}
@@ -757,16 +529,6 @@ func GetParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Son
 		return extensions.NewKuwo(c).ParseAlbum
 	case "migu":
 		return extensions.NewMigu(c).ParseAlbum
-	case "jamendo":
-		return adaptLegacyCollectionParse(jamendo.New(c).ParseAlbum)
-	case "joox":
-		return adaptLegacyCollectionParse(joox.New(c).ParseAlbum)
-	case "qianqian":
-		return adaptLegacyCollectionParse(qianqian.New(c).ParseAlbum)
-	case "soda":
-		return adaptLegacyCollectionParse(soda.New(c).ParseAlbum)
-	case "apple":
-		return adaptLegacyCollectionParse(apple.New(c).ParseAlbum)
 	default:
 		return nil
 	}
@@ -1236,15 +998,15 @@ func GetAllSourceNames() []string {
 }
 
 func GetPlaylistSourceNames() []string {
-	return []string{"netease", "qq", "kugou", "kuwo", "migu", "jamendo", "joox", "qianqian", "bilibili", "soda", "fivesing", "apple"}
+	return []string{"netease", "qq", "kugou", "kuwo", "migu"}
 }
 
 func GetAlbumSourceNames() []string {
-	return []string{"netease", "qq", "kugou", "kuwo", "migu", "jamendo", "joox", "qianqian", "soda", "apple"}
+	return []string{"netease", "qq", "kugou", "kuwo", "migu"}
 }
 
 func GetPlaylistCategorySourceNames() []string {
-	return []string{"netease", "qq", "kugou", "kuwo", "migu", "qianqian", "joox", "apple"}
+	return []string{"netease", "qq", "kugou", "kuwo", "migu"}
 }
 
 func GetDefaultSourceNames() []string {
@@ -1940,7 +1702,7 @@ func embedAudioMetadataByFFmpeg(audioData []byte, ext, title, artist, album, lyr
 		return nil, ErrFFmpegNotFound
 	}
 
-	inFile, err := os.CreateTemp("", "gomusicdl-in-*"+"."+ext)
+	inFile, err := os.CreateTemp("", "melodex-in-*"+"."+ext)
 	if err != nil {
 		return nil, err
 	}
@@ -1952,7 +1714,7 @@ func embedAudioMetadataByFFmpeg(audioData []byte, ext, title, artist, album, lyr
 	}
 	inFile.Close()
 
-	outFile, err := os.CreateTemp("", "gomusicdl-out-*"+"."+ext)
+	outFile, err := os.CreateTemp("", "melodex-out-*"+"."+ext)
 	if err != nil {
 		return nil, err
 	}
@@ -1969,7 +1731,7 @@ func embedAudioMetadataByFFmpeg(audioData []byte, ext, title, artist, album, lyr
 		if strings.Contains(coverMime, "png") {
 			coverExt = ".png"
 		}
-		coverFile, err := os.CreateTemp("", "gomusicdl-cover-*"+coverExt)
+		coverFile, err := os.CreateTemp("", "melodex-cover-*"+coverExt)
 		if err != nil {
 			return nil, err
 		}

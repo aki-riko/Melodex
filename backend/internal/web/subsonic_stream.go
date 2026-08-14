@@ -18,9 +18,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 // downloadInFlight 记录正在后台下载的歌曲(key=source\x00id),防重复下载。

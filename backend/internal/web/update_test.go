@@ -13,16 +13,16 @@ import (
 )
 
 func TestGitHubRepoFromURLAndProxyURL(t *testing.T) {
-	owner, repo, err := githubRepoFromURL("https://github.com/guohuiyuan/go-music-dl.git")
+	owner, repo, err := githubRepoFromURL("https://github.com/aki-riko/Melodex.git")
 	if err != nil {
 		t.Fatalf("githubRepoFromURL returned error: %v", err)
 	}
-	if owner != "guohuiyuan" || repo != "go-music-dl" {
+	if owner != "aki-riko" || repo != "Melodex" {
 		t.Fatalf("repo parse mismatch: owner=%q repo=%q", owner, repo)
 	}
 
-	got := proxiedGitHubURL("https://github.com/guohuiyuan/go-music-dl/releases", "https://gh-proxy.com/", true)
-	want := "https://gh-proxy.com/https://github.com/guohuiyuan/go-music-dl/releases"
+	got := proxiedGitHubURL("https://github.com/aki-riko/Melodex/releases", "https://gh-proxy.com/", true)
+	want := "https://gh-proxy.com/https://github.com/aki-riko/Melodex/releases"
 	if got != want {
 		t.Fatalf("proxiedGitHubURL = %q, want %q", got, want)
 	}
@@ -33,17 +33,17 @@ func TestGitHubRepoFromURLAndProxyURL(t *testing.T) {
 
 func TestUpdateCheckRouteUsesGitHubReleaseResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/guohuiyuan/go-music-dl/releases/latest" {
+		if r.URL.Path != "/repos/aki-riko/Melodex/releases/latest" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"tag_name": "v9.9.9",
 			"name": "v9.9.9",
-			"html_url": "https://github.com/guohuiyuan/go-music-dl/releases/tag/v9.9.9",
+			"html_url": "https://github.com/aki-riko/Melodex/releases/tag/v9.9.9",
 			"body": "release notes",
 			"assets": [
-				{"name": "music-dl-windows-amd64.zip", "browser_download_url": "https://github.com/guohuiyuan/go-music-dl/releases/download/v9.9.9/music-dl-windows-amd64.zip", "size": 1024, "content_type": "application/zip"}
+				{"name": "melodex-windows-amd64.zip", "browser_download_url": "https://github.com/aki-riko/Melodex/releases/download/v9.9.9/melodex-windows-amd64.zip", "size": 1024, "content_type": "application/zip"}
 			]
 		}`))
 	}))
@@ -57,7 +57,7 @@ func TestUpdateCheckRouteUsesGitHubReleaseResponse(t *testing.T) {
 	router := gin.New()
 	RegisterUpdateRoutes(router.Group(RoutePrefix))
 
-	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/app_update/check?repo=https://github.com/guohuiyuan/go-music-dl", nil)
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/app_update/check?repo=https://github.com/aki-riko/Melodex", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -68,7 +68,7 @@ func TestUpdateCheckRouteUsesGitHubReleaseResponse(t *testing.T) {
 	for _, want := range []string{
 		`"latest_version":"9.9.9"`,
 		`"update_available":true`,
-		`music-dl-windows-amd64.zip`,
+		`melodex-windows-amd64.zip`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("update response missing %q: %s", want, body)
@@ -83,7 +83,7 @@ func TestFetchLatestGitHubReleaseRacesProxyAndOrigin(t *testing.T) {
 	fastServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fastHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":"v2.0.0","name":"v2.0.0","html_url":"https://github.com/guohuiyuan/go-music-dl/releases/tag/v2.0.0"}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v2.0.0","name":"v2.0.0","html_url":"https://github.com/aki-riko/Melodex/releases/tag/v2.0.0"}`))
 	}))
 	defer fastServer.Close()
 
@@ -91,7 +91,7 @@ func TestFetchLatestGitHubReleaseRacesProxyAndOrigin(t *testing.T) {
 		slowHits.Add(1)
 		time.Sleep(1500 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0","name":"v1.0.0","html_url":"https://github.com/guohuiyuan/go-music-dl/releases/tag/v1.0.0"}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0","name":"v1.0.0","html_url":"https://github.com/aki-riko/Melodex/releases/tag/v1.0.0"}`))
 	}))
 	defer slowServer.Close()
 
@@ -103,7 +103,7 @@ func TestFetchLatestGitHubReleaseRacesProxyAndOrigin(t *testing.T) {
 	proxyURL := fastServer.URL + "/"
 
 	startedAt := time.Now()
-	release, err := fetchLatestGitHubRelease(context.Background(), "guohuiyuan", "go-music-dl", true, proxyURL)
+	release, err := fetchLatestGitHubRelease(context.Background(), "aki-riko", "Melodex", true, proxyURL)
 	elapsed := time.Since(startedAt)
 	if err != nil {
 		t.Fatalf("fetchLatestGitHubRelease error: %v", err)
@@ -123,7 +123,7 @@ func TestFetchLatestGitHubReleaseRacesProxyAndOrigin(t *testing.T) {
 func TestFetchLatestGitHubReleaseFallsBackWhenProxyFails(t *testing.T) {
 	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":"v3.0.0","name":"v3.0.0","html_url":"https://github.com/guohuiyuan/go-music-dl/releases/tag/v3.0.0"}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v3.0.0","name":"v3.0.0","html_url":"https://github.com/aki-riko/Melodex/releases/tag/v3.0.0"}`))
 	}))
 	defer originServer.Close()
 
@@ -136,7 +136,7 @@ func TestFetchLatestGitHubReleaseFallsBackWhenProxyFails(t *testing.T) {
 	githubAPIBaseURL = originServer.URL
 	t.Cleanup(func() { githubAPIBaseURL = originalBase })
 
-	release, err := fetchLatestGitHubRelease(context.Background(), "guohuiyuan", "go-music-dl", true, brokenServer.URL+"/")
+	release, err := fetchLatestGitHubRelease(context.Background(), "aki-riko", "Melodex", true, brokenServer.URL+"/")
 	if err != nil {
 		t.Fatalf("fetchLatestGitHubRelease error: %v", err)
 	}

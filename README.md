@@ -5,18 +5,18 @@
 Melodex 以 React PWA 和 PrismQML 桌面客户端提供统一体验,后端负责多源音乐服务:
 
 - **Web 与桌面客户端** —— Melodex 自有应用实现;Web 视觉改编自 MIT 许可的 Spotify Artist Page UI。
-- **下载** —— 集成 [go-music-dl](https://github.com/guohuiyuan/go-music-dl) 的全网多源搜索与无损下载能力(网易云、QQ、酷狗、酷我、咪咕、汽水、Bilibili、Apple Music 等 10+ 平台)。
+- **多源 Provider** —— 搜索、媒体地址和歌词能力移植自固定版本的 [CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl),该上游快照采用 Apache-2.0 许可。
 
-架构上,React 作为统一前端,go-music-dl 退为提供 JSON API 的后端下载服务。
+架构上,React PWA 与 PrismQML 客户端连接 Melodex Go API;Go 服务通过独立 Python sidecar 调用固定的 Apache-2.0 Provider 快照。
 
 ## 功能
 
-- **歌曲搜索**:国内多源(网易云/QQ/酷狗/酷我/咪咕/汽水/B站/Apple 等)并发搜索,支持粘贴歌曲/歌单/专辑链接解析
+- **歌曲搜索**:国内多源(网易云/QQ/酷狗/酷我/咪咕/汽水/B站/Apple 等)并发搜索;网易、QQ、酷狗、酷我、咪咕支持歌单和专辑链接解析
 - **在线播放 / 下载**:流式试听,一键下载(可写入 ID3 元数据与封面)
 - **睡眠定时**:可定时停止播放,默认到点后播完整首歌再停
 - **推荐歌单**:浏览各平台每日推荐歌单,进入歌单查看并下载
 - **歌词**:查看逐行 LRC 歌词
-- **账号登录**:扫码登录网易云/QQ/酷狗/B站以解锁会员或无损音质
+- **账号登录**:网易云扫码登录;QQ、酷狗、酷我、咪咕、B站和汽水支持管理员手动录入 Cookie
 - **本地音乐库**:管理已下载到本地的音乐
 - **首页推荐**:直接浏览国内音乐源提供的推荐歌单,进入歌单后播放或下载
 - **Subsonic 客户端直连**:后端自带一套轻量 Subsonic API(`/rest`),用[音流 / substreamer](https://www.subsonic.org/) 等标准 Subsonic 客户端连本服务,即可**搜全网在线听 + 浏览已入库曲库 + 听过自动入库**。默认关闭,见下方「Subsonic API」。
@@ -43,8 +43,10 @@ MUSIC_DL_SUBSONIC_PASS=强密码
 
 ```
 Melodex/
-├── backend/    Go 后端(基于 go-music-dl,Gin + music-lib)
-│   └── internal/web/json_api.go   新增的 /api/v1/* JSON 接口
+├── backend/    Melodex Go 后端(Gin + Provider sidecar client)
+│   ├── internal/web/              /api/v1、/music 与 /rest 接口
+│   ├── provider_bridge/           Charles Provider 的 JSON sidecar
+│   └── third_party/charles-musicdl/  固定上游快照与许可证
 ├── frontend/   React PWA(Vite + react-query + tailwind)
 │   └── src/    首页、搜索、播放器、歌单、设置与离线缓存
 └── desktop-prismqml/   PrismQML 原生桌面客户端
@@ -71,7 +73,7 @@ PostgreSQL 使用当前稳定线 `postgres:18.4-alpine`;数据库数据持久化
 
 ```bash
 cd backend
-go run ./cmd/music-dl web --port 8329
+go run ./cmd/melodex web --port 8329
 ```
 
 **前端**(默认 :3000):
@@ -87,15 +89,17 @@ npm run dev                   # 开发服务器;打包用 npm run build(产物�
 
 前端通过两类后端接口工作:
 
-- `GET /api/v1/*` —— 新增的 JSON 接口(搜索/歌单/专辑/歌词/推荐/登录/cookie),供 React 调用
-- `GET|POST /music/*` —— go-music-dl 原有接口,其中 `/music/download`(下载/流式播放)与 `/music/local_music`(本地库)被前端直接复用
+- `GET /api/v1/*` —— JSON 接口(搜索/歌单/专辑/歌词/推荐/登录/cookie),供 React 与 PrismQML 客户端调用
+- `GET|POST /music/*` —— 下载、流式播放、本地库、歌单与兼容接口
+- `GET|POST /rest/*` —— 可选 Subsonic facade
 
 ## 致谢与来源
 
 当前代码使用并保留下列第三方来源的许可声明:
 
-- [guohuiyuan/go-music-dl](https://github.com/guohuiyuan/go-music-dl)（作者 guohuiyuan）—— 多源搜索与下载引擎
+- [CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl)（作者 CharlesPikachu）—— 多源 Provider,固定提交 `b4cecd9d450ede6f5c8d4df08763668256dfee58`,Apache-2.0
 - [Adam Lowenthal / Spotify Artist Page UI](https://codepen.io/alowenthal/pen/rxboRv) —— Web 视觉设计,MIT
+- [PrismQML](https://github.com/aki-riko/PrismQML) —— 原生桌面客户端 UI 框架
 
 ## 安全说明
 
@@ -113,9 +117,10 @@ npm run dev                   # 开发服务器;打包用 npm run build(产物�
 
 ## 许可证
 
-本项目整体采用 **AGPL-3.0**（继承自 go-music-dl）。详见 [LICENSE](./LICENSE)。
+本项目整体采用 **AGPL-3.0**。详见 [LICENSE](./LICENSE)。
+`backend/third_party/charles-musicdl` 保留其 **Apache-2.0** 许可证、上游 README、CITATION 与固定提交说明。
 对外提供网络服务时,须依 AGPL-3.0 要求公开完整源码。
 
 ## 免责声明
 
-本项目仅供学习与技术交流使用（沿袭 go-music-dl 的声明）。各音乐平台的解析与下载请遵守对应平台的服务条款及当地法律,因使用本项目产生的任何后果由使用者自负。
+本项目仅供学习与技术交流使用。各音乐平台的解析与下载请遵守对应平台的服务条款及当地法律,因使用本项目产生的任何后果由使用者自负。

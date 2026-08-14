@@ -1,29 +1,22 @@
 # 第三方资源许可声明 / Third-Party Licenses
 
-Melodex 后端基于开源音乐服务构建,Web 前端改编了第三方界面设计。
+Melodex Provider 使用固定的开源音乐服务快照,Web 前端改编了第三方界面设计。
 此处保留当前源码实际使用部分的版权与许可声明。Melodex 整体采用
-**AGPL-3.0**(继承自 go-music-dl)。
+**AGPL-3.0**。
 
 ---
 
-## go-music-dl (后端引擎本体)
+## CharlesPikachu/musicdl (多源 Provider)
 
-Melodex 的后端(多源搜索 / 下载 / 在线播放 / Subsonic facade 等)在
-**guohuiyuan/go-music-dl** 基础上改造而来,这是 Melodex 的核心引擎。
+Melodex 的歌曲搜索、媒体地址和歌词 Provider 使用
+**CharlesPikachu/musicdl** 的固定源码快照。快照通过独立 sidecar 运行，Melodex Go
+后端只使用稳定 JSON 接口与它通信。
 
-- 原作者 / Author: **guohuiyuan**
-- 原作出处 / Source: https://github.com/guohuiyuan/go-music-dl
-- 许可 / License: **AGPL-3.0**
-
-## music-lib (平台解析库)
-
-各音乐平台(QQ / 网易云 / 酷狗 等)的搜索与解析逻辑来自
-**guohuiyuan/music-lib**,已本地化引入(`backend/third_party/music-lib`,见其 LICENSE)。
-本项目对各源 Search 做了无损/正版信号等改动,保留原版权声明。
-
-- 原作者 / Author: **guohuiyuan**
-- 原作出处 / Source: https://github.com/guohuiyuan/music-lib
-- 许可 / License: **AGPL-3.0**
+- 原作者 / Author: **CharlesPikachu**
+- 原作出处 / Source: https://github.com/CharlesPikachu/musicdl
+- 固定提交 / Pinned commit: `b4cecd9d450ede6f5c8d4df08763668256dfee58`
+- 许可 / License: **Apache-2.0**
+- 许可证与来源记录: `backend/third_party/charles-musicdl/LICENSE`、`UPSTREAM.md`
 
 ## Spotify Artist Page UI (视觉设计参考)
 

@@ -194,7 +194,7 @@ export const getLyric = async (song) => {
   return data;
 };
 
-// 构造下载/播放链接(沿用 go-music-dl 现有的干净 /music/download 接口)。
+// 构造 Melodex 下载/播放链接。
 // stream=1 用于在线播放(<audio src>);否则触发下载(可选 embed 写入元数据)。
 const buildDownloadParams = (song, extra = {}) => {
   const s = normalizeSong(song);

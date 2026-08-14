@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/glebarez/sqlite"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"gorm.io/gorm"
 )
 

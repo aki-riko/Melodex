@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/go-music-dl/internal/maintenance"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
-	"github.com/guohuiyuan/go-music-dl/internal/web"
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/maintenance"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/internal/web"
 	"github.com/spf13/cobra"
 )
 

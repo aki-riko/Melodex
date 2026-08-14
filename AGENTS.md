@@ -6,15 +6,15 @@
 
 Melodex 是自托管音乐应用:
 - **Web/PWA 与 PrismQML 客户端** —— Melodex 自有应用实现
-- **[guohuiyuan/go-music-dl](https://github.com/guohuiyuan/go-music-dl)** —— Go 全网音乐搜索下载引擎(国内多源 + ffmpeg),**AGPL-3.0**
+- **[CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl)** —— 固定提交的多源 Provider 快照,**Apache-2.0**
 
-架构决策:**React 作统一 Web 前端,go-music-dl 退为 JSON 后端**。整体继承 **AGPL-3.0**。用户纯开源自用、不商业化。界面**全中文**(对接国内平台,无 i18n / 无语言切换)。**UI 使用暗色 Spotify 风**(视觉改编自 Adam Lowenthal 的 CodePen "Spotify Artist Page UI",**MIT**,见 `frontend/THIRD-PARTY-LICENSES.md` 署名;主色 Spotify 绿 #1ED760 / 底 #181818 / 卡片 #282828 / Roboto;图标用 lucide-react)。**主力用法已转 PWA Web 前端**(音流等 Subsonic 客户端对 search3 结果客户端重排,排序不可控,见下;Web 前端排序自控)。
+架构决策:**React 作统一 Web 前端,PrismQML 作原生桌面客户端,Go 作 Melodex JSON/下载后端,Python sidecar 承载 Apache Provider**。项目整体采用 **AGPL-3.0**，固定 Provider 快照保留其 **Apache-2.0** 许可证。用户纯开源自用、不商业化。界面**全中文**(对接国内平台,无 i18n / 无语言切换)。**UI 使用暗色 Spotify 风**(视觉改编自 Adam Lowenthal 的 CodePen "Spotify Artist Page UI",**MIT**,见 `frontend/THIRD-PARTY-LICENSES.md` 署名;主色 Spotify 绿 #1ED760 / 底 #181818 / 卡片 #282828 / Roboto;图标用 lucide-react)。**主力用法已转 PWA Web 前端**(音流等 Subsonic 客户端对 search3 结果客户端重排,排序不可控,见下;Web 前端排序自控)。
 
 ## 架构(读源码得出,非臆测)
 
 ```
 Melodex/
-├── backend/    Go(Gin)。go-music-dl 改造而来,平台解析在外部依赖 music-lib
+├── backend/    Go(Gin)应用后端 + Provider sidecar;不依赖外部 Go 音源库
 │   └── internal/web/
 │       ├── json_api.go      新增的 /api/v1/* JSON 接口(React 用);含 cookie 管理(GET/POST/DELETE /cookies)
 │       ├── frontend_embed.go  go:embed 托管 React 产物(SPA + /api、/music 各自路由)
@@ -34,7 +34,7 @@ Melodex/
 ```
 
 ### 关键设计点 / 坑(务必知道)
-- **后端路由前缀 `RoutePrefix = "/music"`**(go-music-dl 原架构,几十处引用同一常量)。`/music` 的**老 HTMX 网页已下线**(renderIndex 返 410),只保留 JSON/下载/登录接口。用户曾想抽掉 /music,结论:**不抽**(深层架构,改动大且无实际收益)。
+- **后端路由前缀 `RoutePrefix = "/music"`**作为现有客户端与部署兼容接口保留,几十处引用同一常量。`/music` 的**老 HTMX 网页已下线**(renderIndex 返 410),只保留 JSON/下载/登录接口。
 - **前端 API_BASE 默认空字符串**(同源相对路径);开发期用 `frontend/.env.development.local` 指向本地后端。
 - **鉴权 cookie Path 必须是 `/`**(不是 /music),否则登录态覆盖不到 /api,表现为"登录没生效"。
 - **登录/setup 页**(`/music/login`)保留,React Settings 引导用户来此做管理员鉴权。登录成功跳回 `/`(不是已下线的 /music)。
@@ -146,9 +146,9 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 
 ## 平台个人歌单导入(引用型,2026-07 新增)
 
-从已登录平台(网易云/QQ/酷狗/汽水,以 `core.GetUserPlaylistSourceNames()` 为准)一键导入你创建/收藏的歌单。**引用型**:只存 `source+external_id`,打开时后端 `loadImportedCollectionSongs` 实时从平台拉曲目,导入瞬间完成、可在线听、也可整单/逐首下载到 NAS(复用 MyPlaylist 现有下载按钮)。
+从已登录平台(当前为网易云/QQ,以 `core.GetUserPlaylistSourceNames()` 为准)一键导入你创建/收藏的歌单。**引用型**:只存 `source+external_id`,打开时后端 `loadImportedCollectionSongs` 实时从平台拉曲目,导入瞬间完成、可在线听、也可整单/逐首下载到 NAS(复用 MyPlaylist 现有下载按钮)。
 
-- **后端能力早已就绪**(music-lib 各源 `GetUserPlaylists(page,limit)` 依赖登录 cookie + `GetPlaylistSongs(id)`;`POST /music/collections/import` 建 kind=imported 歌单带去重),本次仅补一个 JSON 路由 + 前端。
+- **后端能力**由 `internal/provider/extensions` 的 `UserPlaylists` + `GetPlaylistSongs` 提供;`POST /music/collections/import` 建 kind=imported 歌单并去重。
 - **新增路由 `GET /api/v1/user_playlists`**(`json_api.go`,userSecure 组需登录):复用 `loadPlaylistTabsJSON` + `userPlaylistsFuncProvider`(可替换以便测试,默认 `core.GetUserPlaylistsFunc`)按源返回 `{tabs:[{source,source_name,playlists,error}]}`。**不缓存**(依登录 cookie,跨用户/跨登录态会串)。未登录的源 `GetUserPlaylists` 自身返 error → 落 tab.Error,前端提示「去设置登录」。
 - **前端**:`musicdl.js` 的 `getUserPlaylists()` 拉列表;`collections.js` 的 `importPlaylist(playlist)` 把 `model.Playlist`(id/name/cover/creator/track_count/link)映射成 import body(content_type='playlist');`ImportPlaylistModal.js` 按源 tab 展示歌单卡片,点击导入,duplicate 提示已导入;Sidebar「+」菜单第三项「从平台导入歌单」。
 - **坑:侧栏必须带 `include_imported=1`**(`listCollections({includeImported:true})`,CollectionsContext 已改),否则导入歌单不显示——后端默认列表只返 manual+favorite。
@@ -157,7 +157,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 ## 搜索排序(2026-06 重写,Web 与 Subsonic 共用)
 
 `json_api.go` 的 `/api/v1/search` 和 facade 的 search3 都用 `sortSongsByRelevance`:综合分 = 本地相关性 `relevanceScore`(歌名完全=1000/开头600/含400/多词累加/歌手+80) + 上游名次分 `upstreamRankScore`(各源返回序,译名匹配不到时兜底) + 正版信号 `officialBonus`(无损+600/付费+200) − 翻唱降权 `coverPenalty`(歌名含 Cover/翻唱/钢琴版/伴奏/纯音乐等强特征罚1200/Live等弱罚300);**无正版信号的完全匹配封顶到 600**(防译名翻唱白嫖歌名霸榜),同分按真实码率降序。前端 Download.js 信任后端返回序(relevance 字段取 -origIdx 不本地重算)。
-- **正版信号来自本地化的 music-lib**:`backend/third_party/music-lib`(replace 引入,git clone 删 .git 并入主仓,Dockerfile 在 `go mod download` 前先 `COPY third_party`),改各源 Search 把 `has_lossless`(QQ SizeFlac>0 / netease Privilege.Fl≥999000)`is_paid`(QQ pay.PayTrackPrice>0)写进 `Extra`。music-lib 是 AGPL,改了保留版权声明。
+- **音质信号来自 Provider sidecar**:`backend/provider_bridge/app.py` 将 Charles 快照返回的格式、码率和可下载状态映射到稳定 `Song` 模型;无损扩展名写入 `has_lossless`。固定提交和许可证见 `backend/third_party/charles-musicdl/UPSTREAM.md`。
 - **边界**:无"原唱"元数据,纯算法靠"有无损≈正版原唱"近似,译名翻唱(歌名精确匹配译名又无标记,如 Cherisy)仍可能压过原名原唱(日文名匹配不上中文 query)。要精确区分需 MusicBrainz(不做)。带艺人/用原名搜最准。
 
 ## 功能现状(截至 2026-06,搜索/下载主线闭环)
@@ -193,7 +193,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 
 ## 测试与验证纪律(重要)
 
-- 后端改动:`go build ./...` + `go test ./internal/web/ ./core/`,**零回归**才提交(go-music-dl 自带大量测试)。
+- 后端改动:`go build ./cmd/melodex` + `go test ./internal/web/ ./core/ ./internal/provider/...`,**零回归**才提交。
 - 前端有定向 Node 合同测试,按改动范围运行对应脚本;当前禁止浏览器自动化,真实搜索、播放和视觉行为需在允许的真机验收阶段单独确认。
 - **真实数据验证**:用真实关键词(周杰伦晴天等),不自造样本。ffprobe 验下载文件的元数据/封面。
 - **playwright 会话偶发卡死**("Browser is already in use",清 SingletonLock 也无效)→ 别死磕,改用真实搜索数据直接跑纯逻辑函数(如 relevanceScore 排序)验证,同样可靠。
@@ -224,6 +224,6 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **刮削**:下载文件嵌入 标题/歌手/专辑/专辑艺人/日期/完整LRC歌词/封面(webp 自动转 JPEG)。track/genre/year **数据源没有**(model.Song + Extra 只有 song_id),硬加是空帧,别做。再要更全需接 MusicBrainz(另一量级)。
 - **发现页**:国内源只有"歌单"维度(推荐歌单/分类/歌手搜索),**没有艺人榜/单曲榜**接口。
 - **音质**:搜索返回的 bitrate/size 是**预览值常不准**(多为 128);真实值靠自动验活 / "验"按钮调 `/music/inspect`(对真实下载源发 Range 探测,算 size/bitrate)。部分歌曲版权受限(如 kugou privilege=10/8)inspect 返回 valid:false,自动验活会**隐藏死链**。
-- **无损/高音质依赖登录会员 cookie**:music-lib 的下载逻辑(kugou/QQ 等)在有 cookie 时优先走 VIP 链路(`IsVipAccount`→`fetchVIPSongInfo`,选 sq_hash/FLAC)。但 **QQ 扫码登录拿不到 SQ**——实测扫码(ptlogin)拿到的 cookie 里 `qm_keyst`/`qqmusic_key` 为空(缺音乐授权 musickey),只能拿到 ogg 高码率拿不到 FLAC。解法:Settings 的**手动填 Cookie**入口,从平台网页版(y.qq.com 等)抠含 qm_keyst 的完整 cookie 粘贴。无损能不能真拿到最终取决于**账号会员等级**。
+- **无损/高音质依赖登录会员 cookie**:Provider sidecar 会把管理员保存的平台 Cookie 传给对应 Charles 客户端。除网易扫码外,其他平台使用 Settings 的**手动填 Cookie**入口;无损能否取得最终取决于上游能力、Cookie 有效性与账号会员等级。
 - **同名歌曲排序**:见上方「搜索排序」节(综合分:相关性+上游名次+正版信号−翻唱降权,无正版信号的完全匹配封顶600,同分按真实音质降序)。无"原唱"数据,译名翻唱仍可能压过原名原唱,带歌手/用原名搜最准。
 - **浏览器播放**:Web 前端 `<audio>` 原生解码 FLAC/WAV(现代浏览器支持,playwright 真机验证 FLAC 正常播);MediaSession 已接(锁屏/通知栏/蓝牙控制)。iOS Safari 后台播放限制比 Android 弱,未充分真机验。

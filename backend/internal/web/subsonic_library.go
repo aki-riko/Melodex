@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
 )
 
 // localTrackToSubsonicChild 把本地曲库 track 映射成 Subsonic song 元素。

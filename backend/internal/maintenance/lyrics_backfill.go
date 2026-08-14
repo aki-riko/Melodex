@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/dhowden/tag"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"gorm.io/gorm"
 )
 

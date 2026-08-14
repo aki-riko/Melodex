@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
 )
 
 const githubRequestTimeout = 5 * time.Second
@@ -84,14 +84,14 @@ func RegisterUpdateRoutes(api *gin.RouterGroup) {
 		if proxyURL == "" {
 			proxyURL = core.DefaultGithubProxyURL
 		}
-		target := proxiedGitHubURL("https://github.com/guohuiyuan/go-music-dl", proxyURL, true)
+		target := proxiedGitHubURL("https://github.com/aki-riko/Melodex/backend", proxyURL, true)
 		startedAt := time.Now()
 		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, target, nil)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
 			return
 		}
-		req.Header.Set("User-Agent", "go-music-dl/"+core.AppVersion)
+		req.Header.Set("User-Agent", "Melodex/"+core.AppVersion)
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
@@ -233,7 +233,7 @@ func requestGitHubRelease(ctx context.Context, apiURL string) (githubRelease, er
 		return githubRelease{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "go-music-dl/"+core.AppVersion)
+	req.Header.Set("User-Agent", "Melodex/"+core.AppVersion)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

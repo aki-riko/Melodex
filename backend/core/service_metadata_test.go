@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/dhowden/tag"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 func TestEmbedSongMetadataWritesReadableMP3ID3v23LyricsAndCover(t *testing.T) {

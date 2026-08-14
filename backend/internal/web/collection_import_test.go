@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 // testUserID 是测试 router 注入的当前用户 id(在 initCollectionDBForTest 中创建)。

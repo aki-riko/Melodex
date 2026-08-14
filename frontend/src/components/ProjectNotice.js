@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 
 const PROJECT_URL = 'https://github.com/aki-riko/Melodex';
-const BACKEND_URL = 'https://github.com/guohuiyuan/go-music-dl';
+const PROVIDER_URL = 'https://github.com/CharlesPikachu/musicdl';
 const DESIGN_URL = 'https://codepen.io/alowenthal/pen/rxboRv';
 
 export default function ProjectNotice() {
@@ -36,11 +36,11 @@ export default function ProjectNotice() {
           </p>
           <p className="mt-1">自托管 PWA 音乐搜索、服务器下载与离线缓存工具。</p>
           <p className="mt-3 text-xs opacity-70">
-            后端基于{' '}
-            <a href={BACKEND_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
-              go-music-dl
+            多源 Provider 移植自{' '}
+            <a href={PROVIDER_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+              CharlesPikachu/musicdl
             </a>
-            {' '}(AGPL-3.0);Web 前端功能由 Melodex 实现,界面视觉改编自 Adam Lowenthal 的{' '}
+            {' '}(固定 Apache-2.0 快照);Web 前端功能由 Melodex 实现,界面视觉改编自 Adam Lowenthal 的{' '}
             <a href={DESIGN_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
               Spotify Artist Page UI
             </a>
