@@ -60,7 +60,7 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - session payload 含 UserID,全局 HMAC 签名密钥惰性生成存 `WebAuthSettings.SessionSecret`。`authRequired` 注入 userID/role/username 入 gin.Context(**绝不信任前端传的 user_id**),`adminRequired` 非管理员 403。
 - **会话可吊销**:User.SessionEpoch 嵌入 session payload,`setUserPassword` 改密码时 epoch+1 → 旧会话全失效(改密码即登出所有设备)。`authenticateRequest` 比对 epoch/用户名/disabled。
 - **安全加固(2026-06 审计后)**:bcrypt + 登录失败限流(username|IP)+ 时序防护(不存在用户跑 dummy 哈希);密码 ≥8 位 + 弱密码黑名单;setup 一次性 token(HTML 与 JSON `/api/v1/auth/setup` 都校验 setup_token,防首次部署抢注 ROOT);cookie Secure 读 X-Forwarded-Proto;CORS 同源+env 白名单不反射任意 Origin;SSRF cover/download_cover 走 isPublicHTTPURL + fetch client CheckRedirect 每跳校验;本地音频流 serveLocalMusicDownload 校验归属(非管理员只取自己下过的否则 404);搜索 per-IP 限流;安全响应头中间件。详见 [安全审计 memory] 与「部署」节安全 env。
-- **路由分级**:`bindAuthMiddleware` 返回 `adminAPI`(登录+管理员:cookie/系统设置/QR登录/用户管理)与 `userAPI`(仅登录:歌单/收藏/本地库)。公开读路由(搜索/播放/歌词)挂 `attachUserOptional` 让下载能记归属。
+- **路由分级**:`bindAuthMiddleware` 返回 `adminAPI`(登录+管理员:cookie/系统设置/QR登录/用户管理)与 `userAPI`(仅登录:歌单/收藏/本地库)。音乐数据路由(搜索/播放/歌词/歌单/本地库)默认要求登录;仅健康检查、登录/setup/register 与静态前端公开。桌面模式由 `desktopUserMiddleware` 注入本地管理员。
 - **JSON 鉴权接口**:`/api/v1/{me,auth/setup,auth/login,auth/register,auth/logout}` + `/api/v1/admin/users/*` + 开放注册开关(默认关,KV `allow_registration`)。HTML `/music/setup`/`/music/login` 也改查 User 表。
 - **安全**:bcrypt 登录时序防护(不存在用户也跑假哈希)、登录/注册失败限流、禁止自删/自降/自禁、删用户级联清歌单+下载归属。
 - **桌面模式**(`--desktop` / DisableAuth):`desktopUserMiddleware` 注入本地管理员 `local` 免登录,数据仍按 user_id 归属(单用户兜底)。
@@ -106,7 +106,7 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 
 ```bash
 # 后端(Go):
-cd backend && go run ./cmd/music-dl web --port 8329 --no-browser
+cd backend && go run ./cmd/melodex web --port 8329 --no-browser
 #   下载文件刮削嵌封面用到 ffmpeg:用环境变量 MUSIC_DL_FFMPEG 指定 ffmpeg 路径
 #   (videogen 已剥离;ffmpeg 现仅用于刮削/转码场景)
 
@@ -114,7 +114,7 @@ cd backend && go run ./cmd/music-dl web --port 8329 --no-browser
 cd frontend && npm install && npm run dev   # 读 .env.development.local 指向后端
 ```
 
-- 本机 go run 后台跑有时进程被清理,验证时建议 `go build -o /tmp/xxx ./cmd/music-dl` 跑二进制更稳。
+- 本机 go run 后台跑有时进程被清理,验证时建议 `go build -o /tmp/melodex ./cmd/melodex` 跑二进制更稳。
 - 本机 curl 后端要加 `--noproxy "*"`(有 7890 代理干扰),vite dev 用 `localhost`(绑 IPv6,curl 127.0.0.1 连不上)。
 
 ## Subsonic API facade(2026-06 新增,音流/substreamer 等客户端直连)
@@ -208,7 +208,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@192.168.1.99:28022/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:22-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)。
 - 部署流程:NAS 上 `git pull origin master` → `docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t melodex:latest .` → `docker compose up -d`。
 - **安全相关 env(2026-06 审计后新增,反代部署建议配)**:
-  - `MUSIC_DL_TRUSTED_PROXIES`:逗号分隔 CIDR/IP(如 NPM 容器网段 `172.18.0.0/16`)。配后仅这些来源的 `X-Forwarded-For` 被 `ClientIP()` 采信,防客户端伪造 XFF 绕过限流/登录锁。**不配则 gin 信任全部 XFF(可被伪造)**;有反代务必配。
+  - `MUSIC_DL_TRUSTED_PROXIES`:逗号分隔 CIDR/IP(如 NPM 容器网段 `172.18.0.0/16`)。配后仅这些来源的 `X-Forwarded-For` 被 `ClientIP()` 采信,防客户端伪造 XFF 绕过限流/登录锁。**不配时后端不信任任何代理并忽略 XFF**;配置非法则拒绝启动。有反代且需要还原客户端 IP 时务必准确配置。
   - `MUSIC_DL_CORS_ORIGINS`:逗号分隔的可信跨域来源(同源无需配)。CORS 不再反射任意 Origin,只对同源+此白名单回显凭据。
   - cookie `Secure` 自动按 `X-Forwarded-Proto=https` 置位(NPM 终止 TLS 场景),无需配置但 NPM 需透传该头。
   - 资源上限默认值:搜索 per-IP 30 次/分钟、search_cache 5000 行、上传单文件 200MB、m3u 导入 ≤1000 条(均硬编码,需调改源码)。

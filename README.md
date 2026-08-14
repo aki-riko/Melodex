@@ -65,7 +65,7 @@ docker compose up -d --build      # 构建并启动应用 + PostgreSQL
 镜像三阶段构建(Node 构建前端 → Go 编译并 `go:embed` 嵌入前端产物 → Alpine + ffmpeg 运行)。
 PostgreSQL 使用当前稳定线 `postgres:18.4-alpine`;数据库数据持久化在 Compose volume `postgres_data`,下载的音乐与旧 SQLite 迁移源仍挂载在 `./data`。首次启用 Postgres 时,后端会从 `./data/settings.db` 迁移配置、账号、歌单、播放历史、搜索缓存等旧数据。
 
-> 对外暴露前请阅读下方「安全说明」:搜索/下载等匿名可用,扫码登录等敏感操作需先在 `/music/setup` 初始化管理员。
+> 对外暴露前请阅读下方「安全说明」:除健康检查、登录/setup/register 与静态前端外,音乐数据接口均要求 Melodex 登录;首次部署需在 `/music/setup` 初始化管理员。
 
 ## 开发运行
 
@@ -101,17 +101,20 @@ npm run dev                   # 开发服务器;打包用 npm run build(产物�
 - [Adam Lowenthal / Spotify Artist Page UI](https://codepen.io/alowenthal/pen/rxboRv) —— Web 视觉设计,MIT
 - [PrismQML](https://github.com/aki-riko/PrismQML) —— 原生桌面客户端 UI 框架
 
+后端当前树、固定 Provider 与 Git 历史的详细来源边界见
+[`backend/PROVENANCE.md`](./backend/PROVENANCE.md)。
+
 ## 安全说明
 
 部署前请了解以下安全边界:
 
-- **对外暴露需先设管理员**:后端默认监听全部网卡(`0.0.0.0`)。搜索/播放/下载等只读功能匿名可用;而扫码登录、Cookie 管理等敏感操作(`/api/v1/qr_login`、`/api/v1/cookies`)要求管理员鉴权——首次访问后端 `/music/setup` 用启动终端打印的令牌初始化管理员账号后方可使用。
+- **对外暴露需先设管理员**:后端默认监听全部网卡(`0.0.0.0`)。除健康检查、登录/setup/register 与静态前端外,搜索、播放、下载、歌单和本地库等数据接口都要求 Melodex 登录;扫码登录、Cookie 管理、用户管理和系统设置还要求管理员角色。首次访问 `/music/setup` 时,用启动终端打印的令牌初始化管理员账号。
 - **仅本机使用更安全**:若只在本机使用,用 `--desktop` 模式启动会绑定 `127.0.0.1`。
 - **SSRF 防护**:封面代理 `/music/cover_proxy` 已拒绝指向内网/环回/云元数据(`169.254.169.254`)的目标,并覆盖十进制/十六进制/IPv6 等绕过写法。注:校验在请求前做 DNS 解析,理论上仍存在 DNS rebinding(TOCTOU)的残余风险;若部署在敏感内网,建议在网络层(防火墙/出网策略)额外限制后端的出站访问。
 - **登录防爆破**:管理员登录失败有次数锁定;密码以 bcrypt 存储。
 - **上传限制**:本地音乐上传仅接受音频扩展名白名单,文件名经清洗防路径穿越。
 - **前端依赖**:构建工具为 Vite,运行时依赖(axios、react 等)均已升级到无已知高危漏洞的版本,生产 build 产物无 critical/high 漏洞。`npm audit` 仍会报少量来自构建/开发期工具链(vite dev server、tailwind/postcss 的 glob 等)的告警,这些**不进生产产物**,且多为 dev-only(仅 `npm run dev` 期间)。
-- **ffmpeg**:视频生成等功能依赖系统 ffmpeg;exec 调用均使用参数数组,无 shell 注入。
+- **ffmpeg**:音频探测、转码与元数据处理依赖系统 ffmpeg;exec 调用均使用参数数组,无 shell 注入。
 
 发现安全问题请提 issue 或私下联系维护者。
 
