@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -9,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +38,41 @@ const (
 )
 
 var authRuntime = newAuthRuntimeState()
+
+var authPageView = template.Must(template.New("auth").Parse(`<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>{{.Title}}</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:32px 20px;background:#f5f5f5;color:#242424;font-family:Arial,"Microsoft YaHei",sans-serif}
+    main{width:min(420px,100%)}section{background:rgba(255,255,255,.96);border:1px solid #e3e3e3;border-radius:4px;padding:34px;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+    .brand{display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;color:#0078d4;text-decoration:none;font-weight:800}.mark{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#0078d4;color:#fff;font-size:13px}
+    h1{margin:0 0 10px;font-size:29px}.hint{margin:0 0 24px;color:#666;font-size:14px;line-height:1.6}.error{margin-bottom:18px;padding:11px 12px;border-left:3px solid #c42b1c;background:#fde7e9;color:#8a1c13;font-size:14px}
+    form{display:flex;flex-direction:column;gap:16px}label{display:flex;flex-direction:column;gap:8px;font-size:14px;font-weight:700}input{width:100%;min-height:42px;border:1px solid #8a8886;border-radius:2px;padding:9px 11px;font:inherit}input:focus{outline:2px solid #0078d4;outline-offset:1px}
+    button{min-height:48px;margin-top:6px;border:0;border-radius:2px;background:#0078d4;color:#fff;font:700 15px inherit;cursor:pointer}button:hover{background:#106ebe}button:focus-visible{outline:2px solid #111;outline-offset:2px}
+    @media(max-width:520px){body{padding:24px 14px}section{padding:26px 20px}}
+  </style>
+</head>
+<body>
+<main><section>
+  <a class="brand" href="https://github.com/aki-riko/Melodex" target="_blank" rel="noopener"><span class="mark">M</span><span>Melodex</span></a>
+  <h1>{{.Title}}</h1>
+  {{if eq .Mode "setup"}}<p class="hint">首次使用需要创建本地管理员账号，用来保护平台 Cookie 和系统设置。</p>{{else}}<p class="hint">请输入 Melodex 账号继续。</p>{{end}}
+  {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+  <form method="post" action="{{.Action}}">
+    <input type="hidden" name="next" value="{{.Next}}">
+    {{if eq .Mode "setup"}}<label><span>初始化令牌</span><input type="text" name="setup_token" autocomplete="off" required></label>{{end}}
+    <label><span>用户名</span><input type="text" name="username"{{if eq .Mode "setup"}} value="{{.Username}}" autocomplete="username"{{else}} autocomplete="off"{{end}} required autofocus></label>
+    <label><span>密码</span><input type="password" name="password" autocomplete="{{if eq .Mode "setup"}}new-password{{else}}current-password{{end}}" minlength="8" required></label>
+    {{if eq .Mode "setup"}}<label><span>确认密码</span><input type="password" name="password_confirm" autocomplete="new-password" minlength="8" required></label>{{end}}
+    <button type="submit">{{.Button}}</button>
+  </form>
+</section></main>
+</body>
+</html>`))
 
 type sessionPayload struct {
 	UserID   uint   `json:"uid"`
@@ -310,8 +347,8 @@ func safeAuthRedirectTarget(raw string) string {
 	if parsed.Path == RoutePrefix+"/login" || parsed.Path == RoutePrefix+"/setup" {
 		return defaultTarget
 	}
-	// 老的 /music 首页已下线,跳它没意义 → 回根
-	if parsed.Path == RoutePrefix {
+	// 已下线的旧网页入口不能再作为登录后的落点。
+	if isLegacyWebPagePath(parsed.Path) {
 		return defaultTarget
 	}
 	return parsed.String()
@@ -515,16 +552,32 @@ func renderAuthPage(c *gin.Context, mode string, errMsg string, username string)
 		button = "创建账号"
 	}
 
-	c.HTML(http.StatusOK, "auth.html", gin.H{
-		"Root":     RoutePrefix,
-		"Title":    title,
-		"Mode":     mode,
-		"Action":   action,
-		"Button":   button,
-		"Error":    errMsg,
-		"Username": username,
-		"Next":     safeAuthRedirectTarget(c.Query("next")),
-	})
+	if mode != "setup" {
+		username = ""
+	}
+	view := struct {
+		Title    string
+		Mode     string
+		Action   string
+		Button   string
+		Error    string
+		Username string
+		Next     string
+	}{
+		Title:    title,
+		Mode:     mode,
+		Action:   action,
+		Button:   button,
+		Error:    errMsg,
+		Username: username,
+		Next:     safeAuthRedirectTarget(c.Query("next")),
+	}
+	var body bytes.Buffer
+	if err := authPageView.Execute(&body, view); err != nil {
+		c.String(http.StatusInternalServerError, "登录页面生成失败")
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", body.Bytes())
 }
 
 func bindAuthRoutes(api *gin.RouterGroup) {

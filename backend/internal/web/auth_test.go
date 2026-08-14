@@ -145,10 +145,12 @@ func TestSafeAuthRedirectTarget(t *testing.T) {
 		want string
 	}{
 		{raw: "", want: "/"},
-		{raw: "/music/search?q=test", want: "/music/search?q=test"},
+		{raw: "/music/search?q=test", want: "/"},
+		{raw: "/music/render", want: "/"},
 		{raw: "/music/login", want: "/"},
 		{raw: "/music/setup", want: "/"},
 		{raw: "/music", want: "/"},
+		{raw: "/music/", want: "/"},
 		{raw: "/other", want: "/other"},
 		{raw: "https://example.com/music", want: "/"},
 		{raw: "//example.com/music", want: "/"},
@@ -164,7 +166,6 @@ func TestSafeAuthRedirectTarget(t *testing.T) {
 func TestLoginAuthPageDoesNotRenderProvidedUsername(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.SetHTMLTemplate(newTestTemplate(t))
 	router.GET(RoutePrefix+"/login", func(c *gin.Context) {
 		renderAuthPage(c, "login", "", "private-owner")
 	})
@@ -191,7 +192,6 @@ func TestLoginAuthPageDoesNotRenderProvidedUsername(t *testing.T) {
 func TestSetupAuthPageKeepsProvidedUsername(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.SetHTMLTemplate(newTestTemplate(t))
 	router.GET(RoutePrefix+"/setup", func(c *gin.Context) {
 		renderAuthPage(c, "setup", "", "setup-owner")
 	})

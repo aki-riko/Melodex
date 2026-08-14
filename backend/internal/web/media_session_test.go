@@ -4,50 +4,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 )
-
-func TestAppJSMediaSessionArtworkUsesCoverProxy(t *testing.T) {
-	content, err := templateFS.ReadFile("templates/static/js/app.js")
-	if err != nil {
-		t.Fatalf("ReadFile(app.js): %v", err)
-	}
-
-	js := string(content)
-	if !strings.Contains(js, "function buildMediaSessionCoverURL(audio = getCurrentAPlayerAudio())") {
-		t.Fatal("app.js missing buildMediaSessionCoverURL helper")
-	}
-	if !strings.Contains(js, "cover_proxy") {
-		t.Fatal("app.js missing cover_proxy media session artwork path")
-	}
-	if !strings.Contains(js, "function scheduleMediaSessionSync(audio = getCurrentAPlayerAudio(), delayMs = 160)") {
-		t.Fatal("app.js missing delayed media session resync helper")
-	}
-	if !strings.Contains(js, "const mediaSessionCoverCache = new Map();") {
-		t.Fatal("app.js missing media session cover cache")
-	}
-	if !strings.Contains(js, "function buildMediaSessionTrackKey(audio = getCurrentAPlayerAudio())") {
-		t.Fatal("app.js missing media session track key helper")
-	}
-	if !strings.Contains(js, "function isTransientMediaSessionURL(value)") {
-		t.Fatal("app.js missing transient media session URL helper")
-	}
-	if !strings.Contains(js, "mediaSessionCoverCache.set(trackKey, resolved);") {
-		t.Fatal("app.js missing stable media session cover caching")
-	}
-	if !strings.Contains(js, "const cached = mediaSessionCoverCache.get(trackKey);") {
-		t.Fatal("app.js missing cached media session cover lookup")
-	}
-	if !strings.Contains(js, "function shouldPreserveMediaSessionMetadata()") {
-		t.Fatal("app.js missing transient media session metadata guard")
-	}
-	if !strings.Contains(js, "if (shouldPreserveMediaSessionMetadata()) {") {
-		t.Fatal("app.js missing transient metadata preservation logic")
-	}
-}
 
 func TestCoverProxyReturnsInlineImage(t *testing.T) {
 	gin.SetMode(gin.TestMode)

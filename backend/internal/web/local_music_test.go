@@ -41,44 +41,6 @@ func newLocalMusicTestRouter() *gin.Engine {
 	return r
 }
 
-func TestSearchBoxTemplateShowsLocalMusicEntryNextToCollections(t *testing.T) {
-	content, err := templateFS.ReadFile("templates/partials/search_box.html")
-	if err != nil {
-		t.Fatalf("ReadFile(search_box.html): %v", err)
-	}
-
-	html := string(content)
-	if !strings.Contains(html, `onclick="openCollectionManager()"`) {
-		t.Fatal("search box missing custom collection entry")
-	}
-	if !strings.Contains(html, `onclick="openLocalMusicPage()"`) {
-		t.Fatal("search box missing local music page entry")
-	}
-	if !strings.Contains(html, `onclick="goToPlaylistCategories()"`) {
-		t.Fatal("search box missing playlist categories entry")
-	}
-	if strings.Index(html, `onclick="openLocalMusicPage()"`) < strings.Index(html, `onclick="openCollectionManager()"`) {
-		t.Fatal("local music entry should be placed to the right of custom collection entry")
-	}
-	if strings.Index(html, `onclick="goToPlaylistCategories()"`) < strings.Index(html, `onclick="openLocalMusicPage()"`) {
-		t.Fatal("playlist categories entry should be placed to the right of local music entry")
-	}
-	if !strings.Contains(html, "本地音乐") {
-		t.Fatal("search box missing local music label")
-	}
-	if !strings.Contains(html, "歌单分类") {
-		t.Fatal("search box missing playlist categories label")
-	}
-
-	playlistGrid, err := templateFS.ReadFile("templates/partials/playlist_grid.html")
-	if err != nil {
-		t.Fatalf("ReadFile(playlist_grid.html): %v", err)
-	}
-	if strings.Contains(string(playlistGrid), `onclick="openLocalMusicModal()"`) {
-		t.Fatal("local music entry should not be inside custom collection page header")
-	}
-}
-
 func TestLocalMusicListScansDownloadDirWithFallbacks(t *testing.T) {
 	initCollectionDBForTest(t)
 

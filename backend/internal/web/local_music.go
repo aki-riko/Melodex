@@ -92,20 +92,9 @@ type localMusicTrack struct {
 }
 
 func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
-	api.GET("/local_music_page", func(c *gin.Context) {
-		errMsg := ""
-		tracks := []*localMusicTrack{}
-		if snapshot, ok := cachedLocalMusicScanSnapshot(localMusicDownloadDir(), false); ok {
-			tracks = snapshot.Tracks
-			if snapshot.Err != nil {
-				errMsg = "加载本地音乐失败: " + snapshot.Err.Error()
-			} else if !snapshot.Exists {
-				errMsg = "本地下载目录不存在，可上传音乐或在设置中调整下载目录"
-			}
-		}
-
-		renderIndex(c, localMusicTracksToSongs(tracks), nil, "", nil, errMsg, "local_music", "", "", "", false, "", nil)
-	})
+	for _, route := range legacyLocalMusicPageRoutes {
+		api.GET(route, legacyWebPageGone)
+	}
 
 	api.GET("/local_music", func(c *gin.Context) {
 		forceRefresh := c.Query("refresh") == "1" || c.Query("force") == "1"

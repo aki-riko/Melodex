@@ -284,8 +284,8 @@ type SearchFunc func(keyword string) ([]model.Song, error)
 type SearchPlaylistFunc func(keyword string) ([]model.Playlist, error)
 type PlaylistCategoriesFunc func() ([]model.PlaylistCategory, error)
 type CategoryPlaylistsFunc func(string, int, int) ([]model.Playlist, error)
-type QRLoginCreateFunc func() (*model.QRLoginSession, error)
-type QRLoginCheckFunc func(string) (*model.QRLoginResult, error)
+type QRLoginCreateFunc func() (*model.LoginChallenge, error)
+type QRLoginCheckFunc func(string) (*model.LoginResult, error)
 type UserPlaylistsFunc func(page, limit int) ([]model.Playlist, error)
 
 func GetSearchFunc(source string) SearchFunc {

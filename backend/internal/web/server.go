@@ -1,41 +1,49 @@
 package web
 
 import (
-	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aki-riko/Melodex/backend/core"
-	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed templates/*
-var templateFS embed.FS
-
 const RoutePrefix = "/music"
 
-type importCollectionMeta struct {
-	Enabled     bool
-	Name        string
-	Description string
-	Cover       string
-	Creator     string
-	TrackCount  int
-	Source      string
-	ExternalID  string
-	Link        string
-	ContentType string
-	HoverText   string
+var (
+	legacyMusicPageRoutes = []string{
+		"/", "/recommend", "/user_playlists", "/playlist_categories",
+		"/category_playlists", "/search", "/playlist", "/album", "/album_jump",
+	}
+	legacyCollectionPageRoutes = []string{"/my_collections", "/collection"}
+	legacyLocalMusicPageRoutes = []string{"/local_music_page"}
+	legacyStandalonePageRoutes = []string{"/render"}
+)
+
+func isLegacyWebPagePath(requestPath string) bool {
+	requestPath = strings.TrimSuffix(requestPath, "/")
+	if requestPath == RoutePrefix {
+		return true
+	}
+	for _, routes := range [][]string{
+		legacyMusicPageRoutes,
+		legacyCollectionPageRoutes,
+		legacyLocalMusicPageRoutes,
+		legacyStandalonePageRoutes,
+	} {
+		for _, route := range routes {
+			if requestPath == RoutePrefix+strings.TrimSuffix(route, "/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func defaultSourcesForSearchType(searchType string) []string {
@@ -48,33 +56,6 @@ func defaultSourcesForSearchType(searchType string) []string {
 		return core.GetLyricSearchSourceNames()
 	default:
 		return core.GetDefaultSourceNames()
-	}
-}
-
-func collectionLabelForSearchType(searchType string) string {
-	if searchType == "album" {
-		return "专辑"
-	}
-	return "歌单"
-}
-
-func collectionCreatorLabelForSearchType(searchType string) string {
-	if searchType == "album" {
-		return "歌手"
-	}
-	return "创建者"
-}
-
-func searchPlaceholderForType(searchType string) string {
-	switch searchType {
-	case "playlist":
-		return "搜索歌单、创建者，或直接粘贴歌单链接"
-	case "album":
-		return "搜索专辑、歌手，或直接粘贴专辑链接"
-	case "lyric":
-		return "输入一句歌词，先找候选歌曲再匹配歌词文本"
-	default:
-		return "搜索歌曲、歌手，或直接粘贴分享链接"
 	}
 }
 
@@ -183,199 +164,8 @@ func asciiDownloadFilenamePart(value string) string {
 	return strings.TrimSpace(b.String())
 }
 
-func playlistExtraValue(playlist model.Playlist, key string) string {
-	if playlist.Extra == nil {
-		return ""
-	}
-	return strings.TrimSpace(playlist.Extra[key])
-}
-
-func importCollectionHoverText(contentType string) string {
-	if contentType == collectionContentAlbum {
-		return "导入到本地歌单列表，保存为外部导入专辑；仅保存元数据，不保存具体歌曲明细。"
-	}
-	return "导入到本地歌单列表，保存为外部导入歌单；仅保存元数据，不保存具体歌曲明细。"
-}
-
-func playlistDetailURL(root string, searchType string, playlist model.Playlist) string {
-	if strings.TrimSpace(playlist.Source) == "local" {
-		return fmt.Sprintf("%s/collection?id=%s", root, url.QueryEscape(playlist.ID))
-	}
-	if playlistExtraValue(playlist, "external_only") == "true" && strings.TrimSpace(playlist.Link) != "" {
-		return playlist.Link
-	}
-
-	route := "playlist"
-	contentType := collectionContentPlaylist
-	if searchType == collectionContentAlbum {
-		route = "album"
-		contentType = collectionContentAlbum
-	}
-
-	values := url.Values{}
-	values.Set("id", playlist.ID)
-	values.Set("source", playlist.Source)
-	if name := strings.TrimSpace(playlist.Name); name != "" {
-		values.Set("name", name)
-	}
-	if description := strings.TrimSpace(playlist.Description); description != "" {
-		values.Set("description", description)
-	}
-	if cover := strings.TrimSpace(playlist.Cover); cover != "" {
-		values.Set("cover", cover)
-	}
-	if creator := strings.TrimSpace(playlist.Creator); creator != "" {
-		values.Set("creator", creator)
-	}
-	if playlist.TrackCount > 0 {
-		values.Set("track_count", strconv.Itoa(playlist.TrackCount))
-	}
-	link := strings.TrimSpace(playlist.Link)
-	if link == "" {
-		link = core.GetOriginalLink(playlist.Source, playlist.ID, contentType)
-	}
-	if link != "" {
-		values.Set("link", link)
-	}
-
-	return fmt.Sprintf("%s/%s?%s", root, route, values.Encode())
-}
-
-func renderIndex(c *gin.Context, songs []model.Song, playlists []model.Playlist, q string, selected []string, errMsg string, searchType string, playlistLink string, colID string, colName string, isLocalColPage bool, collectionKind string, importCollection *importCollectionMeta) {
-	// Melodex:旧版 HTMX 网页界面已下线,统一改用 React 前端 + /api/v1 JSON 接口。
-	// 所有原 HTML 页面入口(首页/搜索/歌单/专辑/分类/本地等)在此返回 410,不再渲染老页面。
-	// 注意:这只影响 HTML 页面,/api/v1/*、/music/download、/music/local_music(JSON)、
-	// /music/lyric、登录等接口不经过本函数,完全不受影响。
+func legacyWebPageGone(c *gin.Context) {
 	c.String(http.StatusGone, "该网页界面已下线,请使用 Melodex 前端。")
-	return
-	//nolint:govet // 以下为旧 HTML 渲染逻辑,保留备查,已被上方 return 短路。
-	//goland:noinspection GoUnreachableCode
-	allSrc := core.GetAllSourceNames()
-	desc := make(map[string]string)
-	for _, s := range allSrc {
-		desc[s] = core.GetSourceDescription(s)
-	}
-
-	playlistSupported := make(map[string]bool)
-	for _, s := range core.GetPlaylistSourceNames() {
-		playlistSupported[s] = true
-	}
-	albumSupported := make(map[string]bool)
-	for _, s := range core.GetAlbumSourceNames() {
-		albumSupported[s] = true
-	}
-	playlistCategorySupported := make(map[string]bool)
-	for _, s := range core.GetPlaylistCategorySourceNames() {
-		playlistCategorySupported[s] = true
-	}
-	qrLoginSupported := make(map[string]bool)
-	for _, s := range core.GetQRLoginSourceNames() {
-		qrLoginSupported[s] = true
-	}
-	userPlaylistSupported := make(map[string]bool)
-	for _, s := range core.GetUserPlaylistSourceNames() {
-		userPlaylistSupported[s] = true
-	}
-
-	playlistCategorySources, _ := c.Get("PlaylistCategorySources")
-	playlistCategoryCurrent, _ := c.Get("PlaylistCategoryCurrent")
-	playlistSourceTabs, _ := c.Get("PlaylistSourceTabs")
-
-	settings := core.GetWebSettings()
-	defaultPageSize := settings.WebPageSize
-	if defaultPageSize <= 0 {
-		defaultPageSize = core.DefaultWebPageSize
-	}
-	pageSize := defaultPageSize
-	if raw := strings.TrimSpace(c.Query("page_size")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			pageSize = n
-		}
-	}
-	if pageSize > 200 {
-		pageSize = 200
-	}
-
-	page := 1
-	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			page = n
-		}
-	}
-
-	totalCount := 0
-	if len(songs) > 0 {
-		totalCount = len(songs)
-	} else if len(playlists) > 0 {
-		totalCount = len(playlists)
-	}
-
-	totalPages := 1
-	pageStart := 0
-	pageEnd := totalCount
-	if totalCount > 0 {
-		totalPages = (totalCount + pageSize - 1) / pageSize
-		if page > totalPages {
-			page = totalPages
-		}
-		pageStart = (page - 1) * pageSize
-		if pageStart < 0 {
-			pageStart = 0
-		}
-		pageEnd = pageStart + pageSize
-		if pageEnd > totalCount {
-			pageEnd = totalCount
-		}
-
-		if len(songs) > 0 {
-			songs = songs[pageStart:pageEnd]
-		}
-		if len(playlists) > 0 {
-			playlists = playlists[pageStart:pageEnd]
-		}
-	}
-
-	pageStartDisplay := 0
-	if totalCount > 0 {
-		pageStartDisplay = pageStart + 1
-	}
-
-	c.HTML(200, "index.html", gin.H{
-		"Result":                  songs,
-		"Playlists":               playlists,
-		"Page":                    page,
-		"PageSize":                pageSize,
-		"TotalCount":              totalCount,
-		"TotalPages":              totalPages,
-		"PageStart":               pageStartDisplay,
-		"PageEnd":                 pageEnd,
-		"Keyword":                 q,
-		"AllSources":              allSrc,
-		"DefaultSources":          defaultSourcesForSearchType(searchType),
-		"SourceDescriptions":      desc,
-		"Selected":                selected,
-		"Error":                   errMsg,
-		"SearchType":              searchType,
-		"PlaylistSupported":       playlistSupported,
-		"AlbumSupported":          albumSupported,
-		"CategorySupported":       playlistCategorySupported,
-		"QRLoginSupported":        qrLoginSupported,
-		"SearchPlaceholder":       searchPlaceholderForType(searchType),
-		"CollectionLabel":         collectionLabelForSearchType(searchType),
-		"CollectionCreator":       collectionCreatorLabelForSearchType(searchType),
-		"Root":                    RoutePrefix,
-		"PlaylistLink":            playlistLink,
-		"ColID":                   colID,
-		"ColName":                 colName,
-		"CollectionKind":          collectionKind,
-		"ImportCollection":        importCollection,
-		"CanRemoveSongs":          colID != "" && collectionKind == collectionKindManual,
-		"IsLocalColPage":          isLocalColPage,
-		"PlaylistCategorySources": playlistCategorySources,
-		"PlaylistCategoryCurrent": playlistCategoryCurrent,
-		"PlaylistSourceTabs":      playlistSourceTabs,
-		"UserPlaylistSupported":   userPlaylistSupported,
-	})
 }
 
 type StartOptions struct {
@@ -432,32 +222,6 @@ func StartWithOptions(port string, opts StartOptions) {
 	r.Use(corsMiddleware())
 	r.Use(securityHeadersMiddleware())
 
-	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
-		"artistTokens":       splitArtistTokens,
-		"albumID":            songAlbumID,
-		"playlistDetailURL":  playlistDetailURL,
-		"playlistExtraValue": playlistExtraValue,
-		"tojson": func(v interface{}) string {
-			if v == nil {
-				return ""
-			}
-			b, err := json.Marshal(v)
-			if err != nil {
-				return ""
-			}
-			return string(b)
-		},
-	}).ParseFS(templateFS,
-		"templates/pages/*.html",
-		"templates/partials/*.html",
-	))
-	r.SetHTMLTemplate(tmpl)
-
-	// 根路径与 SPA 托管在 registerFrontend 中统一注册(见路由末尾)。
-
-	videoDir := "data/video_output"
-	os.MkdirAll(videoDir, 0755)
-
 	api := r.Group(RoutePrefix)
 
 	api.GET("/healthz", func(c *gin.Context) {
@@ -467,12 +231,6 @@ func StartWithOptions(port string, opts StartOptions) {
 		})
 	})
 
-	// Static assets embedded at build time.
-	api.GET("/icon.png", func(c *gin.Context) { c.FileFromFS("templates/static/images/icon.png", http.FS(templateFS)) })
-	api.GET("/style.css", func(c *gin.Context) { c.FileFromFS("templates/static/css/style.css", http.FS(templateFS)) })
-	api.GET("/videogen.css", func(c *gin.Context) { c.FileFromFS("templates/static/css/videogen.css", http.FS(templateFS)) })
-	api.GET("/videogen.js", func(c *gin.Context) { c.FileFromFS("templates/static/js/videogen.js", http.FS(templateFS)) })
-	api.GET("/app.js", func(c *gin.Context) { c.FileFromFS("templates/static/js/app.js", http.FS(templateFS)) })
 	configAPI, userAPI := bindAuthMiddleware(api, opts)
 
 	// optionalUserAPI:公开读路由,但若已登录则注入用户(GET /settings 据此返回个人偏好)。
@@ -483,11 +241,9 @@ func StartWithOptions(port string, opts StartOptions) {
 		optionalUserAPI.Use(desktopUserMiddleware())
 	}
 
-	api.GET("/render", func(c *gin.Context) {
-		c.HTML(200, "render.html", gin.H{
-			"Root": RoutePrefix,
-		})
-	})
+	for _, route := range legacyStandalonePageRoutes {
+		api.GET(route, legacyWebPageGone)
+	}
 
 	configAPI.HEAD("/cookies", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	configAPI.GET("/cookies", func(c *gin.Context) { c.JSON(200, core.CM.GetAll()) })
@@ -556,7 +312,7 @@ func StartWithOptions(port string, opts StartOptions) {
 	RegisterFavoriteRoutes(userAPI)
 	RegisterUpdateRoutes(userAPI)
 
-	// Melodex 新增:供 React 前端使用的纯 JSON 接口(/api/v1),与 /music HTMX 路由并存。
+	// 供 React 前端使用的纯 JSON 接口(/api/v1),复用 /music 下的下载与媒体接口。
 	// 敏感接口(登录/cookie)复用同一套管理员鉴权。
 	RegisterJSONAPIRoutes(r, opts)
 	RegisterDesktopLyricsRoutes(r, opts)
@@ -579,11 +335,7 @@ func StartWithOptions(port string, opts StartOptions) {
 		return
 	}
 
-	urlHost := opts.ListenHost
-	if urlHost == "" || urlHost == "0.0.0.0" || urlHost == "::" {
-		urlHost = "localhost"
-	}
-	urlStr := "http://" + urlHost + ":" + port + RoutePrefix
+	urlStr := localWebAppURL(opts.ListenHost, port)
 	fmt.Printf("Web started at %s\n", urlStr)
 	if opts.ShouldOpenBrowser {
 		go func() { time.Sleep(500 * time.Millisecond); core.OpenBrowser(urlStr) }()
@@ -601,6 +353,18 @@ func StartWithOptions(port string, opts StartOptions) {
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "Web server stopped with error: %v\n", err)
 	}
+}
+
+func localWebAppURL(listenHost, port string) string {
+	urlHost := strings.TrimSpace(listenHost)
+	if urlHost == "" || urlHost == "0.0.0.0" || urlHost == "::" {
+		urlHost = "localhost"
+	}
+	return (&url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(urlHost, port),
+		Path:   "/",
+	}).String()
 }
 
 // bindAuthMiddleware 装配鉴权并返回两个分组:
