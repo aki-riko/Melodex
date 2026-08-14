@@ -374,34 +374,11 @@ type QRLoginCheckFunc func(string) (*model.QRLoginResult, error)
 type UserPlaylistsFunc func(page, limit int) ([]model.Playlist, error)
 
 func GetSearchFunc(source string) SearchFunc {
-	c := cookieForSource(source)
-	switch source {
-	case "netease":
-		return netease.New(c).Search
-	case "qq":
-		return qq.New(c).Search
-	case "kugou":
-		return kugou.New(c).Search
-	case "kuwo":
-		return kuwo.New(c).Search
-	case "migu":
-		return migu.New(c).Search
-	case "bilibili":
-		return bilibili.New(c).Search
-	case "fivesing":
-		return fivesing.New(c).Search
-	case "jamendo":
-		return jamendo.New(c).Search
-	case "joox":
-		return joox.New(c).Search
-	case "qianqian":
-		return qianqian.New(c).Search
-	case "soda":
-		return soda.New(c).Search
-	case "apple":
-		return apple.New(c).Search
-	default:
+	if !providerBridgeSupports(source) {
 		return nil
+	}
+	return func(keyword string) ([]model.Song, error) {
+		return searchProviderSongs(source, keyword, cookieForSource(source))
 	}
 }
 
@@ -678,77 +655,20 @@ func GetRecommendSourceNames() []string {
 }
 
 func GetDownloadFunc(source string) func(*model.Song) (string, error) {
-	c := cookieForSource(source)
-	switch source {
-	case "netease":
-		return netease.New(c).GetDownloadURL
-	case "qq":
-		return func(song *model.Song) (string, error) {
-			url, err := qq.New(c).GetDownloadURL(song)
-			if err == nil || !qq.CookieRefreshable(c) {
-				return url, err
-			}
-			refreshed, refreshErr := refreshQQCookieAfterReject(c)
-			if refreshErr != nil {
-				logQQCookieRefreshFailure(refreshErr)
-				return url, err
-			}
-			return qq.New(refreshed).GetDownloadURL(song)
-		}
-	case "kugou":
-		return kugou.New(c).GetDownloadURL
-	case "kuwo":
-		return kuwo.New(c).GetDownloadURL
-	case "migu":
-		return migu.New(c).GetDownloadURL
-	case "soda":
-		return soda.New(c).GetDownloadURL
-	case "bilibili":
-		return bilibili.New(c).GetDownloadURL
-	case "fivesing":
-		return fivesing.New(c).GetDownloadURL
-	case "jamendo":
-		return jamendo.New(c).GetDownloadURL
-	case "joox":
-		return joox.New(c).GetDownloadURL
-	case "qianqian":
-		return qianqian.New(c).GetDownloadURL
-	case "apple":
-		return apple.New(c).GetDownloadURL
-	default:
+	if !providerBridgeSupports(source) {
 		return nil
+	}
+	return func(song *model.Song) (string, error) {
+		return providerDownloadURL(source, song)
 	}
 }
 
 func GetLyricFunc(source string) func(*model.Song) (string, error) {
-	c := cookieForSource(source)
-	switch source {
-	case "netease":
-		return netease.New(c).GetLyrics
-	case "qq":
-		return qq.New(c).GetLyrics
-	case "kugou":
-		return kugou.New(c).GetLyrics
-	case "kuwo":
-		return kuwo.New(c).GetLyrics
-	case "migu":
-		return migu.New(c).GetLyrics
-	case "soda":
-		return soda.New(c).GetLyrics
-	case "bilibili":
-		return bilibili.New(c).GetLyrics
-	case "fivesing":
-		return fivesing.New(c).GetLyrics
-	case "jamendo":
-		return jamendo.New(c).GetLyrics
-	case "joox":
-		return joox.New(c).GetLyrics
-	case "qianqian":
-		return qianqian.New(c).GetLyrics
-	case "apple":
-		return apple.New(c).GetLyrics
-	default:
+	if !providerBridgeSupports(source) {
 		return nil
+	}
+	return func(song *model.Song) (string, error) {
+		return providerLyrics(source, song)
 	}
 }
 
@@ -1005,6 +925,7 @@ func BuildSourceRequest(method, urlStr, source, rangeHeader string) (*http.Reque
 		req.Header.Set("Range", rangeHeader)
 	}
 	req.Header.Set("User-Agent", UA_Common)
+	applyProviderMediaHeaders(req, urlStr)
 	if source == "bilibili" {
 		req.Header.Set("Referer", Ref_Bilibili)
 	}
@@ -1035,7 +956,7 @@ func ValidatePlayable(song *model.Song) bool {
 	if fn == nil {
 		return false
 	}
-	urlStr, err := fn(&model.Song{ID: song.ID, Source: song.Source})
+	urlStr, err := fn(song)
 	if err != nil || urlStr == "" {
 		return false
 	}
