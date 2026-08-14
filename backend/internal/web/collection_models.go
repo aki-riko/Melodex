@@ -11,69 +11,63 @@ import (
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
-const (
-	legacyFavoritesDBFile = "data/favorites.db"
+const legacyFavoritesDBFile = "data/favorites.db"
 
-	collectionKindManual   = "manual"
-	collectionKindImported = "imported"
-	collectionKindFavorite = "favorite"
-	favoriteCollectionName = "我喜欢"
+const collectionKindManual = "manual"
+const collectionKindImported = "imported"
+const collectionKindFavorite = "favorite"
+const favoriteCollectionName = "我喜欢"
+const collectionContentPlaylist = "playlist"
+const collectionContentAlbum = "album"
 
-	collectionContentPlaylist = "playlist"
-	collectionContentAlbum    = "album"
-)
-
-var (
-	playlistDetailFuncProvider = core.GetPlaylistDetailFunc
-	albumDetailFuncProvider    = core.GetAlbumDetailFunc
-	parsePlaylistFuncProvider  = core.GetParsePlaylistFunc
-	parseAlbumFuncProvider     = core.GetParseAlbumFunc
-
-	userPlaylistsFuncProvider     = core.GetUserPlaylistsFunc
-	userPlaylistSourceNamesGetter = core.GetUserPlaylistSourceNames
-)
+var playlistDetailFuncProvider = core.GetPlaylistDetailFunc
+var albumDetailFuncProvider = core.GetAlbumDetailFunc
+var parsePlaylistFuncProvider = core.GetParsePlaylistFunc
+var parseAlbumFuncProvider = core.GetParseAlbumFunc
+var userPlaylistsFuncProvider = core.GetUserPlaylistsFunc
+var userPlaylistSourceNamesGetter = core.GetUserPlaylistSourceNames
 
 type Collection struct {
+	SavedSongs  []SavedSong `gorm:"constraint:OnDelete:CASCADE;" json:"-"`
+	CreatedAt   time.Time   `json:"created_at"`
 	ID          uint        `gorm:"primaryKey" json:"id"`
 	UserID      uint        `gorm:"index;not null;default:0" json:"user_id"`
+	TrackCount  int         `json:"track_count"`
 	Name        string      `gorm:"not null" json:"name"`
-	Description string      `json:"description"`
-	Cover       string      `json:"cover"`
 	Kind        string      `gorm:"not null;default:manual" json:"kind"`
 	ContentType string      `gorm:"column:content_type;not null;default:playlist" json:"content_type"`
+	Description string      `json:"description"`
+	Cover       string      `json:"cover"`
 	Source      string      `gorm:"not null;default:local" json:"source"`
 	ExternalID  string      `json:"external_id"`
 	Link        string      `json:"link"`
 	Creator     string      `json:"creator"`
-	TrackCount  int         `json:"track_count"`
-	CreatedAt   time.Time   `json:"created_at"`
-	SavedSongs  []SavedSong `gorm:"constraint:OnDelete:CASCADE;" json:"-"`
 }
 
 type SavedSong struct {
+	AddedAt      time.Time `json:"added_at"`
 	ID           uint      `gorm:"primaryKey" json:"db_id"`
 	CollectionID uint      `gorm:"uniqueIndex:idx_col_song_src" json:"collection_id"`
+	Duration     int       `json:"duration"`
 	SongID       string    `gorm:"uniqueIndex:idx_col_song_src;not null" json:"song_id"`
 	Source       string    `gorm:"uniqueIndex:idx_col_song_src;not null" json:"source"`
-	Extra        string    `json:"extra"`
 	Name         string    `json:"name"`
 	Artist       string    `json:"artist"`
 	Cover        string    `json:"cover"`
-	Duration     int       `json:"duration"`
-	AddedAt      time.Time `json:"added_at"`
+	Extra        string    `json:"extra"`
 }
 
 type importCollectionRequest struct {
+	MergeIntoID uint   `json:"merge_into_id"`
+	TrackCount  int    `json:"track_count"`
 	Name        string `json:"name"`
+	ContentType string `json:"content_type"`
 	Description string `json:"description"`
 	Cover       string `json:"cover"`
 	Creator     string `json:"creator"`
-	TrackCount  int    `json:"track_count"`
 	Source      string `json:"source"`
 	ExternalID  string `json:"external_id"`
 	Link        string `json:"link"`
-	ContentType string `json:"content_type"`
-	MergeIntoID uint   `json:"merge_into_id"`
 }
 
 func (collection Collection) normalizedKind() string {
@@ -259,9 +253,10 @@ func setExtraObjectDefault(extra map[string]interface{}, key, value string) {
 }
 
 func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
+	for index := range values {
+		trimmed := strings.TrimSpace(values[index])
+		if trimmed != "" {
+			return trimmed
 		}
 	}
 	return ""

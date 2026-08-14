@@ -117,11 +117,13 @@ func setupFormRoute(c *gin.Context) {
 	}
 	configuredToken := currentSetupToken()
 	providedToken := c.PostForm("setup_token")
-	if configuredToken == "" || subtle.ConstantTimeCompare([]byte(providedToken), []byte(configuredToken)) != 1 {
+	tokenMatches := configuredToken != "" && subtle.ConstantTimeCompare([]byte(providedToken), []byte(configuredToken)) == 1
+	if !tokenMatches {
 		renderAuthPage(c, "setup", "初始化令牌不正确，请查看启动终端输出", username)
 		return
 	}
-	if len(password) < minAuthPasswordSize {
+	passwordTooShort := len(password) < minAuthPasswordSize
+	if passwordTooShort {
 		renderAuthPage(c, "setup", fmt.Sprintf("密码至少需要 %d 位", minAuthPasswordSize), username)
 		return
 	}

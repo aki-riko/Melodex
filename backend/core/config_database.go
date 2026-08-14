@@ -20,15 +20,15 @@ import (
 const ConfigDBFile = "data/settings.db"
 
 type configKV struct {
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 	Key       string    `gorm:"primaryKey;size:128"`
 	Value     string    `gorm:"type:text;not null"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
 type cookieEntry struct {
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 	Source    string    `gorm:"primaryKey;size:64"`
 	Value     string    `gorm:"type:text;not null"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
 var (

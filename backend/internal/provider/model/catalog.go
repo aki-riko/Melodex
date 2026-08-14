@@ -23,25 +23,25 @@ type Track struct {
 
 // RemoteCollection represents an album or playlist owned by a provider.
 type RemoteCollection struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Cover       string            `json:"cover"`
+	Extra       map[string]string `json:"extra,omitempty"`
 	TrackCount  int               `json:"track_count"`
 	PlayCount   int               `json:"play_count"`
+	ID          string            `json:"id"`
+	Source      string            `json:"source"`
+	Name        string            `json:"name"`
 	Creator     string            `json:"creator"`
 	Description string            `json:"description"`
-	Source      string            `json:"source"`
+	Cover       string            `json:"cover"`
 	Link        string            `json:"link"`
-	Extra       map[string]string `json:"extra,omitempty"`
 }
 
 // RemoteCategory groups provider collections for browse endpoints.
 type RemoteCategory struct {
-	ID     string            `json:"id"`
-	Name   string            `json:"name"`
-	Group  string            `json:"group"`
-	Source string            `json:"source"`
+	Extra  map[string]string `json:"extra,omitempty"`
 	Count  int               `json:"count"`
 	Hot    bool              `json:"hot,omitempty"`
-	Extra  map[string]string `json:"extra,omitempty"`
+	ID     string            `json:"id"`
+	Source string            `json:"source"`
+	Name   string            `json:"name"`
+	Group  string            `json:"group"`
 }

@@ -117,8 +117,7 @@ func authRequired() gin.HandlerFunc {
 			return
 		}
 		if valid {
-			setCurrentUser(c, user)
-			c.Next()
+			continueAuthenticatedRequest(c, user)
 			return
 		}
 		clearAuthCookie(c)
@@ -129,6 +128,11 @@ func authRequired() gin.HandlerFunc {
 		}
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
 	}
+}
+
+func continueAuthenticatedRequest(c *gin.Context, user *User) {
+	setCurrentUser(c, user)
+	c.Next()
 }
 
 func abortForMissingSetup(c *gin.Context) {

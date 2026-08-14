@@ -22,25 +22,25 @@ const (
 )
 
 type WebSettings struct {
-	EmbedDownload            bool   `json:"embedDownload"`
-	DownloadToLocal          bool   `json:"downloadToLocal"`
 	DownloadDir              string `json:"downloadDir"`
-	DownloadFilenameTemplate string `json:"downloadFilenameTemplate"`
-	DisableFloatingLyrics    bool   `json:"disableFloatingLyrics"`
 	WebPageSize              int    `json:"webPageSize"`
+	DownloadFilenameTemplate string `json:"downloadFilenameTemplate"`
 	CliPageSize              int    `json:"cliPageSize"`
-	DownloadConcurrency      int    `json:"downloadConcurrency"`
-	AutoSwitchInvalidSources bool   `json:"autoSwitchInvalidSources"`
+	EmbedDownload            bool   `json:"embedDownload"`
 	VgChangeCover            bool   `json:"vgChangeCover"`
+	DownloadConcurrency      int    `json:"downloadConcurrency"`
+	DownloadToLocal          bool   `json:"downloadToLocal"`
 	VgChangeAudio            bool   `json:"vgChangeAudio"`
+	DisableFloatingLyrics    bool   `json:"disableFloatingLyrics"`
+	AutoSwitchInvalidSources bool   `json:"autoSwitchInvalidSources"`
 	VgChangeLyric            bool   `json:"vgChangeLyric"`
 	VgExportVideo            bool   `json:"vgExportVideo"`
 }
 
 type WebAuthSettings struct {
-	Username      string `json:"username"`
-	PasswordHash  string `json:"passwordHash"`
 	SessionSecret string `json:"sessionSecret"`
+	PasswordHash  string `json:"passwordHash"`
+	Username      string `json:"username"`
 }
 
 func defaultWebSettings() WebSettings {

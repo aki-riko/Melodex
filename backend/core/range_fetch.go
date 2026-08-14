@@ -22,28 +22,28 @@ const (
 )
 
 type SourceRangeFetch struct {
+	ContentLength int64
+	Total         int64
+	Start         int64
+	End           int64
+	StatusCode    int
 	URL           string
 	Source        string
-	StatusCode    int
-	ContentLength int64
 	ContentRange  string
 	ContentType   string
 	Ext           string
-	Start         int64
-	End           int64
-	Total         int64
 }
 
 type rangeChunk struct {
-	index int
 	start int64
 	end   int64
+	index int
 }
 
 type rangeChunkResult struct {
-	index int
 	data  []byte
 	err   error
+	index int
 }
 
 func FetchBytesWithMime(urlString, source string) ([]byte, string, error) {
@@ -138,22 +138,26 @@ func NewSourceRangeFetch(urlString, source, requestedRange string) (*SourceRange
 	if !validRange {
 		return nil, true, fmt.Errorf("invalid range: %s", requestedRange)
 	}
-	fetch := &SourceRangeFetch{
-		URL:           urlString,
-		Source:        source,
-		StatusCode:    http.StatusOK,
-		ContentLength: end - start + 1,
-		ContentType:   contentType,
-		Ext:           extension,
-		Start:         start,
-		End:           end,
-		Total:         total,
-	}
+	fetch := newSourceRangeFetch(urlString, source, contentType, extension, start, end, total)
 	if partial {
 		fetch.StatusCode = http.StatusPartialContent
 		fetch.ContentRange = fmt.Sprintf("bytes %d-%d/%d", start, end, total)
 	}
 	return fetch, true, nil
+}
+
+func newSourceRangeFetch(urlString, source, contentType, extension string, start, end, total int64) *SourceRangeFetch {
+	return &SourceRangeFetch{
+		ContentLength: end - start + 1,
+		Total:         total,
+		Start:         start,
+		End:           end,
+		StatusCode:    http.StatusOK,
+		URL:           urlString,
+		Source:        source,
+		ContentType:   contentType,
+		Ext:           extension,
+	}
 }
 
 func (fetch *SourceRangeFetch) WriteTo(writer io.Writer) error {

@@ -73,18 +73,20 @@ func (manager *CookieManager) Save() {
 	manager.mu.RUnlock()
 	sort.Slice(rows, func(left, right int) bool { return rows[left].Source < rows[right].Source })
 
-	err := configDB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1 = 1").Delete(&cookieEntry{}).Error; err != nil {
-			return err
-		}
-		if len(rows) == 0 {
-			return nil
-		}
-		return tx.Create(&rows).Error
-	})
+	err := configDB.Transaction(func(tx *gorm.DB) error { return replaceCookieEntries(tx, rows) })
 	if err != nil {
 		log.Printf("[cookies] save entries: %v", err)
 	}
+}
+
+func replaceCookieEntries(tx *gorm.DB, rows []cookieEntry) error {
+	if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&cookieEntry{}).Error; err != nil {
+		return err
+	}
+	if len(rows) > 0 {
+		return tx.Create(&rows).Error
+	}
+	return nil
 }
 
 func (manager *CookieManager) Get(source string) string {

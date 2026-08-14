@@ -296,15 +296,7 @@ func hasAnyID(candidates []string, targetIDs map[string]struct{}) bool {
 }
 
 func isDigitsOnly(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, ch := range value {
-		if ch < '0' || ch > '9' {
-			return false
-		}
-	}
-	return true
+	return value != "" && strings.Trim(value, "0123456789") == ""
 }
 
 func firstExtra(extra map[string]string, keys ...string) string {

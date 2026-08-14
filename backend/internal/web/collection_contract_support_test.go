@@ -16,11 +16,7 @@ import (
 var testUserID uint
 
 func resetCollectionStateForTest() {
-	if db != nil {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	}
+	closeCollectionDBForTest()
 	db = nil
 	invalidateLocalMusicScanCache()
 	localMusicMetaCacheMu.Lock()
@@ -33,6 +29,16 @@ func resetCollectionStateForTest() {
 	searchCacheLastGC = time.Time{}
 	qualityCacheLastGC = time.Time{}
 	core.ResetConfigStateForTest()
+}
+
+func closeCollectionDBForTest() {
+	if db == nil {
+		return
+	}
+	handle, err := db.DB()
+	if err == nil {
+		_ = handle.Close()
+	}
 }
 
 func initCollectionDBForTest(t *testing.T) {

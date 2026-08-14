@@ -95,17 +95,7 @@ func streamOnlineAndCache(c *gin.Context, song model.Track) {
 	// 在线反代播放:优先 Range 拉取(支持拖进度),透传上游响应。
 	rangeHeader := c.GetHeader("Range")
 	if rangeFetch, handled, rangeErr := core.NewSourceRangeFetch(downloadURL, song.Source, rangeHeader); rangeErr == nil && handled {
-		ext := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(rangeFetch.Ext, ".")))
-		if ext == "" {
-			ext = "mp3"
-		}
-		c.Header("Content-Type", core.AudioMimeByExt(ext))
-		c.Header("Accept-Ranges", "bytes")
-		c.Header("Content-Length", strconv.FormatInt(rangeFetch.ContentLength, 10))
-		if rangeFetch.ContentRange != "" {
-			c.Header("Content-Range", rangeFetch.ContentRange)
-		}
-		c.Status(rangeFetch.StatusCode)
+		writeSubsonicRangeHeaders(c, rangeFetch)
 		if writeErr := rangeFetch.WriteTo(c.Writer); writeErr != nil {
 			log.Printf("[subsonic] stream range 写出失败 %s-%s: %v", song.Name, song.Artist, writeErr)
 		}
@@ -134,6 +124,20 @@ func streamOnlineAndCache(c *gin.Context, song model.Track) {
 	if _, copyErr := io.Copy(c.Writer, resp.Body); copyErr != nil {
 		log.Printf("[subsonic] stream 透传失败 %s-%s: %v", song.Name, song.Artist, copyErr)
 	}
+}
+
+func writeSubsonicRangeHeaders(c *gin.Context, fetch *core.SourceRangeFetch) {
+	ext := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(fetch.Ext, ".")))
+	if ext == "" {
+		ext = "mp3"
+	}
+	c.Header("Accept-Ranges", "bytes")
+	c.Header("Content-Type", core.AudioMimeByExt(ext))
+	c.Header("Content-Length", strconv.FormatInt(fetch.ContentLength, 10))
+	if fetch.ContentRange != "" {
+		c.Header("Content-Range", fetch.ContentRange)
+	}
+	c.Status(fetch.StatusCode)
 }
 
 // findDownloadedTrack 在共享下载目录的扫描快照里查找与在线歌曲匹配的已下载文件。

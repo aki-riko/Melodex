@@ -34,11 +34,11 @@ const (
 )
 
 type sessionPayload struct {
-	UserID   uint   `json:"uid"`
-	Username string `json:"u"`
-	Epoch    int    `json:"e"`
-	IssuedAt int64  `json:"iat"`
 	Nonce    string `json:"n"`
+	IssuedAt int64  `json:"iat"`
+	UserID   uint   `json:"uid"`
+	Epoch    int    `json:"e"`
+	Username string `json:"u"`
 }
 
 type loginAttemptState struct {
@@ -65,55 +65,78 @@ func resetAuthRuntimeForTest() {
 }
 
 func prepareSetupToken(configured bool) (string, error) {
-	authRuntime.mu.Lock()
-	defer authRuntime.mu.Unlock()
+	return authRuntime.prepareSetupToken(configured)
+}
+
+func (runtime *authRuntimeState) prepareSetupToken(configured bool) (string, error) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	if configured {
-		authRuntime.setupToken = ""
+		runtime.setupToken = ""
 		return "", nil
 	}
-	if authRuntime.setupToken != "" {
-		return authRuntime.setupToken, nil
+	if runtime.setupToken != "" {
+		return runtime.setupToken, nil
 	}
 	token, err := randomToken(setupTokenBytes)
 	if err != nil {
 		return "", err
 	}
-	authRuntime.setupToken = token
+	runtime.setupToken = token
 	return token, nil
 }
 
 func currentSetupToken() string {
-	authRuntime.mu.Lock()
-	defer authRuntime.mu.Unlock()
-	return authRuntime.setupToken
+	return authRuntime.readSetupToken()
 }
 
 func consumeSetupToken() {
-	authRuntime.mu.Lock()
-	authRuntime.setupToken = ""
-	authRuntime.mu.Unlock()
+	authRuntime.clearSetupToken()
+}
+
+func (runtime *authRuntimeState) readSetupToken() string {
+	runtime.mu.Lock()
+	token := runtime.setupToken
+	runtime.mu.Unlock()
+	return token
+}
+
+func (runtime *authRuntimeState) clearSetupToken() {
+	runtime.mu.Lock()
+	runtime.setupToken = ""
+	runtime.mu.Unlock()
 }
 
 func loginAttemptKey(c *gin.Context, username string) string {
-	ip := "unknown"
+	clientIP := "unknown"
 	if c != nil {
-		ip = c.ClientIP()
+		clientIP = c.ClientIP()
 	}
-	return strings.ToLower(strings.TrimSpace(username)) + "|" + ip
+	return fmt.Sprintf("%s|%s", strings.ToLower(strings.TrimSpace(username)), clientIP)
 }
 
 func loginLockDelay(failures int) time.Duration {
 	if failures <= 0 {
 		return 0
 	}
-	delay := loginLockBaseDelay << min(failures-1, 6)
-	return min(delay, loginLockMaxDelay)
+	delay := loginLockBaseDelay
+	for step := 1; step < failures && delay < loginLockMaxDelay; step++ {
+		delay *= 2
+	}
+	if delay > loginLockMaxDelay {
+		return loginLockMaxDelay
+	}
+	return delay
 }
 
 func loginLockedUntil(key string, now time.Time) (time.Time, bool) {
-	authRuntime.mu.Lock()
-	defer authRuntime.mu.Unlock()
-	attempt, exists := authRuntime.loginAttempts[key]
+	return authRuntime.lockedUntil(key, now)
+}
+
+func (runtime *authRuntimeState) lockedUntil(key string, now time.Time) (time.Time, bool) {
+	runtime.mu.Lock()
+	attempt, exists := runtime.loginAttempts[key]
+	runtime.mu.Unlock()
 	return attempt.LockedUntil, exists && attempt.LockedUntil.After(now)
 }
 

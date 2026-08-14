@@ -23,14 +23,8 @@ func withNeteaseIntegrationCookie(t *testing.T) string {
 		t.Skip("NETEASE_COOKIE not set")
 	}
 	previous := CM.GetAll()
-	CM.mu.Lock()
-	CM.cookies = map[string]string{"netease": cookie}
-	CM.mu.Unlock()
-	t.Cleanup(func() {
-		CM.mu.Lock()
-		CM.cookies = previous
-		CM.mu.Unlock()
-	})
+	CM.SetAll(map[string]string{"netease": cookie})
+	t.Cleanup(func() { CM.SetAll(previous) })
 	return cookie
 }
 

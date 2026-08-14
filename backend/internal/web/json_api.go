@@ -668,77 +668,72 @@ func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListR
 
 // concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
 func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]model.Track, []model.RemoteCollection) {
-	allSongs := []model.Track{}
-	allPlaylists := []model.RemoteCollection{}
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	for _, src := range sources {
-		wg.Add(1)
-		go func(s string) {
-			defer wg.Done()
-			switch searchType {
-			case "playlist":
-				if fn := core.GetPlaylistSearchFunc(s); fn != nil {
-					if res, err := fn(keyword); err == nil {
-						for i := range res {
-							res[i].Source = s
-						}
-						mu.Lock()
-						allPlaylists = append(allPlaylists, res...)
-						mu.Unlock()
-					}
-				}
-			case "lyric":
-				if fn := core.GetLyricSearchFunc(s); fn != nil {
-					if res, err := fn(keyword); err == nil {
-						for i := range res {
-							res[i].Source = s
-							if res[i].Extra == nil {
-								res[i].Extra = map[string]string{}
-							}
-							res[i].Extra["_rank"] = strconv.Itoa(i)
-						}
-						res = augmentLyricSearchOriginals(s, res, searchInferredLyricOriginalCandidates)
-						mu.Lock()
-						allSongs = append(allSongs, res...)
-						mu.Unlock()
-					}
-				}
-			case "album":
-				if fn := core.GetAlbumSearchFunc(s); fn != nil {
-					if res, err := fn(keyword); err == nil {
-						for i := range res {
-							res[i].Source = s
-						}
-						mu.Lock()
-						allPlaylists = append(allPlaylists, res...)
-						mu.Unlock()
-					}
-				}
-			default:
-				if fn := core.GetSearchFunc(s); fn != nil {
-					if res, err := fn(keyword); err == nil {
-						for i := range res {
-							res[i].Source = s
-							// 记录该结果在本源内的原始排名(上游相关性信号)。
-							// 译名/别名搜索时上游知道相关性而本地字符串匹配不到,
-							// 排序回退到此名次,避免被判 0 分沉底。
-							if res[i].Extra == nil {
-								res[i].Extra = map[string]string{}
-							}
-							res[i].Extra["_rank"] = strconv.Itoa(i)
-						}
-						mu.Lock()
-						allSongs = append(allSongs, res...)
-						mu.Unlock()
-					}
-				}
-			}
-		}(src)
+	results := make(chan keywordSearchResult, len(sources))
+	for _, source := range sources {
+		go func() { results <- searchKeywordAtSource(keyword, searchType, source) }()
 	}
-	wg.Wait()
-	return allSongs, allPlaylists
+	songs := make([]model.Track, 0)
+	collections := make([]model.RemoteCollection, 0)
+	for range sources {
+		result := <-results
+		songs = append(songs, result.songs...)
+		collections = append(collections, result.collections...)
+	}
+	return songs, collections
+}
+
+type keywordSearchResult struct {
+	songs       []model.Track
+	collections []model.RemoteCollection
+}
+
+func searchKeywordAtSource(keyword, searchType, source string) keywordSearchResult {
+	if searchType == "playlist" {
+		return keywordCollectionResult(source, keyword, core.GetPlaylistSearchFunc(source))
+	}
+	if searchType == "album" {
+		return keywordCollectionResult(source, keyword, core.GetAlbumSearchFunc(source))
+	}
+	provider := core.GetSearchFunc(source)
+	if searchType == "lyric" {
+		provider = core.GetLyricSearchFunc(source)
+	}
+	if provider == nil {
+		return keywordSearchResult{}
+	}
+	tracks, err := provider(keyword)
+	if err != nil {
+		return keywordSearchResult{}
+	}
+	markProviderTrackRanks(tracks, source)
+	if searchType == "lyric" {
+		tracks = augmentLyricSearchOriginals(source, tracks, searchInferredLyricOriginalCandidates)
+	}
+	return keywordSearchResult{songs: tracks}
+}
+
+func keywordCollectionResult(source, keyword string, provider func(string) ([]model.RemoteCollection, error)) keywordSearchResult {
+	if provider == nil {
+		return keywordSearchResult{}
+	}
+	collections, err := provider(keyword)
+	if err != nil {
+		return keywordSearchResult{}
+	}
+	for index := range collections {
+		collections[index].Source = source
+	}
+	return keywordSearchResult{collections: collections}
+}
+
+func markProviderTrackRanks(tracks []model.Track, source string) {
+	for index := range tracks {
+		tracks[index].Source = source
+		if tracks[index].Extra == nil {
+			tracks[index].Extra = map[string]string{}
+		}
+		tracks[index].Extra["_rank"] = strconv.Itoa(index)
+	}
 }
 
 func augmentLyricSearchOriginals(source string, songs []model.Track, searchFn func(string) ([]model.Track, error)) []model.Track {
@@ -750,15 +745,9 @@ func augmentLyricSearchOriginals(source string, songs []model.Track, searchFn fu
 	seen := make(map[string]struct{}, len(songs)+4)
 	for _, song := range songs {
 		for _, candidate := range findInferredLyricOriginals(source, song, searchFn) {
-			key := songResultKey(candidate)
-			if key == "" {
+			if !appendUniqueSearchSong(&out, seen, candidate) {
 				continue
 			}
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			seen[key] = struct{}{}
-			out = append(out, candidate)
 		}
 
 		key := songResultKey(song)
@@ -771,6 +760,19 @@ func augmentLyricSearchOriginals(source string, songs []model.Track, searchFn fu
 		out = append(out, song)
 	}
 	return out
+}
+
+func appendUniqueSearchSong(target *[]model.Track, seen map[string]struct{}, song model.Track) bool {
+	key := songResultKey(song)
+	if key == "" {
+		return false
+	}
+	if _, duplicate := seen[key]; duplicate {
+		return false
+	}
+	seen[key] = struct{}{}
+	*target = append(*target, song)
+	return true
 }
 
 func searchInferredLyricOriginalCandidates(keyword string) ([]model.Track, error) {
