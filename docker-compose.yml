@@ -16,6 +16,30 @@ services:
       timeout: 5s
       retries: 10
 
+  provider:
+    build:
+      context: .
+      dockerfile: backend/provider_bridge/Dockerfile
+    image: melodex-provider:apache-2.0
+    container_name: melodex-provider
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    environment:
+      MELODEX_PROVIDER_HOST: 0.0.0.0
+      MELODEX_PROVIDER_PORT: ${MELODEX_PROVIDER_PORT:-8840}
+      MELODEX_PROVIDER_WORK_DIR: /tmp/melodex-provider
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['MELODEX_PROVIDER_PORT']+'/health', timeout=5).read()"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+
   melodex:
     build:
       context: .
@@ -28,6 +52,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      provider:
+        condition: service_healthy
     volumes:
       # 持久化:下载的音乐、cookie、生成的视频、settings.db 等都在 data 下
       - ./data:/home/appuser/data
@@ -36,6 +62,7 @@ services:
       MUSIC_DL_DATABASE_DRIVER: postgres
       MUSIC_DL_DATABASE_DSN: host=postgres user=${POSTGRES_USER:-melodex} password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env} dbname=${POSTGRES_DB:-melodex} port=5432 sslmode=disable TimeZone=Asia/Shanghai
       MUSIC_DL_LEGACY_SQLITE_DB: /home/appuser/data/settings.db
+      MUSIC_DL_PROVIDER_URL: http://provider:${MELODEX_PROVIDER_PORT:-8840}
       # Web 登录会话默认 180 天;可按需改天数,或用 MUSIC_DL_SESSION_MAX_AGE=720h 这类 Go duration。
       # MUSIC_DL_SESSION_DAYS: "180"
       # Subsonic API facade(默认关):配齐下面三项才启用,音流/substreamer 等
