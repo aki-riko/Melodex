@@ -22,6 +22,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/dhowden/tag"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/extensions"
 	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"github.com/guohuiyuan/music-lib/apple"
 	"github.com/guohuiyuan/music-lib/bilibili"
@@ -261,7 +262,7 @@ func cookieStatusVerifiable(source string) bool {
 func probeCookieVIPStatus(source, cookie string) (bool, error) {
 	switch normalizeCookieStatusSource(source) {
 	case "netease":
-		return netease.New(cookie).IsVipAccount()
+		return extensions.NewNetease(cookie).IsVIPAccount()
 	case "qq":
 		current := refreshQQCookieIfNeeded(cookie)
 		vip, err := qq.New(current).IsVipAccount()
@@ -396,9 +397,9 @@ func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyPlaylistSearch(netease.New(c).SearchAlbum)
+		return extensions.NewNetease(c).SearchAlbum
 	case "qq":
-		return adaptLegacyPlaylistSearch(qq.New(c).SearchAlbum)
+		return extensions.NewQQ(c).SearchAlbum
 	case "kugou":
 		return adaptLegacyPlaylistSearch(kugou.New(c).SearchAlbum)
 	case "kuwo":
@@ -424,9 +425,9 @@ func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyPlaylistSearch(netease.New(c).SearchPlaylist)
+		return extensions.NewNetease(c).SearchPlaylist
 	case "qq":
-		return adaptLegacyPlaylistSearch(qq.New(c).SearchPlaylist)
+		return extensions.NewQQ(c).SearchPlaylist
 	case "kugou":
 		return adaptLegacyPlaylistSearch(kugou.New(c).SearchPlaylist)
 	case "kuwo":
@@ -456,9 +457,9 @@ func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacySongDetail(netease.New(c).GetAlbumSongs)
+		return extensions.NewNetease(c).GetAlbumSongs
 	case "qq":
-		return adaptLegacySongDetail(qq.New(c).GetAlbumSongs)
+		return extensions.NewQQ(c).GetAlbumSongs
 	case "kugou":
 		return adaptLegacySongDetail(kugou.New(c).GetAlbumSongs)
 	case "kuwo":
@@ -484,9 +485,9 @@ func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacySongDetail(netease.New(c).GetPlaylistSongs)
+		return extensions.NewNetease(c).GetPlaylistSongs
 	case "qq":
-		return adaptLegacySongDetail(qq.New(c).GetPlaylistSongs)
+		return extensions.NewQQ(c).GetPlaylistSongs
 	case "kugou":
 		return adaptLegacySongDetail(kugou.New(c).GetPlaylistSongs)
 	case "kuwo":
@@ -516,9 +517,9 @@ func GetRecommendFunc(source string) func() ([]model.Playlist, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyPlaylistList(netease.New(c).GetRecommendedPlaylists)
+		return extensions.NewNetease(c).RecommendedPlaylists
 	case "qq":
-		return adaptLegacyPlaylistList(qq.New(c).GetRecommendedPlaylists)
+		return extensions.NewQQ(c).RecommendedPlaylists
 	case "kugou":
 		return adaptLegacyPlaylistList(kugou.New(c).GetRecommendedPlaylists)
 	case "kuwo":
@@ -532,9 +533,9 @@ func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyCategories(netease.New(c).GetPlaylistCategories)
+		return extensions.NewNetease(c).PlaylistCategories
 	case "qq":
-		return adaptLegacyCategories(qq.New(c).GetPlaylistCategories)
+		return extensions.NewQQ(c).PlaylistCategories
 	case "kugou":
 		return adaptLegacyCategories(kugou.New(c).GetPlaylistCategories)
 	case "kuwo":
@@ -556,9 +557,9 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyCategoryPlaylists(netease.New(c).GetCategoryPlaylists)
+		return extensions.NewNetease(c).CategoryPlaylists
 	case "qq":
-		return adaptLegacyCategoryPlaylists(qq.New(c).GetCategoryPlaylists)
+		return extensions.NewQQ(c).CategoryPlaylists
 	case "kugou":
 		return adaptLegacyCategoryPlaylists(kugou.New(c).GetCategoryPlaylists)
 	case "kuwo":
@@ -579,7 +580,7 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 	switch source {
 	case "netease":
-		return adaptLegacyQRCreate(netease.CreateQRLogin)
+		return extensions.NeteaseCreateQRLogin
 	case "qq":
 		return adaptLegacyQRCreate(qq.CreateMobileQRLogin)
 	case "qq_connect":
@@ -602,7 +603,7 @@ func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
 	switch source {
 	case "netease":
-		return adaptLegacyQRCheck(netease.CheckQRLogin)
+		return extensions.NeteaseCheckQRLogin
 	case "qq":
 		return adaptLegacyQRCheck(qq.CheckMobileQRLogin)
 	case "qq_connect":
@@ -634,9 +635,9 @@ func GetUserPlaylistsFunc(source string) UserPlaylistsFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyUserPlaylists(netease.New(c).GetUserPlaylists)
+		return extensions.NewNetease(c).UserPlaylists
 	case "qq":
-		return adaptLegacyUserPlaylists(qq.New(c).GetUserPlaylists)
+		return extensions.NewQQ(c).UserPlaylists
 	case "kugou":
 		return adaptLegacyUserPlaylists(kugou.New(c).GetUserPlaylists)
 	case "soda":
@@ -708,9 +709,9 @@ func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyCollectionParse(netease.New(c).ParsePlaylist)
+		return extensions.NewNetease(c).ParsePlaylist
 	case "qq":
-		return adaptLegacyCollectionParse(qq.New(c).ParsePlaylist)
+		return extensions.NewQQ(c).ParsePlaylist
 	case "kugou":
 		return adaptLegacyCollectionParse(kugou.New(c).ParsePlaylist)
 	case "kuwo":
@@ -740,9 +741,9 @@ func GetParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Son
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return adaptLegacyCollectionParse(netease.New(c).ParseAlbum)
+		return extensions.NewNetease(c).ParseAlbum
 	case "qq":
-		return adaptLegacyCollectionParse(qq.New(c).ParseAlbum)
+		return extensions.NewQQ(c).ParseAlbum
 	case "kugou":
 		return adaptLegacyCollectionParse(kugou.New(c).ParseAlbum)
 	case "kuwo":
