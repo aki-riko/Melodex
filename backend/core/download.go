@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/guohuiyuan/go-music-dl/internal/fileutil"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/internal/fileutil"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 type DownloadedSong struct {

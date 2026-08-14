@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 func qrLoginCookieString(result *model.QRLoginResult) string {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/aki-riko/Melodex/backend/core"
 	"gorm.io/gorm/clause"
 )
 

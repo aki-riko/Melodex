@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/aki-riko/Melodex/backend/core"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )

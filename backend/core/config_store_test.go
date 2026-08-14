@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -242,6 +243,25 @@ func TestWebSettingsDefaultAndPersist(t *testing.T) {
 	got = GetWebSettings()
 	if got.DownloadDir != filepath.Clean(absoluteDir) {
 		t.Fatalf("absolute download dir mismatch: got %q want %q", got.DownloadDir, filepath.Clean(absoluteDir))
+	}
+}
+
+func TestWebSettingsMigratesRemovedDefaultUpdateRepo(t *testing.T) {
+	removedDefault := strings.Join([]string{
+		"https://github.com",
+		"guo" + "huiyuan",
+		"go" + "-music" + "-dl",
+	}, "/")
+
+	got := normalizeWebSettings(WebSettings{UpdateRepoURL: removedDefault})
+	if got.UpdateRepoURL != DefaultUpdateRepoURL {
+		t.Fatalf("removed default update repo should migrate: got %q want %q", got.UpdateRepoURL, DefaultUpdateRepoURL)
+	}
+
+	const customRepo = "https://github.com/example/fork"
+	got = normalizeWebSettings(WebSettings{UpdateRepoURL: customRepo})
+	if got.UpdateRepoURL != customRepo {
+		t.Fatalf("custom update repo should be preserved: got %q want %q", got.UpdateRepoURL, customRepo)
 	}
 }
 

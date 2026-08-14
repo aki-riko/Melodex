@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 func NeteaseCreateQRLogin() (*model.QRLoginSession, error) {

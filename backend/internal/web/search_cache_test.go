@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 func TestSearchCacheKeyOrderInsensitive(t *testing.T) {

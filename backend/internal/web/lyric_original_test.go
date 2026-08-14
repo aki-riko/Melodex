@@ -3,7 +3,7 @@ package web
 import (
 	"testing"
 
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 const (

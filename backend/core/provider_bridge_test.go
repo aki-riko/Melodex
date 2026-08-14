@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	providermodel "github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	providermodel "github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 func TestProviderBridgeSearchDownloadAndLyrics(t *testing.T) {

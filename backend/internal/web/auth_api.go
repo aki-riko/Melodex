@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
 )
 
 const allowRegistrationKey = "allow_registration"

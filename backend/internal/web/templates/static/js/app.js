@@ -18,7 +18,7 @@ const DOWNLOAD_DIR_PRESET_VALUES = [
     '/sdcard/Download'
 ];
 const DOWNLOAD_DIR_PRESETS = new Set(DOWNLOAD_DIR_PRESET_VALUES);
-const DEFAULT_UPDATE_REPO_URL = 'https://github.com/guohuiyuan/go-music-dl';
+const DEFAULT_UPDATE_REPO_URL = 'https://github.com/aki-riko/Melodex';
 const DEFAULT_GITHUB_PROXY_URL = 'https://edgeone.gh-proxy.com';
 const OPEN_CONFIG_QUERY = 'open_config';
 const GITHUB_PROXY_PRESETS = [
@@ -2431,7 +2431,7 @@ function openUpdateModal(updateInfo = null) {
         const title = document.getElementById('appUpdateTitle');
         const summary = document.getElementById('appUpdateSummary');
         if (title) {
-            title.textContent = `关于 go-music-dl v${updateInfo.current_version || '-'}`;
+            title.textContent = `关于 Melodex v${updateInfo.current_version || '-'}`;
         }
         if (summary) {
             summary.textContent = `当前版本 v${updateInfo.current_version || '-'}，GitHub 最新版本 v${updateInfo.latest_version || '-'}`;
@@ -2443,7 +2443,7 @@ function openUpdateModal(updateInfo = null) {
 
 async function openAboutAppModal() {
     const title = document.getElementById('appUpdateTitle');
-    if (title) title.textContent = '关于 go-music-dl';
+    if (title) title.textContent = '关于 Melodex';
     const summary = document.getElementById('appUpdateSummary');
     if (summary) summary.textContent = '正在读取 GitHub 版本信息...';
     openUpdateModal();

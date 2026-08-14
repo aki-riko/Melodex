@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/internal/provider/bridge"
-	providermodel "github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/bridge"
+	providermodel "github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 const (

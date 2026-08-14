@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 // TestUserPlaylistsRouteReturnsTabs 验证 /api/v1/user_playlists 按源返回 tabs,

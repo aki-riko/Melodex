@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/aki-riko/Melodex/backend/core"
 	"golang.org/x/crypto/bcrypt"
 )
 

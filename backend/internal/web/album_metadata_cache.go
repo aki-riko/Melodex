@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 type cachedAlbumMetadata struct {

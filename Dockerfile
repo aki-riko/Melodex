@@ -22,26 +22,23 @@ ARG GOPROXY=direct
 ENV GOPROXY=$GOPROXY
 
 COPY backend/go.mod backend/go.sum ./
-# music-lib 以本地 replace 引入(backend/third_party/music-lib),go mod download
-# 需在解析 replace 前就能读到它的 go.mod,故先 COPY third_party 再 download。
-COPY backend/third_party/ ./third_party/
 RUN go mod download
 
 COPY backend/ .
 # 把 React 产物拷进后端 embed 目录(覆盖占位),再编译嵌入二进制
 RUN rm -rf internal/web/frontend_dist && mkdir -p internal/web/frontend_dist
 COPY --from=frontend /fe/build/ ./internal/web/frontend_dist/
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -o music-dl ./cmd/music-dl
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -o melodex ./cmd/melodex
 
 # ===== 阶段3:运行镜像(含 ffmpeg)=====
 FROM alpine:3.22
-RUN apk --no-cache add ca-certificates tzdata ffmpeg nodejs \
+RUN apk --no-cache add ca-certificates tzdata ffmpeg \
     && ffmpeg -version >/dev/null && ffprobe -version >/dev/null
 ENV TZ=Asia/Shanghai
 RUN adduser -D -s /bin/sh appuser
 WORKDIR /home/appuser/
-COPY --from=builder /app/music-dl .
+COPY --from=builder /app/melodex .
 RUN chown -R appuser:appuser /home/appuser/
 USER appuser
 EXPOSE 8329
-CMD ["./music-dl", "web", "--port", "8329", "--no-browser"]
+CMD ["./melodex", "web", "--port", "8329", "--no-browser"]

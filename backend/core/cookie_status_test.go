@@ -12,8 +12,8 @@ func TestBuildCookieStatusDetailRedactsCookieValues(t *testing.T) {
 	if !detail.Saved {
 		t.Fatal("cookie should be marked saved")
 	}
-	if !detail.Verifiable {
-		t.Fatal("qq cookie should be verifiable")
+	if detail.Verifiable {
+		t.Fatal("qq cookie should not claim an online vip probe after the legacy provider removal")
 	}
 	if detail.VIPChecked {
 		t.Fatal("verify=false should not probe upstream vip status")

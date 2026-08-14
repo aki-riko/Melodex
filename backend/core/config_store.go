@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -21,8 +23,9 @@ const (
 	DefaultWebPageSize              = 30
 	DefaultCLIPageSize              = 20
 	DefaultWebConcurrency           = 3
-	DefaultUpdateRepoURL            = "https://github.com/guohuiyuan/go-music-dl"
+	DefaultUpdateRepoURL            = "https://github.com/aki-riko/Melodex"
 	DefaultGithubProxyURL           = "https://edgeone.gh-proxy.com"
+	removedDefaultUpdateRepoSHA256  = "8b13ce3db7dc29f7bacfd021b8771493f99b57e29c9cbcf022aae3ff2a508d86"
 	webSettingsKey                  = "web_settings"
 	webAuthSettingsKey              = "web_auth_settings"
 )
@@ -293,7 +296,7 @@ func normalizeWebSettings(settings WebSettings) WebSettings {
 		settings.DownloadConcurrency = 1
 	}
 	settings.UpdateRepoURL = strings.TrimSpace(settings.UpdateRepoURL)
-	if settings.UpdateRepoURL == "" {
+	if settings.UpdateRepoURL == "" || isRemovedDefaultUpdateRepo(settings.UpdateRepoURL) {
 		settings.UpdateRepoURL = DefaultUpdateRepoURL
 	}
 	settings.GithubProxyURL = strings.TrimSpace(settings.GithubProxyURL)
@@ -302,6 +305,11 @@ func normalizeWebSettings(settings WebSettings) WebSettings {
 	}
 	settings.DownloadDir = normalizeWebDownloadDir(settings.DownloadDir)
 	return settings
+}
+
+func isRemovedDefaultUpdateRepo(raw string) bool {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
+	return hex.EncodeToString(sum[:]) == removedDefaultUpdateRepoSHA256
 }
 
 func normalizeWebAuthSettings(settings WebAuthSettings) WebAuthSettings {

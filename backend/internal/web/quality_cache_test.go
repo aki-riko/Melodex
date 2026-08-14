@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 func TestInspectSongQualityCachedPersistsResult(t *testing.T) {

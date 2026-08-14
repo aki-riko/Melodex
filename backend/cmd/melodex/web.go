@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/guohuiyuan/go-music-dl/internal/web"
+	"github.com/aki-riko/Melodex/backend/internal/web"
 	"github.com/spf13/cobra"
 )
 
@@ -11,7 +11,7 @@ var desktopMode bool
 
 var webCmd = &cobra.Command{
 	Use:   "web",
-	Short: "启动 Web 服务模式",
+	Short: "启动 Melodex Web 服务",
 	Run: func(cmd *cobra.Command, args []string) {
 		if desktopMode {
 			web.StartDesktop(port)

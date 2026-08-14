@@ -2,24 +2,21 @@ package core
 
 import "testing"
 
-func TestQQQRLoginDefaultUsesStrongClientEntryAndKeepsConnectFallback(t *testing.T) {
-	if GetQRLoginCreateFunc("qq") == nil || GetQRLoginCheckFunc("qq") == nil {
-		t.Fatal("qq QR login funcs should be registered")
+func TestQRLoginOnlyExposesIndependentProviders(t *testing.T) {
+	if GetQRLoginCreateFunc("netease") == nil || GetQRLoginCheckFunc("netease") == nil {
+		t.Fatal("netease QR login funcs should be registered")
 	}
-	if GetQRLoginCreateFunc("qq_connect") == nil || GetQRLoginCheckFunc("qq_connect") == nil {
-		t.Fatal("qq_connect QR login funcs should remain available as a fallback entry")
+	if GetQRLoginCreateFunc("qq") != nil || GetQRLoginCheckFunc("qq") != nil {
+		t.Fatal("qq QR login must not depend on the removed provider")
 	}
 
-	var hasQQ, hasQQConnect bool
+	var hasNetease bool
 	for _, source := range GetQRLoginSourceNames() {
-		switch source {
-		case "qq":
-			hasQQ = true
-		case "qq_connect":
-			hasQQConnect = true
+		if source == "netease" {
+			hasNetease = true
 		}
 	}
-	if !hasQQ || !hasQQConnect {
-		t.Fatalf("QR sources should include both qq and qq_connect, got %#v", GetQRLoginSourceNames())
+	if !hasNetease {
+		t.Fatalf("QR sources should include netease, got %#v", GetQRLoginSourceNames())
 	}
 }

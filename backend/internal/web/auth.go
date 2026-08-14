@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
 	"golang.org/x/crypto/bcrypt"
 )
 
