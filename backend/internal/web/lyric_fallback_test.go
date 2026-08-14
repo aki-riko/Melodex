@@ -19,12 +19,12 @@ func TestLoadLyricWithFallbackUsesStrictSameSong(t *testing.T) {
 		switchAllSourceNames = originalAll
 	})
 
-	lyricFuncProvider = func(source string) func(*model.Song) (string, error) {
+	lyricFuncProvider = func(source string) func(*model.Track) (string, error) {
 		switch source {
 		case "qq":
-			return func(*model.Song) (string, error) { return "", errors.New("qq parse failed") }
+			return func(*model.Track) (string, error) { return "", errors.New("qq parse failed") }
 		case "netease":
-			return func(song *model.Song) (string, error) {
+			return func(song *model.Track) (string, error) {
 				if song.ID != "2718117658" {
 					t.Fatalf("fallback lyric song = %#v", song)
 				}
@@ -34,15 +34,15 @@ func TestLoadLyricWithFallbackUsesStrictSameSong(t *testing.T) {
 			return nil
 		}
 	}
-	switchSearchFuncProvider = func(source string) func(string) ([]model.Song, error) {
+	switchSearchFuncProvider = func(source string) func(string) ([]model.Track, error) {
 		if source != "netease" {
 			return nil
 		}
-		return func(keyword string) ([]model.Song, error) {
+		return func(keyword string) ([]model.Track, error) {
 			if keyword != "春信迟 婴戏浅戈" {
 				t.Fatalf("search keyword = %q", keyword)
 			}
-			return []model.Song{{
+			return []model.Track{{
 				ID:       "2718117658",
 				Source:   "netease",
 				Name:     "春信迟",
@@ -54,7 +54,7 @@ func TestLoadLyricWithFallbackUsesStrictSameSong(t *testing.T) {
 	switchDefaultSourceNames = func() []string { return []string{"netease"} }
 	switchAllSourceNames = func() []string { return nil }
 
-	lyric, matched, err := loadLyricWithFallback(&model.Song{
+	lyric, matched, err := loadLyricWithFallback(&model.Track{
 		ID:       "00498DKO1STwWZ",
 		Source:   "qq",
 		Name:     "春信迟",
@@ -84,24 +84,24 @@ func TestLoadLyricWithFallbackRejectsDifferentDuration(t *testing.T) {
 		switchAllSourceNames = originalAll
 	})
 
-	lyricFuncProvider = func(source string) func(*model.Song) (string, error) {
+	lyricFuncProvider = func(source string) func(*model.Track) (string, error) {
 		if source == "qq" {
-			return func(*model.Song) (string, error) { return "", errors.New("qq failed") }
+			return func(*model.Track) (string, error) { return "", errors.New("qq failed") }
 		}
-		return func(*model.Song) (string, error) {
+		return func(*model.Track) (string, error) {
 			t.Fatal("mismatched candidate must not fetch lyrics")
 			return "", nil
 		}
 	}
-	switchSearchFuncProvider = func(string) func(string) ([]model.Song, error) {
-		return func(string) ([]model.Song, error) {
-			return []model.Song{{Name: "春信迟", Artist: "婴戏浅戈", Duration: 240}}, nil
+	switchSearchFuncProvider = func(string) func(string) ([]model.Track, error) {
+		return func(string) ([]model.Track, error) {
+			return []model.Track{{Name: "春信迟", Artist: "婴戏浅戈", Duration: 240}}, nil
 		}
 	}
 	switchDefaultSourceNames = func() []string { return []string{"netease"} }
 	switchAllSourceNames = func() []string { return nil }
 
-	lyric, matched, err := loadLyricWithFallback(&model.Song{
+	lyric, matched, err := loadLyricWithFallback(&model.Track{
 		Source: "qq", Name: "春信迟", Artist: "婴戏浅戈", Duration: 274,
 	})
 	if err == nil {
@@ -120,18 +120,18 @@ func TestLoadLyricWithFallbackDoesNotSearchWithIncompleteMetadata(t *testing.T) 
 		switchSearchFuncProvider = originalSearchProvider
 	})
 
-	lyricFuncProvider = func(source string) func(*model.Song) (string, error) {
+	lyricFuncProvider = func(source string) func(*model.Track) (string, error) {
 		if source == "qq" {
-			return func(*model.Song) (string, error) { return "", errors.New("qq failed") }
+			return func(*model.Track) (string, error) { return "", errors.New("qq failed") }
 		}
 		return nil
 	}
-	switchSearchFuncProvider = func(string) func(string) ([]model.Song, error) {
+	switchSearchFuncProvider = func(string) func(string) ([]model.Track, error) {
 		t.Fatal("incomplete metadata must not trigger fallback search")
 		return nil
 	}
 
-	lyric, matched, err := loadLyricWithFallback(&model.Song{
+	lyric, matched, err := loadLyricWithFallback(&model.Track{
 		Source: "qq", Name: "春信迟", Duration: 274,
 	})
 	if err == nil {
@@ -145,23 +145,23 @@ func TestLoadLyricWithFallbackDoesNotSearchWithIncompleteMetadata(t *testing.T) 
 func TestLoadLyricWithFallbackRejectsCandidatesWithIncompleteMetadata(t *testing.T) {
 	tests := []struct {
 		name      string
-		candidate model.Song
+		candidate model.Track
 	}{
 		{
 			name: "missing artist",
-			candidate: model.Song{
+			candidate: model.Track{
 				ID: "missing-artist", Source: "netease", Name: "春信迟", Duration: 274,
 			},
 		},
 		{
 			name: "missing duration",
-			candidate: model.Song{
+			candidate: model.Track{
 				ID: "missing-duration", Source: "netease", Name: "春信迟", Artist: "婴戏浅戈",
 			},
 		},
 		{
 			name: "missing song id",
-			candidate: model.Song{
+			candidate: model.Track{
 				Source: "netease", Name: "春信迟", Artist: "婴戏浅戈", Duration: 274,
 			},
 		},
@@ -181,24 +181,24 @@ func TestLoadLyricWithFallbackRejectsCandidatesWithIncompleteMetadata(t *testing
 			})
 
 			fallbackFetches := 0
-			lyricFuncProvider = func(source string) func(*model.Song) (string, error) {
+			lyricFuncProvider = func(source string) func(*model.Track) (string, error) {
 				if source == "qq" {
-					return func(*model.Song) (string, error) { return "", errors.New("qq failed") }
+					return func(*model.Track) (string, error) { return "", errors.New("qq failed") }
 				}
-				return func(*model.Song) (string, error) {
+				return func(*model.Track) (string, error) {
 					fallbackFetches++
 					return "[00:01.00]不应采用", nil
 				}
 			}
-			switchSearchFuncProvider = func(string) func(string) ([]model.Song, error) {
-				return func(string) ([]model.Song, error) {
-					return []model.Song{test.candidate}, nil
+			switchSearchFuncProvider = func(string) func(string) ([]model.Track, error) {
+				return func(string) ([]model.Track, error) {
+					return []model.Track{test.candidate}, nil
 				}
 			}
 			switchDefaultSourceNames = func() []string { return []string{"netease"} }
 			switchAllSourceNames = func() []string { return nil }
 
-			lyric, matched, err := loadLyricWithFallback(&model.Song{
+			lyric, matched, err := loadLyricWithFallback(&model.Track{
 				Source: "qq", Name: "春信迟", Artist: "婴戏浅戈", Duration: 274,
 			})
 			if err == nil {
@@ -224,11 +224,11 @@ func TestLoadLyricWithFallbackTriesLaterStrictCandidate(t *testing.T) {
 	})
 
 	attempted := make([]string, 0, 3)
-	lyricFuncProvider = func(source string) func(*model.Song) (string, error) {
+	lyricFuncProvider = func(source string) func(*model.Track) (string, error) {
 		if source == "qq" {
-			return func(*model.Song) (string, error) { return "", errors.New("qq failed") }
+			return func(*model.Track) (string, error) { return "", errors.New("qq failed") }
 		}
-		return func(song *model.Song) (string, error) {
+		return func(song *model.Track) (string, error) {
 			attempted = append(attempted, song.ID)
 			switch song.ID {
 			case "album-version":
@@ -239,9 +239,9 @@ func TestLoadLyricWithFallbackTriesLaterStrictCandidate(t *testing.T) {
 			return "[00:01.00]后续严格候选歌词", nil
 		}
 	}
-	switchSearchFuncProvider = func(string) func(string) ([]model.Song, error) {
-		return func(string) ([]model.Song, error) {
-			return []model.Song{
+	switchSearchFuncProvider = func(string) func(string) ([]model.Track, error) {
+		return func(string) ([]model.Track, error) {
+			return []model.Track{
 				{ID: "album-version", Source: "netease", Name: "春信迟", Artist: "婴戏浅戈", Duration: 274},
 				{ID: "empty-version", Source: "netease", Name: "春信迟", Artist: "婴戏浅戈", Duration: 274},
 				{ID: "single-version", Source: "netease", Name: "春信迟", Artist: "婴戏浅戈", Duration: 274},
@@ -251,7 +251,7 @@ func TestLoadLyricWithFallbackTriesLaterStrictCandidate(t *testing.T) {
 	switchDefaultSourceNames = func() []string { return []string{"netease"} }
 	switchAllSourceNames = func() []string { return nil }
 
-	lyric, matched, err := loadLyricWithFallback(&model.Song{
+	lyric, matched, err := loadLyricWithFallback(&model.Track{
 		Source: "qq", Name: "春信迟", Artist: "婴戏浅戈", Duration: 274,
 	})
 	if err != nil {

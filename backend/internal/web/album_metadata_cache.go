@@ -85,7 +85,7 @@ func lookupAlbumMetadataInSearchCache(source, songID string) (cachedAlbumMetadat
 	return cachedAlbumMetadata{}, false
 }
 
-func findAlbumMetadataInSongs(songs []model.Song, source, songID string) (cachedAlbumMetadata, bool) {
+func findAlbumMetadataInSongs(songs []model.Track, source, songID string) (cachedAlbumMetadata, bool) {
 	for _, song := range songs {
 		if strings.TrimSpace(song.Source) != source || strings.TrimSpace(song.ID) != songID {
 			continue

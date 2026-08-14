@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -114,20 +113,8 @@ func TestWebSettingsDefaultAndPersist(t *testing.T) {
 	if defaults.DownloadConcurrency != DefaultWebConcurrency {
 		t.Fatalf("default DownloadConcurrency mismatch: got %d want %d", defaults.DownloadConcurrency, DefaultWebConcurrency)
 	}
-	if !defaults.AutoCheckUpdate {
-		t.Fatalf("default AutoCheckUpdate should be true")
-	}
 	if !defaults.AutoSwitchInvalidSources {
 		t.Fatalf("default AutoSwitchInvalidSources should be true")
-	}
-	if defaults.UpdateRepoURL != DefaultUpdateRepoURL {
-		t.Fatalf("default UpdateRepoURL mismatch: got %q want %q", defaults.UpdateRepoURL, DefaultUpdateRepoURL)
-	}
-	if defaults.GithubProxyEnabled {
-		t.Fatalf("default GithubProxyEnabled should be false")
-	}
-	if defaults.GithubProxyURL != DefaultGithubProxyURL {
-		t.Fatalf("default GithubProxyURL mismatch: got %q want %q", defaults.GithubProxyURL, DefaultGithubProxyURL)
 	}
 	if defaults.VgChangeCover {
 		t.Fatalf("default VgChangeCover should be false")
@@ -151,11 +138,7 @@ func TestWebSettingsDefaultAndPersist(t *testing.T) {
 		WebPageSize:              100,
 		CliPageSize:              120,
 		DownloadConcurrency:      5,
-		AutoCheckUpdate:          false,
 		AutoSwitchInvalidSources: false,
-		UpdateRepoURL:            "https://github.com/example/fork",
-		GithubProxyEnabled:       true,
-		GithubProxyURL:           "https://gh-proxy.com/",
 		VgChangeCover:            true,
 		VgChangeAudio:            true,
 		VgChangeLyric:            true,
@@ -174,11 +157,7 @@ func TestWebSettingsDefaultAndPersist(t *testing.T) {
 		WebPageSize:              100,
 		CliPageSize:              120,
 		DownloadConcurrency:      5,
-		AutoCheckUpdate:          false,
 		AutoSwitchInvalidSources: false,
-		UpdateRepoURL:            "https://github.com/example/fork",
-		GithubProxyEnabled:       true,
-		GithubProxyURL:           "https://gh-proxy.com/",
 		VgChangeCover:            true,
 		VgChangeAudio:            true,
 		VgChangeLyric:            true,
@@ -214,20 +193,8 @@ func TestWebSettingsDefaultAndPersist(t *testing.T) {
 	if got.DownloadConcurrency != DefaultWebConcurrency {
 		t.Fatalf("custom save should fallback DownloadConcurrency to default: got %d want %d", got.DownloadConcurrency, DefaultWebConcurrency)
 	}
-	if got.AutoCheckUpdate {
-		t.Fatalf("custom save should keep AutoCheckUpdate false when omitted: %#v", got)
-	}
 	if got.AutoSwitchInvalidSources {
 		t.Fatalf("custom save should keep AutoSwitchInvalidSources false when omitted: %#v", got)
-	}
-	if got.UpdateRepoURL != DefaultUpdateRepoURL {
-		t.Fatalf("custom save should fallback UpdateRepoURL to default: got %q want %q", got.UpdateRepoURL, DefaultUpdateRepoURL)
-	}
-	if got.GithubProxyEnabled {
-		t.Fatalf("custom save should fallback GithubProxyEnabled to default false: %#v", got)
-	}
-	if got.GithubProxyURL != DefaultGithubProxyURL {
-		t.Fatalf("custom save should fallback GithubProxyURL to default: got %q want %q", got.GithubProxyURL, DefaultGithubProxyURL)
 	}
 	if got.VgChangeCover || got.VgChangeAudio || got.VgChangeLyric || got.VgExportVideo {
 		t.Fatalf("custom save should fallback video generator settings to default false: %#v", got)
@@ -246,25 +213,6 @@ func TestWebSettingsDefaultAndPersist(t *testing.T) {
 	}
 }
 
-func TestWebSettingsMigratesRemovedDefaultUpdateRepo(t *testing.T) {
-	removedDefault := strings.Join([]string{
-		"https://github.com",
-		"guo" + "huiyuan",
-		"go" + "-music" + "-dl",
-	}, "/")
-
-	got := normalizeWebSettings(WebSettings{UpdateRepoURL: removedDefault})
-	if got.UpdateRepoURL != DefaultUpdateRepoURL {
-		t.Fatalf("removed default update repo should migrate: got %q want %q", got.UpdateRepoURL, DefaultUpdateRepoURL)
-	}
-
-	const customRepo = "https://github.com/example/fork"
-	got = normalizeWebSettings(WebSettings{UpdateRepoURL: customRepo})
-	if got.UpdateRepoURL != customRepo {
-		t.Fatalf("custom update repo should be preserved: got %q want %q", got.UpdateRepoURL, customRepo)
-	}
-}
-
 func TestWebSettingsLegacyPayloadDefaultsAutoSwitchInvalidSources(t *testing.T) {
 	baseDir := t.TempDir()
 	t.Setenv("MUSIC_DL_CONFIG_DB", filepath.Join(baseDir, "data", "settings.db"))
@@ -273,8 +221,7 @@ func TestWebSettingsLegacyPayloadDefaultsAutoSwitchInvalidSources(t *testing.T) 
 	t.Cleanup(resetConfigStateForTest)
 
 	legacySettings := map[string]any{
-		"downloadDir":     DefaultWebDownloadDir,
-		"autoCheckUpdate": true,
+		"downloadDir": DefaultWebDownloadDir,
 	}
 	data, err := json.Marshal(legacySettings)
 	if err != nil {

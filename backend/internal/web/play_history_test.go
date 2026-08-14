@@ -85,7 +85,7 @@ func TestPlayHistoryBackfillAlbumFromSearchCache(t *testing.T) {
 	u, _ := createUser("dave", "davepass1", RoleUser)
 
 	payload, err := json.Marshal(jsonSearchResponse{
-		Songs: []model.Song{{
+		Songs: []model.Track{{
 			ID:      "song-1",
 			Source:  "qq",
 			Name:    "Song One",

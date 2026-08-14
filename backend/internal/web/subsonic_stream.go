@@ -77,7 +77,7 @@ func serveLocalTrackAbs(c *gin.Context, track *localMusicTrack) {
 }
 
 // streamOnlineAndCache 在线反代播放,并后台完整下载落盘入库。
-func streamOnlineAndCache(c *gin.Context, song model.Song) {
+func streamOnlineAndCache(c *gin.Context, song model.Track) {
 	dlFunc := core.GetDownloadFunc(song.Source)
 	if dlFunc == nil {
 		respondSubsonicError(c, errSubsonicNotFound)
@@ -139,7 +139,7 @@ func streamOnlineAndCache(c *gin.Context, song model.Song) {
 // findDownloadedTrack 在共享下载目录的扫描快照里查找与在线歌曲匹配的已下载文件。
 // 匹配策略:标题 + 艺人 归一化后相等(大小写/空白不敏感)。
 // 找到则返回本地 track(可直接发文件);没有返回 nil。
-func findDownloadedTrack(song model.Song) *localMusicTrack {
+func findDownloadedTrack(song model.Track) *localMusicTrack {
 	tracks, _, exists, _, _, _ := scanLocalMusicTracksCached(false)
 	if !exists || len(tracks) == 0 {
 		return nil
@@ -173,7 +173,7 @@ func normalizeMatchKey(s string) string {
 
 // triggerBackgroundDownload 启动后台完整下载+刮削落盘(去重)。
 // 同一首歌(source+id)在下载中不重复启动。
-func triggerBackgroundDownload(song model.Song) {
+func triggerBackgroundDownload(song model.Track) {
 	key := extraKey(song.Source, song.ID)
 	if _, loaded := downloadInFlight.LoadOrStore(key, true); loaded {
 		return // 已在下载中

@@ -19,7 +19,7 @@ func NewNetease(cookie string) *Netease {
 	return &Netease{Cookie: strings.TrimSpace(cookie)}
 }
 
-func (client *Netease) SearchPlaylist(keyword string) ([]model.Playlist, error) {
+func (client *Netease) SearchPlaylist(keyword string) ([]model.RemoteCollection, error) {
 	payload, err := client.search(keyword, 1000)
 	if err != nil {
 		return nil, err
@@ -27,7 +27,7 @@ func (client *Netease) SearchPlaylist(keyword string) ([]model.Playlist, error) 
 	return neteasePlaylists(at(payload, "result", "playlists")), nil
 }
 
-func (client *Netease) SearchAlbum(keyword string) ([]model.Playlist, error) {
+func (client *Netease) SearchAlbum(keyword string) ([]model.RemoteCollection, error) {
 	payload, err := client.search(keyword, 10)
 	if err != nil {
 		return nil, err
@@ -43,17 +43,17 @@ func (client *Netease) search(keyword string, searchType int) (map[string]interf
 	return postFormJSON(neteaseBaseURL+"/api/search/get/web", client.Cookie, form)
 }
 
-func (client *Netease) GetPlaylistSongs(id string) ([]model.Song, error) {
+func (client *Netease) GetPlaylistSongs(id string) ([]model.Track, error) {
 	_, songs, err := client.Playlist(id)
 	return songs, err
 }
 
-func (client *Netease) GetAlbumSongs(id string) ([]model.Song, error) {
+func (client *Netease) GetAlbumSongs(id string) ([]model.Track, error) {
 	_, songs, err := client.Album(id)
 	return songs, err
 }
 
-func (client *Netease) Playlist(id string) (*model.Playlist, []model.Song, error) {
+func (client *Netease) Playlist(id string) (*model.RemoteCollection, []model.Track, error) {
 	endpoint := neteaseBaseURL + "/api/v6/playlist/detail?id=" + url.QueryEscape(strings.TrimSpace(id)) + "&n=1000&s=8"
 	payload, err := getJSON(endpoint, client.Cookie, nil)
 	if err != nil {
@@ -67,7 +67,7 @@ func (client *Netease) Playlist(id string) (*model.Playlist, []model.Song, error
 	return &playlist, neteaseSongs(rawPlaylist["tracks"]), nil
 }
 
-func (client *Netease) ParsePlaylist(link string) (*model.Playlist, []model.Song, error) {
+func (client *Netease) ParsePlaylist(link string) (*model.RemoteCollection, []model.Track, error) {
 	id := linkID(link, "id")
 	if id == "" {
 		return nil, nil, fmt.Errorf("netease playlist link has no id")
@@ -75,7 +75,7 @@ func (client *Netease) ParsePlaylist(link string) (*model.Playlist, []model.Song
 	return client.Playlist(id)
 }
 
-func (client *Netease) Album(id string) (*model.Playlist, []model.Song, error) {
+func (client *Netease) Album(id string) (*model.RemoteCollection, []model.Track, error) {
 	payload, err := getJSON(neteaseBaseURL+"/api/album/"+url.PathEscape(strings.TrimSpace(id)), client.Cookie, nil)
 	if err != nil {
 		return nil, nil, err
@@ -88,7 +88,7 @@ func (client *Netease) Album(id string) (*model.Playlist, []model.Song, error) {
 	return &album, neteaseSongs(payload["songs"]), nil
 }
 
-func (client *Netease) ParseAlbum(link string) (*model.Playlist, []model.Song, error) {
+func (client *Netease) ParseAlbum(link string) (*model.RemoteCollection, []model.Track, error) {
 	id := linkID(link, "id")
 	if id == "" {
 		return nil, nil, fmt.Errorf("netease album link has no id")
@@ -96,7 +96,7 @@ func (client *Netease) ParseAlbum(link string) (*model.Playlist, []model.Song, e
 	return client.Album(id)
 }
 
-func (client *Netease) RecommendedPlaylists() ([]model.Playlist, error) {
+func (client *Netease) RecommendedPlaylists() ([]model.RemoteCollection, error) {
 	payload, err := getJSON(neteaseBaseURL+"/api/personalized/playlist?limit=30", client.Cookie, nil)
 	if err != nil {
 		return nil, err
@@ -104,20 +104,20 @@ func (client *Netease) RecommendedPlaylists() ([]model.Playlist, error) {
 	return neteasePlaylists(payload["result"]), nil
 }
 
-func (client *Netease) PlaylistCategories() ([]model.PlaylistCategory, error) {
+func (client *Netease) PlaylistCategories() ([]model.RemoteCategory, error) {
 	values := []struct{ group, name string }{
 		{"语种", "华语"}, {"语种", "欧美"}, {"语种", "日语"}, {"语种", "韩语"},
 		{"风格", "流行"}, {"风格", "摇滚"}, {"风格", "民谣"}, {"风格", "电子"},
 		{"场景", "学习"}, {"场景", "运动"}, {"场景", "夜晚"}, {"情感", "怀旧"},
 	}
-	result := make([]model.PlaylistCategory, 0, len(values))
+	result := make([]model.RemoteCategory, 0, len(values))
 	for _, value := range values {
-		result = append(result, model.PlaylistCategory{ID: value.name, Name: value.name, Group: value.group, Source: "netease"})
+		result = append(result, model.RemoteCategory{ID: value.name, Name: value.name, Group: value.group, Source: "netease"})
 	}
 	return result, nil
 }
 
-func (client *Netease) CategoryPlaylists(categoryID string, page, limit int) ([]model.Playlist, error) {
+func (client *Netease) CategoryPlaylists(categoryID string, page, limit int) ([]model.RemoteCollection, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -135,7 +135,7 @@ func (client *Netease) CategoryPlaylists(categoryID string, page, limit int) ([]
 	return neteasePlaylists(payload["playlists"]), nil
 }
 
-func (client *Netease) UserPlaylists(page, limit int) ([]model.Playlist, error) {
+func (client *Netease) UserPlaylists(page, limit int) ([]model.RemoteCollection, error) {
 	account, err := getJSON(neteaseBaseURL+"/api/nuser/account/get", client.Cookie, nil)
 	if err != nil {
 		return nil, err
@@ -172,9 +172,9 @@ func (client *Netease) IsVIPAccount() (bool, error) {
 	return integer(at(payload, "profile", "vipType")) > 0 || integer(at(payload, "account", "vipType")) > 0, nil
 }
 
-func neteaseSongs(value interface{}) []model.Song {
+func neteaseSongs(value interface{}) []model.Track {
 	items := array(value)
-	result := make([]model.Song, 0, len(items))
+	result := make([]model.Track, 0, len(items))
 	for _, item := range items {
 		raw := object(item)
 		id := text(raw["id"])
@@ -193,7 +193,7 @@ func neteaseSongs(value interface{}) []model.Song {
 		if duration == 0 {
 			duration = integer(raw["duration"])
 		}
-		result = append(result, model.Song{
+		result = append(result, model.Track{
 			ID: id, Name: text(raw["name"]), Artist: joinNames(artists, "name"),
 			Album: text(album["name"]), AlbumID: text(album["id"]), Duration: duration / 1000,
 			Source: "netease", Cover: text(album["picUrl"]),
@@ -203,9 +203,9 @@ func neteaseSongs(value interface{}) []model.Song {
 	return result
 }
 
-func neteasePlaylists(value interface{}) []model.Playlist {
+func neteasePlaylists(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		playlist := neteasePlaylist(object(item))
 		if playlist.ID != "" {
@@ -215,12 +215,12 @@ func neteasePlaylists(value interface{}) []model.Playlist {
 	return result
 }
 
-func neteasePlaylist(raw map[string]interface{}) model.Playlist {
+func neteasePlaylist(raw map[string]interface{}) model.RemoteCollection {
 	cover := text(raw["coverImgUrl"])
 	if cover == "" {
 		cover = text(raw["picUrl"])
 	}
-	return model.Playlist{
+	return model.RemoteCollection{
 		ID: text(raw["id"]), Name: text(raw["name"]), Cover: cover,
 		TrackCount: integer(raw["trackCount"]), PlayCount: integer(raw["playCount"]),
 		Creator: text(at(raw, "creator", "nickname")), Description: text(raw["description"]),
@@ -228,9 +228,9 @@ func neteasePlaylist(raw map[string]interface{}) model.Playlist {
 	}
 }
 
-func neteaseAlbums(value interface{}) []model.Playlist {
+func neteaseAlbums(value interface{}) []model.RemoteCollection {
 	items := array(value)
-	result := make([]model.Playlist, 0, len(items))
+	result := make([]model.RemoteCollection, 0, len(items))
 	for _, item := range items {
 		album := neteaseAlbum(object(item))
 		if album.ID != "" {
@@ -240,8 +240,8 @@ func neteaseAlbums(value interface{}) []model.Playlist {
 	return result
 }
 
-func neteaseAlbum(raw map[string]interface{}) model.Playlist {
-	return model.Playlist{
+func neteaseAlbum(raw map[string]interface{}) model.RemoteCollection {
+	return model.RemoteCollection{
 		ID: text(raw["id"]), Name: text(raw["name"]), Cover: text(raw["picUrl"]),
 		TrackCount: integer(raw["size"]), Creator: joinNames(raw["artists"], "name"),
 		Description: text(raw["description"]), Source: "netease",

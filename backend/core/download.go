@@ -58,11 +58,11 @@ func isAudioExt(ext string) bool {
 	}
 }
 
-func DownloadSongData(song *model.Song, withCover bool, withLyrics bool) (*DownloadedSong, error) {
+func DownloadSongData(song *model.Track, withCover bool, withLyrics bool) (*DownloadedSong, error) {
 	return DownloadSongDataWithTemplate(song, withCover, withLyrics, DefaultDownloadFilenameTemplate)
 }
 
-func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
+func DownloadSongDataWithTemplate(song *model.Track, withCover bool, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
 	if song == nil {
 		return nil, errors.New("song is nil")
 	}
@@ -146,11 +146,11 @@ func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics b
 	}, nil
 }
 
-func SaveSongToFile(song *model.Song, outDir string, withCover bool, withLyrics bool) (*DownloadedSong, error) {
+func SaveSongToFile(song *model.Track, outDir string, withCover bool, withLyrics bool) (*DownloadedSong, error) {
 	return SaveSongToFileWithTemplate(song, outDir, withCover, withLyrics, DefaultDownloadFilenameTemplate)
 }
 
-func SaveSongToFileWithTemplate(song *model.Song, outDir string, withCover bool, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
+func SaveSongToFileWithTemplate(song *model.Track, outDir string, withCover bool, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
 	result, err := DownloadSongDataWithTemplate(song, withCover, withLyrics, filenameTemplate)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func findSameNameAudioFiles(filePath string) ([]string, error) {
 	return matches, nil
 }
 
-func BuildDownloadFilename(song *model.Song, ext string, filenameTemplate string) string {
+func BuildDownloadFilename(song *model.Track, ext string, filenameTemplate string) string {
 	template := strings.TrimSpace(filenameTemplate)
 	if template == "" {
 		template = DefaultDownloadFilenameTemplate
@@ -344,7 +344,7 @@ func sanitizeDownloadPathSegment(value string) string {
 	return strings.Trim(fileutil.SanitizeFilename(value), " .")
 }
 
-func fetchSongAudio(song *model.Song) ([]byte, string, error) {
+func fetchSongAudio(song *model.Track) ([]byte, string, error) {
 	if song.Source == "soda" {
 		media, err := ResolveProviderMedia(song)
 		if err != nil {

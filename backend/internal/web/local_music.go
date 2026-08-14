@@ -275,13 +275,13 @@ func isLocalMusicSource(source string) bool {
 	return source == localMusicSource || source == legacyLocalMusicSource
 }
 
-func localMusicTracksToSongs(tracks []*localMusicTrack) []model.Song {
-	songs := make([]model.Song, 0, len(tracks))
+func localMusicTracksToSongs(tracks []*localMusicTrack) []model.Track {
+	songs := make([]model.Track, 0, len(tracks))
 	for _, track := range tracks {
 		if track == nil {
 			continue
 		}
-		songs = append(songs, model.Song{
+		songs = append(songs, model.Track{
 			ID:       track.ID,
 			Source:   localMusicSource,
 			Name:     track.Name,
@@ -1197,7 +1197,7 @@ func localMusicLyricFilename(track *localMusicTrack) string {
 	return fileutil.SanitizeFilename(fmt.Sprintf("%s - %s.lrc", name, artist))
 }
 
-func serveLocalMusicLyric(c *gin.Context, song *model.Song, download bool, saveLocal ...bool) {
+func serveLocalMusicLyric(c *gin.Context, song *model.Track, download bool, saveLocal ...bool) {
 	if song == nil {
 		c.String(http.StatusNotFound, "Lyric not found")
 		return

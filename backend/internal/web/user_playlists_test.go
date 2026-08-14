@@ -28,14 +28,14 @@ func TestUserPlaylistsRouteReturnsTabs(t *testing.T) {
 	userPlaylistsFuncProvider = func(source string) core.UserPlaylistsFunc {
 		switch source {
 		case "netease":
-			return func(page, limit int) ([]model.Playlist, error) {
-				return []model.Playlist{
+			return func(page, limit int) ([]model.RemoteCollection, error) {
+				return []model.RemoteCollection{
 					{ID: "pl-1", Name: "我喜欢的音乐", TrackCount: 42, Creator: "me"},
 				}, nil
 			}
 		case "qq":
 			// 模拟未登录:GetUserPlaylists 返回错误。
-			return func(page, limit int) ([]model.Playlist, error) {
+			return func(page, limit int) ([]model.RemoteCollection, error) {
 				return nil, fmt.Errorf("qq user playlists require cookie")
 			}
 		default:

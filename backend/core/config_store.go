@@ -1,8 +1,6 @@
 package core
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -23,9 +21,6 @@ const (
 	DefaultWebPageSize              = 30
 	DefaultCLIPageSize              = 20
 	DefaultWebConcurrency           = 3
-	DefaultUpdateRepoURL            = "https://github.com/aki-riko/Melodex"
-	DefaultGithubProxyURL           = "https://edgeone.gh-proxy.com"
-	removedDefaultUpdateRepoSHA256  = "8b13ce3db7dc29f7bacfd021b8771493f99b57e29c9cbcf022aae3ff2a508d86"
 	webSettingsKey                  = "web_settings"
 	webAuthSettingsKey              = "web_auth_settings"
 )
@@ -51,11 +46,7 @@ type WebSettings struct {
 	WebPageSize              int    `json:"webPageSize"`
 	CliPageSize              int    `json:"cliPageSize"`
 	DownloadConcurrency      int    `json:"downloadConcurrency"`
-	AutoCheckUpdate          bool   `json:"autoCheckUpdate"`
 	AutoSwitchInvalidSources bool   `json:"autoSwitchInvalidSources"`
-	UpdateRepoURL            string `json:"updateRepoUrl"`
-	GithubProxyEnabled       bool   `json:"githubProxyEnabled"`
-	GithubProxyURL           string `json:"githubProxyUrl"`
 	VgChangeCover            bool   `json:"vgChangeCover"`
 	VgChangeAudio            bool   `json:"vgChangeAudio"`
 	VgChangeLyric            bool   `json:"vgChangeLyric"`
@@ -257,11 +248,7 @@ func defaultWebSettings() WebSettings {
 		WebPageSize:              DefaultWebPageSize,
 		CliPageSize:              DefaultCLIPageSize,
 		DownloadConcurrency:      DefaultWebConcurrency,
-		AutoCheckUpdate:          true,
 		AutoSwitchInvalidSources: true,
-		UpdateRepoURL:            DefaultUpdateRepoURL,
-		GithubProxyEnabled:       false,
-		GithubProxyURL:           DefaultGithubProxyURL,
 	})
 }
 
@@ -295,21 +282,8 @@ func normalizeWebSettings(settings WebSettings) WebSettings {
 	if settings.DownloadConcurrency < 1 {
 		settings.DownloadConcurrency = 1
 	}
-	settings.UpdateRepoURL = strings.TrimSpace(settings.UpdateRepoURL)
-	if settings.UpdateRepoURL == "" || isRemovedDefaultUpdateRepo(settings.UpdateRepoURL) {
-		settings.UpdateRepoURL = DefaultUpdateRepoURL
-	}
-	settings.GithubProxyURL = strings.TrimSpace(settings.GithubProxyURL)
-	if settings.GithubProxyURL == "" {
-		settings.GithubProxyURL = DefaultGithubProxyURL
-	}
 	settings.DownloadDir = normalizeWebDownloadDir(settings.DownloadDir)
 	return settings
-}
-
-func isRemovedDefaultUpdateRepo(raw string) bool {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
-	return hex.EncodeToString(sum[:]) == removedDefaultUpdateRepoSHA256
 }
 
 func normalizeWebAuthSettings(settings WebAuthSettings) WebAuthSettings {
