@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/guohuiyuan/go-music-dl/internal/fileutil"
 	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
-	"github.com/guohuiyuan/music-lib/utils"
 )
 
 type DownloadedSong struct {
@@ -341,7 +341,7 @@ func sanitizeDownloadPathSegment(value string) string {
 	if value == "" {
 		return ""
 	}
-	return strings.Trim(utils.SanitizeFilename(value), " .")
+	return strings.Trim(fileutil.SanitizeFilename(value), " .")
 }
 
 func fetchSongAudio(song *model.Song) ([]byte, string, error) {

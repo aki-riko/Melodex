@@ -19,8 +19,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/guohuiyuan/go-music-dl/internal/fileutil"
 	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
-	"github.com/guohuiyuan/music-lib/utils"
 )
 
 func importCollectionFromQuery(c *gin.Context, contentType string, source string, externalID string, fallbackLink string, fallbackTrackCount int) *importCollectionMeta {
@@ -1155,7 +1155,7 @@ func saveWebAssetToLocal(filename string, data []byte) (string, string, error) {
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return "", "", err
 	}
-	savedFilename := utils.SanitizeFilename(strings.TrimSpace(filename))
+	savedFilename := fileutil.SanitizeFilename(strings.TrimSpace(filename))
 	if savedFilename == "" {
 		savedFilename = "download"
 	}
