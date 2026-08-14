@@ -82,3 +82,45 @@ func TestFetchBytesWithMimeUsesRangeDownload(t *testing.T) {
 		t.Fatal("FetchBytesWithMime returned empty content type")
 	}
 }
+
+func TestFetchBytesWithMimePreservesChunkOrder(t *testing.T) {
+	payload := append([]byte{'f', 'L', 'a', 'C'}, bytes.Repeat([]byte("0123456789abcdef"), 50_000)...)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "large.flac", time.Now(), bytes.NewReader(payload))
+	}))
+	defer server.Close()
+
+	data, _, err := FetchBytesWithMime(server.URL, "netease")
+	if err != nil {
+		t.Fatalf("FetchBytesWithMime returned error: %v", err)
+	}
+	if !bytes.Equal(data, payload) {
+		t.Fatalf("chunked payload mismatch: got %d bytes want %d", len(data), len(payload))
+	}
+}
+
+func TestResolveRangeHeader(t *testing.T) {
+	tests := []struct {
+		value              string
+		wantStart, wantEnd int64
+		wantPartial        bool
+		wantValid          bool
+	}{
+		{value: "", wantStart: 0, wantEnd: 99, wantPartial: false, wantValid: true},
+		{value: "bytes=10-19", wantStart: 10, wantEnd: 19, wantPartial: true, wantValid: true},
+		{value: "bytes=90-", wantStart: 90, wantEnd: 99, wantPartial: true, wantValid: true},
+		{value: "bytes=-10", wantStart: 90, wantEnd: 99, wantPartial: true, wantValid: true},
+		{value: "bytes=10-5", wantValid: false},
+		{value: "items=0-1", wantValid: false},
+		{value: "bytes=0-1,4-5", wantValid: false},
+	}
+
+	for _, test := range tests {
+		start, end, partial, valid := resolveRangeHeader(test.value, 100)
+		if start != test.wantStart || end != test.wantEnd || partial != test.wantPartial || valid != test.wantValid {
+			t.Fatalf("resolveRangeHeader(%q) = %d,%d,%v,%v; want %d,%d,%v,%v",
+				test.value, start, end, partial, valid,
+				test.wantStart, test.wantEnd, test.wantPartial, test.wantValid)
+		}
+	}
+}
