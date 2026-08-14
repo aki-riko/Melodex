@@ -21,8 +21,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/guohuiyuan/go-music-dl/internal/fileutil"
 	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
-	"github.com/guohuiyuan/music-lib/utils"
 )
 
 // --- 常量与样式 ---
@@ -1013,7 +1013,7 @@ func downloadSongWithCookie(song *model.Song, outDir string, withCover bool, wit
 		return err
 	}
 
-	fileName := fmt.Sprintf("%s - %s", utils.SanitizeFilename(song.Name), utils.SanitizeFilename(song.Artist))
+	fileName := fmt.Sprintf("%s - %s", fileutil.SanitizeFilename(song.Name), fileutil.SanitizeFilename(song.Artist))
 
 	// 2. 获取下载数据
 	var finalData []byte
@@ -1091,7 +1091,7 @@ func downloadSongWithCookie(song *model.Song, outDir string, withCover bool, wit
 	var coverData []byte
 	var coverMime string
 	if withCover && song.Cover != "" {
-		if data, err := utils.Get(song.Cover); err == nil && len(data) > 0 {
+		if data, _, err := core.FetchResourceBytesWithMime(song.Cover, song.Source); err == nil && len(data) > 0 {
 			coverData = data
 			coverMime = http.DetectContentType(data)
 			if idx := strings.Index(coverMime, ";"); idx >= 0 {

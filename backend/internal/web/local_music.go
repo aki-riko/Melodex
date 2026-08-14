@@ -24,8 +24,8 @@ import (
 	"github.com/dhowden/tag"
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/guohuiyuan/go-music-dl/internal/fileutil"
 	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
-	"github.com/guohuiyuan/music-lib/utils"
 	"gorm.io/gorm/clause"
 )
 
@@ -880,7 +880,7 @@ func sanitizeLocalMusicUploadName(name string) (string, error) {
 	}
 
 	base := strings.TrimSuffix(name, filepath.Ext(name))
-	base = strings.TrimSpace(utils.SanitizeFilename(base))
+	base = strings.TrimSpace(fileutil.SanitizeFilename(base))
 	if base == "" {
 		base = "local-music"
 	}
@@ -1193,7 +1193,7 @@ func localMusicCoverFilename(track *localMusicTrack, ext string) string {
 	if artist == "" {
 		artist = "Unknown"
 	}
-	return utils.SanitizeFilename(fmt.Sprintf("%s - %s%s", name, artist, ext))
+	return fileutil.SanitizeFilename(fmt.Sprintf("%s - %s%s", name, artist, ext))
 }
 
 func localMusicLyricFilename(track *localMusicTrack) string {
@@ -1205,7 +1205,7 @@ func localMusicLyricFilename(track *localMusicTrack) string {
 	if artist == "" {
 		artist = "Unknown"
 	}
-	return utils.SanitizeFilename(fmt.Sprintf("%s - %s.lrc", name, artist))
+	return fileutil.SanitizeFilename(fmt.Sprintf("%s - %s.lrc", name, artist))
 }
 
 func serveLocalMusicLyric(c *gin.Context, song *model.Song, download bool, saveLocal ...bool) {
