@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/aki-riko/Melodex/backend/internal/fileutil"
@@ -15,62 +16,90 @@ import (
 )
 
 type DownloadedSong struct {
-	Data        []byte
-	Ext         string
-	ContentType string
-	Filename    string
-	SavedPath   string
-	Warning     string
-	// Skipped 为 true 表示因已存在同名的同等或更高音质文件而未写入新文件,
-	// SavedPath 指向已存在的那个文件。
-	Skipped bool
-	// RemovedPaths 是本次「音质升级」删除的同名低音质旧文件的绝对路径,
-	// 上层据此清理下载归属记录(download_records),避免孤儿。
+	Data         []byte
+	Ext          string
+	ContentType  string
+	Filename     string
+	SavedPath    string
+	Warning      string
+	Skipped      bool
 	RemovedPaths []string
 }
 
-// audioQualityRank 返回音频格式的音质优先级,数字越大音质越高(无损优先)。
-// 用于跨格式去重:同一首歌只保留最高音质的一份。
-func audioQualityRank(ext string) int {
-	switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ext, "."))) {
-	case "flac", "wav":
-		return 5 // 无损
-	case "m4a", "aac":
-		return 3 // 高码率有损
-	case "ogg":
-		return 2
-	case "mp3":
-		return 1
-	case "wma":
-		return 0
-	default:
-		return 1 // 未知按 mp3 档处理
-	}
+type downloadEnrichment struct {
+	lyrics    string
+	cover     []byte
+	coverMIME string
 }
 
-// isAudioExt 判断扩展名是否属于已知音频格式。
-func isAudioExt(ext string) bool {
-	switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ext, "."))) {
-	case "flac", "wav", "m4a", "aac", "ogg", "mp3", "wma":
-		return true
-	default:
-		return false
-	}
+var audioQualityRanks = map[string]int{
+	"wma":  0,
+	"mp3":  1,
+	"ogg":  2,
+	"aac":  3,
+	"m4a":  3,
+	"flac": 5,
+	"wav":  5,
 }
 
-func DownloadSongData(song *model.Track, withCover bool, withLyrics bool) (*DownloadedSong, error) {
-	return DownloadSongDataWithTemplate(song, withCover, withLyrics, DefaultDownloadFilenameTemplate)
+func audioQualityRank(extension string) int {
+	extension = normalizedAudioExtension(extension)
+	if rank, known := audioQualityRanks[extension]; known {
+		return rank
+	}
+	return audioQualityRanks["mp3"]
 }
 
-func DownloadSongDataWithTemplate(song *model.Track, withCover bool, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
-	if song == nil {
-		return nil, errors.New("song is nil")
-	}
-	if strings.TrimSpace(song.ID) == "" || strings.TrimSpace(song.Source) == "" {
-		return nil, errors.New("missing song id or source")
-	}
+func isAudioExt(extension string) bool {
+	_, known := audioQualityRanks[normalizedAudioExtension(extension)]
+	return known
+}
 
-	normalized := *song
+func normalizedAudioExtension(extension string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(extension), "."))
+}
+
+func DownloadSongData(track *model.Track, withCover, withLyrics bool) (*DownloadedSong, error) {
+	return DownloadSongDataWithTemplate(track, withCover, withLyrics, DefaultDownloadFilenameTemplate)
+}
+
+func DownloadSongDataWithTemplate(track *model.Track, withCover, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
+	normalized, err := normalizeDownloadTrack(track)
+	if err != nil {
+		return nil, err
+	}
+	audio, contentType, err := fetchTrackAudio(normalized)
+	if err != nil {
+		return nil, err
+	}
+	if !LooksLikeAudioData(contentType, audio) {
+		return nil, fmt.Errorf("upstream response is not audio: %s", contentType)
+	}
+	extension := identifyDownloadedAudio(audio, contentType)
+	enrichment := collectDownloadEnrichment(normalized, withCover, withLyrics)
+	finalAudio, warning := enrichDownloadedAudio(audio, extension, normalized, enrichment)
+	if extension == "" {
+		extension = DetectAudioExt(finalAudio)
+	}
+	return &DownloadedSong{
+		Data:        finalAudio,
+		Ext:         extension,
+		ContentType: AudioMimeByExt(extension),
+		Filename:    BuildDownloadFilename(normalized, extension, filenameTemplate),
+		Warning:     warning,
+	}, nil
+}
+
+func normalizeDownloadTrack(track *model.Track) (*model.Track, error) {
+	if track == nil {
+		return nil, errors.New("track is nil")
+	}
+	if strings.TrimSpace(track.ID) == "" || strings.TrimSpace(track.Source) == "" {
+		return nil, errors.New("missing track id or source")
+	}
+	normalized := *track
+	normalized.ID = strings.TrimSpace(normalized.ID)
+	normalized.Source = strings.TrimSpace(normalized.Source)
 	normalized.Name = strings.TrimSpace(normalized.Name)
 	normalized.Artist = strings.TrimSpace(normalized.Artist)
 	normalized.Album = strings.TrimSpace(normalized.Album)
@@ -80,256 +109,192 @@ func DownloadSongDataWithTemplate(song *model.Track, withCover bool, withLyrics 
 	if normalized.Artist == "" {
 		normalized.Artist = "Unknown"
 	}
+	return &normalized, nil
+}
 
-	audioData, contentType, err := fetchSongAudio(&normalized)
-	if err != nil {
-		return nil, err
+func identifyDownloadedAudio(audio []byte, contentType string) string {
+	if extension := DetectAudioExtBySignature(audio); extension != "" {
+		return extension
 	}
-	if !LooksLikeAudioData(contentType, audioData) {
-		return nil, fmt.Errorf("upstream response is not audio: %s", contentType)
+	if extension := DetectAudioExtByContentType(contentType); extension != "" {
+		return extension
 	}
+	return DetectAudioExt(audio)
+}
 
-	signatureExt := DetectAudioExtBySignature(audioData)
-	ext := signatureExt
-	if ext == "" {
-		ext = DetectAudioExtByContentType(contentType)
-	}
-	if ext == "" {
-		ext = DetectAudioExt(audioData)
-	}
-
-	var lyric string
+func collectDownloadEnrichment(track *model.Track, withCover, withLyrics bool) downloadEnrichment {
+	var enrichment downloadEnrichment
 	if withLyrics {
-		if lyricFn := GetLyricFunc(normalized.Source); lyricFn != nil {
-			lyric, _ = lyricFn(&normalized)
+		if fetchLyrics := GetLyricFunc(track.Source); fetchLyrics != nil {
+			enrichment.lyrics, _ = fetchLyrics(track)
 		}
 	}
-
-	var coverData []byte
-	var coverMime string
-	if withCover && strings.TrimSpace(normalized.Cover) != "" {
-		coverData, coverMime, _ = FetchResourceBytesWithMime(normalized.Cover, normalized.Source)
-		// 国内源(尤其咪咕)封面常为 webp,而 ID3/FLAC 封面被多数播放器/刮削器
-		// 仅识别 JPEG/PNG。这里把非 JPEG/PNG 的封面转成 JPEG,保证封面能被识别。
-		if len(coverData) > 0 {
-			if jpegData, ok := ensureJpegCover(coverData, coverMime); ok {
-				coverData = jpegData
-				coverMime = "image/jpeg"
-			}
+	if withCover && strings.TrimSpace(track.Cover) != "" {
+		enrichment.cover, enrichment.coverMIME, _ = FetchResourceBytesWithMime(track.Cover, track.Source)
+		if converted, ok := ensureJpegCover(enrichment.cover, enrichment.coverMIME); ok {
+			enrichment.cover = converted
+			enrichment.coverMIME = "image/jpeg"
 		}
 	}
-
-	finalData := audioData
-	warning := ""
-	if (ext == "mp3" || ext == "flac" || ext == "m4a" || ext == "wma") && (normalized.Album != "" || lyric != "" || len(coverData) > 0) {
-		embeddedData, embedErr := EmbedSongMetadata(audioData, &normalized, lyric, coverData, coverMime)
-		switch {
-		case embedErr == nil:
-			finalData = embeddedData
-		case errors.Is(embedErr, ErrFFmpegNotFound):
-			warning = "ffmpeg not found, metadata embedding skipped"
-		default:
-			warning = "metadata embedding failed, using original audio"
-		}
-	}
-
-	if ext == "" {
-		ext = DetectAudioExt(finalData)
-	}
-
-	return &DownloadedSong{
-		Data:        finalData,
-		Ext:         ext,
-		ContentType: AudioMimeByExt(ext),
-		Filename:    BuildDownloadFilename(&normalized, ext, filenameTemplate),
-		Warning:     warning,
-	}, nil
+	return enrichment
 }
 
-func SaveSongToFile(song *model.Track, outDir string, withCover bool, withLyrics bool) (*DownloadedSong, error) {
-	return SaveSongToFileWithTemplate(song, outDir, withCover, withLyrics, DefaultDownloadFilenameTemplate)
+func enrichDownloadedAudio(audio []byte, extension string, track *model.Track, enrichment downloadEnrichment) ([]byte, string) {
+	if normalizedEmbeddableExtension(extension) == "" ||
+		(track.Album == "" && enrichment.lyrics == "" && len(enrichment.cover) == 0) {
+		return audio, ""
+	}
+	embedded, err := EmbedSongMetadata(audio, track, enrichment.lyrics, enrichment.cover, enrichment.coverMIME)
+	if err == nil {
+		return embedded, ""
+	}
+	if errors.Is(err, ErrFFmpegNotFound) {
+		return audio, "ffmpeg not found, metadata embedding skipped"
+	}
+	return audio, "metadata embedding failed, using original audio"
 }
 
-func SaveSongToFileWithTemplate(song *model.Track, outDir string, withCover bool, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
-	result, err := DownloadSongDataWithTemplate(song, withCover, withLyrics, filenameTemplate)
+func SaveSongToFile(track *model.Track, outputDirectory string, withCover, withLyrics bool) (*DownloadedSong, error) {
+	return SaveSongToFileWithTemplate(track, outputDirectory, withCover, withLyrics, DefaultDownloadFilenameTemplate)
+}
+
+func SaveSongToFileWithTemplate(track *model.Track, outputDirectory string, withCover, withLyrics bool, filenameTemplate string) (*DownloadedSong, error) {
+	download, err := DownloadSongDataWithTemplate(track, withCover, withLyrics, filenameTemplate)
 	if err != nil {
 		return nil, err
 	}
-	return saveDownloadedSongToFile(result, outDir)
+	return saveDownloadedSongToFile(download, outputDirectory)
 }
 
-// SaveDownloadedSongDataToFile 将已完成下载与元数据处理的数据写入磁盘。
-// Web 层可在真正落盘前根据 DownloadRecord 调整文件名，避免同名不同版本互相覆盖。
-func SaveDownloadedSongDataToFile(result *DownloadedSong, outDir string) (*DownloadedSong, error) {
-	return saveDownloadedSongToFile(result, outDir)
+func SaveDownloadedSongDataToFile(download *DownloadedSong, outputDirectory string) (*DownloadedSong, error) {
+	return saveDownloadedSongToFile(download, outputDirectory)
 }
 
-func saveDownloadedSongToFile(result *DownloadedSong, outDir string) (*DownloadedSong, error) {
-	if result == nil {
+func saveDownloadedSongToFile(download *DownloadedSong, outputDirectory string) (*DownloadedSong, error) {
+	if download == nil {
 		return nil, errors.New("download result is nil")
 	}
-
-	targetDir := strings.TrimSpace(outDir)
-	if targetDir == "" {
-		targetDir = DefaultWebDownloadDir
+	outputDirectory = strings.TrimSpace(outputDirectory)
+	if outputDirectory == "" {
+		outputDirectory = DefaultWebDownloadDir
 	}
-	targetDir = filepath.Clean(targetDir)
-
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	outputDirectory = filepath.Clean(outputDirectory)
+	if err := os.MkdirAll(outputDirectory, 0o755); err != nil {
 		return nil, err
 	}
 
-	fileName := sanitizeDownloadRelativePath(result.Filename)
-	filePath := filepath.Join(targetDir, fileName)
-	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+	relativeName := sanitizeDownloadRelativePath(download.Filename)
+	targetPath := filepath.Join(outputDirectory, relativeName)
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return nil, err
 	}
-
-	// 跨格式音质去重:扫描同目录下同名(仅扩展名不同)的已存在音频文件。
-	// 已有同等或更高音质 → 跳过写入,返回已存在文件;
-	// 已有更低音质 → 写入新文件后删除旧的低音质文件(音质升级)。
-	// 音质档以 result.Ext 为准;为空时回退到落盘文件名的扩展名,
-	// 避免 Ext 缺失时错判音质导致无损被有损覆盖跳过。
-	newExt := strings.TrimSpace(result.Ext)
-	if newExt == "" {
-		newExt = filepath.Ext(fileName)
+	existing, err := findSameNameAudioFiles(targetPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
 	}
-	newRank := audioQualityRank(newExt)
-	existing, scanErr := findSameNameAudioFiles(filePath)
-	if scanErr == nil {
-		for _, ex := range existing {
-			exRank := audioQualityRank(strings.TrimPrefix(filepath.Ext(ex), "."))
-			if exRank >= newRank {
-				// 已有同等或更高音质,不重复写入,直接复用已存在文件。
-				result.Filename = filepath.Base(ex)
-				result.SavedPath = ex
-				result.Skipped = true
-				return result, nil
-			}
+	newExtension := download.Ext
+	if strings.TrimSpace(newExtension) == "" {
+		newExtension = filepath.Ext(relativeName)
+	}
+	newRank := audioQualityRank(newExtension)
+	for _, candidate := range existing {
+		if audioQualityRank(filepath.Ext(candidate)) >= newRank {
+			download.Filename = filepath.Base(candidate)
+			download.SavedPath = candidate
+			download.Skipped = true
+			return download, nil
 		}
 	}
 
-	if err := os.WriteFile(filePath, result.Data, 0644); err != nil {
+	if err := os.WriteFile(targetPath, download.Data, 0o644); err != nil {
 		return nil, err
 	}
-
-	// 新文件音质更高,删除同名的低音质旧文件并上报路径供上层清理归属记录。
-	for _, ex := range existing {
-		if ex == filePath {
+	for _, candidate := range existing {
+		if candidate == targetPath {
 			continue
 		}
-		if err := os.Remove(ex); err == nil {
-			result.RemovedPaths = append(result.RemovedPaths, ex)
+		if err := os.Remove(candidate); err == nil {
+			download.RemovedPaths = append(download.RemovedPaths, candidate)
 		}
 	}
-
-	result.Filename = fileName
-	result.SavedPath = filePath
-	return result, nil
+	download.Filename = relativeName
+	download.SavedPath = targetPath
+	return download, nil
 }
 
-// findSameNameAudioFiles 返回与 filePath 同名(去扩展名后相同)但扩展名不同的
-// 已存在音频文件绝对路径列表。仅在同一目录内查找,不递归。
-func findSameNameAudioFiles(filePath string) ([]string, error) {
-	dir := filepath.Dir(filePath)
-	base := filepath.Base(filePath)
-	stem := strings.TrimSuffix(base, filepath.Ext(base))
-
-	entries, err := os.ReadDir(dir)
+func findSameNameAudioFiles(targetPath string) ([]string, error) {
+	directory := filepath.Dir(targetPath)
+	targetName := filepath.Base(targetPath)
+	targetStem := strings.TrimSuffix(targetName, filepath.Ext(targetName))
+	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, err
 	}
-	var matches []string
-	for _, e := range entries {
-		if e.IsDir() {
+	matches := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == targetName || !isAudioExt(filepath.Ext(entry.Name())) {
 			continue
 		}
-		name := e.Name()
-		if name == base {
-			continue // 同名同格式,由 WriteFile 覆盖处理,不算跨格式重复
-		}
-		nameExt := filepath.Ext(name)
-		nameStem := strings.TrimSuffix(name, nameExt)
-		if nameStem == stem && isAudioExt(nameExt) {
-			matches = append(matches, filepath.Join(dir, name))
+		if strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())) == targetStem {
+			matches = append(matches, filepath.Join(directory, entry.Name()))
 		}
 	}
+	sort.Strings(matches)
 	return matches, nil
 }
 
-func BuildDownloadFilename(song *model.Track, ext string, filenameTemplate string) string {
-	template := strings.TrimSpace(filenameTemplate)
-	if template == "" {
-		template = DefaultDownloadFilenameTemplate
+func BuildDownloadFilename(track *model.Track, extension, filenameTemplate string) string {
+	filenameTemplate = strings.TrimSpace(filenameTemplate)
+	if filenameTemplate == "" {
+		filenameTemplate = DefaultDownloadFilenameTemplate
 	}
-	ext = strings.TrimSpace(strings.TrimPrefix(ext, "."))
-
-	name := "Unknown"
-	artist := "Unknown"
-	album := ""
-	source := ""
-	id := ""
-	if song != nil {
-		if strings.TrimSpace(song.Name) != "" {
-			name = strings.TrimSpace(song.Name)
-		}
-		if strings.TrimSpace(song.Artist) != "" {
-			artist = strings.TrimSpace(song.Artist)
-		}
-		album = strings.TrimSpace(song.Album)
-		source = strings.TrimSpace(song.Source)
-		id = strings.TrimSpace(song.ID)
+	extension = normalizedAudioExtension(extension)
+	values := map[string]string{
+		"name": "Unknown", "artist": "Unknown", "album": "", "source": "", "id": "", "ext": extension,
 	}
-	name = sanitizeDownloadTemplateValue(name, "Unknown")
-	artist = sanitizeDownloadTemplateValue(artist, "Unknown")
-	album = sanitizeDownloadTemplateValue(album, "")
-	source = sanitizeDownloadTemplateValue(source, "")
-	id = sanitizeDownloadTemplateValue(id, "")
-
-	hasExtToken := strings.Contains(template, "{ext}")
-	rendered := strings.NewReplacer(
-		"{name}", name,
-		"{artist}", artist,
-		"{album}", album,
-		"{source}", source,
-		"{id}", id,
-		"{ext}", ext,
-	).Replace(template)
-	rendered = strings.TrimSpace(rendered)
-	if rendered == "" {
-		rendered = strings.TrimSpace(DefaultDownloadFilenameTemplate)
-		rendered = strings.NewReplacer("{name}", name, "{artist}", artist, "{album}", album, "{source}", source, "{id}", id, "{ext}", ext).Replace(rendered)
+	if track != nil {
+		values["name"] = sanitizedTemplateValue(track.Name, "Unknown")
+		values["artist"] = sanitizedTemplateValue(track.Artist, "Unknown")
+		values["album"] = sanitizedTemplateValue(track.Album, "")
+		values["source"] = sanitizedTemplateValue(track.Source, "")
+		values["id"] = sanitizedTemplateValue(track.ID, "")
 	}
-	if !hasExtToken && ext != "" {
-		rendered += "." + ext
+	hasExtensionToken := strings.Contains(filenameTemplate, "{ext}")
+	rendered := renderFilenameTemplate(filenameTemplate, values)
+	if strings.TrimSpace(rendered) == "" {
+		rendered = renderFilenameTemplate(DefaultDownloadFilenameTemplate, values)
 	}
-
+	if !hasExtensionToken && extension != "" {
+		rendered += "." + extension
+	}
 	return sanitizeDownloadRelativePath(rendered)
+}
+
+func renderFilenameTemplate(template string, values map[string]string) string {
+	replacements := make([]string, 0, len(values)*2)
+	for _, key := range []string{"name", "artist", "album", "source", "id", "ext"} {
+		replacements = append(replacements, "{"+key+"}", values[key])
+	}
+	return strings.TrimSpace(strings.NewReplacer(replacements...).Replace(template))
 }
 
 func sanitizeDownloadRelativePath(name string) string {
 	name = strings.ReplaceAll(strings.TrimSpace(name), "\\", "/")
-	parts := strings.Split(name, "/")
-	safeParts := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = sanitizeDownloadPathSegment(part)
-		if part == "" || part == "." || part == ".." {
-			continue
+	segments := make([]string, 0)
+	for _, segment := range strings.Split(name, "/") {
+		segment = sanitizeDownloadPathSegment(segment)
+		if segment != "" && segment != "." && segment != ".." {
+			segments = append(segments, segment)
 		}
-		safeParts = append(safeParts, part)
 	}
-	if len(safeParts) == 0 {
+	if len(segments) == 0 {
 		return "download"
 	}
-	return filepath.Join(safeParts...)
+	return filepath.Join(segments...)
 }
 
-func sanitizeDownloadTemplateValue(value string, fallback string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return fallback
-	}
-	value = sanitizeDownloadPathSegment(value)
+func sanitizedTemplateValue(value, fallback string) string {
+	value = sanitizeDownloadPathSegment(strings.TrimSpace(value))
 	if value == "" {
 		return fallback
 	}
@@ -344,67 +309,57 @@ func sanitizeDownloadPathSegment(value string) string {
 	return strings.Trim(fileutil.SanitizeFilename(value), " .")
 }
 
-func fetchSongAudio(song *model.Track) ([]byte, string, error) {
-	if song.Source == "soda" {
-		media, err := ResolveProviderMedia(song)
+func fetchTrackAudio(track *model.Track) ([]byte, string, error) {
+	if track.Source == "soda" {
+		media, err := ResolveProviderMedia(track)
 		if err != nil {
 			return nil, "", err
 		}
 		if media.PlayAuth == "" {
 			return nil, "", errors.New("provider returned no soda play auth")
 		}
-		encryptedData, _, err := FetchBytesWithMime(media.URL, "soda")
+		encrypted, _, err := FetchBytesWithMime(media.URL, "soda")
 		if err != nil {
 			return nil, "", err
 		}
-		finalData, err := DecryptSodaAudio(encryptedData, media.PlayAuth)
-		if err != nil {
-			return nil, "", err
-		}
-		return finalData, "", nil
+		decrypted, err := DecryptSodaAudio(encrypted, media.PlayAuth)
+		return decrypted, "", err
 	}
-
-	dlFunc := GetDownloadFunc(song.Source)
-	if dlFunc == nil {
-		return nil, "", fmt.Errorf("unsupported source: %s", song.Source)
+	resolve := GetDownloadFunc(track.Source)
+	if resolve == nil {
+		return nil, "", fmt.Errorf("unsupported source: %s", track.Source)
 	}
-
-	urlStr, err := dlFunc(song)
+	mediaURL, err := resolve(track)
 	if err != nil {
 		return nil, "", err
 	}
-	if urlStr == "" {
+	if strings.TrimSpace(mediaURL) == "" {
 		return nil, "", errors.New("empty download url")
 	}
-
-	return FetchBytesWithMime(urlStr, song.Source)
+	return FetchBytesWithMime(mediaURL, track.Source)
 }
 
-// ensureJpegCover 把非 JPEG/PNG 的封面(如国内源常见的 webp)转成 JPEG。
-// 已是 JPEG/PNG 的返回 (nil,false) 表示无需替换;转换成功返回 (jpegData,true);
-// 转换失败(无 ffmpeg 等)也返回 (nil,false),保持原封面不阻断下载。
-func ensureJpegCover(data []byte, mime string) ([]byte, bool) {
-	m := strings.ToLower(strings.TrimSpace(mime))
-	// 按实际字节嗅探,mime 不可信时兜底
-	if m == "" {
-		m = http.DetectContentType(data)
+func ensureJpegCover(data []byte, mimeType string) ([]byte, bool) {
+	if len(data) == 0 {
+		return nil, false
 	}
-	if strings.Contains(m, "jpeg") || strings.Contains(m, "jpg") || strings.Contains(m, "png") {
-		return nil, false // 主流播放器都认,无需转
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
 	}
-
+	if strings.Contains(mimeType, "jpeg") || strings.Contains(mimeType, "jpg") || strings.Contains(mimeType, "png") {
+		return nil, false
+	}
 	ffmpegPath, err := ResolveFFmpegPath()
 	if err != nil {
 		return nil, false
 	}
-	// 从 stdin 读任意格式图,转码为 JPEG 输出到 stdout
-	cmd := exec.Command(ffmpegPath, "-hide_banner", "-loglevel", "error",
-		"-i", "pipe:0", "-f", "image2", "-c:v", "mjpeg", "-q:v", "3", "pipe:1")
-	cmd.Stdin = bytes.NewReader(data)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil || out.Len() == 0 {
+	command := exec.Command(ffmpegPath, "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-f", "image2", "-c:v", "mjpeg", "-q:v", "3", "pipe:1")
+	command.Stdin = bytes.NewReader(data)
+	var converted bytes.Buffer
+	command.Stdout = &converted
+	if err := command.Run(); err != nil || converted.Len() == 0 {
 		return nil, false
 	}
-	return out.Bytes(), true
+	return converted.Bytes(), true
 }
