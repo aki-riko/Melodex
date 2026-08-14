@@ -43,6 +43,20 @@ func postJSON(rawURL, cookie string, headers http.Header, payload interface{}) (
 }
 
 func requestJSON(method, rawURL, cookie string, headers http.Header, body io.Reader, target map[string]interface{}) (map[string]interface{}, error) {
+	raw, err := requestBytes(method, rawURL, cookie, headers, body)
+	if err != nil {
+		return nil, err
+	}
+	if target == nil {
+		target = make(map[string]interface{})
+	}
+	if err := json.Unmarshal(raw, &target); err != nil {
+		return nil, fmt.Errorf("decode platform response: %w", err)
+	}
+	return target, nil
+}
+
+func requestBytes(method, rawURL, cookie string, headers http.Header, body io.Reader) ([]byte, error) {
 	request, err := http.NewRequest(method, rawURL, body)
 	if err != nil {
 		return nil, err
@@ -74,13 +88,99 @@ func requestJSON(method, rawURL, cookie string, headers http.Header, body io.Rea
 			raw = decoded
 		}
 	}
-	if target == nil {
-		target = make(map[string]interface{})
+	return raw, nil
+}
+
+func getSingleQuotedJSON(rawURL, cookie string, headers http.Header) (map[string]interface{}, error) {
+	raw, err := requestBytes(http.MethodGet, rawURL, cookie, headers, nil)
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(raw, &target); err != nil {
-		return nil, fmt.Errorf("decode platform response: %w", err)
+	result := make(map[string]interface{})
+	if err := json.Unmarshal(raw, &result); err == nil {
+		return result, nil
 	}
-	return target, nil
+	normalized, err := normalizeSingleQuotedJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("normalize single-quoted platform response: %w", err)
+	}
+	if err := json.Unmarshal(normalized, &result); err != nil {
+		return nil, fmt.Errorf("decode single-quoted platform response: %w", err)
+	}
+	return result, nil
+}
+
+func normalizeSingleQuotedJSON(raw []byte) ([]byte, error) {
+	result := make([]byte, 0, len(raw))
+	quote := byte(0)
+	for index := 0; index < len(raw); index++ {
+		current := raw[index]
+		if quote == 0 {
+			if current == '\'' {
+				quote = current
+				result = append(result, '"')
+				continue
+			}
+			if current == '"' {
+				quote = current
+			}
+			result = append(result, current)
+			continue
+		}
+
+		if quote == '"' {
+			result = append(result, current)
+			if current == '\\' && index+1 < len(raw) {
+				index++
+				result = append(result, raw[index])
+				continue
+			}
+			if current == '"' {
+				quote = 0
+			}
+			continue
+		}
+
+		if current == '\\' && index+1 < len(raw) {
+			next := raw[index+1]
+			if next == '\'' {
+				result = append(result, '\'')
+				index++
+				continue
+			}
+			result = append(result, current, next)
+			index++
+			continue
+		}
+		if current == '"' {
+			result = append(result, '\\', '"')
+			continue
+		}
+		if current == '\'' && singleQuoteClosesValue(raw, index+1) {
+			result = append(result, '"')
+			quote = 0
+			continue
+		}
+		result = append(result, current)
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("unterminated quoted value")
+	}
+	return result, nil
+}
+
+func singleQuoteClosesValue(raw []byte, start int) bool {
+	for index := start; index < len(raw); index++ {
+		switch raw[index] {
+		case ' ', '\t', '\r', '\n':
+			continue
+		case ':', ',', '}', ']':
+			return true
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func object(value interface{}) map[string]interface{} {
@@ -170,6 +270,45 @@ func cloneExtra(values map[string]string) map[string]string {
 		result[key] = value
 	}
 	return result
+}
+
+func firstText(values map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value := text(values[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstInteger(values map[string]interface{}, keys ...string) int {
+	for _, key := range keys {
+		if value := integer(values[key]); value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstInt64(values map[string]interface{}, keys ...string) int64 {
+	for _, key := range keys {
+		if value := int64Value(values[key]); value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func replaceImageSize(value, size string) string {
+	return strings.ReplaceAll(strings.TrimSpace(value), "{size}", strings.TrimSpace(size))
+}
+
+func splitArtistTitle(value string) (string, string) {
+	parts := strings.SplitN(strings.TrimSpace(value), " - ", 2)
+	if len(parts) != 2 {
+		return "", strings.TrimSpace(value)
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 }
 
 func linkID(rawLink string, queryKeys ...string) string {
