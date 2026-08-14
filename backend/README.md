@@ -17,6 +17,9 @@ Melodex 后端负责用户、歌单、搜索编排、流式播放、服务器下
 [`provider_bridge`](./provider_bridge),Go 客户端位于
 [`internal/provider/bridge`](./internal/provider/bridge)。
 
+当前树、兼容命名与 Git 历史的来源边界记录在
+[`PROVENANCE.md`](./PROVENANCE.md)。
+
 歌单、专辑、分类、平台歌单和网易扫码等应用扩展位于
 [`internal/provider/extensions`](./internal/provider/extensions)。这些扩展只使用 Melodex 自有模型，
 不依赖或内嵌其他 Go 音源库。

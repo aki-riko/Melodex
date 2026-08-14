@@ -6,8 +6,8 @@ frontend/.env.*.local
 backend/data
 # Compose 运行期持久化目录(下载、数据库、缓存),禁止进入镜像构建上下文。
 data
-backend/music-dl
-backend/music-dl.exe
+backend/melodex
+backend/melodex.exe
 backend/*.exe
 # 后端 embed 占位目录里如有真实产物残留也排除(构建阶段会重新拷)
 backend/internal/web/frontend_dist/assets

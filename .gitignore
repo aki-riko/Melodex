@@ -9,8 +9,8 @@ frontend/.env.local
 .env.local
 
 # Go / backend
-backend/music-dl
-backend/music-dl.exe
+backend/melodex
+backend/melodex.exe
 backend/*.exe
 backend/data/
 backend/dist/
