@@ -11,7 +11,7 @@ import (
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
-func NeteaseCreateQRLogin() (*model.QRLoginSession, error) {
+func NeteaseCreateQRLogin() (*model.LoginChallenge, error) {
 	payload, _, err := neteaseQRRequest("/api/login/qrcode/unikey", url.Values{"type": {"1"}})
 	if err != nil {
 		return nil, err
@@ -23,13 +23,14 @@ func NeteaseCreateQRLogin() (*model.QRLoginSession, error) {
 	if key == "" {
 		return nil, fmt.Errorf("netease QR endpoint returned no key")
 	}
-	return &model.QRLoginSession{
-		Source: "netease", Key: key,
-		URL: "https://music.163.com/login?codekey=" + url.QueryEscape(key),
+	return &model.LoginChallenge{
+		Provider:        "netease",
+		ChallengeID:     key,
+		VerificationURL: "https://music.163.com/login?codekey=" + url.QueryEscape(key),
 	}, nil
 }
 
-func NeteaseCheckQRLogin(key string) (*model.QRLoginResult, error) {
+func NeteaseCheckQRLogin(key string) (*model.LoginResult, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil, fmt.Errorf("netease QR key is required")
@@ -39,27 +40,32 @@ func NeteaseCheckQRLogin(key string) (*model.QRLoginResult, error) {
 		return nil, err
 	}
 	code := integer(payload["code"])
-	result := &model.QRLoginResult{Source: "netease", Key: key, Message: text(payload["message"]), Cookies: cookies}
+	result := &model.LoginResult{
+		Provider:     "netease",
+		ChallengeID:  key,
+		Detail:       text(payload["message"]),
+		CookieValues: cookies,
+	}
 	switch code {
 	case 800:
-		result.Status = model.QRLoginStatusExpired
+		result.Phase = model.LoginExpired
 	case 801:
-		result.Status = model.QRLoginStatusWaiting
+		result.Phase = model.LoginWaiting
 	case 802:
-		result.Status = model.QRLoginStatusScanned
+		result.Phase = model.LoginScanned
 	case 803:
-		result.Status = model.QRLoginStatusSuccess
+		result.Phase = model.LoginSucceeded
 	default:
-		result.Status = model.QRLoginStatusFailed
+		result.Phase = model.LoginFailed
 	}
 	if cookie := text(payload["cookie"]); cookie != "" {
-		result.Cookie = cookie
+		result.RawCookie = cookie
 	} else if len(cookies) > 0 {
 		parts := make([]string, 0, len(cookies))
 		for name, value := range cookies {
 			parts = append(parts, name+"="+value)
 		}
-		result.Cookie = strings.Join(parts, "; ")
+		result.RawCookie = strings.Join(parts, "; ")
 	}
 	return result, nil
 }

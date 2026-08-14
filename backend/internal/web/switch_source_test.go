@@ -1,7 +1,6 @@
 package web
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -21,55 +20,6 @@ func withSwitchSourceTestHooks(t *testing.T) {
 		switchAllSourceNames = origAllSources
 		switchDefaultSourceNames = origDefaultSources
 	})
-}
-
-func TestAppJSBatchSwitchSourceUsesConcurrentWorkers(t *testing.T) {
-	content, err := templateFS.ReadFile("templates/static/js/app.js")
-	if err != nil {
-		t.Fatalf("ReadFile(app.js): %v", err)
-	}
-
-	js := string(content)
-	for _, want := range []string{
-		"return fetch(url)",
-		"const concurrency = Math.min(3, cards.length)",
-		"Promise.all(Array.from({ length: concurrency }, runWorker))",
-	} {
-		if !strings.Contains(js, want) {
-			t.Fatalf("app.js missing %q", want)
-		}
-	}
-	if strings.Contains(js, "index * 1000") {
-		t.Fatal("batchSwitchSource still staggers source switching by one second per song")
-	}
-}
-
-func TestAppJSAutoSwitchInvalidSources(t *testing.T) {
-	content, err := templateFS.ReadFile("templates/static/js/app.js")
-	if err != nil {
-		t.Fatalf("ReadFile(app.js): %v", err)
-	}
-
-	js := string(content)
-	for _, want := range []string{
-		"autoSwitchInvalidSources: true",
-		"function scheduleAutoSwitchInvalidSources",
-		"async function autoSwitchInvalidSources()",
-		"card.dataset.autoSwitchInvalidAttempted = '1'",
-		"selectInvalidSongCards({ silent: true, cards: invalidCards })",
-		"await batchSwitchSource({ skipConfirm: true, silent: true, auto: true, cards: invalidCards })",
-		"if (document.querySelector('.tag-fail'))",
-		"card.dataset.inspectPending = '1'",
-		"async function batchSwitchSource(options = {})",
-		"if (!options.skipConfirm && !confirm",
-		"clearSongCardSelection(card, { deferToolbar: !!options.deferToolbar })",
-		"options.cards.filter(card => card && card.isConnected)",
-		"if (!shouldCheck && options.clearExisting !== false)",
-	} {
-		if !strings.Contains(js, want) {
-			t.Fatalf("app.js missing %q", want)
-		}
-	}
 }
 
 func TestFindBestSwitchSongReturnsBeforeSlowSourcesOnHighConfidenceMatch(t *testing.T) {

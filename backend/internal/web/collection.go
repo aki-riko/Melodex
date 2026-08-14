@@ -836,43 +836,9 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 }
 
 func RegisterCollectionRoutes(api *gin.RouterGroup) {
-	api.GET("/my_collections", func(c *gin.Context) {
-		uid := currentUserID(c)
-		var collections []Collection
-		if err := db.Where("user_id = ?", uid).Order("id DESC").Find(&collections).Error; err != nil {
-			renderIndex(c, nil, nil, "我的本地歌单", nil, "获取本地歌单失败", "playlist", "", "", "", true, "", nil)
-			return
-		}
-
-		playlists := make([]model.Playlist, 0, len(collections))
-		for _, collection := range collections {
-			playlists = append(playlists, collection.playlistCard())
-		}
-
-		renderIndex(c, nil, playlists, "我的本地歌单", nil, "", "playlist", "", "", "", true, "", nil)
-	})
-
-	api.GET("/collection", func(c *gin.Context) {
-		id := c.Query("id")
-		if id == "" {
-			renderIndex(c, nil, nil, "", nil, "缺少参数", "song", "", "", "", false, "", nil)
-			return
-		}
-
-		collection, err := loadOwnedCollection(id, currentUserID(c))
-		if err != nil {
-			renderIndex(c, nil, nil, "", nil, "本地歌单不存在", "song", "", "", "", false, "", nil)
-			return
-		}
-
-		songs, err := loadCollectionSongs(collection)
-		errMsg := ""
-		if err != nil {
-			errMsg = fmt.Sprintf("获取歌单歌曲失败: %v", err)
-		}
-
-		renderIndex(c, songs, nil, "", nil, errMsg, "song", collection.originalLink(), id, collection.Name, false, collection.normalizedKind(), nil)
-	})
+	for _, route := range legacyCollectionPageRoutes {
+		api.GET(route, legacyWebPageGone)
+	}
 
 	colAPI := api.Group("/collections")
 

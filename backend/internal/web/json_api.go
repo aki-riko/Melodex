@@ -280,14 +280,14 @@ func registerLoginAndCookieRoutes(api *gin.RouterGroup) {
 			c.JSON(502, gin.H{"error": err.Error()})
 			return
 		}
-		if result != nil && result.Status != model.QRLoginStatusWaiting {
-			log.Printf("qr login status source=%s status=%s message=%q extra=%v", source, result.Status, result.Message, result.Extra)
+		if result != nil && result.Phase != model.LoginWaiting {
+			log.Printf("qr login status source=%s status=%s message=%q extra=%v", source, result.Phase, result.Detail, result.Metadata)
 		}
-		if result != nil && result.Status == model.QRLoginStatusSuccess {
+		if result != nil && result.Phase == model.LoginSucceeded {
 			cookie := qrLoginCookieString(result)
 			if cookie != "" {
 				cookieSource := qrLoginCookieSource(source)
-				result.Cookie = cookie
+				result.RawCookie = cookie
 				core.CM.SetAll(map[string]string{cookieSource: cookie})
 				core.CM.Save()
 			}

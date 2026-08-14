@@ -11,18 +11,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func qrLoginCookieString(result *model.QRLoginResult) string {
+func qrLoginCookieString(result *model.LoginResult) string {
 	if result == nil {
 		return ""
 	}
-	if cookie := strings.TrimSpace(result.Cookie); cookie != "" {
+	if cookie := strings.TrimSpace(result.RawCookie); cookie != "" {
 		return cookie
 	}
-	if len(result.Cookies) == 0 {
+	if len(result.CookieValues) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(result.Cookies))
-	for k := range result.Cookies {
+	keys := make([]string, 0, len(result.CookieValues))
+	for k := range result.CookieValues {
 		if strings.TrimSpace(k) == "" {
 			continue
 		}
@@ -31,7 +31,7 @@ func qrLoginCookieString(result *model.QRLoginResult) string {
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		v := strings.TrimSpace(result.Cookies[k])
+		v := strings.TrimSpace(result.CookieValues[k])
 		if v == "" {
 			continue
 		}
@@ -82,19 +82,19 @@ func RegisterQRLoginRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		if result != nil && result.Status == model.QRLoginStatusSuccess {
+		if result != nil && result.Phase == model.LoginSucceeded {
 			cookie := qrLoginCookieString(result)
 			if cookie != "" {
 				cookieSource := qrLoginCookieSource(source)
-				result.Cookie = cookie
+				result.RawCookie = cookie
 				core.CM.SetAll(map[string]string{cookieSource: cookie})
 				core.CM.Save()
-				if result.Extra == nil {
-					result.Extra = make(map[string]string)
+				if result.Metadata == nil {
+					result.Metadata = make(map[string]string)
 				}
-				result.Extra["cookie_saved"] = "true"
-				result.Extra["cookie_source"] = cookieSource
-				result.Extra["cookie_length"] = strconv.Itoa(len(cookie))
+				result.Metadata["cookie_saved"] = "true"
+				result.Metadata["cookie_source"] = cookieSource
+				result.Metadata["cookie_length"] = strconv.Itoa(len(cookie))
 			}
 		}
 		c.JSON(http.StatusOK, result)
