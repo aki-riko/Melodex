@@ -22,6 +22,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/dhowden/tag"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"github.com/guohuiyuan/music-lib/apple"
 	"github.com/guohuiyuan/music-lib/bilibili"
 	"github.com/guohuiyuan/music-lib/fivesing"
@@ -30,7 +31,6 @@ import (
 	"github.com/guohuiyuan/music-lib/kugou"
 	"github.com/guohuiyuan/music-lib/kuwo"
 	"github.com/guohuiyuan/music-lib/migu"
-	"github.com/guohuiyuan/music-lib/model"
 	"github.com/guohuiyuan/music-lib/netease"
 	"github.com/guohuiyuan/music-lib/qianqian"
 	"github.com/guohuiyuan/music-lib/qq"
@@ -386,7 +386,7 @@ func GetLyricSearchFunc(source string) SearchFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "qq":
-		return qq.New(c).SearchLyrics
+		return adaptLegacySongSearch(qq.New(c).SearchLyrics)
 	default:
 		return nil
 	}
@@ -396,25 +396,25 @@ func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(netease.New(c).SearchAlbum)
 	case "qq":
-		return qq.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(qq.New(c).SearchAlbum)
 	case "kugou":
-		return kugou.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(kugou.New(c).SearchAlbum)
 	case "kuwo":
-		return kuwo.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(kuwo.New(c).SearchAlbum)
 	case "migu":
-		return migu.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(migu.New(c).SearchAlbum)
 	case "jamendo":
-		return jamendo.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(jamendo.New(c).SearchAlbum)
 	case "joox":
-		return joox.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(joox.New(c).SearchAlbum)
 	case "qianqian":
-		return qianqian.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(qianqian.New(c).SearchAlbum)
 	case "soda":
-		return soda.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(soda.New(c).SearchAlbum)
 	case "apple":
-		return apple.New(c).SearchAlbum
+		return adaptLegacyPlaylistSearch(apple.New(c).SearchAlbum)
 	default:
 		return nil
 	}
@@ -424,29 +424,29 @@ func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(netease.New(c).SearchPlaylist)
 	case "qq":
-		return qq.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(qq.New(c).SearchPlaylist)
 	case "kugou":
-		return kugou.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(kugou.New(c).SearchPlaylist)
 	case "kuwo":
-		return kuwo.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(kuwo.New(c).SearchPlaylist)
 	case "migu":
-		return migu.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(migu.New(c).SearchPlaylist)
 	case "jamendo":
-		return jamendo.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(jamendo.New(c).SearchPlaylist)
 	case "joox":
-		return joox.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(joox.New(c).SearchPlaylist)
 	case "qianqian":
-		return qianqian.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(qianqian.New(c).SearchPlaylist)
 	case "bilibili":
-		return bilibili.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(bilibili.New(c).SearchPlaylist)
 	case "soda":
-		return soda.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(soda.New(c).SearchPlaylist)
 	case "fivesing":
-		return fivesing.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(fivesing.New(c).SearchPlaylist)
 	case "apple":
-		return apple.New(c).SearchPlaylist
+		return adaptLegacyPlaylistSearch(apple.New(c).SearchPlaylist)
 	default:
 		return nil
 	}
@@ -456,25 +456,25 @@ func GetAlbumDetailFunc(source string) func(string) ([]model.Song, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(netease.New(c).GetAlbumSongs)
 	case "qq":
-		return qq.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(qq.New(c).GetAlbumSongs)
 	case "kugou":
-		return kugou.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(kugou.New(c).GetAlbumSongs)
 	case "kuwo":
-		return kuwo.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(kuwo.New(c).GetAlbumSongs)
 	case "migu":
-		return migu.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(migu.New(c).GetAlbumSongs)
 	case "jamendo":
-		return jamendo.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(jamendo.New(c).GetAlbumSongs)
 	case "joox":
-		return joox.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(joox.New(c).GetAlbumSongs)
 	case "qianqian":
-		return qianqian.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(qianqian.New(c).GetAlbumSongs)
 	case "soda":
-		return soda.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(soda.New(c).GetAlbumSongs)
 	case "apple":
-		return apple.New(c).GetAlbumSongs
+		return adaptLegacySongDetail(apple.New(c).GetAlbumSongs)
 	default:
 		return nil
 	}
@@ -484,29 +484,29 @@ func GetPlaylistDetailFunc(source string) func(string) ([]model.Song, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(netease.New(c).GetPlaylistSongs)
 	case "qq":
-		return qq.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(qq.New(c).GetPlaylistSongs)
 	case "kugou":
-		return kugou.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(kugou.New(c).GetPlaylistSongs)
 	case "kuwo":
-		return kuwo.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(kuwo.New(c).GetPlaylistSongs)
 	case "migu":
-		return migu.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(migu.New(c).GetPlaylistSongs)
 	case "jamendo":
-		return jamendo.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(jamendo.New(c).GetPlaylistSongs)
 	case "joox":
-		return joox.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(joox.New(c).GetPlaylistSongs)
 	case "qianqian":
-		return qianqian.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(qianqian.New(c).GetPlaylistSongs)
 	case "bilibili":
-		return bilibili.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(bilibili.New(c).GetPlaylistSongs)
 	case "soda":
-		return soda.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(soda.New(c).GetPlaylistSongs)
 	case "fivesing":
-		return fivesing.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(fivesing.New(c).GetPlaylistSongs)
 	case "apple":
-		return apple.New(c).GetPlaylistSongs
+		return adaptLegacySongDetail(apple.New(c).GetPlaylistSongs)
 	default:
 		return nil
 	}
@@ -516,13 +516,13 @@ func GetRecommendFunc(source string) func() ([]model.Playlist, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).GetRecommendedPlaylists
+		return adaptLegacyPlaylistList(netease.New(c).GetRecommendedPlaylists)
 	case "qq":
-		return qq.New(c).GetRecommendedPlaylists
+		return adaptLegacyPlaylistList(qq.New(c).GetRecommendedPlaylists)
 	case "kugou":
-		return kugou.New(c).GetRecommendedPlaylists
+		return adaptLegacyPlaylistList(kugou.New(c).GetRecommendedPlaylists)
 	case "kuwo":
-		return kuwo.New(c).GetRecommendedPlaylists
+		return adaptLegacyPlaylistList(kuwo.New(c).GetRecommendedPlaylists)
 	default:
 		return nil
 	}
@@ -532,21 +532,21 @@ func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(netease.New(c).GetPlaylistCategories)
 	case "qq":
-		return qq.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(qq.New(c).GetPlaylistCategories)
 	case "kugou":
-		return kugou.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(kugou.New(c).GetPlaylistCategories)
 	case "kuwo":
-		return kuwo.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(kuwo.New(c).GetPlaylistCategories)
 	case "migu":
-		return migu.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(migu.New(c).GetPlaylistCategories)
 	case "joox":
-		return joox.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(joox.New(c).GetPlaylistCategories)
 	case "qianqian":
-		return qianqian.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(qianqian.New(c).GetPlaylistCategories)
 	case "apple":
-		return apple.New(c).GetPlaylistCategories
+		return adaptLegacyCategories(apple.New(c).GetPlaylistCategories)
 	default:
 		return nil
 	}
@@ -556,21 +556,21 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(netease.New(c).GetCategoryPlaylists)
 	case "qq":
-		return qq.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(qq.New(c).GetCategoryPlaylists)
 	case "kugou":
-		return kugou.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(kugou.New(c).GetCategoryPlaylists)
 	case "kuwo":
-		return kuwo.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(kuwo.New(c).GetCategoryPlaylists)
 	case "migu":
-		return migu.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(migu.New(c).GetCategoryPlaylists)
 	case "joox":
-		return joox.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(joox.New(c).GetCategoryPlaylists)
 	case "qianqian":
-		return qianqian.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(qianqian.New(c).GetCategoryPlaylists)
 	case "apple":
-		return apple.New(c).GetCategoryPlaylists
+		return adaptLegacyCategoryPlaylists(apple.New(c).GetCategoryPlaylists)
 	default:
 		return nil
 	}
@@ -579,21 +579,21 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 	switch source {
 	case "netease":
-		return netease.CreateQRLogin
+		return adaptLegacyQRCreate(netease.CreateQRLogin)
 	case "qq":
-		return qq.CreateMobileQRLogin
+		return adaptLegacyQRCreate(qq.CreateMobileQRLogin)
 	case "qq_connect":
-		return qq.CreateQRLogin
+		return adaptLegacyQRCreate(qq.CreateQRLogin)
 	case "qq_mobile":
-		return qq.CreateMobileQRLogin
+		return adaptLegacyQRCreate(qq.CreateMobileQRLogin)
 	case "qq_wx":
-		return qq.CreateWXQRLogin
+		return adaptLegacyQRCreate(qq.CreateWXQRLogin)
 	case "kugou":
-		return kugou.CreateQRLogin
+		return adaptLegacyQRCreate(kugou.CreateQRLogin)
 	case "bilibili":
-		return bilibili.CreateQRLogin
+		return adaptLegacyQRCreate(bilibili.CreateQRLogin)
 	case "soda":
-		return soda.CreateQRLogin
+		return adaptLegacyQRCreate(soda.CreateQRLogin)
 	default:
 		return nil
 	}
@@ -602,21 +602,21 @@ func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
 	switch source {
 	case "netease":
-		return netease.CheckQRLogin
+		return adaptLegacyQRCheck(netease.CheckQRLogin)
 	case "qq":
-		return qq.CheckMobileQRLogin
+		return adaptLegacyQRCheck(qq.CheckMobileQRLogin)
 	case "qq_connect":
-		return qq.CheckQRLogin
+		return adaptLegacyQRCheck(qq.CheckQRLogin)
 	case "qq_mobile":
-		return qq.CheckMobileQRLogin
+		return adaptLegacyQRCheck(qq.CheckMobileQRLogin)
 	case "qq_wx":
-		return qq.CheckWXQRLogin
+		return adaptLegacyQRCheck(qq.CheckWXQRLogin)
 	case "kugou":
-		return kugou.CheckQRLogin
+		return adaptLegacyQRCheck(kugou.CheckQRLogin)
 	case "bilibili":
-		return bilibili.CheckQRLogin
+		return adaptLegacyQRCheck(bilibili.CheckQRLogin)
 	case "soda":
-		return soda.CheckQRLogin
+		return adaptLegacyQRCheck(soda.CheckQRLogin)
 	default:
 		return nil
 	}
@@ -634,13 +634,13 @@ func GetUserPlaylistsFunc(source string) UserPlaylistsFunc {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).GetUserPlaylists
+		return adaptLegacyUserPlaylists(netease.New(c).GetUserPlaylists)
 	case "qq":
-		return qq.New(c).GetUserPlaylists
+		return adaptLegacyUserPlaylists(qq.New(c).GetUserPlaylists)
 	case "kugou":
-		return kugou.New(c).GetUserPlaylists
+		return adaptLegacyUserPlaylists(kugou.New(c).GetUserPlaylists)
 	case "soda":
-		return soda.New(c).GetUserPlaylists
+		return adaptLegacyUserPlaylists(soda.New(c).GetUserPlaylists)
 	default:
 		return nil
 	}
@@ -676,29 +676,29 @@ func GetParseFunc(source string) func(string) (*model.Song, error) {
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).Parse
+		return adaptLegacySongParse(netease.New(c).Parse)
 	case "qq":
-		return qq.New(c).Parse
+		return adaptLegacySongParse(qq.New(c).Parse)
 	case "kugou":
-		return kugou.New(c).Parse
+		return adaptLegacySongParse(kugou.New(c).Parse)
 	case "kuwo":
-		return kuwo.New(c).Parse
+		return adaptLegacySongParse(kuwo.New(c).Parse)
 	case "migu":
-		return migu.New(c).Parse
+		return adaptLegacySongParse(migu.New(c).Parse)
 	case "soda":
-		return soda.New(c).Parse
+		return adaptLegacySongParse(soda.New(c).Parse)
 	case "bilibili":
-		return bilibili.New(c).Parse
+		return adaptLegacySongParse(bilibili.New(c).Parse)
 	case "fivesing":
-		return fivesing.New(c).Parse
+		return adaptLegacySongParse(fivesing.New(c).Parse)
 	case "jamendo":
-		return jamendo.New(c).Parse
+		return adaptLegacySongParse(jamendo.New(c).Parse)
 	case "joox":
-		return joox.New(c).Parse
+		return adaptLegacySongParse(joox.New(c).Parse)
 	case "qianqian":
-		return qianqian.New(c).Parse
+		return adaptLegacySongParse(qianqian.New(c).Parse)
 	case "apple":
-		return apple.New(c).Parse
+		return adaptLegacySongParse(apple.New(c).Parse)
 	default:
 		return nil
 	}
@@ -708,29 +708,29 @@ func GetParsePlaylistFunc(source string) func(string) (*model.Playlist, []model.
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(netease.New(c).ParsePlaylist)
 	case "qq":
-		return qq.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(qq.New(c).ParsePlaylist)
 	case "kugou":
-		return kugou.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(kugou.New(c).ParsePlaylist)
 	case "kuwo":
-		return kuwo.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(kuwo.New(c).ParsePlaylist)
 	case "migu":
-		return migu.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(migu.New(c).ParsePlaylist)
 	case "jamendo":
-		return jamendo.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(jamendo.New(c).ParsePlaylist)
 	case "joox":
-		return joox.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(joox.New(c).ParsePlaylist)
 	case "qianqian":
-		return qianqian.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(qianqian.New(c).ParsePlaylist)
 	case "bilibili":
-		return bilibili.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(bilibili.New(c).ParsePlaylist)
 	case "soda":
-		return soda.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(soda.New(c).ParsePlaylist)
 	case "fivesing":
-		return fivesing.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(fivesing.New(c).ParsePlaylist)
 	case "apple":
-		return apple.New(c).ParsePlaylist
+		return adaptLegacyCollectionParse(apple.New(c).ParsePlaylist)
 	default:
 		return nil
 	}
@@ -740,25 +740,25 @@ func GetParseAlbumFunc(source string) func(string) (*model.Playlist, []model.Son
 	c := cookieForSource(source)
 	switch source {
 	case "netease":
-		return netease.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(netease.New(c).ParseAlbum)
 	case "qq":
-		return qq.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(qq.New(c).ParseAlbum)
 	case "kugou":
-		return kugou.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(kugou.New(c).ParseAlbum)
 	case "kuwo":
-		return kuwo.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(kuwo.New(c).ParseAlbum)
 	case "migu":
-		return migu.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(migu.New(c).ParseAlbum)
 	case "jamendo":
-		return jamendo.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(jamendo.New(c).ParseAlbum)
 	case "joox":
-		return joox.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(joox.New(c).ParseAlbum)
 	case "qianqian":
-		return qianqian.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(qianqian.New(c).ParseAlbum)
 	case "soda":
-		return soda.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(soda.New(c).ParseAlbum)
 	case "apple":
-		return apple.New(c).ParseAlbum
+		return adaptLegacyCollectionParse(apple.New(c).ParseAlbum)
 	default:
 		return nil
 	}

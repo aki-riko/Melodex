@@ -20,6 +20,7 @@ class FakeSong:
             "download_url": "https://example.invalid/audio.flac",
             "download_url_status": {"ok": True},
             "default_download_headers": {"Referer": "https://y.qq.com/"},
+            "raw_data": {"play_auth": "soda-auth"},
             "lyric": "[00:00.00]晴天",
         }
 
@@ -42,6 +43,7 @@ class ProviderBridgeTests(unittest.TestCase):
         self.assertEqual(song["ext"], "flac")
         self.assertEqual(song["extra"]["has_lossless"], "1")
         self.assertIn("Referer", song["extra"]["download_headers"])
+        self.assertEqual(song["extra"]["play_auth"], "soda-auth")
 
     def test_search_uses_whitelisted_source(self):
         with tempfile.TemporaryDirectory() as work_dir:

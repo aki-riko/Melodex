@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 func TestSplitArtistTokens(t *testing.T) {

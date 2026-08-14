@@ -17,7 +17,7 @@ import (
 
 	"github.com/dhowden/tag"
 	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 	"gorm.io/gorm"
 )
 

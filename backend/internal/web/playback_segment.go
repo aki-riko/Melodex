@@ -15,8 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
-	"github.com/guohuiyuan/music-lib/soda"
+	"github.com/guohuiyuan/go-music-dl/internal/provider/model"
 )
 
 const playbackSegmentContentType = `audio/mp4; codecs="flac"`
@@ -283,13 +282,15 @@ func openLocalPlaybackSegmentInput(c *gin.Context, id string, sourceKind string)
 }
 
 func openSodaPlaybackSegmentInput(song *model.Song) (*playbackSegmentInput, error) {
-	cookie := core.CM.Get("soda")
-	info, err := soda.New(cookie).GetDownloadInfo(song)
+	media, err := core.ResolveProviderMedia(song)
 	if err != nil {
 		markQualityCacheInvalid(*song)
 		return nil, err
 	}
-	req, err := core.BuildSourceRequest(http.MethodGet, info.URL, "soda", "")
+	if media.PlayAuth == "" {
+		return nil, fmt.Errorf("provider returned no soda play auth")
+	}
+	req, err := core.BuildSourceRequest(http.MethodGet, media.URL, "soda", "")
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +307,7 @@ func openSodaPlaybackSegmentInput(song *model.Song) (*playbackSegmentInput, erro
 	if err != nil {
 		return nil, err
 	}
-	decrypted, err := soda.DecryptAudio(encrypted, info.PlayAuth)
+	decrypted, err := core.DecryptSodaAudio(encrypted, media.PlayAuth)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,6 @@ import (
 
 	"github.com/guohuiyuan/go-music-dl/internal/provider/bridge"
 	providermodel "github.com/guohuiyuan/go-music-dl/internal/provider/model"
-	legacymodel "github.com/guohuiyuan/music-lib/model"
 )
 
 const (
@@ -37,6 +36,11 @@ type providerSongCacheEntry struct {
 type providerHeaderCacheEntry struct {
 	headers   http.Header
 	expiresAt time.Time
+}
+
+type ProviderMedia struct {
+	URL      string
+	PlayAuth string
 }
 
 var (
@@ -72,7 +76,7 @@ func getProviderBridgeClient() (*bridge.Client, error) {
 	return client, nil
 }
 
-func searchProviderSongs(source, keyword, cookie string) ([]legacymodel.Song, error) {
+func searchProviderSongs(source, keyword, cookie string) ([]providermodel.Song, error) {
 	client, err := getProviderBridgeClient()
 	if err != nil {
 		return nil, err
@@ -83,7 +87,7 @@ func searchProviderSongs(source, keyword, cookie string) ([]legacymodel.Song, er
 	if err != nil {
 		return nil, err
 	}
-	publicSongs := make([]legacymodel.Song, 0, len(songs))
+	publicSongs := make([]providermodel.Song, 0, len(songs))
 	for _, song := range songs {
 		cacheProviderSong(song, cookie)
 		publicSongs = append(publicSongs, publicProviderSong(song))
@@ -91,7 +95,7 @@ func searchProviderSongs(source, keyword, cookie string) ([]legacymodel.Song, er
 	return publicSongs, nil
 }
 
-func resolveProviderSong(source string, song *legacymodel.Song, cookie string) (providermodel.Song, error) {
+func resolveProviderSong(source string, song *providermodel.Song, cookie string) (providermodel.Song, error) {
 	if song == nil {
 		return providermodel.Song{}, errors.New("song is nil")
 	}
@@ -145,19 +149,34 @@ func resolveProviderSong(source string, song *legacymodel.Song, cookie string) (
 	return candidates[bestIndex], nil
 }
 
-func providerDownloadURL(source string, song *legacymodel.Song) (string, error) {
-	resolved, err := resolveProviderSong(source, song, cookieForSource(source))
+func providerDownloadURL(source string, song *providermodel.Song) (string, error) {
+	media, err := ResolveProviderMedia(song)
 	if err != nil {
 		return "", err
 	}
-	urlStr := strings.TrimSpace(resolved.URL)
-	if urlStr == "" || resolved.IsInvalid {
-		return "", errors.New("provider returned an invalid download URL")
-	}
-	return urlStr, nil
+	return media.URL, nil
 }
 
-func providerLyrics(source string, song *legacymodel.Song) (string, error) {
+func ResolveProviderMedia(song *providermodel.Song) (ProviderMedia, error) {
+	if song == nil {
+		return ProviderMedia{}, errors.New("song is nil")
+	}
+	source := strings.TrimSpace(song.Source)
+	if !providerBridgeSupports(source) {
+		return ProviderMedia{}, fmt.Errorf("unsupported source: %s", source)
+	}
+	resolved, err := resolveProviderSong(source, song, cookieForSource(source))
+	if err != nil {
+		return ProviderMedia{}, err
+	}
+	urlStr := strings.TrimSpace(resolved.URL)
+	if urlStr == "" || resolved.IsInvalid {
+		return ProviderMedia{}, errors.New("provider returned an invalid download URL")
+	}
+	return ProviderMedia{URL: urlStr, PlayAuth: strings.TrimSpace(resolved.Extra["play_auth"])}, nil
+}
+
+func providerLyrics(source string, song *providermodel.Song) (string, error) {
 	resolved, err := resolveProviderSong(source, song, cookieForSource(source))
 	if err != nil {
 		return "", err
@@ -199,10 +218,11 @@ func providerSongCacheKey(source, id, cookie string) string {
 	return strings.TrimSpace(source) + "\x00" + strings.TrimSpace(id) + "\x00" + hex.EncodeToString(digest[:])
 }
 
-func publicProviderSong(song providermodel.Song) legacymodel.Song {
+func publicProviderSong(song providermodel.Song) providermodel.Song {
 	extra := cloneStringMap(song.Extra)
 	delete(extra, "download_headers")
 	delete(extra, "lyric")
+	delete(extra, "play_auth")
 	if extra == nil {
 		extra = make(map[string]string)
 	}
@@ -210,7 +230,7 @@ func publicProviderSong(song providermodel.Song) legacymodel.Song {
 	if lookup != "" {
 		extra["provider_lookup"] = lookup
 	}
-	return legacymodel.Song{
+	return providermodel.Song{
 		ID: song.ID, Name: song.Name, Artist: song.Artist, Album: song.Album,
 		AlbumID: song.AlbumID, Duration: song.Duration, Size: song.Size,
 		Bitrate: song.Bitrate, Source: song.Source, Ext: song.Ext,
