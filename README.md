@@ -1,10 +1,10 @@
 # Melodex
 
-> 音乐**发现**与**下载**二合一:在精致的 React 界面里发现好音乐,一键从国内多源解析下载。
+> 自托管音乐搜索、播放、歌单管理、服务器下载与离线缓存工具。
 
-Melodex 把两个开源项目合并为一个统一工具:
+Melodex 以 React PWA 和 PrismQML 桌面客户端提供统一体验,后端负责多源音乐服务:
 
-- **发现** —— 沿用 [TuneScout](https://github.com/peter-bf/tunescout) 的 Last.fm / Spotify 榜单与艺人洞察界面。
+- **Web 与桌面客户端** —— Melodex 自有应用实现;Web 视觉改编自 MIT 许可的 Spotify Artist Page UI。
 - **下载** —— 集成 [go-music-dl](https://github.com/guohuiyuan/go-music-dl) 的全网多源搜索与无损下载能力(网易云、QQ、酷狗、酷我、咪咕、汽水、Bilibili、Apple Music 等 10+ 平台)。
 
 架构上,React 作为统一前端,go-music-dl 退为提供 JSON API 的后端下载服务。
@@ -18,8 +18,7 @@ Melodex 把两个开源项目合并为一个统一工具:
 - **歌词**:查看逐行 LRC 歌词
 - **账号登录**:扫码登录网易云/QQ/酷狗/B站以解锁会员或无损音质
 - **本地音乐库**:管理已下载到本地的音乐
-- **发现页联动**:在 Last.fm/Spotify 发现页点「在国内源下载这首歌」,自动跳到下载页并搜索
-- **视频生成**:把一首歌做成带封面与歌词的 1080P MP4(浏览器逐帧 canvas 渲染,后端 ffmpeg 合成)。需要系统安装 **ffmpeg**(或用环境变量 `MUSIC_DL_FFMPEG` 指定其路径)。
+- **首页推荐**:直接浏览国内音乐源提供的推荐歌单,进入歌单后播放或下载
 - **Subsonic 客户端直连**:后端自带一套轻量 Subsonic API(`/rest`),用[音流 / substreamer](https://www.subsonic.org/) 等标准 Subsonic 客户端连本服务,即可**搜全网在线听 + 浏览已入库曲库 + 听过自动入库**。默认关闭,见下方「Subsonic API」。
 
 ## Subsonic API(让音流等客户端直连)
@@ -46,8 +45,9 @@ MUSIC_DL_SUBSONIC_PASS=强密码
 Melodex/
 ├── backend/    Go 后端(基于 go-music-dl,Gin + music-lib)
 │   └── internal/web/json_api.go   新增的 /api/v1/* JSON 接口
-└── frontend/   React 前端(基于 TuneScout,Vite + react-query + tailwind)
-    └── src/components/Download.js、Settings.js   新增的下载/设置页
+├── frontend/   React PWA(Vite + react-query + tailwind)
+│   └── src/    首页、搜索、播放器、歌单、设置与离线缓存
+└── desktop-prismqml/   PrismQML 原生桌面客户端
 ```
 
 ## 部署(Docker,推荐)
@@ -78,12 +78,10 @@ go run ./cmd/music-dl web --port 8329
 
 ```bash
 cd frontend
-cp .env.example .env          # 按需填写 Last.fm API key(发现页用);VITE_MUSICDL_API 指向后端
+cp .env.example .env          # VITE_MUSICDL_API 指向本地后端
 npm install
 npm run dev                   # 开发服务器;打包用 npm run build(产物在 build/)
 ```
-
-发现页(Trending/Discover/Artists)可使用 Last.fm 数据,需在 `.env` 中配置 `VITE_LASTFM_API_KEY`;不配置不影响下载页(国内源)使用。Spotify Client Secret 不应放进浏览器端环境变量。
 
 ## 接口约定
 
@@ -94,10 +92,10 @@ npm run dev                   # 开发服务器;打包用 npm run build(产物�
 
 ## 致谢与来源
 
-本项目是以下两个开源项目的衍生作品,核心功能与代码来自它们,版权归原作者所有:
+当前代码使用并保留下列第三方来源的许可声明:
 
-- [peter-bf/tunescout](https://github.com/peter-bf/tunescout) —— 发现页 UI
 - [guohuiyuan/go-music-dl](https://github.com/guohuiyuan/go-music-dl)（作者 guohuiyuan）—— 多源搜索与下载引擎
+- [Adam Lowenthal / Spotify Artist Page UI](https://codepen.io/alowenthal/pen/rxboRv) —— Web 视觉设计,MIT
 
 ## 安全说明
 

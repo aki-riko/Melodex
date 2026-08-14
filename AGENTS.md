@@ -4,11 +4,11 @@
 
 ## 这是什么
 
-Melodex 是两个开源项目合并的成果:
-- **[peter-bf/tunescout](https://github.com/peter-bf/tunescout)** —— React 发现页 UI(原英法双语,原接 Last.fm/Spotify)
+Melodex 是自托管音乐应用:
+- **Web/PWA 与 PrismQML 客户端** —— Melodex 自有应用实现
 - **[guohuiyuan/go-music-dl](https://github.com/guohuiyuan/go-music-dl)** —— Go 全网音乐搜索下载引擎(国内多源 + ffmpeg),**AGPL-3.0**
 
-合并决策:**React 作统一前端,go-music-dl 退为 JSON 后端**。整体继承 **AGPL-3.0**。用户纯开源自用、不商业化。界面**全中文**(对接国内平台,无 i18n / 无语言切换)。**UI 已于 2026-06 从 Fluent 亮色改为暗色 Spotify 风**(皮肤改编自 Adam Lowenthal 的 CodePen "Spotify Artist Page UI",**MIT**,见 `frontend/THIRD-PARTY-LICENSES.md` 署名;主色 Spotify 绿 #1ED760 / 底 #181818 / 卡片 #282828 / Roboto;图标用 lucide-react)。**主力用法已转 PWA Web 前端**(音流等 Subsonic 客户端对 search3 结果客户端重排,排序不可控,见下;Web 前端排序自控)。
+架构决策:**React 作统一 Web 前端,go-music-dl 退为 JSON 后端**。整体继承 **AGPL-3.0**。用户纯开源自用、不商业化。界面**全中文**(对接国内平台,无 i18n / 无语言切换)。**UI 使用暗色 Spotify 风**(视觉改编自 Adam Lowenthal 的 CodePen "Spotify Artist Page UI",**MIT**,见 `frontend/THIRD-PARTY-LICENSES.md` 署名;主色 Spotify 绿 #1ED760 / 底 #181818 / 卡片 #282828 / Roboto;图标用 lucide-react)。**主力用法已转 PWA Web 前端**(音流等 Subsonic 客户端对 search3 结果客户端重排,排序不可控,见下;Web 前端排序自控)。
 
 ## 架构(读源码得出,非臆测)
 
@@ -194,7 +194,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 ## 测试与验证纪律(重要)
 
 - 后端改动:`go build ./...` + `go test ./internal/web/ ./core/`,**零回归**才提交(go-music-dl 自带大量测试)。
-- 前端**无自动化测试**(原 TuneScout 就没有)→ 靠 **playwright 真机验证**:搜索真返结果、播放查 `audio.currentTime` 真在走、getComputedStyle 验配色、派发 `melodex:go-download` 事件测联动。
+- 前端有定向 Node 合同测试,按改动范围运行对应脚本;当前禁止浏览器自动化,真实搜索、播放和视觉行为需在允许的真机验收阶段单独确认。
 - **真实数据验证**:用真实关键词(周杰伦晴天等),不自造样本。ffprobe 验下载文件的元数据/封面。
 - **playwright 会话偶发卡死**("Browser is already in use",清 SingletonLock 也无效)→ 别死磕,改用真实搜索数据直接跑纯逻辑函数(如 relevanceScore 排序)验证,同样可靠。
 - **音质相关验证需登录**:未登录后端验活/inspect 多返 128k,看不出无损/音质排序效果;无登录环境用合成数据验证排序逻辑,真实效果在生产(已登录会员)才显现。
@@ -216,7 +216,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 ## Git
 
 - 双远程:fetch 走私仓,`git push` 一次双发 → 私仓 `git@git.9li.life:Aquila/Melodex.git` + GitHub `git@github.com:aki-riko/Melodex.git`。
-- 仓库名 **Melodex**(2026-06 由 TuneScoutPlus 改名;品牌名 / 界面同为 "Melodex")。
+- 仓库名、品牌名和界面名称统一为 **Melodex**。
 - git 身份 local:Kotori <kotori@9li.life>。每次改动提交,push 前确保 build/test 过。
 
 ## 能力边界(已做到极限,别白费功夫)
