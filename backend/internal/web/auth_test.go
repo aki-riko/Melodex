@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -139,6 +140,22 @@ func TestLoginFailureLocksAndClears(t *testing.T) {
 	}
 }
 
+func TestLoginAttemptStateIsBounded(t *testing.T) {
+	resetAuthRuntimeForTest()
+	t.Cleanup(resetAuthRuntimeForTest)
+
+	now := time.Unix(2000, 0)
+	for i := 0; i < maxLoginAttemptKeys+128; i++ {
+		recordLoginFailure(fmt.Sprintf("user-%d|127.0.0.1", i), now.Add(time.Duration(i)*time.Millisecond))
+	}
+	authRuntime.mu.Lock()
+	count := len(authRuntime.loginAttempts)
+	authRuntime.mu.Unlock()
+	if count > maxLoginAttemptKeys {
+		t.Fatalf("login attempt keys=%d, want <=%d", count, maxLoginAttemptKeys)
+	}
+}
+
 func TestSafeAuthRedirectTarget(t *testing.T) {
 	tests := []struct {
 		raw  string
@@ -152,8 +169,12 @@ func TestSafeAuthRedirectTarget(t *testing.T) {
 		{raw: "/music", want: "/"},
 		{raw: "/music/", want: "/"},
 		{raw: "/other", want: "/other"},
+		{raw: "other", want: "/"},
 		{raw: "https://example.com/music", want: "/"},
 		{raw: "//example.com/music", want: "/"},
+		{raw: `\\example.com/music`, want: "/"},
+		{raw: "/%5c%5cexample.com/music", want: "/"},
+		{raw: "///example.com/music", want: "/"},
 	}
 
 	for _, tt := range tests {
