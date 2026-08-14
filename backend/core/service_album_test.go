@@ -283,3 +283,12 @@ func TestDetectSourceSupportsAlbumCapableNewSources(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectSourceUsesHostnameOnly(t *testing.T) {
+	if got := DetectSource("https://example.com/redirect?target=https://music.163.com/song?id=1"); got != "" {
+		t.Fatalf("query-string provider domain detected as %q", got)
+	}
+	if got := DetectSource("music.163.com/#/song?id=1"); got != "netease" {
+		t.Fatalf("scheme-less provider link detected as %q, want netease", got)
+	}
+}
