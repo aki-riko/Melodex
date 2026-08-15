@@ -96,7 +96,7 @@ func streamOnlineAndCache(c *gin.Context, song model.Track) {
 	rangeHeader := c.GetHeader("Range")
 	if rangeFetch, handled, rangeErr := core.NewSourceRangeFetch(downloadURL, song.Source, rangeHeader); rangeErr == nil && handled {
 		writeSubsonicRangeHeaders(c, rangeFetch)
-		if writeErr := rangeFetch.WriteTo(c.Writer); writeErr != nil {
+		if _, writeErr := rangeFetch.WriteTo(c.Writer); writeErr != nil {
 			log.Printf("[subsonic] stream range 写出失败 %s-%s: %v", song.Name, song.Artist, writeErr)
 		}
 		return

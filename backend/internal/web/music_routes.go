@@ -358,7 +358,7 @@ func writeProviderRange(c *gin.Context, request mediaDownloadRequest, settings c
 		c.Header("Content-Range", fetch.ContentRange)
 	}
 	c.Status(fetch.StatusCode)
-	if err := fetch.WriteTo(c.Writer); err != nil {
+	if _, err := fetch.WriteTo(c.Writer); err != nil {
 		log.Printf("[download] range transfer source=%q id=%q: %v", request.track.Source, request.track.ID, err)
 	}
 }

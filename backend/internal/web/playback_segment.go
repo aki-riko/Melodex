@@ -222,7 +222,8 @@ func openPlaybackSegmentInput(c *gin.Context, song *model.Track) (*playbackSegme
 	} else if handled {
 		reader, writer := io.Pipe()
 		go func() {
-			writer.CloseWithError(rangeFetch.WriteTo(writer))
+			_, err := rangeFetch.WriteTo(writer)
+			writer.CloseWithError(err)
 		}()
 		return &playbackSegmentInput{
 			reader:     reader,
