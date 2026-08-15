@@ -46,8 +46,29 @@ LEGACY_LYRICS_COLOR_SCHEMES = {
     "温柔黄": "杏月",
     "低调灰": "雾银",
 }
-WINDOWS_LYRICS_FONT_FAMILY = "SimSun"
-MACOS_LYRICS_FONT_FAMILY = "Songti SC"
+WINDOWS_LYRICS_FONT_PRESETS: dict[str, str] = {
+    "楷体": "KaiTi",
+    "微软雅黑": "Microsoft YaHei UI",
+    "等线": "DengXian",
+    "宋体": "SimSun",
+    "黑体": "SimHei",
+    "仿宋": "FangSong",
+}
+MACOS_LYRICS_FONT_PRESETS: dict[str, str] = {
+    "苹方": "PingFang SC",
+    "华文楷体": "Kaiti SC",
+    "华文宋体": "Songti SC",
+    "华文黑体": "Heiti SC",
+    "华文仿宋": "STFangsong",
+}
+LYRICS_FONT_PRESETS = (
+    MACOS_LYRICS_FONT_PRESETS
+    if sys.platform == "darwin"
+    else WINDOWS_LYRICS_FONT_PRESETS
+)
+DEFAULT_LYRICS_FONT_PRESET = next(iter(LYRICS_FONT_PRESETS))
+WINDOWS_LYRICS_FONT_FAMILY = next(iter(WINDOWS_LYRICS_FONT_PRESETS.values()))
+MACOS_LYRICS_FONT_FAMILY = next(iter(MACOS_LYRICS_FONT_PRESETS.values()))
 
 
 @dataclass(frozen=True)
@@ -148,6 +169,7 @@ class UserSettings(QObject):
     clickThroughChanged = Signal()
     lyricsVisibleChanged = Signal()
     lyricsFontSizeChanged = Signal()
+    lyricsFontPresetChanged = Signal()
     lyricsColorSchemeChanged = Signal()
     lyricsPositionChanged = Signal()
 
@@ -167,6 +189,7 @@ class UserSettings(QObject):
         self._click_through = True
         self._lyrics_visible = True
         self._lyrics_font_size = DEFAULT_LYRICS_FONT_SIZE
+        self._lyrics_font_preset = DEFAULT_LYRICS_FONT_PRESET
         self._lyrics_color_scheme = DEFAULT_LYRICS_COLOR_SCHEME
         self._lyrics_position_set = False
         self._lyrics_x = 0
@@ -199,7 +222,17 @@ class UserSettings(QObject):
             )
         except ValueError as exc:
             print(f"[WARN] 忽略无效桌面歌词字号：{exc}")
+        self._lyrics_font_preset = self._load_lyrics_font_preset(payload)
         self._lyrics_color_scheme = self._load_lyrics_color_scheme(payload)
+
+    def _load_lyrics_font_preset(self, payload: dict[str, object]) -> str:
+        preset = str(
+            payload.get("desktop_lyrics_font_preset", DEFAULT_LYRICS_FONT_PRESET)
+        )
+        if preset not in LYRICS_FONT_PRESETS:
+            print(f"[WARN] 忽略无效桌面歌词字体预设：{preset}")
+            return DEFAULT_LYRICS_FONT_PRESET
+        return preset
 
     def _load_lyrics_color_scheme(self, payload: dict[str, object]) -> str:
         scheme = str(
@@ -233,6 +266,7 @@ class UserSettings(QObject):
             "desktop_lyrics_click_through": self._click_through,
             "desktop_lyrics_visible": self._lyrics_visible,
             "desktop_lyrics_font_size": self._lyrics_font_size,
+            "desktop_lyrics_font_preset": self._lyrics_font_preset,
             "desktop_lyrics_color_scheme": self._lyrics_color_scheme,
             "desktop_lyrics_position_set": self._lyrics_position_set,
             "desktop_lyrics_x": self._lyrics_x,
@@ -304,9 +338,24 @@ class UserSettings(QObject):
         self.lyricsFontSizeChanged.emit()
 
     def get_lyrics_font_family(self) -> str:
-        if sys.platform == "darwin":
-            return MACOS_LYRICS_FONT_FAMILY
-        return WINDOWS_LYRICS_FONT_FAMILY
+        return LYRICS_FONT_PRESETS[self._lyrics_font_preset]
+
+    def get_lyrics_font_preset_index(self) -> int:
+        return list(LYRICS_FONT_PRESETS).index(self._lyrics_font_preset)
+
+    @Slot(int, result=bool)
+    def setLyricsFontPresetIndex(self, index: int) -> bool:
+        names = list(LYRICS_FONT_PRESETS)
+        if index < 0 or index >= len(names):
+            print(f"[WARN] 拒绝无效桌面歌词字体预设索引：{index}")
+            return False
+        preset = names[index]
+        if preset == self._lyrics_font_preset:
+            return True
+        self._lyrics_font_preset = preset
+        self._save()
+        self.lyricsFontPresetChanged.emit()
+        return True
 
     def get_lyrics_unplayed_color(self) -> str:
         return LYRICS_COLOR_SCHEMES[self._lyrics_color_scheme][1]
@@ -386,7 +435,15 @@ class UserSettings(QObject):
     lyricsFontSizeMaximum = Property(
         int, lambda _self: LYRICS_FONT_SIZE_MAXIMUM, constant=True
     )
-    lyricsFontFamily = Property(str, get_lyrics_font_family, constant=True)
+    lyricsFontFamily = Property(
+        str, get_lyrics_font_family, notify=lyricsFontPresetChanged
+    )
+    lyricsFontPresetNames = Property(
+        "QVariantList", lambda _self: list(LYRICS_FONT_PRESETS), constant=True
+    )
+    lyricsFontPresetIndex = Property(
+        int, get_lyrics_font_preset_index, notify=lyricsFontPresetChanged
+    )
     lyricsUnplayedColor = Property(
         str, get_lyrics_unplayed_color, notify=lyricsColorSchemeChanged
     )

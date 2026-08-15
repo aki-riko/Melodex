@@ -8,7 +8,9 @@ Item {
     id: root
 
     signal queueRequested()
+    signal closeRequested()
 
+    property bool active: false
     property real lyricDisplayPosition: Player.position
     readonly property int displayLyricIndex:
         Player.visualLyricIndex(lyricDisplayPosition)
@@ -21,6 +23,12 @@ Item {
     onVisibleChanged: {
         if (visible)
             lyricDisplayPosition = Player.visualPosition()
+    }
+    onActiveChanged: {
+        if (active) {
+            lyricDisplayPosition = Player.visualPosition()
+            Qt.callLater(root.centerCurrentLyric)
+        }
     }
 
     function centerCurrentLyric() {
@@ -40,7 +48,7 @@ Item {
 
     FrameAnimation {
         id: lyricProgressFrame
-        running: root.visible && Player.playing && Player.hasLyrics
+        running: root.visible && Player.playing && Player.hasLyrics && root.active
         onTriggered: root.lyricDisplayPosition = Player.visualPosition()
     }
 
@@ -52,6 +60,13 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Fluent.Enums.spacing.l
+
+            Fluent.Button {
+                text: "收起"
+                icon: Fluent.Enums.icon.chevron_down
+                style: Fluent.Enums.button.style_transparent
+                onClicked: root.closeRequested()
+            }
 
             ColumnLayout {
                 Layout.fillWidth: true
@@ -96,15 +111,56 @@ Item {
             Layout.fillHeight: true
             orientation: Qt.Horizontal
             splitPosition: 0.46
-            minimumSize: 320
+            firstMinimumSize: 320
+            secondMinimumSize: 320
 
             firstContent: Item {
                 anchors.fill: parent
 
-                PlayerBar {
-                    objectName: "playerPanel"
+                Fluent.Card {
                     anchors.fill: parent
                     anchors.rightMargin: Fluent.Enums.spacing.m
+                    cardType: Fluent.Enums.card.type_default
+                    contentPadding: Fluent.Enums.spacing.xxl
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: Fluent.Enums.spacing.l
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 180
+
+                            Fluent.ImageWidget {
+                                anchors.centerIn: parent
+                                width: Math.min(parent.width, parent.height, 320)
+                                height: width
+                                radius: Fluent.Enums.radius.large
+                                source: Api.coverUrl(Player.currentSong)
+                                fillMode: Image.PreserveAspectCrop
+                            }
+                        }
+
+                        Fluent.Marquee {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 34
+                            text: Player.currentSong.name || "尚未播放"
+                            labelType: Fluent.Enums.label.type_title
+                            running: Player.playing
+                        }
+
+                        Fluent.Label {
+                            Layout.fillWidth: true
+                            type: Fluent.Enums.label.type_body
+                            text: Player.currentSong.artist || "从搜索页选择一首歌曲"
+                            color: Fluent.Enums.secondaryForeground
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.NoWrap
+                            maximumLineCount: 1
+                            elide: Text.ElideRight
+                        }
+                    }
                 }
             }
 
@@ -115,10 +171,10 @@ Item {
                     anchors.fill: parent
                     anchors.leftMargin: Fluent.Enums.spacing.m
                     cardType: Fluent.Enums.card.type_default
+                    contentPadding: Fluent.Enums.spacing.xxl
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: Fluent.Enums.spacing.xxl
                         spacing: Fluent.Enums.spacing.l
 
                         RowLayout {
@@ -174,8 +230,8 @@ Item {
                                 visible: Player.hasLyrics
                                 type: Fluent.Enums.scroll.type_list
                                 model: Player.lyrics
-                                itemHeight: 76
-                                listSpacing: Fluent.Enums.spacing.s
+                                itemHeight: 36
+                                listSpacing: Fluent.Enums.spacing.none
                                 reuseItems: true
                                 bounceEnabled: false
                                 selectable: false
@@ -215,8 +271,8 @@ Item {
                                         text: modelData.text || ""
                                         progress: parent.isCurrentLine
                                                   ? root.displayLyricProgress : 0
-                                        pixelSize: Fluent.Enums.typography.displayLarge
-                                        minimumPixelSize: Fluent.Enums.typography.titleLarge
+                                        pixelSize: Fluent.Enums.typography.titleLarge
+                                        minimumPixelSize: Fluent.Enums.typography.body
                                         fontFamily: Fluent.Enums.fontFamily
                                         bold: true
                                         restingColor: Fluent.Enums.secondaryForeground
@@ -233,11 +289,13 @@ Item {
                                         anchors.fill: parent
                                         anchors.leftMargin: Fluent.Enums.spacing.xxl
                                         anchors.rightMargin: Fluent.Enums.spacing.xxl
-                                        type: Fluent.Enums.label.type_subtitle
+                                        type: Fluent.Enums.label.type_body
                                         text: modelData.text || ""
                                         color: Fluent.Enums.secondaryForeground
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
+                                        wrapMode: Text.NoWrap
+                                        maximumLineCount: 1
                                         elide: Text.ElideRight
                                     }
 
@@ -268,6 +326,14 @@ Item {
                     }
                 }
             }
+        }
+
+        PlayerBar {
+            objectName: "expandedPlayerBar"
+            Layout.fillWidth: true
+            Layout.preferredHeight: implicitHeight
+            expandEnabled: false
+            onQueueRequested: root.queueRequested()
         }
     }
 

@@ -8,7 +8,6 @@ Item {
 
     signal openSearchRequested()
     signal openPlaylistsRequested()
-    signal openPlayerRequested()
     signal openSettingsRequested()
 
     LoginPage {
@@ -65,6 +64,7 @@ Item {
                 message: UserSettings.serviceUrl
                 severity: "success"
                 closable: false
+                duration: Fluent.Enums.duration.none
             }
 
             Fluent.SettingsCardGroup {
@@ -92,16 +92,6 @@ Item {
                     onClicked: root.openPlaylistsRequested()
                 }
 
-                Fluent.SettingsCard {
-                    width: parent.width
-                    visible: Boolean(Player.currentSong.id)
-                    type: Fluent.Enums.settingCard.type_push
-                    icon: Fluent.Enums.icon.music_note_2_play
-                    title: Player.currentSong.name || "正在播放"
-                    content: Player.currentSong.artist || "查看播放器与同步歌词"
-                    buttonText: "查看"
-                    onClicked: root.openPlayerRequested()
-                }
             }
 
             Fluent.SettingsCardGroup {

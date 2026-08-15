@@ -18,9 +18,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
 )
 
 // downloadInFlight 记录正在后台下载的歌曲(key=source\x00id),防重复下载。
@@ -77,7 +77,7 @@ func serveLocalTrackAbs(c *gin.Context, track *localMusicTrack) {
 }
 
 // streamOnlineAndCache 在线反代播放,并后台完整下载落盘入库。
-func streamOnlineAndCache(c *gin.Context, song model.Song) {
+func streamOnlineAndCache(c *gin.Context, song model.Track) {
 	dlFunc := core.GetDownloadFunc(song.Source)
 	if dlFunc == nil {
 		respondSubsonicError(c, errSubsonicNotFound)
@@ -95,18 +95,8 @@ func streamOnlineAndCache(c *gin.Context, song model.Song) {
 	// 在线反代播放:优先 Range 拉取(支持拖进度),透传上游响应。
 	rangeHeader := c.GetHeader("Range")
 	if rangeFetch, handled, rangeErr := core.NewSourceRangeFetch(downloadURL, song.Source, rangeHeader); rangeErr == nil && handled {
-		ext := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(rangeFetch.Ext, ".")))
-		if ext == "" {
-			ext = "mp3"
-		}
-		c.Header("Content-Type", core.AudioMimeByExt(ext))
-		c.Header("Accept-Ranges", "bytes")
-		c.Header("Content-Length", strconv.FormatInt(rangeFetch.ContentLength, 10))
-		if rangeFetch.ContentRange != "" {
-			c.Header("Content-Range", rangeFetch.ContentRange)
-		}
-		c.Status(rangeFetch.StatusCode)
-		if writeErr := rangeFetch.WriteTo(c.Writer); writeErr != nil {
+		writeSubsonicRangeHeaders(c, rangeFetch)
+		if _, writeErr := rangeFetch.WriteTo(c.Writer); writeErr != nil {
 			log.Printf("[subsonic] stream range 写出失败 %s-%s: %v", song.Name, song.Artist, writeErr)
 		}
 		return
@@ -136,10 +126,24 @@ func streamOnlineAndCache(c *gin.Context, song model.Song) {
 	}
 }
 
+func writeSubsonicRangeHeaders(c *gin.Context, fetch *core.SourceRangeFetch) {
+	ext := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(fetch.Ext, ".")))
+	if ext == "" {
+		ext = "mp3"
+	}
+	c.Header("Accept-Ranges", "bytes")
+	c.Header("Content-Type", core.AudioMimeByExt(ext))
+	c.Header("Content-Length", strconv.FormatInt(fetch.ContentLength, 10))
+	if fetch.ContentRange != "" {
+		c.Header("Content-Range", fetch.ContentRange)
+	}
+	c.Status(fetch.StatusCode)
+}
+
 // findDownloadedTrack 在共享下载目录的扫描快照里查找与在线歌曲匹配的已下载文件。
 // 匹配策略:标题 + 艺人 归一化后相等(大小写/空白不敏感)。
 // 找到则返回本地 track(可直接发文件);没有返回 nil。
-func findDownloadedTrack(song model.Song) *localMusicTrack {
+func findDownloadedTrack(song model.Track) *localMusicTrack {
 	tracks, _, exists, _, _, _ := scanLocalMusicTracksCached(false)
 	if !exists || len(tracks) == 0 {
 		return nil
@@ -173,7 +177,7 @@ func normalizeMatchKey(s string) string {
 
 // triggerBackgroundDownload 启动后台完整下载+刮削落盘(去重)。
 // 同一首歌(source+id)在下载中不重复启动。
-func triggerBackgroundDownload(song model.Song) {
+func triggerBackgroundDownload(song model.Track) {
 	key := extraKey(song.Source, song.ID)
 	if _, loaded := downloadInFlight.LoadOrStore(key, true); loaded {
 		return // 已在下载中

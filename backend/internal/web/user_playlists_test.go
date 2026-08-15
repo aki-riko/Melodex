@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
 )
 
 // TestUserPlaylistsRouteReturnsTabs 验证 /api/v1/user_playlists 按源返回 tabs,
@@ -28,14 +28,14 @@ func TestUserPlaylistsRouteReturnsTabs(t *testing.T) {
 	userPlaylistsFuncProvider = func(source string) core.UserPlaylistsFunc {
 		switch source {
 		case "netease":
-			return func(page, limit int) ([]model.Playlist, error) {
-				return []model.Playlist{
+			return func(page, limit int) ([]model.RemoteCollection, error) {
+				return []model.RemoteCollection{
 					{ID: "pl-1", Name: "我喜欢的音乐", TrackCount: 42, Creator: "me"},
 				}, nil
 			}
 		case "qq":
 			// 模拟未登录:GetUserPlaylists 返回错误。
-			return func(page, limit int) ([]model.Playlist, error) {
+			return func(page, limit int) ([]model.RemoteCollection, error) {
 				return nil, fmt.Errorf("qq user playlists require cookie")
 			}
 		default:

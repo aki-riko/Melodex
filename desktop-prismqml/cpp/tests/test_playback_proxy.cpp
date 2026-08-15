@@ -56,11 +56,13 @@ public:
     QList<QByteArray> ranges;
     QList<QByteArray> ifRanges;
     QList<QByteArray> cookies;
+    QList<QByteArray> connections;
 
     void resetObservations() {
         ranges.clear();
         ifRanges.clear();
         cookies.clear();
+        connections.clear();
         config.dropBeforeHeaders.clear();
         config.statusByRequest.clear();
         config.startDelta.clear();
@@ -129,6 +131,7 @@ private:
         ranges.append(range);
         ifRanges.append(headers.value("if-range"));
         cookies.append(headers.value("cookie"));
+        connections.append(headers.value("connection"));
         if (config.dropBeforeHeaders.contains(requestIndex)) {
             socket->disconnectFromHost();
             return;
@@ -422,6 +425,7 @@ void PlaybackProxyTest::headCookieLookupAndClearContracts() {
     QCOMPARE(result.status, 200);
     QCOMPARE(result.error, QNetworkReply::NoError);
     QCOMPARE(origin.cookies, QList<QByteArray>({"session=secret"}));
+    QVERIFY(origin.connections.constFirst().toLower() != "close");
 
     QUrl unknown = first;
     unknown.setPath(unknown.path() + QStringLiteral("-unknown"));

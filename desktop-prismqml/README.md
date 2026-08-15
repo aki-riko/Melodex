@@ -23,58 +23,53 @@ SplashScreen、InfoBar、ListWidget、ScrollArea、ImageWidget、SplitPane 等�
 
 ## 依赖准备
 
-需要 MSVC 2022、CMake、NMake、Qt 6.11.1 基础 SDK、Qt Multimedia，以及使用同一
-Qt 版本构建的 PrismQML C++ SDK。缺失的 Qt Multimedia 可以用项目内 venv 下载，
-不会修改系统 Python 或系统 Qt：
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install aqtinstall
-.\.venv\Scripts\aqt.exe install-qt windows desktop 6.11.1 win64_msvc2022_64 `
-    -m qtmultimedia -O .prism-sdk\qt
-```
+需要 MSVC 2022、CMake、NMake、Qt 6.11.1 基础 SDK、Qt Multimedia、Qt Image Formats，
+以及使用同一 Qt 版本构建的 PrismQML C++ SDK。Qt Image Formats 提供咪咕等来源 WebP
+封面所需的 `qwebp` 插件。通过 Qt Online Installer 或对应 SDK 的 MaintenanceTool，
+在同一个 Qt 6.11.1 MSVC 2022 64-bit 安装中勾选 Qt Multimedia 与 Qt Image Formats。
+当前 `aqtinstall 3.3.0` 尚未适配 Qt 6.11.1 按架构拆分后的仓库目录，不能把它作为
+这两个模块的增量安装命令。
 
 `.venv` 和 `.prism-sdk` 均已由 Git 忽略。Python 目录保留为迁移前的行为基线，
 仅用于回归测试，不参与 C++ 程序运行。
 
-## 构建与测试
+## 日常启动
 
-在“x64 Native Tools for VS 2022”PowerShell 中执行。下面的路径全部通过当前会话变量
-传入，不写死到项目代码：
+客户端已经部署后，在任意当前 PowerShell 会话中始终执行这一条命令：
 
 ```powershell
-$env:QT_ROOT = "D:\Qt\6.11.1\msvc2022_64"
-$env:PRISM_SDK_ROOT = "D:\PrismQML\PrismQML\cpp\build\sdk"
-$env:MELODEX_BUILD_DIR = "$env:LOCALAPPDATA\Temp\melodex-desktop-build"
-
-cmake -S . -B $env:MELODEX_BUILD_DIR -G "NMake Makefiles" `
-    -DCMAKE_BUILD_TYPE=Release `
-    -DCMAKE_PREFIX_PATH="$env:QT_ROOT" `
-    -Dprism_DIR="$env:PRISM_SDK_ROOT\lib\cmake\prism"
-cmake --build $env:MELODEX_BUILD_DIR
-ctest --test-dir $env:MELODEX_BUILD_DIR --output-on-failure
+& "$env:LOCALAPPDATA\Melodex\desktop-deploy\bin\melodex_desktop.exe"
 ```
+
+这条命令直接运行固定部署目录里的现成客户端，不执行 Python 测试、CMake/CTest、安装或
+Qt 部署，也不会再启动一个 PowerShell 子进程。日常“启动客户端”只使用这一条。
+
+## 开发构建与完整验证
+
+仅在需要重新构建或做完整开发验证时，复制本机配置模板，填写 Qt 和 Visual Studio
+开发环境路径；`run-local.config.psd1` 已被 Git 忽略，本机路径不会进入仓库：
+
+```powershell
+Copy-Item .\desktop-prismqml\run-local.config.example.psd1 `
+    .\desktop-prismqml\run-local.config.psd1
+```
+
+内部 `run-local.ps1` 会按固定顺序完成 Python 回归测试、CMake 配置与增量构建、CTest、安装、
+`windeployqt`、结束旧客户端和启动新客户端。默认构建目录固定为
+`%LOCALAPPDATA%\Melodex\desktop-build`，部署目录固定为
+`%LOCALAPPDATA%\Melodex\desktop-deploy`，不再创建带时间戳的临时目录，也不依赖当前
+PowerShell 会话里临时设置的环境变量。若本机目录需要调整，只修改一次本机配置文件。
+脚本会在构建前检查 Qt SDK 的 `qwebp` 插件，并在部署后再次检查固定部署目录中的副本，
+避免客户端在缺少 Qt Image Formats 时悄悄退化为“不支持 WebP”。
+为规避 MSVC 链接中文依赖路径的问题，配置指定的 PrismQML SDK 会自动同步到同一目录下
+的 `prism-sdk-cache`；CMake 和最终部署都使用这份固定缓存，不会混入另一版本的运行时。
 
 若仓库路径包含中文，MSVC 可能因 PDB 路径报 `LNK1201`，链接器也可能无法打开中文路径下
-的依赖库。保持源码原位，把构建目录、Qt SDK 和 PrismQML SDK 放在纯 ASCII 路径即可；
-不需要创建盘符映射。
+的依赖库。脚本将构建、部署和 SDK 缓存固定放在纯 ASCII 的 LocalAppData 路径，源码仍保持原位。
 
-## 安装与运行
-
-```powershell
-$env:MELODEX_DEPLOY_DIR = "$PWD\.prism-sdk\deploy"
-cmake --install $env:MELODEX_BUILD_DIR --prefix $env:MELODEX_DEPLOY_DIR
-& "$env:QT_ROOT\bin\windeployqt.exe" --release --compiler-runtime `
-    --no-system-dxc-compiler --qmldir "$PWD\qml" `
-    --qmlimport "$env:MELODEX_DEPLOY_DIR\bin\qml" `
-    --qml-deploy-dir "$env:MELODEX_DEPLOY_DIR\bin\qml" `
-    "$env:MELODEX_DEPLOY_DIR\bin\melodex_desktop.exe"
-& "$env:MELODEX_DEPLOY_DIR\bin\melodex_desktop.exe"
-```
-
-安装规则会把 PrismQML 模块复制到 EXE 旁的 `qml/PrismQML`。运行时查找顺序为
-`PRISMQML_QML_DIR` 环境变量、EXE 同目录的 `qml`、构建期 SDK 路径，因此部署目录不依赖
-源码或构建目录。
+安装规则会把本机配置指定的 PrismQML SDK 模块复制到 EXE 旁的 `qml/PrismQML`。
+统一脚本在启动前会清除当前会话遗留的 `PRISMQML_QML_DIR`，避免意外加载另一套 QML
+运行时；部署目录因此不依赖源码、构建目录或临时环境变量。
 
 首次启动填写自己的 Melodex 服务地址和账号。会话 cookie 只保存在当前用户的应用配置目录；
 服务地址前若有浏览器专用 SSO 网关，客户端会提示网关拦截，但不会擅自修改服务端配置。

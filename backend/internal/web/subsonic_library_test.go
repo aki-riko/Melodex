@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 func sampleLibraryTracks() []*localMusicTrack {
@@ -129,7 +129,7 @@ func TestFetchLyricByIDEmptyAndBad(t *testing.T) {
 		t.Fatalf("非法 id 应返回空歌词, 实际 %q", got)
 	}
 	// 在线 id 但源无歌词函数 / 无 cookie 环境:不应 panic,返回空。
-	song := model.Song{Source: "nonexistent-source", ID: "x", Name: "t", Artist: "a"}
+	song := model.Track{Source: "nonexistent-source", ID: "x", Name: "t", Artist: "a"}
 	if got := fetchLyricByID(encodeOnlineSongID(song)); got != "" {
 		t.Fatalf("未知源 id 应返回空歌词, 实际 %q", got)
 	}

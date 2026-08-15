@@ -68,11 +68,23 @@ Item {
 
                 Fluent.SettingsCard {
                     width: parent.width
-                    type: Fluent.Enums.settingCard.type_range
+                    type: Fluent.Enums.settingCard.type_combobox
                     icon: Fluent.Enums.icon.music_note_2
-                    title: "字体与字号"
-                    content: "宋体（固定） · 当前 "
-                             + UserSettings.lyricsFontSize + " px"
+                    title: "字体预设"
+                    content: "从适合中文歌词显示的系统字体中选择"
+                    model: UserSettings.lyricsFontPresetNames
+                    currentIndex: UserSettings.lyricsFontPresetIndex
+                    onIndexSelected: index => UserSettings.setLyricsFontPresetIndex(
+                                         index
+                                     )
+                }
+
+                Fluent.SettingsCard {
+                    width: parent.width
+                    type: Fluent.Enums.settingCard.type_range
+                    icon: Fluent.Enums.icon.font_increase
+                    title: "歌词字号"
+                    content: "当前 " + UserSettings.lyricsFontSize + " px"
                     value: UserSettings.lyricsFontSize
                     from: UserSettings.lyricsFontSizeMinimum
                     to: UserSettings.lyricsFontSizeMaximum
@@ -130,12 +142,71 @@ Item {
                 Layout.preferredHeight: implicitHeight
                 title: "关于"
 
-                Fluent.SettingsCard {
+                Item {
                     width: parent.width
-                    type: Fluent.Enums.settingCard.type_push
-                    icon: Fluent.Enums.icon.info
-                    title: AppConfig.name + " Desktop"
-                    content: "版本 " + AppConfig.version + "  ·  PrismQML 原生界面"
+                    implicitHeight: Fluent.Enums.settingCard.height_with_content
+                    height: implicitHeight
+
+                    Fluent.SettingsCardCore {
+                        anchors.fill: parent
+                        icon: Fluent.Enums.icon.info
+                        content: " "
+                    }
+
+                    Column {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Fluent.Enums.spacing.xl
+                                            + Fluent.Enums.settingCard.icon_size
+                                            + Fluent.Enums.spacing.xl
+                        anchors.right: projectHomepageButton.left
+                        anchors.rightMargin: Fluent.Enums.spacing.xl
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Fluent.Enums.spacing.none
+                        z: 1
+
+                        Fluent.Label {
+                            width: parent.width
+                            type: Fluent.Enums.label.type_body_strong
+                            text: AppConfig.name + " — " + AppConfig.description
+                            wrapMode: Text.NoWrap
+                            elide: Text.ElideRight
+                        }
+
+                        Row {
+                            spacing: Fluent.Enums.spacing.xxs
+
+                            Fluent.Label {
+                                type: Fluent.Enums.label.type_body_small
+                                text: "版本 v" + AppConfig.version + " · 基于"
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Fluent.Label {
+                                type: Fluent.Enums.label.type_hyperlink
+                                text: "PrismQML"
+                                url: AppConfig.frameworkHomepage
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Fluent.Label {
+                                type: Fluent.Enums.label.type_body_small
+                                text: "引擎构建。"
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+                    }
+
+                    Fluent.Button {
+                        id: projectHomepageButton
+                        property url destinationUrl: AppConfig.projectHomepage
+                        anchors.right: parent.right
+                        anchors.rightMargin: Fluent.Enums.spacing.xl
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "项目主页"
+                        style: Fluent.Enums.button.style_hyperlink
+                        onClicked: Qt.openUrlExternally(destinationUrl)
+                        z: 1
+                    }
                 }
             }
         }

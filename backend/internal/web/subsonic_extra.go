@@ -12,6 +12,7 @@ package web
 import (
 	"strings"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,15 +39,7 @@ func subsonicGetSong(c *gin.Context) {
 	// id 里不含 Ext,不验活会误报 mp3,FLAC 歌会被客户端按 mp3 解码播不出。
 	if song, ok := decodeOnlineSongID(id); ok {
 		if okLive, size, ext := liveCheckSong(song); okLive {
-			if ext != "" {
-				song.Ext = ext
-			}
-			if size > 0 {
-				song.Size = size
-				if song.Duration > 0 {
-					song.Bitrate = int((size * 8) / int64(song.Duration) / 1000)
-				}
-			}
+			applyLiveMediaFacts(&song, size, ext)
 		}
 		child := songToSubsonicChild(song)
 		resp := newSubsonicOK()
@@ -55,6 +48,19 @@ func subsonicGetSong(c *gin.Context) {
 		return
 	}
 	respondSubsonicError(c, errSubsonicNotFound)
+}
+
+func applyLiveMediaFacts(song *model.Track, size int64, extension string) {
+	if extension != "" {
+		song.Ext = extension
+	}
+	if size <= 0 {
+		return
+	}
+	song.Size = size
+	if song.Duration > 0 {
+		song.Bitrate = int((size * 8) / int64(song.Duration) / 1000)
+	}
 }
 
 // subsonicGetSimilarSongs 相似歌曲:本期回空列表(无相似度数据源,回空避免客户端报错)。

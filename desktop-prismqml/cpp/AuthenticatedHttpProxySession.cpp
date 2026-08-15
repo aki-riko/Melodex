@@ -6,12 +6,64 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <algorithm>
+#include <cstdio>
 
 namespace melodex {
 
+namespace {
+
+QString safePlaybackSource(QNetworkReply *reply) {
+    const QByteArray source =
+        reply->rawHeader("X-Melodex-Playback-Source").trimmed().toLower();
+    if (source == "server")
+        return QStringLiteral("server");
+    if (source == "network")
+        return QStringLiteral("network");
+    if (source == "local")
+        return QStringLiteral("local");
+    return source.isEmpty() ? QStringLiteral("none")
+                            : QStringLiteral("other");
+}
+
+QString safeRangeSummary(const QByteArray &rawRange) {
+    const QByteArray normalized = rawRange.trimmed().toLower();
+    if (normalized.isEmpty())
+        return QStringLiteral("none");
+    if (!normalized.startsWith("bytes=") || normalized.contains(','))
+        return QStringLiteral("other");
+    const QList<QByteArray> parts = normalized.mid(6).split('-');
+    if (parts.size() != 2 || (parts.at(0).isEmpty() && parts.at(1).isEmpty()))
+        return QStringLiteral("other");
+    for (const QByteArray &part : parts) {
+        if (part.isEmpty())
+            continue;
+        bool ok = false;
+        part.toLongLong(&ok);
+        if (!ok)
+            return QStringLiteral("other");
+    }
+    return QStringLiteral("bytes=%1-%2")
+        .arg(QString::fromLatin1(parts.at(0)),
+             QString::fromLatin1(parts.at(1)));
+}
+
+void writePlaybackTiming(const QString &message) {
+    const QByteArray encoded = message.toUtf8();
+    std::fprintf(stderr, "%s\n", encoded.constData());
+    std::fflush(stderr);
+}
+
+}  // namespace
+
 ProxyRequestSession::ProxyRequestSession(AuthenticatedHttpProxyWorker *worker,
                                          QTcpSocket *socket, QObject *parent)
-    : QObject(parent), m_worker(worker), m_socket(socket) {
+    : QObject(parent),
+      m_worker(worker),
+      m_socket(socket),
+      m_timingEnabled(
+          qEnvironmentVariableIntValue("MELODEX_PLAYBACK_TIMING") == 1) {
+    if (m_timingEnabled)
+        m_localRequestClock.start();
     m_socket->setParent(this);
     connect(m_socket, &QTcpSocket::readyRead, this,
             [this] { readLocalRequest(); });
@@ -76,6 +128,13 @@ bool ProxyRequestSession::parseLocalRequest(const QByteArray &headerBlock) {
         else if (name == "range")
             m_playerRange = value;
     }
+    if (m_timingEnabled) {
+        writePlaybackTiming(
+            QStringLiteral("[PLAYBACK_TIMING] local_request method=%1 range=%2 elapsed_ms=%3")
+                .arg(QString::fromLatin1(m_method),
+                     safeRangeSummary(m_playerRange))
+                .arg(m_localRequestClock.elapsed()));
+    }
     return true;
 }
 
@@ -90,7 +149,6 @@ void ProxyRequestSession::openUpstream(const QByteArray &rangeOverride,
     request.setTransferTimeout(kUpstreamTimeoutMs);
     request.setRawHeader("Accept", m_accept.isEmpty() ? QByteArray("*/*") : m_accept);
     request.setRawHeader("Accept-Encoding", "identity");
-    request.setRawHeader("Connection", "close");
     request.setRawHeader("User-Agent", "MelodexDesktop");
     if (!m_entry.cookieHeader.isEmpty())
         request.setRawHeader("Cookie", m_entry.cookieHeader);
@@ -104,6 +162,10 @@ void ProxyRequestSession::openUpstream(const QByteArray &rangeOverride,
     m_resumeValidated = !resume;
     m_replyFinished = false;
     m_waitingForResume = false;
+    m_metadataTimingLogged = false;
+    m_firstByteTimingLogged = false;
+    if (m_timingEnabled)
+        m_upstreamClock.start();
     m_reply = m_method == "HEAD" ? m_worker->network()->head(request)
                                   : m_worker->network()->get(request);
     m_reply->setReadBufferSize(kUpstreamReadBufferSize);
@@ -122,6 +184,22 @@ void ProxyRequestSession::processMetadata() {
         m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (status <= 0)
         return;
+    if (m_timingEnabled && !m_metadataTimingLogged) {
+        m_metadataTimingLogged = true;
+        writePlaybackTiming(
+            QStringLiteral("[PLAYBACK_TIMING] upstream_headers status=%1 range=%2 source=%3 resume=%4 http2=%5 elapsed_ms=%6 total_ms=%7")
+                .arg(status)
+                .arg(safeRangeSummary(m_playerRange),
+                     safePlaybackSource(m_reply),
+                     m_replyIsResume ? QStringLiteral("yes")
+                                     : QStringLiteral("no"),
+                     m_reply->attribute(QNetworkRequest::Http2WasUsedAttribute)
+                             .toBool()
+                         ? QStringLiteral("yes")
+                         : QStringLiteral("no"))
+                .arg(m_upstreamClock.elapsed())
+                .arg(m_localRequestClock.elapsed()));
+    }
     if (!m_replyIsResume) {
         if (!m_responseStarted)
             sendInitialHeaders();
@@ -228,6 +306,18 @@ void ProxyRequestSession::pumpUpstreamBody() {
     if (!m_reply || !m_socket || m_finished || !m_responseStarted ||
         (m_replyIsResume && !m_resumeValidated) || m_method == "HEAD")
         return;
+
+    if (m_timingEnabled && !m_firstByteTimingLogged &&
+        m_reply->bytesAvailable() > 0) {
+        m_firstByteTimingLogged = true;
+        writePlaybackTiming(
+            QStringLiteral("[PLAYBACK_TIMING] upstream_first_byte range=%1 resume=%2 elapsed_ms=%3 total_ms=%4")
+                .arg(safeRangeSummary(m_playerRange),
+                     m_replyIsResume ? QStringLiteral("yes")
+                                     : QStringLiteral("no"))
+                .arg(m_upstreamClock.elapsed())
+                .arg(m_localRequestClock.elapsed()));
+    }
 
     while (m_socket->state() == QAbstractSocket::ConnectedState) {
         const qint64 capacity =

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 func TestSubsonicGetSongOnline(t *testing.T) {
@@ -15,7 +15,7 @@ func TestSubsonicGetSongOnline(t *testing.T) {
 	token := makeToken("sesame", salt)
 
 	// 构造一个在线歌曲 id
-	song := model.Song{
+	song := model.Track{
 		Source: "netease", ID: "42", Name: "稻香", Artist: "周杰伦",
 		Album: "魔杰座", Duration: 223, Ext: "mp3", Cover: "http://x/c.jpg",
 	}

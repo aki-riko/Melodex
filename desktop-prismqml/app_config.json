@@ -2,6 +2,9 @@
   "application_name": "Melodex",
   "application_version": "0.1.0",
   "application_id": "PrismQML.Melodex",
+  "application_description": "全网音乐搜索、播放与下载客户端",
+  "project_homepage": "https://github.com/aki-riko/Melodex",
+  "framework_homepage": "https://github.com/aki-riko/PrismQML",
   "accent_color": "#1ED760",
   "window": {
     "width": 1180,

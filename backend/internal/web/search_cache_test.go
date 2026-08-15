@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/music-lib/model"
 )
 
 func TestSearchCacheKeyOrderInsensitive(t *testing.T) {
@@ -75,7 +75,7 @@ func TestSearchCacheRoundTripAndEmptySkip(t *testing.T) {
 	resp := jsonSearchResponse{
 		Type:    "song",
 		Keyword: "test",
-		Songs: []model.Song{
+		Songs: []model.Track{
 			{ID: "1", Name: "晴天", Artist: "周杰伦", Source: "qq", Cover: "https://x/c.jpg", Bitrate: 320},
 		},
 	}
@@ -97,7 +97,7 @@ func TestJSONSearchCacheDeleteClearsRequestedTypes(t *testing.T) {
 	resp := jsonSearchResponse{
 		Type:    "song",
 		Keyword: keyword,
-		Songs:   []model.Song{{ID: "1", Name: "Cached", Source: "qq"}},
+		Songs:   []model.Track{{ID: "1", Name: "Cached", Source: "qq"}},
 	}
 	putCachedSearch(songKey, resp)
 	putCachedSearch(lyricKey, resp)
@@ -134,7 +134,7 @@ func TestSearchCacheStaleEntryStillReadableForRefresh(t *testing.T) {
 		Type:    "song",
 		Keyword: "stale",
 		Sources: []string{"qq"},
-		Songs:   []model.Song{{ID: "1", Name: "旧缓存", Source: "qq"}},
+		Songs:   []model.Track{{ID: "1", Name: "旧缓存", Source: "qq"}},
 	}
 	putCachedSearch(key, resp)
 	old := time.Now().Add(-searchCacheTTL - time.Hour)
@@ -165,7 +165,7 @@ func TestJSONSearchSkipWarmDoesNotInspectCachedResults(t *testing.T) {
 		Type:    "song",
 		Keyword: keyword,
 		Sources: []string{"qq"},
-		Songs: []model.Song{
+		Songs: []model.Track{
 			{ID: "song-1", Name: "限速测试", Artist: "Tester", Source: "qq", Duration: 100},
 		},
 	})
@@ -180,7 +180,7 @@ func TestJSONSearchSkipWarmDoesNotInspectCachedResults(t *testing.T) {
 	defer server.Close()
 
 	origProvider := qualityDownloadURLProvider
-	qualityDownloadURLProvider = func(song model.Song) (string, error) {
+	qualityDownloadURLProvider = func(song model.Track) (string, error) {
 		return server.URL + "/track.mp3", nil
 	}
 	defer func() { qualityDownloadURLProvider = origProvider }()
@@ -212,7 +212,7 @@ func TestAPICacheKeyOrderAndStaleMetadata(t *testing.T) {
 	}
 
 	resp := jsonPlaylistTabsResponse{Tabs: []jsonPlaylistTab{
-		{Source: "qq", SourceName: "QQ音乐", Playlists: []model.Playlist{{ID: "p1", Name: "旧歌单", Source: "qq"}}},
+		{Source: "qq", SourceName: "QQ音乐", Playlists: []model.RemoteCollection{{ID: "p1", Name: "旧歌单", Source: "qq"}}},
 	}}
 	putAPICache(keyA, apiCacheNamespaceRecommend, argsA, resp)
 	old := time.Now().Add(-apiCacheFreshTTL() - time.Hour)
@@ -291,7 +291,7 @@ func TestSearchSuggestionsUseHistoryAndCache(t *testing.T) {
 		Type:    "song",
 		Keyword: "错位时空 艾辰",
 		Sources: []string{"qq", "netease"},
-		Songs: []model.Song{
+		Songs: []model.Track{
 			{ID: "2100630469", Name: "错位时空", Artist: "艾辰", Source: "netease", Album: "错位时空"},
 			{ID: "004ZgdqY0Gfpq8", Name: "谁与归", Artist: "艾辰", Source: "qq", Album: "谁与归"},
 		},

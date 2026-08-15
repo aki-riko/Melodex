@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { WifiOff } from 'lucide-react';
 import { Sidebar, MobileTabBar } from './components/Sidebar';
 import TopBar from './components/TopBar';
-import Trending from './components/Trending';
+import HomeRecommendations from './components/HomeRecommendations';
 import Download from './components/Download';
 import Settings from './components/Settings';
 import MyPlaylist from './components/MyPlaylist';
@@ -19,7 +19,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ServerDownloadsProvider } from './contexts/ServerDownloadsContext';
 import { FeedbackProvider } from './contexts/FeedbackContext';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
-import FAQ from './components/FAQ';
+import HelpPage from './components/HelpPage';
 import LoadingState from './components/LoadingState';
 
 const queryClient = new QueryClient({
@@ -100,7 +100,7 @@ function AppShell() {
             style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom))' }}
           >
             <div className="container mx-auto px-4 md:px-6 py-6 max-w-6xl">
-              {(section === 'Home' || section === 'Trending') && <Trending />}
+              {section === 'Home' && <HomeRecommendations />}
               {section === 'Download' && <Download downloadRequest={downloadRequest} />}
               {section === 'Settings' && <Settings />}
               {section === 'MyPlaylist' && <MyPlaylist />}
@@ -108,7 +108,7 @@ function AppShell() {
               {section === 'Local' && <LocalMusic />}
               {section === 'Offline' && <OfflineMusic />}
               {section === 'Users' && isAdmin && <UserManagement />}
-              {section === 'FAQ' && <FAQ />}
+              {section === 'FAQ' && <HelpPage />}
             </div>
           </main>
         </div>

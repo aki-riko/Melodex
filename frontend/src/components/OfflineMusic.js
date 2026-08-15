@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { formatDuration } from '../utils/format';
+import { formatDuration } from '../utils/mediaFormat';
 import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';

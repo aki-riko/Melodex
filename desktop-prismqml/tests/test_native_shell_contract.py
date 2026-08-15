@@ -11,21 +11,21 @@ QML_ROOT = DESKTOP_ROOT / "qml"
 
 
 class NativeShellContractTests(unittest.TestCase):
-    def test_prismqml_dependency_is_pinned_to_outside_drawer_release(self) -> None:
+    def test_prismqml_dependency_is_pinned_to_current_engine_release(self) -> None:
         requirements = (DESKTOP_ROOT / "requirements.txt").read_text(
             encoding="utf-8"
         )
 
-        self.assertEqual("prismqml==0.3.2.1", requirements.strip())
+        self.assertEqual("prismqml==0.3.3.9", requirements.strip())
 
     def test_main_window_uses_prismqml_navigation_shell(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
         self.assertIn("Fluent.Windows {", source)
         self.assertNotIn("Fluent.WindowsCore {", source)
-        self.assertIn('key: "page_4"', source)
+        self.assertIn('key: "page_3"', source)
 
-    def test_native_shell_registers_all_five_pages(self) -> None:
+    def test_native_shell_merges_now_playing_into_global_player(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
         for object_name in (
@@ -36,6 +36,15 @@ class NativeShellContractTests(unittest.TestCase):
             "settingsPage",
         ):
             self.assertIn(f'objectName: "{object_name}"', source)
+        self.assertNotIn('{ text: "正在播放"', source)
+        self.assertIn('objectName: "globalPlayerBar"', source)
+        self.assertIn('objectName: "nowPlayingDrawer"', source)
+        self.assertIn("position: Fluent.Enums.position.bottom", source)
+        self.assertIn("onExpandRequested: nowPlayingDrawer.open()", source)
+
+        for page_name in ("HomePage.qml", "SearchPage.qml", "PlaylistsPage.qml"):
+            page = (QML_ROOT / "pages" / page_name).read_text(encoding="utf-8")
+            self.assertNotIn("openPlayerRequested", page)
 
     def test_now_playing_uses_native_outside_queue_drawer(self) -> None:
         main = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
@@ -69,7 +78,8 @@ class NativeShellContractTests(unittest.TestCase):
         )
 
         self.assertNotIn("0.3.1.34", source)
-        self.assertIn("PrismQML 原生界面", source)
+        self.assertIn('text: "PrismQML"', source)
+        self.assertIn("url: AppConfig.frameworkHomepage", source)
 
     def test_application_uses_light_fluent_skin(self) -> None:
         source = (DESKTOP_ROOT / "main.py").read_text(encoding="utf-8")
@@ -87,13 +97,14 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn('quitOptions.icon = QStringLiteral("Power")', source)
         self.assertNotIn("new prism::SystemTrayIcon", source)
 
-    def test_startup_uses_published_prismqml_splash_screen(self) -> None:
+    def test_startup_uses_single_shared_prismqml_splash_screen(self) -> None:
         source = (QML_ROOT / "main.qml").read_text(encoding="utf-8")
 
-        self.assertIn("Fluent.SplashScreen {", source)
-        self.assertIn('_splashInstance: startupSplash', source)
-        self.assertIn('objectName: "startupSplashScreen"', source)
-        self.assertIn("parent: mainWindow.contentItem", source)
+        self.assertIn("splashIcon: AppConfig.iconUrl", source)
+        self.assertIn("splashTitle: AppConfig.name", source)
+        self.assertIn('splashSubtitle: "正在载入桌面客户端"', source)
+        self.assertNotIn("Fluent.SplashScreen {", source)
+        self.assertNotIn("_splashInstance:", source)
 
     def test_player_sliders_format_tooltips_for_their_units(self) -> None:
         source = (QML_ROOT / "components" / "PlayerBar.qml").read_text(
@@ -105,6 +116,42 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn(
             'displayValueFn: value => Math.round(value * 100) + "%"', source
         )
+        self.assertIn('objectName: "playerBarCover"', source)
+        self.assertIn("implicitHeight: coverSize + Fluent.Enums.spacing.l * 2", source)
+        self.assertGreaterEqual(source.count("Layout.alignment: Qt.AlignVCenter"), 10)
+        self.assertIn(
+            "clickEnabled: expandEnabled && Boolean(Player.currentSong.id)", source
+        )
+        self.assertIn("onClicked: root.expandRequested()", source)
+
+    def test_home_service_banner_is_persistent(self) -> None:
+        source = (QML_ROOT / "pages" / "HomePage.qml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('title: "当前服务"', source)
+        self.assertIn("duration: Fluent.Enums.duration.none", source)
+
+    def test_desktop_lyrics_advance_rows_on_one_shared_timeline(self) -> None:
+        source = (QML_ROOT / "components" / "DesktopLyricsWindow.qml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("property real lyricTransitionProgress: 1", source)
+        self.assertIn("readonly property real outgoingExitProgress", source)
+        self.assertIn("readonly property real secondaryEntryProgress", source)
+        self.assertIn("id: lyricLineAdvance", source)
+        self.assertIn("id: outgoingLyric", source)
+        self.assertIn("displayLineIndex === previousLineIndex + 1", source)
+        self.assertIn("target: lyricsWindow", source)
+        self.assertIn('property: "lyricTransitionProgress"', source)
+        self.assertIn("duration: Fluent.Enums.duration.slower", source)
+        self.assertIn("easing.type: Easing.InOutCubic", source)
+        self.assertIn("opacity: 1 - lyricsWindow.outgoingExitProgress", source)
+        self.assertIn("scale: lyricsWindow.incomingActiveScale", source)
+        self.assertIn("opacity: lyricsWindow.secondaryEntryProgress", source)
+        self.assertNotIn("ParallelAnimation {", source)
+        self.assertNotIn("Fluent.ToggleAnimation {", source)
 
     def test_now_playing_lyrics_use_an_immersive_karaoke_focus(self) -> None:
         source = (QML_ROOT / "pages" / "NowPlayingPage.qml").read_text(
@@ -194,7 +241,8 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("UserSettings.setLyricsPosition(", lyrics_window)
         self.assertIn("UserSettings.lyricsFontSize", lyrics_window)
         self.assertIn("fontFamily: UserSettings.lyricsFontFamily", lyrics_window)
-        self.assertIn('content: "宋体（固定） · 当前 "', settings)
+        self.assertIn("model: UserSettings.lyricsFontPresetNames", settings)
+        self.assertIn("currentIndex: UserSettings.lyricsFontPresetIndex", settings)
         self.assertIn("FrameAnimation {", lyrics_window)
         self.assertIn(
             "running: lyricsWindow.visible && Player.playing && Player.hasLyrics",
@@ -204,15 +252,41 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Player.visualLyricIndex(displayPosition)", lyrics_window)
         self.assertIn("Player.visualLyricProgress(", lyrics_window)
         self.assertNotIn("interval: 16", lyrics_window)
-        self.assertIn("bold: true", lyrics_window)
+        self.assertIn("fontWeight: Font.DemiBold", lyrics_window)
         self.assertIn("restingColor: UserSettings.lyricsUnplayedColor", lyrics_window)
         self.assertIn("activeColor: UserSettings.lyricsPlayedColor", lyrics_window)
-        self.assertIn("outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.90)", lyrics_window)
-        self.assertIn("shadowColor: Qt.rgba(0, 0, 0, 0.72)", lyrics_window)
-        self.assertIn("shadowBlur: 0.18", lyrics_window)
-        self.assertIn("shadowVerticalOffset: 2", lyrics_window)
+        self.assertIn(
+            "readonly property color lyricOutlineColor: "
+            "Qt.rgba(0.02, 0.025, 0.03, 0.82)",
+            lyrics_window,
+        )
+        self.assertIn(
+            "readonly property color lyricShadowColor: "
+            "Qt.rgba(0.02, 0.025, 0.03, 0.30)",
+            lyrics_window,
+        )
+        self.assertIn("readonly property real lyricShadowBlur: 0", lyrics_window)
+        self.assertIn(
+            "readonly property real lyricShadowVerticalOffset: 1", lyrics_window
+        )
+        self.assertIn("shadowColor: lyricsWindow.lyricShadowColor", lyrics_window)
+        self.assertIn("shadowBlur: lyricsWindow.lyricShadowBlur", lyrics_window)
+        self.assertIn(
+            "shadowVerticalOffset: lyricsWindow.lyricShadowVerticalOffset",
+            lyrics_window,
+        )
+        self.assertIn("font.weight: Font.Normal", lyrics_window)
+        self.assertIn("outlineColor: lyricsWindow.lyricOutlineColor", lyrics_window)
+        self.assertIn("styleColor: lyricsWindow.lyricOutlineColor", lyrics_window)
         self.assertEqual(1, lyrics_window.count("layer.effect: Fluent.Shadow"))
-        self.assertEqual(1, lyrics_window.count("renderType: Text.QtRendering"))
+        self.assertIn("blur: lyricsWindow.lyricShadowBlur", lyrics_window)
+        self.assertIn("color: lyricsWindow.lyricShadowColor", lyrics_window)
+        self.assertIn(
+            "verticalOffset: lyricsWindow.lyricShadowVerticalOffset",
+            lyrics_window,
+        )
+        self.assertEqual(3, lyrics_window.count("renderType: Text.CurveRendering"))
+        self.assertNotIn("renderType: Text.QtRendering", lyrics_window)
         self.assertEqual(1, lyrics_window.count("style: Text.Outline"))
         self.assertNotIn("renderType: Text.NativeRendering", lyrics_window)
         self.assertIn("id: positionSaveTimer", lyrics_window)
@@ -224,6 +298,7 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("Fluent.Enums.settingCard.type_combobox", settings)
         self.assertNotIn("Fluent.Enums.settingCard.type_color", settings)
         self.assertIn("UserSettings.setLyricsFontSize", settings)
+        self.assertIn("UserSettings.setLyricsFontPresetIndex", settings)
         self.assertIn("UserSettings.setLyricsColorSchemeIndex", settings)
         self.assertNotIn("UserSettings.setLyricsUnplayedColor", settings)
         self.assertNotIn("UserSettings.setLyricsPlayedColor", settings)
@@ -234,12 +309,16 @@ class NativeShellContractTests(unittest.TestCase):
         )
         self.assertIn("baseLabel.paintedWidth", word_fill)
         self.assertIn("root.textPaintedWidth * root.clampedProgress", word_fill)
+        self.assertIn("property int fontWeight:", word_fill)
+        self.assertIn("property int renderType: Text.QtRendering", word_fill)
         self.assertEqual(2, word_fill.count("font.family: root.fontFamily"))
-        self.assertEqual(2, word_fill.count("renderType: Text.QtRendering"))
+        self.assertEqual(2, word_fill.count("font.weight: root.fontWeight"))
+        self.assertEqual(2, word_fill.count("renderType: root.renderType"))
         self.assertEqual(2, word_fill.count("style: Text.Outline"))
         self.assertEqual(2, word_fill.count("styleColor: root.outlineColor"))
         self.assertEqual(2, word_fill.count("Text.VeryHighRenderTypeQuality"))
         self.assertEqual(1, word_fill.count("layer.effect: Fluent.Shadow"))
+        self.assertIn("layer.enabled: root.shadowColor.a > 0", word_fill)
         self.assertNotIn("renderType: Text.NativeRendering", word_fill)
         self.assertNotIn("style: Text.Raised", word_fill)
         self.assertNotIn("id: shadowLabel", word_fill)

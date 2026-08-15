@@ -12,25 +12,53 @@ Window {
     readonly property var activeLine: displayLineIndex >= 0
                                       && displayLineIndex < Player.lyrics.length
                                       ? Player.lyrics[displayLineIndex] : null
-    readonly property var nextLine: displayLineIndex >= 0
-                                    && displayLineIndex + 1 < Player.lyrics.length
-                                    ? Player.lyrics[displayLineIndex + 1]
-                                    : (displayLineIndex < 0 && Player.lyrics.length > 0
-                                       ? Player.lyrics[0] : null)
+    readonly property int secondaryLineIndex:
+        Player.visualSecondaryLyricIndex(displayLineIndex)
+    readonly property var nextLine: secondaryLineIndex >= 0
+                                    && secondaryLineIndex < Player.lyrics.length
+                                    ? Player.lyrics[secondaryLineIndex] : null
     readonly property string activeText: activeLine
                                          ? activeLine.text
                                          : (Player.currentSong.name || "")
     readonly property string nextText: nextLine
                                        ? nextLine.text
                                        : (Player.currentSong.artist || "")
+    property bool componentReady: false
+    property int renderedLineIndex: -2
+    property string renderedActiveText: ""
+    property string renderedNextText: ""
+    property string outgoingActiveText: ""
+    property real lyricTransitionProgress: 1
     readonly property bool controlsVisible: !UserSettings.clickThrough
                                             && windowHover.hovered
     readonly property int secondaryFontSize: Math.max(
                                                  16,
                                                  Math.round(UserSettings.lyricsFontSize * 0.67)
                                              )
+    readonly property color lyricOutlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.82)
+    readonly property color lyricShadowColor: Qt.rgba(0.02, 0.025, 0.03, 0.30)
+    readonly property real lyricShadowBlur: 0
+    readonly property real lyricShadowVerticalOffset: 1
     readonly property int activeLineHeight: UserSettings.lyricsFontSize + 20
     readonly property int secondaryLineHeight: secondaryFontSize + 14
+    readonly property int activeLineTopMargin: 12
+    readonly property real activeLineY: lyricSurface.y + activeLineTopMargin
+    readonly property real secondaryLineY: activeLineY + activeLineHeight
+    readonly property real incomingActiveY: secondaryLineY
+                                                   + (secondaryLineHeight - activeLineHeight) / 2
+    readonly property real incomingActiveScale: secondaryFontSize
+                                                       / Math.max(1, UserSettings.lyricsFontSize)
+    readonly property real outgoingExitProgress: Math.min(
+                                                      1,
+                                                      lyricTransitionProgress / 0.78
+                                                  )
+    readonly property real secondaryEntryProgress: Math.max(
+                                                       0,
+                                                       Math.min(
+                                                           1,
+                                                           (lyricTransitionProgress - 0.30) / 0.70
+                                                       )
+                                                   )
     readonly property int lyricSurfaceWidth: Math.round(Math.min(
                                                             width - 24,
                                                             Math.max(
@@ -94,14 +122,82 @@ Window {
             positionSaveTimer.restart()
     }
 
+    function finishLyricTransition() {
+        lyricTransitionProgress = 1
+    }
+
+    function canAnimateForward(previousLineIndex, previousActiveText) {
+        if (previousLineIndex < 0
+                || previousActiveText.length === 0
+                || activeText.length === 0)
+            return false
+        if (displayLineIndex === previousLineIndex + 1)
+            return true
+        if (displayLineIndex <= previousLineIndex + 1
+                || previousLineIndex >= Player.lyrics.length)
+            return false
+
+        const previousTimestamp = Number(Player.lyrics[previousLineIndex].t)
+        for (let index = previousLineIndex + 1;
+             index < displayLineIndex;
+             ++index) {
+            if (Number(Player.lyrics[index].t) !== previousTimestamp)
+                return false
+        }
+        return true
+    }
+
+    function syncRenderedLyrics(animateForward) {
+        lyricLineAdvance.stop()
+
+        const previousLineIndex = renderedLineIndex
+        const previousActiveText = renderedActiveText
+        const shouldAnimate = animateForward && canAnimateForward(
+                                  previousLineIndex,
+                                  previousActiveText
+                              )
+
+        outgoingActiveText = previousActiveText
+        renderedLineIndex = displayLineIndex
+        renderedActiveText = activeText
+        renderedNextText = nextText
+        lyricTransitionProgress = 1
+
+        if (!shouldAnimate)
+            return
+
+        lyricTransitionProgress = 0
+        lyricLineAdvance.start()
+    }
+
+    function refreshRenderedLyrics() {
+        if (!componentReady || renderedLineIndex !== displayLineIndex)
+            return
+        if (renderedActiveText !== activeText || renderedNextText !== nextText)
+            syncRenderedLyrics(false)
+    }
+
     onXChanged: schedulePositionSave()
     onYChanged: schedulePositionSave()
     onHeightChanged: {
         if (positionReady)
             Qt.callLater(clampToVisibleArea)
     }
+    onDisplayLineIndexChanged: {
+        Qt.callLater(function() {
+            if (componentReady && renderedLineIndex !== displayLineIndex)
+                syncRenderedLyrics(true)
+        })
+    }
 
-    Component.onCompleted: restorePosition()
+    Component.onCompleted: {
+        renderedLineIndex = displayLineIndex
+        renderedActiveText = activeText
+        renderedNextText = nextText
+        finishLyricTransition()
+        componentReady = true
+        restorePosition()
+    }
 
     FrameAnimation {
         id: lyricFrame
@@ -123,6 +219,11 @@ Window {
 
         function onCurrentSongChanged() {
             lyricsWindow.displayPosition = Player.position
+            Qt.callLater(lyricsWindow.refreshRenderedLyrics)
+        }
+
+        function onLyricsChanged() {
+            Qt.callLater(lyricsWindow.refreshRenderedLyrics)
         }
     }
 
@@ -140,7 +241,7 @@ Window {
         id: activeMetrics
         font.family: UserSettings.lyricsFontFamily
         font.pixelSize: UserSettings.lyricsFontSize
-        font.weight: Font.Medium
+        font.weight: Font.DemiBold
         text: lyricsWindow.activeText
     }
 
@@ -190,6 +291,7 @@ Window {
         width: 212
         height: 38
         borderRadius: height / 2
+        contentPadding: Fluent.Enums.spacing.none
         interactionEnabled: false
         color: Qt.rgba(0.97, 0.98, 0.99, 0.94)
         border.width: Fluent.Enums.border.thin
@@ -267,33 +369,71 @@ Window {
     }
 
     WordFill {
+        id: outgoingLyric
+        z: 3
+        visible: lyricLineAdvance.running
+                 && lyricsWindow.outgoingActiveText.length > 0
+        anchors.left: lyricSurface.left
+        anchors.right: lyricSurface.right
+        anchors.leftMargin: 34
+        anchors.rightMargin: 34
+        y: lyricsWindow.activeLineY
+           - lyricsWindow.activeLineHeight
+           * 0.45
+           * lyricsWindow.outgoingExitProgress
+        opacity: 1 - lyricsWindow.outgoingExitProgress
+        height: lyricsWindow.activeLineHeight
+        text: lyricsWindow.outgoingActiveText
+        progress: 1
+        fontFamily: UserSettings.lyricsFontFamily
+        pixelSize: UserSettings.lyricsFontSize
+        minimumPixelSize: UserSettings.lyricsFontSizeMinimum
+        fontWeight: Font.DemiBold
+        renderType: Text.CurveRendering
+        restingColor: UserSettings.lyricsUnplayedColor
+        activeColor: UserSettings.lyricsPlayedColor
+        restingOpacity: 0.96
+        outlineColor: lyricsWindow.lyricOutlineColor
+        shadowColor: lyricsWindow.lyricShadowColor
+        shadowBlur: lyricsWindow.lyricShadowBlur
+        shadowVerticalOffset: lyricsWindow.lyricShadowVerticalOffset
+    }
+
+    WordFill {
         id: activeLyric
         z: 2
         anchors.left: lyricSurface.left
         anchors.right: lyricSurface.right
-        anchors.top: lyricSurface.top
-        anchors.topMargin: 12
         anchors.leftMargin: 34
         anchors.rightMargin: 34
+        y: lyricsWindow.incomingActiveY
+           + (lyricsWindow.activeLineY - lyricsWindow.incomingActiveY)
+           * lyricsWindow.lyricTransitionProgress
         height: lyricsWindow.activeLineHeight
-        text: lyricsWindow.activeText
-        progress: lyricsWindow.activeLine
+        transformOrigin: Item.Center
+        scale: lyricsWindow.incomingActiveScale
+               + (1 - lyricsWindow.incomingActiveScale)
+               * lyricsWindow.lyricTransitionProgress
+        opacity: 0.96 + 0.04 * lyricsWindow.lyricTransitionProgress
+        text: lyricsWindow.renderedActiveText
+        progress: lyricsWindow.renderedLineIndex >= 0
                   ? Player.visualLyricProgress(
-                        lyricsWindow.displayLineIndex,
+                        lyricsWindow.renderedLineIndex,
                         lyricsWindow.displayPosition
                     )
                   : 0
         fontFamily: UserSettings.lyricsFontFamily
         pixelSize: UserSettings.lyricsFontSize
         minimumPixelSize: UserSettings.lyricsFontSizeMinimum
-        bold: true
+        fontWeight: Font.DemiBold
+        renderType: Text.CurveRendering
         restingColor: UserSettings.lyricsUnplayedColor
         activeColor: UserSettings.lyricsPlayedColor
         restingOpacity: 0.96
-        outlineColor: Qt.rgba(0.02, 0.025, 0.03, 0.90)
-        shadowColor: Qt.rgba(0, 0, 0, 0.72)
-        shadowBlur: 0.18
-        shadowVerticalOffset: 2
+        outlineColor: lyricsWindow.lyricOutlineColor
+        shadowColor: lyricsWindow.lyricShadowColor
+        shadowBlur: lyricsWindow.lyricShadowBlur
+        shadowVerticalOffset: lyricsWindow.lyricShadowVerticalOffset
     }
 
     Item {
@@ -301,20 +441,24 @@ Window {
         z: 2
         anchors.left: lyricSurface.left
         anchors.right: lyricSurface.right
-        anchors.top: activeLyric.bottom
         anchors.leftMargin: 42
         anchors.rightMargin: 42
+        y: lyricsWindow.secondaryLineY
+           + lyricsWindow.secondaryLineHeight
+           * 0.35
+           * (1 - lyricsWindow.secondaryEntryProgress)
         height: lyricsWindow.secondaryLineHeight
+        opacity: lyricsWindow.secondaryEntryProgress
 
         Fluent.Label {
             anchors.fill: parent
             type: Fluent.Enums.label.type_subtitle
-            text: lyricsWindow.nextText
+            text: lyricsWindow.renderedNextText
             customTextColor: UserSettings.lyricsUnplayedColor
             opacity: 0.92
             font.family: UserSettings.lyricsFontFamily
             font.pixelSize: lyricsWindow.secondaryFontSize
-            font.weight: Font.Medium
+            font.weight: Font.Normal
             font.letterSpacing: 0
             fontSizeMode: Text.Fit
             minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)
@@ -322,17 +466,28 @@ Window {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
             style: Text.Outline
-            styleColor: Qt.rgba(0.02, 0.025, 0.03, 0.88)
-            renderType: Text.QtRendering
+            styleColor: lyricsWindow.lyricOutlineColor
+            renderType: Text.CurveRendering
             renderTypeQuality: Text.VeryHighRenderTypeQuality
             layer.enabled: true
             layer.effect: Fluent.Shadow {
-                blur: 0.16
-                color: Qt.rgba(0, 0, 0, 0.68)
+                blur: lyricsWindow.lyricShadowBlur
+                color: lyricsWindow.lyricShadowColor
                 horizontalOffset: 0
-                verticalOffset: 2
+                verticalOffset: lyricsWindow.lyricShadowVerticalOffset
             }
         }
+    }
+
+    NumberAnimation {
+        id: lyricLineAdvance
+        target: lyricsWindow
+        property: "lyricTransitionProgress"
+        from: 0
+        to: 1
+        duration: Fluent.Enums.duration.slower
+        easing.type: Easing.InOutCubic
+        onStopped: lyricsWindow.finishLyricTransition()
     }
 
     Fluent.WindowDragHandle {

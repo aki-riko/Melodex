@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 func TestInspectSongQualityCachedPersistsResult(t *testing.T) {
@@ -34,12 +34,12 @@ func TestInspectSongQualityCachedPersistsResult(t *testing.T) {
 	defer server.Close()
 
 	origProvider := qualityDownloadURLProvider
-	qualityDownloadURLProvider = func(song model.Song) (string, error) {
+	qualityDownloadURLProvider = func(song model.Track) (string, error) {
 		return server.URL + "/track.mp3", nil
 	}
 	defer func() { qualityDownloadURLProvider = origProvider }()
 
-	song := model.Song{ID: "song-1", Source: "netease", Duration: 100}
+	song := model.Track{ID: "song-1", Source: "netease", Duration: 100}
 	first := inspectSongQualityCached(song, song.Duration)
 	if !first.Valid || first.Cached {
 		t.Fatalf("first result = %#v, want valid non-cached", first)
@@ -72,7 +72,7 @@ func TestCachedQualityRecomputesBitrateWhenDurationArrives(t *testing.T) {
 	t.Cleanup(resetCollectionStateForTest)
 	InitDB()
 
-	song := model.Song{ID: "song-2", Source: "qq"}
+	song := model.Track{ID: "song-2", Source: "qq"}
 	putQualityCache(song, qualityInspectResult{
 		Valid:     true,
 		SizeBytes: 4_000_000,
@@ -107,12 +107,12 @@ func TestQualityCacheKeyIncludesCookieFingerprint(t *testing.T) {
 	defer server.Close()
 
 	origProvider := qualityDownloadURLProvider
-	qualityDownloadURLProvider = func(song model.Song) (string, error) {
+	qualityDownloadURLProvider = func(song model.Track) (string, error) {
 		return server.URL + "/track.mp3", nil
 	}
 	defer func() { qualityDownloadURLProvider = origProvider }()
 
-	song := model.Song{ID: "002xpBxA13oPjq", Source: "qq", Duration: 100}
+	song := model.Track{ID: "002xpBxA13oPjq", Source: "qq", Duration: 100}
 	core.CM.SetAll(map[string]string{"qq": "qqmusic_uin=123456; qm_keyst=FIRST"})
 	first := inspectSongQualityCached(song, song.Duration)
 	if !first.Valid || first.Cached {
@@ -152,12 +152,12 @@ func TestQualityCacheKeySkipsLegacyQQProbeCache(t *testing.T) {
 	defer server.Close()
 
 	origProvider := qualityDownloadURLProvider
-	qualityDownloadURLProvider = func(song model.Song) (string, error) {
+	qualityDownloadURLProvider = func(song model.Track) (string, error) {
 		return server.URL + "/track.mp3", nil
 	}
 	defer func() { qualityDownloadURLProvider = origProvider }()
 
-	song := model.Song{ID: "002t0xbC4DCGdE", Source: "qq", Duration: 100, Extra: map[string]string{"songmid": "002t0xbC4DCGdE"}}
+	song := model.Track{ID: "002t0xbC4DCGdE", Source: "qq", Duration: 100, Extra: map[string]string{"songmid": "002t0xbC4DCGdE"}}
 	core.CM.SetAll(map[string]string{"qq": "qqmusic_uin=123456; qm_keyst=FIRST"})
 
 	oldKey, extraHash := legacyQualityCacheKeyForTest(song)
@@ -195,7 +195,7 @@ func TestMarkQualityCacheInvalidOverwritesCachedValid(t *testing.T) {
 	t.Cleanup(resetCollectionStateForTest)
 	InitDB()
 
-	song := model.Song{ID: "002xpBxA13oPjq", Source: "qq", Duration: 100}
+	song := model.Track{ID: "002xpBxA13oPjq", Source: "qq", Duration: 100}
 	core.CM.SetAll(map[string]string{"qq": "qqmusic_uin=123456; qm_keyst=FIRST"})
 	putQualityCache(song, qualityInspectResult{
 		Valid:      true,
@@ -219,7 +219,7 @@ func TestMarkQualityCacheInvalidOverwritesCachedValid(t *testing.T) {
 	}
 }
 
-func legacyQualityCacheKeyForTest(song model.Song) (string, string) {
+func legacyQualityCacheKeyForTest(song model.Track) (string, string) {
 	source := strings.TrimSpace(song.Source)
 	id := strings.TrimSpace(song.ID)
 	if source == "" || id == "" {

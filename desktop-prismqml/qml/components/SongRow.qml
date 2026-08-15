@@ -24,12 +24,11 @@ Fluent.Card {
     width: ListView.view ? ListView.view.width : 720
     height: 68
     cardType: Fluent.Enums.card.type_hover
+    contentPadding: Fluent.Enums.spacing.l
     clickEnabled: false
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Fluent.Enums.spacing.l
-        anchors.rightMargin: Fluent.Enums.spacing.l
         spacing: Fluent.Enums.spacing.l
 
         Fluent.ImageWidget {

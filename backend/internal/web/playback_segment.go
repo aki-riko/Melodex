@@ -13,10 +13,9 @@ import (
 	"path"
 	"strings"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
-	"github.com/guohuiyuan/music-lib/soda"
 )
 
 const playbackSegmentContentType = `audio/mp4; codecs="flac"`
@@ -60,15 +59,7 @@ func playbackSegmentHandler(c *gin.Context) {
 		return
 	}
 
-	song := &model.Song{
-		ID:     id,
-		Source: source,
-		Name:   strings.TrimSpace(c.Query("name")),
-		Artist: strings.TrimSpace(c.Query("artist")),
-		Album:  strings.TrimSpace(c.Query("album")),
-		Cover:  strings.TrimSpace(c.Query("cover")),
-		Extra:  parseSongExtraQuery(c.Query("extra")),
-	}
+	song := playbackSegmentTrackFromQuery(c, id, source)
 	if song.Name == "" {
 		song.Name = "Unknown"
 	}
@@ -145,6 +136,17 @@ func playbackSegmentHandler(c *gin.Context) {
 	}
 }
 
+func playbackSegmentTrackFromQuery(c *gin.Context, id, source string) *model.Track {
+	track := new(model.Track)
+	track.ID, track.Source = id, source
+	track.Name = strings.TrimSpace(c.Query("name"))
+	track.Artist = strings.TrimSpace(c.Query("artist"))
+	track.Album = strings.TrimSpace(c.Query("album"))
+	track.Cover = strings.TrimSpace(c.Query("cover"))
+	track.Extra = parseSongExtraQuery(c.Query("extra"))
+	return track
+}
+
 func playbackSegmentFFmpegArgs(inputExt string) []string {
 	args := []string{
 		"-hide_banner",
@@ -177,7 +179,7 @@ func compactFFmpegError(message string) string {
 	return message
 }
 
-func openPlaybackSegmentInput(c *gin.Context, song *model.Song) (*playbackSegmentInput, error) {
+func openPlaybackSegmentInput(c *gin.Context, song *model.Track) (*playbackSegmentInput, error) {
 	if isLocalMusicSource(song.Source) {
 		return openLocalPlaybackSegmentInput(c, song.ID, "local")
 	}
@@ -220,7 +222,8 @@ func openPlaybackSegmentInput(c *gin.Context, song *model.Song) (*playbackSegmen
 	} else if handled {
 		reader, writer := io.Pipe()
 		go func() {
-			writer.CloseWithError(rangeFetch.WriteTo(writer))
+			_, err := rangeFetch.WriteTo(writer)
+			writer.CloseWithError(err)
 		}()
 		return &playbackSegmentInput{
 			reader:     reader,
@@ -282,14 +285,16 @@ func openLocalPlaybackSegmentInput(c *gin.Context, id string, sourceKind string)
 	}, nil
 }
 
-func openSodaPlaybackSegmentInput(song *model.Song) (*playbackSegmentInput, error) {
-	cookie := core.CM.Get("soda")
-	info, err := soda.New(cookie).GetDownloadInfo(song)
+func openSodaPlaybackSegmentInput(song *model.Track) (*playbackSegmentInput, error) {
+	media, err := core.ResolveProviderMedia(song)
 	if err != nil {
 		markQualityCacheInvalid(*song)
 		return nil, err
 	}
-	req, err := core.BuildSourceRequest(http.MethodGet, info.URL, "soda", "")
+	if media.PlayAuth == "" {
+		return nil, fmt.Errorf("provider returned no soda play auth")
+	}
+	req, err := core.BuildSourceRequest(http.MethodGet, media.URL, "soda", "")
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +311,7 @@ func openSodaPlaybackSegmentInput(song *model.Song) (*playbackSegmentInput, erro
 	if err != nil {
 		return nil, err
 	}
-	decrypted, err := soda.DecryptAudio(encrypted, info.PlayAuth)
+	decrypted, err := core.DecryptSodaAudio(encrypted, media.PlayAuth)
 	if err != nil {
 		return nil, err
 	}

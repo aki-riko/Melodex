@@ -7,8 +7,6 @@ import "../components"
 Item {
     id: root
 
-    signal openPlayerRequested()
-
     readonly property var collectionItems: {
         var result = []
         for (var index = 0; index < Collections.collections.length; ++index) {
@@ -41,14 +39,14 @@ Item {
     function playAll() {
         if (Collections.songs.length === 0) return
         Player.playSong(Collections.songs[0], Collections.songs)
-        root.openPlayerRequested()
     }
 
     Fluent.SplitPane {
         anchors.fill: parent
         orientation: Qt.Horizontal
         splitPosition: 0.34
-        minimumSize: 280
+        firstMinimumSize: 280
+        secondMinimumSize: 280
 
         firstContent: Item {
             anchors.fill: parent
@@ -57,10 +55,10 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Fluent.Enums.spacing.xxxl
                 anchors.rightMargin: Fluent.Enums.spacing.m
+                contentPadding: Fluent.Enums.spacing.xl
 
                 Item {
                     anchors.fill: parent
-                    anchors.margins: Fluent.Enums.spacing.xl
 
                     RowLayout {
                         id: collectionHeader
@@ -151,10 +149,10 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Fluent.Enums.spacing.xxxl
                 anchors.leftMargin: Fluent.Enums.spacing.m
+                contentPadding: Fluent.Enums.spacing.xl
 
                 Item {
                     anchors.fill: parent
-                    anchors.margins: Fluent.Enums.spacing.xl
 
                     RowLayout {
                         id: playlistHeader
@@ -287,7 +285,6 @@ Item {
                                     queue: Collections.songs
                                     onPlayRequested: (song, queue) => {
                                         Player.playSong(song, queue)
-                                        root.openPlayerRequested()
                                     }
                                 }
                             }

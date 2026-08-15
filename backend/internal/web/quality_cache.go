@@ -12,10 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
-	"github.com/guohuiyuan/music-lib/soda"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -59,7 +58,7 @@ var (
 	qualityCacheGCMu           sync.Mutex
 )
 
-func inspectSongQualityCached(song model.Song, duration int) qualityInspectResult {
+func inspectSongQualityCached(song model.Track, duration int) qualityInspectResult {
 	if cached, ok := getCachedQuality(song, duration); ok {
 		return cached
 	}
@@ -68,7 +67,7 @@ func inspectSongQualityCached(song model.Song, duration int) qualityInspectResul
 	return result
 }
 
-func inspectSongQuality(song model.Song, duration int) qualityInspectResult {
+func inspectSongQuality(song model.Track, duration int) qualityInspectResult {
 	source := strings.TrimSpace(song.Source)
 	id := strings.TrimSpace(song.ID)
 	if source == "" || id == "" {
@@ -118,16 +117,7 @@ func inspectSongQuality(song model.Song, duration int) qualityInspectResult {
 	}
 }
 
-func resolveQualityDownloadURL(song model.Song) (string, error) {
-	if song.Source == "soda" {
-		cookie := core.CM.Get("soda")
-		sodaInst := soda.New(cookie)
-		info, err := sodaInst.GetDownloadInfo(&model.Song{ID: song.ID, Source: song.Source, Extra: song.Extra})
-		if err != nil {
-			return "", err
-		}
-		return info.URL, nil
-	}
+func resolveQualityDownloadURL(song model.Track) (string, error) {
 	fn := core.GetDownloadFunc(song.Source)
 	if fn == nil {
 		return "", fmt.Errorf("unsupported source")
@@ -168,7 +158,7 @@ func qualityResultPayload(result qualityInspectResult) gin.H {
 	}
 }
 
-func getCachedQuality(song model.Song, duration int) (qualityInspectResult, bool) {
+func getCachedQuality(song model.Track, duration int) (qualityInspectResult, bool) {
 	currentDB := db
 	if currentDB == nil || isLocalMusicSource(song.Source) {
 		return qualityInspectResult{}, false
@@ -210,7 +200,7 @@ func getCachedQuality(song model.Song, duration int) (qualityInspectResult, bool
 	}, true
 }
 
-func putQualityCache(song model.Song, result qualityInspectResult) {
+func putQualityCache(song model.Track, result qualityInspectResult) {
 	currentDB := db
 	if currentDB == nil || isLocalMusicSource(song.Source) {
 		return
@@ -253,13 +243,13 @@ func putQualityCache(song model.Song, result qualityInspectResult) {
 	maybeGCQualityCache(currentDB)
 }
 
-func markQualityCacheInvalid(song model.Song) {
+func markQualityCacheInvalid(song model.Track) {
 	result := qualityInvalidResult()
 	result.CheckedAt = time.Now()
 	putQualityCache(song, result)
 }
 
-func warmQualityCache(songs []model.Song, concurrency int) {
+func warmQualityCache(songs []model.Track, concurrency int) {
 	currentDB := db
 	if currentDB == nil || len(songs) == 0 {
 		return
@@ -270,7 +260,7 @@ func warmQualityCache(songs []model.Song, concurrency int) {
 	if concurrency > 6 {
 		concurrency = 6
 	}
-	list := make([]model.Song, 0, len(songs))
+	list := make([]model.Track, 0, len(songs))
 	seen := make(map[string]bool)
 	for _, song := range songs {
 		if isLocalMusicSource(song.Source) {
@@ -291,7 +281,7 @@ func warmQualityCache(songs []model.Song, concurrency int) {
 	}
 
 	go func() {
-		jobs := make(chan model.Song)
+		jobs := make(chan model.Track)
 		var wg sync.WaitGroup
 		for i := 0; i < concurrency; i++ {
 			wg.Add(1)
@@ -318,7 +308,7 @@ func warmQualityCache(songs []model.Song, concurrency int) {
 	}()
 }
 
-func qualityCacheKey(song model.Song) (string, string) {
+func qualityCacheKey(song model.Track) (string, string) {
 	source := strings.TrimSpace(song.Source)
 	id := strings.TrimSpace(song.ID)
 	if source == "" || id == "" {

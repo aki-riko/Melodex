@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
 // 验证播放历史:去重(同歌重播刷新时间不新增行)+ 按 played_at 降序 + 用户隔离 + 超限剪枝。
@@ -85,7 +85,7 @@ func TestPlayHistoryBackfillAlbumFromSearchCache(t *testing.T) {
 	u, _ := createUser("dave", "davepass1", RoleUser)
 
 	payload, err := json.Marshal(jsonSearchResponse{
-		Songs: []model.Song{{
+		Songs: []model.Track{{
 			ID:      "song-1",
 			Source:  "qq",
 			Name:    "Song One",

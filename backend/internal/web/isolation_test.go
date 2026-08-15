@@ -33,9 +33,7 @@ func createCollectionViaAPI(t *testing.T, r *gin.Engine, name string) uint {
 	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/collections", jsonBody(map[string]string{"name": name}))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("create collection %q status=%d body=%s", name, rec.Code, rec.Body.String())
-	}
+	assertCollectionCreated(t, rec, name)
 	var resp struct {
 		ID uint `json:"id"`
 	}
@@ -43,6 +41,14 @@ func createCollectionViaAPI(t *testing.T, r *gin.Engine, name string) uint {
 		t.Fatalf("decode create resp: %v", err)
 	}
 	return resp.ID
+}
+
+func assertCollectionCreated(t *testing.T, rec *httptest.ResponseRecorder, name string) {
+	t.Helper()
+	if rec.Code == http.StatusOK {
+		return
+	}
+	t.Fatalf("create collection %q status=%d body=%s", name, rec.Code, rec.Body.String())
 }
 
 func listCollectionIDs(t *testing.T, r *gin.Engine) []uint {

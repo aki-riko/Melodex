@@ -6,6 +6,41 @@
 
 namespace melodex {
 
+std::optional<qint64> resolvePlaybackRestorePosition(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds) {
+    // Qt 可能先发布时长、后确认流可定位；此时 setPosition 会被忽略，
+    // 所以必须保留待恢复进度，等 seekableChanged 后再应用。
+    if (!seekable)
+        return std::nullopt;
+    qint64 target = qMax<qint64>(0, requestedMilliseconds);
+    if (durationMilliseconds > 0)
+        target = qMin(target, durationMilliseconds);
+    return target;
+}
+
+PlaybackRestoreDecision decidePlaybackRestore(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds,
+    bool playbackActive, bool seekAlreadyIssued) {
+    const auto target = resolvePlaybackRestorePosition(
+        requestedMilliseconds, seekable && playbackActive,
+        durationMilliseconds);
+    return {target, target.has_value() && !seekAlreadyIssued};
+}
+
+qint64 presentedPlaybackPosition(
+    qint64 playerMilliseconds,
+    const std::optional<qint64> &pendingRestoreMilliseconds) {
+    return qMax<qint64>(
+        0, pendingRestoreMilliseconds.value_or(playerMilliseconds));
+}
+
+bool playbackRestoreReached(qint64 playerMilliseconds,
+                            qint64 requestedMilliseconds) {
+    constexpr qint64 kPositionToleranceMs = 1000;
+    return qAbs(playerMilliseconds - requestedMilliseconds) <=
+           kPositionToleranceMs;
+}
+
 void PlayerController::onCurrentUserChanged() {
     savePlaybackState();
     m_saveTimer.stop();
@@ -64,6 +99,7 @@ void PlayerController::restorePlaybackState() {
     m_currentLyricProgress = 0.0;
     m_pendingRestorePositionMs = positionMs;
     m_restoringState = positionMs > 0;
+    m_restoreSeekIssued = false;
     setError({});
     emit queueChanged();
     emit currentSongChanged();
@@ -138,6 +174,7 @@ void PlayerController::clearPlayback() {
     m_playWhenSourceReady = false;
     m_pendingRestorePositionMs.reset();
     m_restoringState = false;
+    m_restoreSeekIssued = false;
     m_changingSource = true;
     m_player->stop();
     m_player->setSource({});

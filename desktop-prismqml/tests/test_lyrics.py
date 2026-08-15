@@ -3,7 +3,11 @@
 
 import unittest
 
-from melodex_desktop.lyrics import current_lyric_index, parse_lrc
+from melodex_desktop.lyrics import (
+    current_lyric_index,
+    parse_lrc,
+    secondary_lyric_index,
+)
 
 
 class LyricsTests(unittest.TestCase):
@@ -34,6 +38,51 @@ class LyricsTests(unittest.TestCase):
         self.assertEqual(current_lyric_index(lines, 1.0), 0)
         self.assertEqual(current_lyric_index(lines, 4.99), 1)
         self.assertEqual(current_lyric_index(lines, 99), 2)
+
+    def test_same_timestamp_group_keeps_real_qq_source_order(self) -> None:
+        lines = parse_lrc(
+            "[00:44.88]冲[00:45.07]得[00:45.28]破[00:45.66]盲[00:46.03]点"
+            "[00:46.77] [00:46.77]找[00:47.40]到[00:47.70]光[00:48.34]点[00:50.78]\n"
+            "[00:44.88]cong [00:45.07]da [00:45.28]po [00:45.66]mang "
+            "[00:46.03]din [00:46.77] [00:46.77]zou [00:47.40]dou "
+            "[00:47.70]guong [00:48.34]din [00:50.78]\n"
+            "[00:51.11]TWINS：[00:51.73]\n"
+            "[00:52.14]让[00:52.34]二[00:52.62]人[00:52.96]划[00:53.27]破"
+            "[00:53.54]黑[00:53.94]夜[00:54.53]\n"
+        )
+
+        self.assertEqual(
+            [line["text"] for line in lines],
+            [
+                "冲得破盲点 找到光点",
+                "cong da po mang din  zou dou guong din",
+                "TWINS：",
+                "让二人划破黑夜",
+            ],
+        )
+        active_index = current_lyric_index(lines, 45.0)
+        self.assertEqual(active_index, 0)
+        self.assertEqual(secondary_lyric_index(lines, active_index), 1)
+        self.assertEqual(current_lyric_index(lines, 51.2), 2)
+        self.assertEqual(secondary_lyric_index(lines, 2), 3)
+        self.assertAlmostEqual(lines[0]["end"], 51.11)
+        self.assertAlmostEqual(lines[1]["end"], 51.11)
+
+    def test_same_timestamp_group_does_not_force_companion_position(self) -> None:
+        lines = parse_lrc(
+            "[00:01.00]原文在前\n"
+            "[00:01.00]translation after\n"
+            "[00:03.00]translation before\n"
+            "[00:03.00]原文在后\n"
+        )
+
+        first_group = current_lyric_index(lines, 1.5)
+        self.assertEqual(lines[first_group]["text"], "原文在前")
+        self.assertEqual(lines[secondary_lyric_index(lines, first_group)]["text"], "translation after")
+
+        second_group = current_lyric_index(lines, 3.5)
+        self.assertEqual(lines[second_group]["text"], "translation before")
+        self.assertEqual(lines[secondary_lyric_index(lines, second_group)]["text"], "原文在后")
 
     def test_empty_input_returns_empty_lines(self) -> None:
         self.assertEqual(parse_lrc(""), [])

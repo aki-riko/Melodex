@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/aki-riko/Melodex/backend/core"
 )
 
 func TestCookieStatusDetailsAreRedactedAndAliasQQWX(t *testing.T) {

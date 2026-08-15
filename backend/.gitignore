@@ -1,13 +1,12 @@
 downloads/
 data/downloads/
-music-dl.exe
-music-dl
-!cmd/music-dl/
+melodex.exe
+melodex
+!cmd/melodex/
 cookies.json
 data/cookies.json
 target/
-music-dl-desktop*
-go-music-dl-desktop*
+melodex-desktop*
 dist/
 nul
 video_output/

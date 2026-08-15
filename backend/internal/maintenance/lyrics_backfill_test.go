@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/glebarez/sqlite"
-	"github.com/guohuiyuan/music-lib/model"
 	"gorm.io/gorm"
 )
 
@@ -28,7 +28,7 @@ func TestBackfillLyricsDryRunDeduplicatesOwners(t *testing.T) {
 		DownloadDir: downloadDir,
 		DryRun:      true,
 		Output:      &output,
-		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
+		FetchLyric: func(source string, song *model.Track) (string, *model.Track, error) {
 			fetches++
 			if song.Duration != 274 {
 				t.Fatalf("song duration=%d want=274", song.Duration)
@@ -62,7 +62,7 @@ func TestBackfillLyricsWritesSidecarAndReportsMetadataWarning(t *testing.T) {
 	summary, err := BackfillLyrics(context.Background(), db, LyricsBackfillOptions{
 		DownloadDir: downloadDir,
 		Output:      &output,
-		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
+		FetchLyric: func(source string, song *model.Track) (string, *model.Track, error) {
 			return "[00:01.00]第一句\r\n[00:02.00]第二句", song, nil
 		},
 		ReadEmbeddedLyric: func(string) (string, error) {
@@ -103,7 +103,7 @@ func TestBackfillLyricsSkipsExistingLyrics(t *testing.T) {
 	fetches := 0
 	summary, err := BackfillLyrics(context.Background(), db, LyricsBackfillOptions{
 		DownloadDir: downloadDir,
-		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
+		FetchLyric: func(source string, song *model.Track) (string, *model.Track, error) {
 			fetches++
 			return "[00:01.00]不应请求", song, nil
 		},
@@ -136,7 +136,7 @@ func TestBackfillLyricsRejectsConflictsUnsafePathsAndPlaceholders(t *testing.T) 
 	)
 	summary, err := BackfillLyrics(context.Background(), db, LyricsBackfillOptions{
 		DownloadDir: downloadDir,
-		FetchLyric: func(source string, song *model.Song) (string, *model.Song, error) {
+		FetchLyric: func(source string, song *model.Track) (string, *model.Track, error) {
 			return "[00:00.00] 暂无歌词", song, nil
 		},
 		ReadEmbeddedLyric: noEmbeddedLyrics,

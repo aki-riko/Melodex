@@ -6,7 +6,7 @@
 
 - 本机浏览器: Thorium, `C:\Users\Kotori\AppData\Local\Thorium\Application\thorium.exe`
 - 前端: Vite preview, `http://127.0.0.1:4173`
-- 后端: `music-dl web --desktop --port 8330 --no-browser`, `http://127.0.0.1:8330`
+- 后端: `melodex web --desktop --port 8330 --no-browser`, `http://127.0.0.1:8330`
 - 用户: desktop local admin, `user.id=1`
 - 浏览器数据: 独立临时 profile, 不污染用户日常 Thorium profile
 

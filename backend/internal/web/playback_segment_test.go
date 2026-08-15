@@ -10,7 +10,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/guohuiyuan/go-music-dl/core"
+	"github.com/aki-riko/Melodex/backend/core"
 )
 
 func TestPlaybackSegmentFFmpegArgsPreserveFLAC(t *testing.T) {

@@ -54,7 +54,11 @@ bool PlayerController::playing() const {
     return m_player->playbackState() == QMediaPlayer::PlayingState;
 }
 
-double PlayerController::position() const { return m_player->position() / 1000.0; }
+double PlayerController::position() const {
+    return presentedPlaybackPosition(m_player->position(),
+                                     m_pendingRestorePositionMs) /
+           1000.0;
+}
 
 double PlayerController::duration() const { return m_player->duration() / 1000.0; }
 
@@ -63,6 +67,8 @@ double PlayerController::volume() const { return m_audio->volume(); }
 QVariantList PlayerController::queue() const { return toVariantList(m_queue); }
 
 double PlayerController::visualPosition() const {
+    if (m_pendingRestorePositionMs.has_value())
+        return position();
     double milliseconds = static_cast<double>(m_positionAnchorMs);
     if (playing() && m_positionAnchorClock.isValid()) {
         const double playbackRate =
@@ -77,6 +83,10 @@ double PlayerController::visualPosition() const {
 
 int PlayerController::visualLyricIndex(double positionSeconds) const {
     return melodex::currentLyricIndex(m_lyrics, qMax(0.0, positionSeconds));
+}
+
+int PlayerController::visualSecondaryLyricIndex(int activeIndex) const {
+    return melodex::secondaryLyricIndex(m_lyrics, activeIndex);
 }
 
 double PlayerController::visualLyricProgress(int index, double positionSeconds) const {
@@ -94,6 +104,7 @@ void PlayerController::playSong(const QVariantMap &songValue,
     savePlaybackState();
     m_pendingRestorePositionMs.reset();
     m_restoringState = false;
+    m_restoreSeekIssued = false;
     m_queue.clear();
     for (const QVariant &entry : queueValues) {
         if (entry.canConvert<QVariantMap>())
@@ -164,6 +175,7 @@ void PlayerController::previous() {
 void PlayerController::seek(double seconds) {
     m_pendingRestorePositionMs.reset();
     m_restoringState = false;
+    m_restoreSeekIssued = false;
     const double normalized = qMax(0.0, seconds);
     updatePositionAnchor(static_cast<qint64>(normalized * 1000.0));
     m_player->setPosition(static_cast<qint64>(normalized * 1000.0));
@@ -176,6 +188,12 @@ void PlayerController::setVolume(double value) {
 
 void PlayerController::onPositionChanged(qint64 milliseconds) {
     updatePositionAnchor(milliseconds);
+    if (m_pendingRestorePositionMs.has_value() &&
+        playbackRestoreReached(milliseconds, *m_pendingRestorePositionMs)) {
+        m_pendingRestorePositionMs.reset();
+        m_restoringState = false;
+        m_restoreSeekIssued = false;
+    }
     emit positionChanged();
     updateLyricPosition();
     if (!m_restoringState && !m_changingSource)
@@ -206,6 +224,8 @@ void PlayerController::updateLyricPosition() {
 void PlayerController::onPlaybackStateChanged(QMediaPlayer::PlaybackState state) {
     updatePositionAnchor(m_player->position());
     emit playingChanged();
+    if (m_pendingRestorePositionMs.has_value())
+        applyPendingRestorePosition();
     if (state != QMediaPlayer::PlayingState && !m_changingSource)
         savePlaybackState();
 }
@@ -228,6 +248,7 @@ void PlayerController::requestStreamSource(const QVariantMap &song, bool autopla
     m_pendingSourceKey = key;
     m_loadedSourceKey.clear();
     m_playWhenSourceReady = autoplay;
+    m_restoreSeekIssued = false;
     m_changingSource = true;
     m_player->stop();
     m_player->setSource({});
@@ -262,14 +283,23 @@ void PlayerController::requestStreamSource(const QVariantMap &song, bool autopla
 void PlayerController::applyPendingRestorePosition() {
     if (!m_pendingRestorePositionMs.has_value())
         return;
-    if (!m_player->isSeekable() && m_player->duration() <= 0)
+    const PlaybackRestoreDecision decision = decidePlaybackRestore(
+        *m_pendingRestorePositionMs, m_player->isSeekable(),
+        m_player->duration(), playing(), m_restoreSeekIssued);
+    if (!decision.targetMilliseconds.has_value())
         return;
-    qint64 target = *m_pendingRestorePositionMs;
-    if (m_player->duration() > 0)
-        target = qMin(target, m_player->duration());
+    const qint64 target = *decision.targetMilliseconds;
+    m_pendingRestorePositionMs = target;
+    if (!decision.issueSeek)
+        return;
+    m_restoreSeekIssued = true;
     m_player->setPosition(target);
-    m_pendingRestorePositionMs.reset();
-    m_restoringState = false;
+    updatePositionAnchor(target);
+    if (playbackRestoreReached(m_player->position(), target)) {
+        m_pendingRestorePositionMs.reset();
+        m_restoringState = false;
+        m_restoreSeekIssued = false;
+    }
     emit positionChanged();
 }
 

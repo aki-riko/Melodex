@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guohuiyuan/go-music-dl/core"
-	"github.com/guohuiyuan/music-lib/model"
+	"github.com/aki-riko/Melodex/backend/core"
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"gorm.io/gorm"
 )
 
@@ -50,7 +50,7 @@ func main() {
 	}
 	log.Printf("missing album rows: %d dry_run=%v", len(rows), *dryRun)
 
-	cache := map[string][]model.Song{}
+	cache := map[string][]model.Track{}
 	updated := 0
 	unmatched := 0
 	for i, row := range rows {
@@ -154,7 +154,7 @@ func rowIDs(row songRow, extra map[string]string) map[string]struct{} {
 	return ids
 }
 
-func resolveAlbum(row songRow, targetIDs map[string]struct{}, cache map[string][]model.Song) (albumMeta, bool) {
+func resolveAlbum(row songRow, targetIDs map[string]struct{}, cache map[string][]model.Track) (albumMeta, bool) {
 	search := core.GetSearchFunc(row.Source)
 	if search == nil {
 		return albumMeta{}, false
@@ -189,7 +189,7 @@ func resolveAlbum(row songRow, targetIDs map[string]struct{}, cache map[string][
 	return albumMeta{}, false
 }
 
-func findMatch(songs []model.Song, targetIDs map[string]struct{}) (albumMeta, bool) {
+func findMatch(songs []model.Track, targetIDs map[string]struct{}) (albumMeta, bool) {
 	for _, song := range songs {
 		for _, id := range candidateIDs(song) {
 			if _, ok := targetIDs[id]; !ok {
@@ -251,7 +251,7 @@ func parseLinks(source string, targetIDs map[string]struct{}) []string {
 	return links
 }
 
-func albumFromSong(song model.Song) (albumMeta, bool) {
+func albumFromSong(song model.Track) (albumMeta, bool) {
 	album := strings.TrimSpace(song.Album)
 	if album == "" {
 		album = firstExtra(song.Extra, "album", "albumName", "albumname", "album_name")
@@ -266,7 +266,7 @@ func albumFromSong(song model.Song) (albumMeta, bool) {
 	return albumMeta{Album: album, AlbumID: albumID}, true
 }
 
-func candidateIDs(song model.Song) []string {
+func candidateIDs(song model.Track) []string {
 	ids := []string{}
 	add := func(value string) {
 		value = strings.TrimSpace(value)
@@ -296,15 +296,7 @@ func hasAnyID(candidates []string, targetIDs map[string]struct{}) bool {
 }
 
 func isDigitsOnly(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, ch := range value {
-		if ch < '0' || ch > '9' {
-			return false
-		}
-	}
-	return true
+	return value != "" && strings.Trim(value, "0123456789") == ""
 }
 
 func firstExtra(extra map[string]string, keys ...string) string {

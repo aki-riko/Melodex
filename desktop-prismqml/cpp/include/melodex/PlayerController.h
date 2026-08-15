@@ -16,6 +16,21 @@ namespace melodex {
 class ApiClient;
 class UserSettings;
 
+std::optional<qint64> resolvePlaybackRestorePosition(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds);
+struct PlaybackRestoreDecision {
+    std::optional<qint64> targetMilliseconds;
+    bool issueSeek = false;
+};
+PlaybackRestoreDecision decidePlaybackRestore(
+    qint64 requestedMilliseconds, bool seekable, qint64 durationMilliseconds,
+    bool playbackActive, bool seekAlreadyIssued);
+qint64 presentedPlaybackPosition(
+    qint64 playerMilliseconds,
+    const std::optional<qint64> &pendingRestoreMilliseconds);
+bool playbackRestoreReached(qint64 playerMilliseconds,
+                            qint64 requestedMilliseconds);
+
 class PlayerController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantMap currentSong READ currentSong NOTIFY currentSongChanged)
@@ -61,6 +76,7 @@ public:
     Q_INVOKABLE void flushPlaybackState();
     Q_INVOKABLE double visualPosition() const;
     Q_INVOKABLE int visualLyricIndex(double positionSeconds) const;
+    Q_INVOKABLE int visualSecondaryLyricIndex(int activeIndex) const;
     Q_INVOKABLE double visualLyricProgress(int index, double positionSeconds) const;
 
 signals:
@@ -119,6 +135,7 @@ private:
     QString m_loadedSourceKey;
     bool m_playWhenSourceReady = false;
     bool m_changingSource = false;
+    bool m_restoreSeekIssued = false;
     QElapsedTimer m_positionAnchorClock;
     qint64 m_positionAnchorMs = 0;
     QTimer m_saveTimer;

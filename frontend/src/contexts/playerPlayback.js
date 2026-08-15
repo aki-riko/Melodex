@@ -7,6 +7,20 @@ export const shouldPreferPlaybackCache = ({
 // state 只作为首次恢复等极短窗口的兜底。
 export const resolveCurrentPlaybackSong = (refSong, stateSong = null) => refSong || stateSong || null;
 
+// MSE 已经挂到当前 audio 后，play() 可能因用户暂停或自动播放策略拒绝。
+// 这两类拒绝不代表媒体管线坏了，保留管线才能让用户稍后继续播放；
+// 真正的解码/媒体源错误仍由上层销毁并回退普通流。
+export const shouldKeepMediaSourceAfterStartFailure = ({
+  error,
+  playback,
+  currentPlayback,
+} = {}) => Boolean(
+  playback
+  && currentPlayback === playback
+  && !playback.destroyed
+  && ['AbortError', 'NotAllowedError'].includes(error?.name),
+);
+
 // 连续播放必须直接在同一个媒体元素上替换源，不能先 removeAttribute('src')
 // 再 load 空源；后者会让 Chromium 移除当前播放器并短暂释放 MediaSession。
 export const replaceAudioSource = (audio, {

@@ -38,20 +38,23 @@ def _lyric_line(segments: list[dict]) -> dict | None:
 
 
 def _fill_end_times(lines: list[dict]) -> None:
-    for line_index, lyric_line in enumerate(lines):
-        line_end = (
-            lines[line_index + 1]["t"]
-            if line_index + 1 < len(lines)
-            else lyric_line["t"] + 5
-        )
-        lyric_line["end"] = line_end
-        words = lyric_line["words"]
-        for word_index, word in enumerate(words):
-            word["end"] = (
-                words[word_index + 1]["t"]
-                if word_index + 1 < len(words)
-                else line_end
-            )
+    group_start = 0
+    while group_start < len(lines):
+        group_timestamp = lines[group_start]["t"]
+        group_end = group_start + 1
+        while group_end < len(lines) and lines[group_end]["t"] == group_timestamp:
+            group_end += 1
+        line_end = lines[group_end]["t"] if group_end < len(lines) else group_timestamp + 5
+        for lyric_line in lines[group_start:group_end]:
+            lyric_line["end"] = line_end
+            words = lyric_line["words"]
+            for word_index, word in enumerate(words):
+                word["end"] = (
+                    words[word_index + 1]["t"]
+                    if word_index + 1 < len(words)
+                    else line_end
+                )
+        group_start = group_end
 
 
 def parse_lrc(raw: str) -> list[dict]:
@@ -72,7 +75,7 @@ def parse_lrc(raw: str) -> list[dict]:
 
 
 def current_lyric_index(lines: list[dict], position: float) -> int:
-    """Return the last lyric line whose timestamp is not after position."""
+    """Return the first source-ordered line in the active timestamp group."""
 
     low = 0
     high = len(lines) - 1
@@ -84,4 +87,21 @@ def current_lyric_index(lines: list[dict], position: float) -> int:
             low = middle + 1
         else:
             high = middle - 1
+    if answer < 0:
+        return answer
+    active_timestamp = lines[answer]["t"]
+    while answer > 0 and lines[answer - 1]["t"] == active_timestamp:
+        answer -= 1
     return answer
+
+
+def secondary_lyric_index(lines: list[dict], active_index: int) -> int:
+    """Return the next source-ordered line without reclassifying lyric roles."""
+
+    if not lines:
+        return -1
+    if active_index < 0:
+        return 0
+    if active_index >= len(lines):
+        return -1
+    return active_index + 1 if active_index + 1 < len(lines) else -1
