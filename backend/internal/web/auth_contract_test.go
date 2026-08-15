@@ -354,28 +354,37 @@ func TestAuthenticationMiddlewareContract(t *testing.T) {
 		if _, err := createUser("owner", "ownerpass1", RoleAdmin); err != nil {
 			t.Fatalf("create admin: %v", err)
 		}
-		router := gin.New()
-		api := router.Group(RoutePrefix)
-		configAPI := api.Group("")
-		configAPI.Use(authRequired(), adminRequired())
-		api.GET("", func(c *gin.Context) { c.String(http.StatusOK, "public") })
-		configAPI.GET("/cookies", func(c *gin.Context) { c.String(http.StatusOK, "config") })
-		configAPI.HEAD("/cookies", func(c *gin.Context) { c.Status(http.StatusNoContent) })
-		publicRecorder := httptest.NewRecorder()
-		router.ServeHTTP(publicRecorder, httptest.NewRequest(http.MethodGet, RoutePrefix, nil))
-		if publicRecorder.Code != http.StatusOK {
-			t.Fatalf("public status = %d", publicRecorder.Code)
+		router := newConfigProtectionContractRouter()
+		if status := authContractRequestStatus(router, http.MethodGet, RoutePrefix); status != http.StatusOK {
+			t.Fatalf("public status = %d", status)
 		}
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
-			request := httptest.NewRequest(method, RoutePrefix+"/cookies", nil)
-			request.Header.Set("Accept", "application/json")
-			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, request)
-			if recorder.Code != http.StatusUnauthorized {
-				t.Fatalf("%s config status = %d", method, recorder.Code)
+			status := authContractRequestStatus(router, method, RoutePrefix+"/cookies")
+			if status != http.StatusUnauthorized {
+				t.Fatalf("%s config status = %d", method, status)
 			}
 		}
 	})
+}
+
+func newConfigProtectionContractRouter() *gin.Engine {
+	router := gin.New()
+	root := router.Group(RoutePrefix)
+	root.GET("", func(c *gin.Context) { c.String(http.StatusOK, "public") })
+	protected := root.Group("")
+	protected.Use(authRequired())
+	protected.Use(adminRequired())
+	protected.GET("/cookies", func(c *gin.Context) { c.String(http.StatusOK, "config") })
+	protected.HEAD("/cookies", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	return router
+}
+
+func authContractRequestStatus(router http.Handler, method, path string) int {
+	request := httptest.NewRequest(method, path, nil)
+	request.Header.Set("Accept", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	return recorder.Code
 }
 
 func encodeSessionForContract(t *testing.T, user *User, secret string, issuedAt time.Time) string {

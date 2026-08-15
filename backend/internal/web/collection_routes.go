@@ -140,13 +140,8 @@ func findImportedCollection(userID uint, imported *Collection) (*Collection, err
 }
 
 func updateCollectionRoute(c *gin.Context) {
-	collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "歌单不存在"})
-		return
-	}
-	if collection.isImported() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "外部导入歌单/专辑不支持编辑，请删除后重新导入"})
+	collection, ok := writableCollectionForRoute(c, "外部导入歌单/专辑不支持编辑，请删除后重新导入")
+	if !ok {
 		return
 	}
 	var input Collection
@@ -212,13 +207,8 @@ type collectionSongInput struct {
 }
 
 func addCollectionSongRoute(c *gin.Context) {
-	collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "歌单不存在"})
-		return
-	}
-	if collection.isImported() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "外部导入歌单/专辑不保存歌曲明细，不能直接加入歌曲"})
+	collection, ok := writableCollectionForRoute(c, "外部导入歌单/专辑不保存歌曲明细，不能直接加入歌曲")
+	if !ok {
 		return
 	}
 	var input collectionSongInput
@@ -226,7 +216,7 @@ func addCollectionSongRoute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误，缺少 id 或 source"})
 		return
 	}
-	_, err = saveSongToManualCollection(collection.ID, model.Track{
+	_, err := saveSongToManualCollection(collection.ID, model.Track{
 		ID: input.SongID, Source: input.Source, Name: input.Name, Artist: input.Artist,
 		Album: input.Album, AlbumID: input.AlbumID, Cover: input.Cover,
 		Duration: input.Duration,
@@ -253,13 +243,8 @@ type collectionSongDeleteInput struct {
 var errInvalidBatchCollectionDelete = errors.New("批量取消收藏需要提供每首歌的 id 和 source")
 
 func deleteCollectionSongsRoute(c *gin.Context) {
-	collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "歌单不存在"})
-		return
-	}
-	if collection.isImported() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "外部导入歌单/专辑没有本地歌曲明细可删除"})
+	collection, ok := writableCollectionForRoute(c, "外部导入歌单/专辑没有本地歌曲明细可删除")
+	if !ok {
 		return
 	}
 	var input collectionSongDeleteInput
@@ -292,6 +277,20 @@ func deleteCollectionSongsRoute(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func writableCollectionForRoute(c *gin.Context, importedMessage string) (*Collection, bool) {
+	collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
+	switch {
+	case err != nil || collection == nil:
+		c.JSON(http.StatusNotFound, gin.H{"error": "歌单不存在"})
+		return nil, false
+	case collection.isImported():
+		c.JSON(http.StatusBadRequest, gin.H{"error": importedMessage})
+		return nil, false
+	default:
+		return collection, true
+	}
 }
 
 func deleteCollectionSongBatch(collectionID uint, input collectionSongDeleteInput) error {

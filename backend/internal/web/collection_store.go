@@ -137,24 +137,30 @@ func migrateLegacyFavorites(unifiedPath string) error {
 		return err
 	}
 	if len(collections) > 0 || len(songs) > 0 {
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			if len(collections) > 0 {
-				if err := tx.Create(&collections).Error; err != nil {
-					return err
-				}
-			}
-			for index := range songs {
-				songs[index].ID = 0
-			}
-			if len(songs) > 0 {
-				return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&songs).Error
-			}
-			return nil
-		}); err != nil {
+		if err := restoreLegacyCollectionRows(collections, songs); err != nil {
 			return err
 		}
 	}
 	return removeLegacyFavoritesFiles(legacyPath)
+}
+
+func restoreLegacyCollectionRows(collections []Collection, songs []SavedSong) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if len(collections) != 0 {
+			result := tx.Create(&collections)
+			if result.Error != nil {
+				return result.Error
+			}
+		}
+		for index := range songs {
+			songs[index].ID = 0
+		}
+		if len(songs) == 0 {
+			return nil
+		}
+		ignoreDuplicates := clause.OnConflict{DoNothing: true}
+		return tx.Clauses(ignoreDuplicates).Create(&songs).Error
+	})
 }
 
 func regularFileExists(path string) (bool, error) {

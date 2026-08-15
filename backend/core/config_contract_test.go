@@ -160,9 +160,7 @@ func TestWebAuthSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload auth settings: %v", err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("auth settings = %#v, want %#v", got, want)
-	}
+	assertWebAuthSettingsEqual(t, got, want)
 
 	if err := SaveWebAuthSettings(WebAuthSettings{}); err != nil {
 		t.Fatalf("save empty auth settings: %v", err)
@@ -174,4 +172,12 @@ func TestWebAuthSettingsRoundTrip(t *testing.T) {
 	if got.Username != DefaultWebAuthUsername {
 		t.Fatalf("normalized auth username = %q, want %q", got.Username, DefaultWebAuthUsername)
 	}
+}
+
+func assertWebAuthSettingsEqual(t *testing.T, got, want WebAuthSettings) {
+	t.Helper()
+	if reflect.DeepEqual(got, want) {
+		return
+	}
+	t.Fatalf("auth settings = %#v, want %#v", got, want)
 }

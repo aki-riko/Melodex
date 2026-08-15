@@ -219,49 +219,88 @@ func TestLocalMusicDeletionReferenceContract(t *testing.T) {
 	initCollectionDBForTest(t)
 	downloadDir := t.TempDir()
 	withLocalMusicDownloadDir(t, downloadDir)
-	audioPath := filepath.Join(downloadDir, "Delete Me.mp3")
-	if err := os.WriteFile(audioPath, []byte("delete me"), 0o644); err != nil {
-		t.Fatalf("write deletion fixture: %v", err)
-	}
-	localID := encodeLocalMusicID("Delete Me.mp3")
-	collections := []Collection{
-		{UserID: testUserID, Name: "Local One", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"},
-		{UserID: testUserID, Name: "Local Two", Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: "local"},
-	}
-	if err := db.Create(&collections).Error; err != nil {
-		t.Fatalf("seed referencing collections: %v", err)
-	}
-	saved := []SavedSong{
-		{CollectionID: collections[0].ID, SongID: localID, Source: localMusicSource, Name: "Delete Me"},
-		{CollectionID: collections[1].ID, SongID: localID, Source: legacyLocalMusicSource, Name: "Delete Me"},
-	}
-	if err := db.Create(&saved).Error; err != nil {
-		t.Fatalf("seed referencing tracks: %v", err)
-	}
+	audioPath, localID := localDeletionFixture(t, downloadDir)
+	references := seedLocalDeletionReferences(t, localID)
 	router := newLocalMusicTestRouter()
-	deletePath := RoutePrefix + "/local_music?id=" + url.QueryEscape(localID)
+	deletePath := localDeletionPath(localID)
 	blocked := performCollectionRequest(router, http.MethodDelete, deletePath, nil)
-	if blocked.Code != http.StatusBadRequest || !strings.Contains(blocked.Body.String(), "Local One") || !strings.Contains(blocked.Body.String(), "Local Two") {
+	blockedBody := blocked.Body.String()
+	if blocked.Code != http.StatusBadRequest || !strings.Contains(blockedBody, "Local One") || !strings.Contains(blockedBody, "Local Two") {
 		t.Fatalf("blocked deletion = %d/%s", blocked.Code, blocked.Body.String())
 	}
 	if _, err := os.Stat(audioPath); err != nil {
 		t.Fatalf("blocked deletion removed media: %v", err)
 	}
-	var count int64
-	if err := db.Model(&SavedSong{}).Where("song_id = ? AND source IN ?", localID, []string{localMusicSource, legacyLocalMusicSource}).Count(&count).Error; err != nil || count != 2 {
+	count, err := countLocalDeletionReferences(localID)
+	if err != nil || count != int64(len(references)) {
 		t.Fatalf("reference count = %d, err=%v", count, err)
 	}
-	for _, track := range saved {
-		removePath := fmt.Sprintf("%s/collections/%d/songs?id=%s&source=%s", RoutePrefix, track.CollectionID, url.QueryEscape(track.SongID), url.QueryEscape(track.Source))
-		if recorder := performCollectionRequest(router, http.MethodDelete, removePath, nil); recorder.Code != http.StatusOK {
-			t.Fatalf("remove collection reference status = %d, body=%s", recorder.Code, recorder.Body.String())
-		}
-	}
+	removeLocalDeletionReferences(t, router, references)
 	deleted := performCollectionRequest(router, http.MethodDelete, deletePath, nil)
 	if deleted.Code != http.StatusOK {
 		t.Fatalf("unreferenced deletion status = %d, body=%s", deleted.Code, deleted.Body.String())
 	}
 	if _, err := os.Stat(audioPath); !os.IsNotExist(err) {
 		t.Fatalf("deleted media stat = %v", err)
+	}
+}
+
+func localDeletionFixture(t *testing.T, downloadDir string) (string, string) {
+	t.Helper()
+	filename := "Delete Me.mp3"
+	audioPath := filepath.Join(downloadDir, filename)
+	if err := os.WriteFile(audioPath, []byte("delete me"), 0o644); err != nil {
+		t.Fatalf("write deletion fixture: %v", err)
+	}
+	return audioPath, encodeLocalMusicID(filename)
+}
+
+func localDeletionPath(localID string) string {
+	return RoutePrefix + "/local_music?id=" + url.QueryEscape(localID)
+}
+
+func seedLocalDeletionReferences(t *testing.T, localID string) []SavedSong {
+	t.Helper()
+	fixtures := []struct {
+		collectionName string
+		source         string
+	}{
+		{collectionName: "Local One", source: localMusicSource},
+		{collectionName: "Local Two", source: legacyLocalMusicSource},
+	}
+	references := make([]SavedSong, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		collection := createManualCollectionForContract(t, fixture.collectionName)
+		reference := SavedSong{}
+		reference.CollectionID = collection.ID
+		reference.SongID = localID
+		reference.Source = fixture.source
+		reference.Name = "Delete Me"
+		if err := db.Create(&reference).Error; err != nil {
+			t.Fatalf("seed %s reference: %v", fixture.collectionName, err)
+		}
+		references = append(references, reference)
+	}
+	return references
+}
+
+func countLocalDeletionReferences(localID string) (int64, error) {
+	var count int64
+	sources := []string{localMusicSource, legacyLocalMusicSource}
+	err := db.Model(&SavedSong{}).Where("song_id = ? AND source IN ?", localID, sources).Count(&count).Error
+	return count, err
+}
+
+func removeLocalDeletionReferences(t *testing.T, router http.Handler, references []SavedSong) {
+	t.Helper()
+	for _, reference := range references {
+		query := url.Values{}
+		query.Set("id", reference.SongID)
+		query.Set("source", reference.Source)
+		endpoint := fmt.Sprintf("%s/collections/%d/songs?%s", RoutePrefix, reference.CollectionID, query.Encode())
+		response := performCollectionRequest(router, http.MethodDelete, endpoint, nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("remove collection reference status = %d, body=%s", response.Code, response.Body.String())
+		}
 	}
 }

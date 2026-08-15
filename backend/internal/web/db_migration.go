@@ -20,14 +20,11 @@ func migrateLegacySQLiteWebData() error {
 		return err
 	}
 
-	legacyDB, err := gorm.Open(sqlite.Open(legacyPath+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"), &gorm.Config{})
+	legacyDB, closeLegacy, err := openLegacySettingsDB(legacyPath)
 	if err != nil {
 		return err
 	}
-	sqlDB, err := legacyDB.DB()
-	if err == nil {
-		defer sqlDB.Close()
-	}
+	defer closeLegacy()
 
 	if err := copyLegacyRows[User](legacyDB, "id ASC"); err != nil {
 		return err
@@ -61,6 +58,19 @@ func migrateLegacySQLiteWebData() error {
 	}
 
 	return resetPostgresSequences()
+}
+
+func openLegacySettingsDB(path string) (*gorm.DB, func(), error) {
+	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	legacyDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, func() {}, err
+	}
+	close := func() {}
+	if sqlDB, sqlErr := legacyDB.DB(); sqlErr == nil {
+		close = func() { _ = sqlDB.Close() }
+	}
+	return legacyDB, close, nil
 }
 
 func copyLegacyRows[T any](legacyDB *gorm.DB, order string) error {

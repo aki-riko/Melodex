@@ -234,19 +234,62 @@ func TestImportedCollectionReadOnlyContract(t *testing.T) {
 func TestManualCollectionBatchDeleteContract(t *testing.T) {
 	initCollectionDBForTest(t)
 	collection := createManualCollectionForContract(t, "Manual Playlist")
-	tracks := []SavedSong{{CollectionID: collection.ID, SongID: "song-1", Source: "qq", Name: "Song One"}, {CollectionID: collection.ID, SongID: "song-2", Source: localMusicSource, Name: "Song Two"}, {CollectionID: collection.ID, SongID: "song-3", Source: "netease", Name: "Song Three"}}
-	if err := db.Create(&tracks).Error; err != nil {
-		t.Fatalf("seed tracks: %v", err)
-	}
+	seedBatchDeleteTracks(t, collection.ID)
 	path := fmt.Sprintf("%s/collections/%d/songs", RoutePrefix, collection.ID)
-	recorder := performCollectionRequest(newCollectionTestRouter(), http.MethodDelete, path, []byte(`{"songs":[{"id":"song-1","source":"qq"},{"id":"song-2","source":"local"}]}`))
+	requestBody := encodeBatchDeleteContractBody(t, [][2]string{{"song-1", "qq"}, {"song-2", localMusicSource}})
+	recorder := performCollectionRequest(newCollectionTestRouter(), http.MethodDelete, path, requestBody)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("batch delete status = %d, body=%s", recorder.Code, recorder.Body.String())
 	}
-	var remaining []SavedSong
-	if err := db.Where("collection_id = ?", collection.ID).Order("song_id ASC").Find(&remaining).Error; err != nil || len(remaining) != 1 || remaining[0].SongID != "song-3" {
-		t.Fatalf("remaining tracks = %#v, err=%v", remaining, err)
+	remaining, err := batchDeleteRemainingSongIDs(collection.ID)
+	if err != nil || len(remaining) != 1 || remaining[0] != "song-3" {
+		t.Fatalf("remaining track IDs = %#v, err=%v", remaining, err)
 	}
+}
+
+func seedBatchDeleteTracks(t *testing.T, collectionID uint) {
+	t.Helper()
+	fixtures := [][3]string{
+		{"song-1", "qq", "Song One"},
+		{"song-2", localMusicSource, "Song Two"},
+		{"song-3", "netease", "Song Three"},
+	}
+	for _, fixture := range fixtures {
+		track := SavedSong{CollectionID: collectionID}
+		track.SongID, track.Source, track.Name = fixture[0], fixture[1], fixture[2]
+		if err := db.Create(&track).Error; err != nil {
+			t.Fatalf("seed batch-delete track %s: %v", track.SongID, err)
+		}
+	}
+}
+
+func encodeBatchDeleteContractBody(t *testing.T, identities [][2]string) []byte {
+	t.Helper()
+	type identity struct {
+		ID     string `json:"id"`
+		Source string `json:"source"`
+	}
+	payload := struct {
+		Songs []identity `json:"songs"`
+	}{Songs: make([]identity, 0, len(identities))}
+	for _, item := range identities {
+		payload.Songs = append(payload.Songs, identity{ID: item[0], Source: item[1]})
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode batch delete body: %v", err)
+	}
+	return encoded
+}
+
+func batchDeleteRemainingSongIDs(collectionID uint) ([]string, error) {
+	var tracks []SavedSong
+	result := db.Where("collection_id = ?", collectionID).Order("song_id ASC").Find(&tracks)
+	identities := make([]string, 0, len(tracks))
+	for _, track := range tracks {
+		identities = append(identities, track.SongID)
+	}
+	return identities, result.Error
 }
 
 func TestImportedCollectionParserFallbackContract(t *testing.T) {

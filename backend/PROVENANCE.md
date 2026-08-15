@@ -39,10 +39,25 @@ compared against these immutable audit references:
 - `guohuiyuan/go-music-dl@9382c00a8401417d303a42336ddc5a8fbdf94842`
 - `guohuiyuan/music-lib@59dd7753bbc8ddba6cb5c859ee93b4d98401e833`
 
-After excluding imports, comments, blank lines, and formatting-only differences,
-the scan found no contiguous five-line implementation block shared with either
-reference in the current production or test source tree. The Go module graph and
-repository text scan also contain no dependency/import path for either project.
+The repeatable lexer-based audit is implemented in
+`scripts/provenance_audit.go`. It excludes package/import declarations and
+comments, then checks exact token windows, complete functions, and whole-file
+hashes. The 2026-08-15 run reported:
+
+- `production_40_token_windows=0`, `test_40_token_windows=0`
+- `production_exact_functions=0`, `test_exact_functions=0`
+- `exact_nonlicense_files=0`, `forbidden_imports=0`
+- `charles_files_compared=65`, `charles_mismatches=0`
+
+The audit also reports short five-line windows as an informational signal. The
+same run found 122 production and 9 test five-line windows, but none reached the
+40-token implementation threshold; these are isolated short field lists,
+standard error responses, and test assertions rather than reusable implementation
+blocks. In addition to the source comparison, the audit parses every non-vendor
+Go import and fails on either historical module path; the reported
+`forbidden_imports=0` is the direct import-graph check. The Go module graph and
+repository text scan contain no dependency/import path for either historical
+project.
 
 This is a current-tree statement, not a Git-history rewrite. Earlier commits in
 this repository still contain historical source. Removing those objects would

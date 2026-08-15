@@ -59,15 +59,7 @@ func playbackSegmentHandler(c *gin.Context) {
 		return
 	}
 
-	song := &model.Track{
-		ID:     id,
-		Source: source,
-		Name:   strings.TrimSpace(c.Query("name")),
-		Artist: strings.TrimSpace(c.Query("artist")),
-		Album:  strings.TrimSpace(c.Query("album")),
-		Cover:  strings.TrimSpace(c.Query("cover")),
-		Extra:  parseSongExtraQuery(c.Query("extra")),
-	}
+	song := playbackSegmentTrackFromQuery(c, id, source)
 	if song.Name == "" {
 		song.Name = "Unknown"
 	}
@@ -142,6 +134,17 @@ func playbackSegmentHandler(c *gin.Context) {
 		log.Printf("[playback-segment] ffmpeg 失败 source=%q id=%q ext=%q: %v stderr=%s",
 			source, id, input.ext, waitErr, compactFFmpegError(stderr.String()))
 	}
+}
+
+func playbackSegmentTrackFromQuery(c *gin.Context, id, source string) *model.Track {
+	track := new(model.Track)
+	track.ID, track.Source = id, source
+	track.Name = strings.TrimSpace(c.Query("name"))
+	track.Artist = strings.TrimSpace(c.Query("artist"))
+	track.Album = strings.TrimSpace(c.Query("album"))
+	track.Cover = strings.TrimSpace(c.Query("cover"))
+	track.Extra = parseSongExtraQuery(c.Query("extra"))
+	return track
 }
 
 func playbackSegmentFFmpegArgs(inputExt string) []string {

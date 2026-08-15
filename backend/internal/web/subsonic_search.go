@@ -297,16 +297,7 @@ func liveCheckSongs(songs []model.Track, concurrency int) []model.Track {
 			defer func() { <-sem }()
 			ok, size, ext := liveCheckSong(song)
 			if ok {
-				if size > 0 {
-					song.Size = size
-					if song.Duration > 0 {
-						song.Bitrate = int((size * 8) / int64(song.Duration) / 1000)
-					}
-				}
-				// 回填真实格式:声明格式必须与实际流一致,否则客户端按错误解码器播不出。
-				if ext != "" {
-					song.Ext = ext
-				}
+				applyLiveMediaFacts(&song, size, ext)
 			}
 			resCh <- result{idx: idx, song: song, ok: ok}
 		}(i, s)

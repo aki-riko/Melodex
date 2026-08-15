@@ -86,29 +86,34 @@ func findBestSwitchSong(name, artist, current, target string, originalDuration i
 func switchCandidateSources(current, target string) []string {
 	current, target = strings.TrimSpace(current), strings.TrimSpace(target)
 	if target != "" {
-		if isSwitchSourceAllowed(target, current) && switchSearchFuncProvider(target) != nil {
-			return []string{target}
-		}
-		return nil
+		return explicitSwitchTarget(current, target)
 	}
 	seen := make(map[string]struct{})
 	sources := make([]string, 0)
-	appendSource := func(source string) {
-		source = strings.TrimSpace(source)
-		_, duplicate := seen[source]
-		if duplicate || !isSwitchSourceAllowed(source, current) || switchSearchFuncProvider(source) == nil {
-			return
-		}
-		seen[source] = struct{}{}
-		sources = append(sources, source)
-	}
 	for _, source := range switchDefaultSourceNames() {
-		appendSource(source)
+		sources = appendEligibleSwitchSource(sources, seen, source, current)
 	}
 	for _, source := range switchAllSourceNames() {
-		appendSource(source)
+		sources = appendEligibleSwitchSource(sources, seen, source, current)
 	}
 	return sources
+}
+
+func explicitSwitchTarget(current, target string) []string {
+	if !isSwitchSourceAllowed(target, current) || switchSearchFuncProvider(target) == nil {
+		return nil
+	}
+	return []string{target}
+}
+
+func appendEligibleSwitchSource(sources []string, seen map[string]struct{}, source, current string) []string {
+	source = strings.TrimSpace(source)
+	_, duplicate := seen[source]
+	if duplicate || !isSwitchSourceAllowed(source, current) || switchSearchFuncProvider(source) == nil {
+		return sources
+	}
+	seen[source] = struct{}{}
+	return append(sources, source)
 }
 
 func isSwitchSourceAllowed(source, current string) bool {

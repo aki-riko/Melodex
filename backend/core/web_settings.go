@@ -86,12 +86,18 @@ func defaultWebAuthSettings() WebAuthSettings {
 }
 
 func normalizeWebAuthSettings(settings WebAuthSettings) WebAuthSettings {
-	if settings.Username = strings.TrimSpace(settings.Username); settings.Username == "" {
-		settings.Username = DefaultWebAuthUsername
-	}
+	settings.Username = normalizedAuthUsername(settings.Username)
 	settings.PasswordHash = strings.TrimSpace(settings.PasswordHash)
 	settings.SessionSecret = strings.TrimSpace(settings.SessionSecret)
 	return settings
+}
+
+func normalizedAuthUsername(username string) string {
+	username = strings.TrimSpace(username)
+	if username != "" {
+		return username
+	}
+	return DefaultWebAuthUsername
 }
 
 func GetWebSettings() WebSettings {
@@ -160,8 +166,9 @@ func SetConfigValue(key, value string) error {
 	if err := ensureConfigDB(); err != nil {
 		return err
 	}
-	return configDB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "key"}},
-		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
-	}).Create(&configKV{Key: key, Value: value}).Error
+	conflict := clause.OnConflict{}
+	conflict.Columns = []clause.Column{{Name: "key"}}
+	conflict.DoUpdates = clause.AssignmentColumns([]string{"value", "updated_at"})
+	record := configKV{Key: key, Value: value}
+	return configDB.Clauses(conflict).Create(&record).Error
 }

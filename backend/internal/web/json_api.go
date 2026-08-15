@@ -192,14 +192,13 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 
 	// 某分类下的歌单
 	userSecure.GET("/category_playlists", func(c *gin.Context) {
-		source := strings.TrimSpace(c.Query("source"))
-		categoryID := strings.TrimSpace(c.Query("category_id"))
-		fn := core.GetCategoryPlaylistsFunc(source)
-		if source == "" || fn == nil {
+		request := categoryPlaylistsRequestFromContext(c)
+		fn := core.GetCategoryPlaylistsFunc(request.Source)
+		if request.Source == "" || fn == nil {
 			c.JSON(400, gin.H{"error": "该源不支持歌单分类"})
 			return
 		}
-		args := apiCacheArgs{Source: source, CategoryID: categoryID}
+		args := apiCacheArgs{Source: request.Source, CategoryID: request.CategoryID}
 		key := apiCacheKey(apiCacheNamespaceCategoryPlaylists, args)
 		if entry, ok := getAPICacheEntry(key); ok {
 			var cached jsonPlaylistListResponse
@@ -212,7 +211,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 				return
 			}
 		}
-		out := buildCategoryPlaylistsResponse(source, categoryID)
+		out := buildCategoryPlaylistsResponse(request.Source, request.CategoryID)
 		if len(out.Playlists) > 0 {
 			putAPICache(key, apiCacheNamespaceCategoryPlaylists, args, out)
 		}
@@ -361,11 +360,10 @@ type jsonPlaylistListResponse struct {
 // jsonSearchHandler 复用 core 的并发多源搜索逻辑,返回结构化 JSON
 // (对应原 music.go 的 /music/search,但用 c.JSON 替代 renderIndex 的 HTML 片段)。
 func jsonSearchHandler(c *gin.Context) {
-	keyword := strings.TrimSpace(c.Query("q"))
-	searchType := c.DefaultQuery("type", "song")
-	exactArtist := strings.TrimSpace(c.Query("exact_artist"))
-	sources := c.QueryArray("sources")
-	skipWarm, _ := strconv.ParseBool(c.DefaultQuery("skip_warm", "false"))
+	request := jsonSearchRequestFromContext(c)
+	keyword, searchType := request.Keyword, request.Type
+	exactArtist, sources := request.ExactArtist, request.Sources
+	skipWarm := request.SkipWarm
 
 	if len(sources) == 0 {
 		sources = defaultSourcesForSearchType(searchType)
@@ -435,6 +433,37 @@ func jsonSearchHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, resp)
+}
+
+type categoryPlaylistsRequest struct {
+	Source     string
+	CategoryID string
+}
+
+func categoryPlaylistsRequestFromContext(c *gin.Context) categoryPlaylistsRequest {
+	return categoryPlaylistsRequest{
+		Source:     strings.TrimSpace(c.Query("source")),
+		CategoryID: strings.TrimSpace(c.Query("category_id")),
+	}
+}
+
+type jsonSearchRequest struct {
+	Keyword     string
+	Type        string
+	ExactArtist string
+	Sources     []string
+	SkipWarm    bool
+}
+
+func jsonSearchRequestFromContext(c *gin.Context) jsonSearchRequest {
+	skipWarm, _ := strconv.ParseBool(c.DefaultQuery("skip_warm", "false"))
+	return jsonSearchRequest{
+		Keyword:     strings.TrimSpace(c.Query("q")),
+		Type:        c.DefaultQuery("type", "song"),
+		ExactArtist: strings.TrimSpace(c.Query("exact_artist")),
+		Sources:     c.QueryArray("sources"),
+		SkipWarm:    skipWarm,
+	}
 }
 
 func jsonSearchCacheDeleteHandler(c *gin.Context) {

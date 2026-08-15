@@ -101,15 +101,26 @@ func (client *Migu) Playlist(id string) (*model.RemoteCollection, []model.Track,
 	}
 	playlist, infoErr := client.playlistInfo(id)
 	if infoErr != nil {
-		playlist = model.RemoteCollection{ID: id, Name: id, Source: "migu", Link: miguPlaylistLink(id)}
+		playlist = miguPlaylistFallback(id)
 	}
+	completeMiguPlaylistMetadata(&playlist, songs)
+	return &playlist, songs, nil
+}
+
+func miguPlaylistFallback(id string) model.RemoteCollection {
+	playlist := model.RemoteCollection{}
+	playlist.ID, playlist.Name, playlist.Source = id, id, "migu"
+	playlist.Link = miguPlaylistLink(id)
+	return playlist
+}
+
+func completeMiguPlaylistMetadata(playlist *model.RemoteCollection, songs []model.Track) {
 	if playlist.TrackCount == 0 {
 		playlist.TrackCount = len(songs)
 	}
-	if playlist.Cover == "" && len(songs) > 0 {
+	if playlist.Cover == "" && len(songs) != 0 {
 		playlist.Cover = songs[0].Cover
 	}
-	return &playlist, songs, nil
 }
 
 func (client *Migu) Album(id string) (*model.RemoteCollection, []model.Track, error) {
