@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aki-riko/Melodex/backend/internal/provider/extensions"
 	"gorm.io/gorm"
 )
 
@@ -162,7 +161,7 @@ func BuildCookieStatusDetail(source, cookie string, verify bool) CookieStatusDet
 	}
 
 	detail.VIPChecked = true
-	vip, err := extensions.NewNetease(cookie).IsVIPAccount()
+	vip, err := verifyProviderAccount(source, cookie)
 	if err != nil {
 		detail.Error = conciseCookieError(err)
 		return detail

@@ -9,8 +9,10 @@ The Go application under `cmd`, `core`, `internal/fileutil`, `internal/maintenan
 not import, vendor, or use a Go module replacement for either of the historical
 `guohuiyuan/go-music-dl` or `guohuiyuan/music-lib` repositories.
 
-The Python files under `provider_bridge` are the Melodex JSON adapter and
-process boundary. They load only the pinned provider snapshot described below.
+The Python files under `provider_bridge` are the only platform-provider process
+boundary. They load only the pinned provider snapshot described below and host
+Melodex-owned collection/QR/account protocol adapters beside it. Go code only
+calls this sidecar through `internal/provider/bridge`.
 
 `MUSIC_DL_*` environment variables, the `/music` route prefix, and a small
 number of public compatibility identifiers remain stable deployment/API names.
@@ -19,8 +21,13 @@ projects.
 
 ## Pinned third-party provider
 
-Multi-source song search, media URL resolution, and lyric retrieval are supplied
-by the source snapshot in `third_party/charles-musicdl`:
+The pinned snapshot supplies the multi-source search, media URL, and lyric
+implementation. The sidecar also contains Melodex-owned HTTP mapping for the
+collection, category, user-playlist, QR, and account operations that the pinned
+upstream does not expose. All of those operations run in the same Charles
+sidecar process; there is no second Go provider implementation.
+
+The source snapshot is stored in `third_party/charles-musicdl`:
 
 - Upstream: <https://github.com/CharlesPikachu/musicdl>
 - Commit: `b4cecd9d450ede6f5c8d4df08763668256dfee58`
@@ -50,7 +57,7 @@ hashes. The 2026-08-15 run reported:
 - `charles_files_compared=65`, `charles_mismatches=0`
 
 The audit also reports short five-line windows as an informational signal. The
-same run found 122 production and 9 test five-line windows, but none reached the
+same run found 114 production and 8 test five-line windows, but none reached the
 40-token implementation threshold; these are isolated short field lists,
 standard error responses, and test assertions rather than reusable implementation
 blocks. In addition to the source comparison, the audit parses every non-vendor

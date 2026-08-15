@@ -20,9 +20,9 @@ Melodex 后端负责用户、歌单、搜索编排、流式播放、服务器下
 当前树、兼容命名与 Git 历史的来源边界记录在
 [`PROVENANCE.md`](./PROVENANCE.md)。
 
-歌单、专辑、分类、平台歌单和网易扫码等应用扩展位于
-[`internal/provider/extensions`](./internal/provider/extensions)。这些扩展只使用 Melodex 自有模型，
-不依赖或内嵌其他 Go 音源库。
+歌单、专辑、分类、平台歌单、网易扫码和账号校验也通过同一个 Provider
+sidecar 提供，协议实现位于 [`provider_bridge`](./provider_bridge)，Go 侧只保留稳定模型
+与业务编排，不再内置平台 HTTP Provider。
 
 ## 能力
 
@@ -63,8 +63,7 @@ go build ./cmd/melodex
 python -m unittest discover -s provider_bridge/tests -v
 ```
 
-真实平台联调需设置相应 Cookie，扩展网络测试另需
-`MELODEX_LIVE_EXTENSIONS=1`。
+真实平台联调需设置相应 Cookie；集合、扫码和账号校验请求均经 Provider sidecar。
 
 ## 许可证
 

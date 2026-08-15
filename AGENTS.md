@@ -148,7 +148,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 
 从已登录平台(当前为网易云/QQ,以 `core.GetUserPlaylistSourceNames()` 为准)一键导入你创建/收藏的歌单。**引用型**:只存 `source+external_id`,打开时后端 `loadImportedCollectionSongs` 实时从平台拉曲目,导入瞬间完成、可在线听、也可整单/逐首下载到 NAS(复用 MyPlaylist 现有下载按钮)。
 
-- **后端能力**由 `internal/provider/extensions` 的 `UserPlaylists` + `GetPlaylistSongs` 提供;`POST /music/collections/import` 建 kind=imported 歌单并去重。
+- **后端能力**由 Charles Provider sidecar 的 `/v1/collections` 返回 `UserPlaylists` + `GetPlaylistSongs`;`POST /music/collections/import` 建 kind=imported 歌单并去重。
 - **新增路由 `GET /api/v1/user_playlists`**(`json_api.go`,userSecure 组需登录):复用 `loadPlaylistTabsJSON` + `userPlaylistsFuncProvider`(可替换以便测试,默认 `core.GetUserPlaylistsFunc`)按源返回 `{tabs:[{source,source_name,playlists,error}]}`。**不缓存**(依登录 cookie,跨用户/跨登录态会串)。未登录的源 `GetUserPlaylists` 自身返 error → 落 tab.Error,前端提示「去设置登录」。
 - **前端**:`musicdl.js` 的 `getUserPlaylists()` 拉列表;`collections.js` 的 `importPlaylist(playlist)` 把 `model.Playlist`(id/name/cover/creator/track_count/link)映射成 import body(content_type='playlist');`ImportPlaylistModal.js` 按源 tab 展示歌单卡片,点击导入,duplicate 提示已导入;Sidebar「+」菜单第三项「从平台导入歌单」。
 - **坑:侧栏必须带 `include_imported=1`**(`listCollections({includeImported:true})`,CollectionsContext 已改),否则导入歌单不显示——后端默认列表只返 manual+favorite。
