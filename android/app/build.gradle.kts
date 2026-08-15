@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 val melodexVersionName = providers.gradleProperty("melodexVersionName").orElse("0.2.0").get()
 val melodexVersionCode = providers.gradleProperty("melodexVersionCode").orElse("2").map(String::toInt).get()
 val releaseKeystoreFile = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
@@ -15,12 +13,11 @@ val releaseSigningReady = listOf(
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
     namespace = "life.nineli.melodex"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "life.nineli.melodex"
@@ -63,16 +60,10 @@ android {
 
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
-    }
-}
-
 dependencies {
     implementation(project(":capacitor-android"))
     implementation("androidx.appcompat:appcompat:1.7.1")
-    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.media3:media3-exoplayer:1.11.0")
     implementation("androidx.media3:media3-session:1.11.0")
 

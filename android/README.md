@@ -12,7 +12,8 @@ Melodex Android 采用 Capacitor + Media3 混合架构：
 
 - Node.js 22+
 - JDK 21
-- Android SDK 36
+- Android SDK Platform 37 (compileSdk); Android SDK Build Tools 36.0.0
+- `targetSdk` remains 36 to avoid changing runtime behavior in this toolchain update
 - Gradle Wrapper（首次构建会解析官方 AndroidX/Media3 依赖）
 
 ## 构建
