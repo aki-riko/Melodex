@@ -59,7 +59,7 @@ func FetchBytesWithMime(urlString, source string) ([]byte, string, error) {
 	if fetch.ContentLength > 0 && fetch.ContentLength <= int64(int(^uint(0)>>1)) {
 		output.Grow(int(fetch.ContentLength))
 	}
-	if err := fetch.WriteTo(&output); err != nil {
+	if _, err := fetch.WriteTo(&output); err != nil {
 		return nil, "", err
 	}
 	return output.Bytes(), fetch.ContentType, nil
@@ -160,16 +160,16 @@ func newSourceRangeFetch(urlString, source, contentType, extension string, start
 	}
 }
 
-func (fetch *SourceRangeFetch) WriteTo(writer io.Writer) error {
+func (fetch *SourceRangeFetch) WriteTo(writer io.Writer) (int64, error) {
 	if fetch == nil {
-		return errors.New("nil range fetch")
+		return 0, errors.New("nil range fetch")
 	}
 	return transferRange(writer, fetch.URL, fetch.Source, fetch.Start, fetch.End)
 }
 
-func transferRange(writer io.Writer, urlString, source string, start, end int64) error {
+func transferRange(writer io.Writer, urlString, source string, start, end int64) (int64, error) {
 	if end < start {
-		return nil
+		return 0, nil
 	}
 	chunks := planRangeChunks(start, end, initialRangeChunkSize, regularRangeChunkSize)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -195,12 +195,13 @@ func transferRange(writer io.Writer, urlString, source string, start, end int64)
 	}
 
 	next := 0
+	var written int64
 	pending := make(map[int]rangeChunkResult)
 	for next < len(chunks) {
 		result := <-results
 		if result.err != nil {
 			cancel()
-			return result.err
+			return written, result.err
 		}
 		pending[result.index] = result
 		for {
@@ -208,9 +209,15 @@ func transferRange(writer io.Writer, urlString, source string, start, end int64)
 			if !exists {
 				break
 			}
-			if _, err := writer.Write(ready.data); err != nil {
+			count, err := writer.Write(ready.data)
+			written += int64(count)
+			if err != nil {
 				cancel()
-				return err
+				return written, err
+			}
+			if count != len(ready.data) {
+				cancel()
+				return written, io.ErrShortWrite
 			}
 			if flusher, ok := writer.(http.Flusher); ok {
 				flusher.Flush()
@@ -219,7 +226,7 @@ func transferRange(writer io.Writer, urlString, source string, start, end int64)
 			next++
 		}
 	}
-	return nil
+	return written, nil
 }
 
 func planRangeChunks(start, end, firstSize, regularSize int64) []rangeChunk {

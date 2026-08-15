@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from urllib.parse import urlencode
 
@@ -26,6 +27,7 @@ from provider_bridge.platform_http import PlatformHTTP
 SEARCH_URL = "http://pd.musicapp.migu.cn/MIGUM2.0/v1.0/content"
 CONTENT_URL = "https://app.c.nf.migu.cn"
 HEADERS = {"Referer": "http://music.migu.cn/"}
+LOGGER = logging.getLogger(__name__)
 
 
 class MiguCollections:
@@ -62,6 +64,7 @@ class MiguCollections:
         try:
             playlist = self._playlist_info(identifier)
         except Exception:
+            LOGGER.warning("migu playlist metadata unavailable id=%s; using fallback", identifier, exc_info=True)
             playlist = collection_payload(identifier=identifier, source=self.source, name=identifier, link=self._playlist_link(identifier))
         playlist["track_count"] = playlist["track_count"] or len(songs)
         if not playlist["cover"] and songs:
