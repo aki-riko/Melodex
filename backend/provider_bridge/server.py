@@ -14,7 +14,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 VENDOR_ROOT = BACKEND_ROOT / "third_party" / "charles-musicdl"
 sys.path.insert(0, str(VENDOR_ROOT))
 
+from provider_bridge.account import verify  # noqa: E402
 from provider_bridge.app import search  # noqa: E402
+from provider_bridge.collections import collection  # noqa: E402
+from provider_bridge.qr import check as qr_check  # noqa: E402
+from provider_bridge.qr import create as qr_create  # noqa: E402
 
 
 def _required_environment(name: str) -> str:
@@ -36,10 +40,19 @@ class RequestHandler(BaseHTTPRequestHandler):
             "provider": "CharlesPikachu/musicdl",
             "commit": "b4cecd9d450ede6f5c8d4df08763668256dfee58",
             "license": "Apache-2.0",
+            "capabilities": ["search", "media", "lyrics", "collections", "qr_login", "account_verify"],
         })
 
     def do_POST(self):
-        if self.path != "/v1/search":
+        handlers = {
+            "/v1/search": search,
+            "/v1/collections": collection,
+            "/v1/account/verify": verify,
+            "/v1/qr/create": qr_create,
+            "/v1/qr/check": qr_check,
+        }
+        handler = handlers.get(self.path)
+        if handler is None:
             self._write_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
         try:
@@ -49,13 +62,16 @@ class RequestHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise ValueError("request body must be a JSON object")
-            result = search(payload, work_dir=self.server.work_dir)
+            if handler is search:
+                result = handler(payload, work_dir=self.server.work_dir)
+            else:
+                result = handler(payload)
         except ValueError as error:
             self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
         except Exception as error:
-            self.log_error("provider search failed: %s", error)
-            self._write_json(HTTPStatus.BAD_GATEWAY, {"error": "provider search failed"})
+            self.log_error("provider request failed: %s", error)
+            self._write_json(HTTPStatus.BAD_GATEWAY, {"error": "provider request failed"})
             return
         self._write_json(HTTPStatus.OK, result)
 

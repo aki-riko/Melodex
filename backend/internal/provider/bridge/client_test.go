@@ -58,3 +58,54 @@ func TestSearchReturnsProviderError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCollectionQRAndAccountContracts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		switch r.URL.Path {
+		case "/v1/collections":
+			_ = json.NewEncoder(w).Encode(CollectionResponse{
+				Collections: []model.RemoteCollection{{ID: "collection-1", Source: "netease"}},
+				Songs:       []model.Track{{ID: "song-1", Source: "netease"}},
+			})
+		case "/v1/qr/create":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"challenge": model.LoginChallenge{Provider: "netease", ChallengeID: "key-1"},
+			})
+		case "/v1/qr/check":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"result": model.LoginResult{Provider: "netease", ChallengeID: "key-1", Phase: model.LoginSucceeded},
+			})
+		case "/v1/account/verify":
+			_ = json.NewEncoder(w).Encode(AccountVerifyResponse{VIP: true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	collections, err := client.Collections(context.Background(), CollectionRequest{
+		Source: "netease", Action: "playlist", ID: "collection-1",
+	})
+	if err != nil || len(collections.Collections) != 1 || len(collections.Songs) != 1 {
+		t.Fatalf("collections = %#v, err=%v", collections, err)
+	}
+	challenge, err := client.QRCreate(context.Background(), QRCreateRequest{Source: "netease"})
+	if err != nil || challenge.ChallengeID != "key-1" {
+		t.Fatalf("challenge = %#v, err=%v", challenge, err)
+	}
+	result, err := client.QRCheck(context.Background(), QRCheckRequest{Source: "netease", Key: "key-1"})
+	if err != nil || result.Phase != model.LoginSucceeded {
+		t.Fatalf("result = %#v, err=%v", result, err)
+	}
+	vip, err := client.VerifyAccount(context.Background(), AccountVerifyRequest{Source: "netease", Cookie: "MUSIC_U=test"})
+	if err != nil || !vip {
+		t.Fatalf("vip = %v, err=%v", vip, err)
+	}
+}

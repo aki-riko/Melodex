@@ -188,6 +188,16 @@ func providerLyrics(source string, song *providermodel.Track) (string, error) {
 	return lyric, nil
 }
 
+func verifyProviderAccount(source, cookie string) (bool, error) {
+	client, err := getProviderBridgeClient()
+	if err != nil {
+		return false, err
+	}
+	return client.VerifyAccount(context.Background(), bridge.AccountVerifyRequest{
+		Source: strings.TrimSpace(source), Cookie: strings.TrimSpace(cookie),
+	})
+}
+
 func cacheProviderSong(song providermodel.Track, cookie string) {
 	song.Source = strings.TrimSpace(song.Source)
 	song.ID = strings.TrimSpace(song.ID)

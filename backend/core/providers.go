@@ -1,11 +1,12 @@
 package core
 
 import (
+	"context"
 	"net/url"
 	"slices"
 	"strings"
 
-	"github.com/aki-riko/Melodex/backend/internal/provider/extensions"
+	"github.com/aki-riko/Melodex/backend/internal/provider/bridge"
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
@@ -16,33 +17,6 @@ type CategoryPlaylistsFunc func(string, int, int) ([]model.RemoteCollection, err
 type QRLoginCreateFunc func() (*model.LoginChallenge, error)
 type QRLoginCheckFunc func(string) (*model.LoginResult, error)
 type UserPlaylistsFunc func(page, limit int) ([]model.RemoteCollection, error)
-
-type collectionProvider interface {
-	SearchAlbum(string) ([]model.RemoteCollection, error)
-	SearchPlaylist(string) ([]model.RemoteCollection, error)
-	GetAlbumSongs(string) ([]model.Track, error)
-	GetPlaylistSongs(string) ([]model.Track, error)
-	PlaylistCategories() ([]model.RemoteCategory, error)
-	CategoryPlaylists(string, int, int) ([]model.RemoteCollection, error)
-	ParseAlbum(string) (*model.RemoteCollection, []model.Track, error)
-	ParsePlaylist(string) (*model.RemoteCollection, []model.Track, error)
-}
-
-type recommendationProvider interface {
-	RecommendedPlaylists() ([]model.RemoteCollection, error)
-}
-
-type userLibraryProvider interface {
-	UserPlaylists(int, int) ([]model.RemoteCollection, error)
-}
-
-var collectionProviderFactories = map[string]func(string) collectionProvider{
-	"netease": func(cookie string) collectionProvider { return extensions.NewNetease(cookie) },
-	"qq":      func(cookie string) collectionProvider { return extensions.NewQQ(cookie) },
-	"kugou":   func(cookie string) collectionProvider { return extensions.NewKugou(cookie) },
-	"kuwo":    func(cookie string) collectionProvider { return extensions.NewKuwo(cookie) },
-	"migu":    func(cookie string) collectionProvider { return extensions.NewMigu(cookie) },
-}
 
 var (
 	allProviderNames        = []string{"netease", "qq", "kugou", "kuwo", "migu", "fivesing", "jamendo", "joox", "qianqian", "soda", "bilibili", "apple"}
@@ -59,12 +33,19 @@ var (
 	}
 )
 
-func collectionProviderFor(source string) collectionProvider {
-	factory := collectionProviderFactories[strings.TrimSpace(source)]
-	if factory == nil {
-		return nil
+func collectionProviderSupports(source string) bool {
+	source = strings.TrimSpace(source)
+	return slices.Contains(collectionProviderNames, source)
+}
+
+func providerCollections(source string, request bridge.CollectionRequest) (bridge.CollectionResponse, error) {
+	client, err := getProviderBridgeClient()
+	if err != nil {
+		return bridge.CollectionResponse{}, err
 	}
-	return factory(cookieForSource(source))
+	request.Source = strings.TrimSpace(source)
+	request.Cookie = cookieForSource(source)
+	return client.Collections(context.Background(), request)
 }
 
 func GetSearchFunc(source string) SearchFunc {
@@ -85,78 +66,116 @@ func GetLyricSearchFunc(source string) SearchFunc {
 }
 
 func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.SearchAlbum
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func(keyword string) ([]model.RemoteCollection, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "search_album", Keyword: keyword})
+		return response.Collections, err
+	}
 }
 
 func GetPlaylistSearchFunc(source string) SearchPlaylistFunc {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.SearchPlaylist
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func(keyword string) ([]model.RemoteCollection, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "search_playlist", Keyword: keyword})
+		return response.Collections, err
+	}
 }
 
 func GetAlbumDetailFunc(source string) func(string) ([]model.Track, error) {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.GetAlbumSongs
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func(id string) ([]model.Track, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "album", ID: id})
+		return response.Songs, err
+	}
 }
 
 func GetPlaylistDetailFunc(source string) func(string) ([]model.Track, error) {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.GetPlaylistSongs
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func(id string) ([]model.Track, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "playlist", ID: id})
+		return response.Songs, err
+	}
 }
 
 func GetRecommendFunc(source string) func() ([]model.RemoteCollection, error) {
-	provider := collectionProviderFor(source)
-	if recommender, ok := provider.(recommendationProvider); ok {
-		return recommender.RecommendedPlaylists
+	source = strings.TrimSpace(source)
+	if !slices.Contains(recommendProviderNames, source) {
+		return nil
 	}
-	return nil
+	return func() ([]model.RemoteCollection, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "recommend"})
+		return response.Collections, err
+	}
 }
 
 func GetPlaylistCategoriesFunc(source string) PlaylistCategoriesFunc {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.PlaylistCategories
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func() ([]model.RemoteCategory, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "categories"})
+		return response.Categories, err
+	}
 }
 
 func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.CategoryPlaylists
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func(categoryID string, page, limit int) ([]model.RemoteCollection, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{
+			Action: "category", CategoryID: categoryID, Page: page, Limit: limit,
+		})
+		return response.Collections, err
+	}
 }
 
 func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
-	if strings.TrimSpace(source) == "netease" {
-		return extensions.NeteaseCreateQRLogin
+	if strings.TrimSpace(source) != "netease" {
+		return nil
 	}
-	return nil
+	return func() (*model.LoginChallenge, error) {
+		client, err := getProviderBridgeClient()
+		if err != nil {
+			return nil, err
+		}
+		return client.QRCreate(context.Background(), bridge.QRCreateRequest{Source: source})
+	}
 }
 
 func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
-	if strings.TrimSpace(source) == "netease" {
-		return extensions.NeteaseCheckQRLogin
+	if strings.TrimSpace(source) != "netease" {
+		return nil
 	}
-	return nil
+	return func(key string) (*model.LoginResult, error) {
+		client, err := getProviderBridgeClient()
+		if err != nil {
+			return nil, err
+		}
+		return client.QRCheck(context.Background(), bridge.QRCheckRequest{Source: source, Key: key})
+	}
 }
 
 func GetQRLoginSourceNames() []string { return []string{"netease"} }
 func GetCookieSourceNames() []string  { return slices.Clone(cookieSourceNames) }
 
 func GetUserPlaylistsFunc(source string) UserPlaylistsFunc {
-	provider := collectionProviderFor(source)
-	if library, ok := provider.(userLibraryProvider); ok {
-		return library.UserPlaylists
+	source = strings.TrimSpace(source)
+	if !slices.Contains(userLibrarySourceNames, source) {
+		return nil
 	}
-	return nil
+	return func(page, limit int) ([]model.RemoteCollection, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "user_playlists", Page: page, Limit: limit})
+		return response.Collections, err
+	}
 }
 
 func GetUserPlaylistSourceNames() []string { return slices.Clone(userLibrarySourceNames) }
@@ -181,17 +200,23 @@ func GetLyricFunc(source string) func(*model.Track) (string, error) {
 func GetParseFunc(string) func(string) (*model.Track, error) { return nil }
 
 func GetParsePlaylistFunc(source string) func(string) (*model.RemoteCollection, []model.Track, error) {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.ParsePlaylist
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func(link string) (*model.RemoteCollection, []model.Track, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "parse_playlist", Link: link})
+		return response.Collection, response.Songs, err
+	}
 }
 
 func GetParseAlbumFunc(source string) func(string) (*model.RemoteCollection, []model.Track, error) {
-	if provider := collectionProviderFor(source); provider != nil {
-		return provider.ParseAlbum
+	if !collectionProviderSupports(source) {
+		return nil
 	}
-	return nil
+	return func(link string) (*model.RemoteCollection, []model.Track, error) {
+		response, err := providerCollections(source, bridge.CollectionRequest{Action: "parse_album", Link: link})
+		return response.Collection, response.Songs, err
+	}
 }
 
 func GetAllSourceNames() []string              { return slices.Clone(allProviderNames) }

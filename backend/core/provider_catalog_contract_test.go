@@ -36,6 +36,16 @@ func TestProviderCatalogExposesSupportedCollections(t *testing.T) {
 			t.Fatalf("user-playlist provider %q is not wired", source)
 		}
 	}
+	for _, source := range collectionSources {
+		want := source == "netease" || source == "qq"
+		if (GetUserPlaylistsFunc(source) != nil) != want {
+			t.Fatalf("user-playlist source %q exposure mismatch", source)
+		}
+		want = source != "migu"
+		if (GetRecommendFunc(source) != nil) != want {
+			t.Fatalf("recommend source %q exposure mismatch", source)
+		}
+	}
 }
 
 func TestProviderLinksAndSourceDetection(t *testing.T) {
