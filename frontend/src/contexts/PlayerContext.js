@@ -60,6 +60,7 @@ const switchAttemptKey = (song) => {
 
 // 音量持久化(纯前端展示偏好,localStorage 即可,无需后端)。
 const VOLUME_KEY = 'melodex_volume';
+const SEEK_REBUILD_DEBOUNCE_MS = 80;
 const loadVolume = () => {
   const v = parseFloat(localStorage.getItem(VOLUME_KEY));
   return isFinite(v) && v >= 0 && v <= 1 ? v : 1;
@@ -117,10 +118,13 @@ const WebPlayerProvider = ({ children }) => {
   const coverObjectUrlRef = useRef('');
   const playSeqRef = useRef(0);
   const recordedPlaySeqRef = useRef('');
+  const seekRestartMarkerRef = useRef('');
   const prefetchedPlaySeqRef = useRef('');
   const preparedNextRef = useRef(null);
   const prefetchControllerRef = useRef(null);
   const prefetchSeqRef = useRef(0);
+  const seekRequestRef = useRef(0);
+  const seekTimerRef = useRef(null);
   const recoveredUnexpectedPauseSeqRef = useRef('');
   const continuousPlaybackRef = useRef(null);
   const continuousTrackChangeRef = useRef(() => {});
@@ -215,6 +219,7 @@ const WebPlayerProvider = ({ children }) => {
     seq: requestedSeq,
     preferCache = true,
     preparedAudio = null,
+    startAtSeconds = 0,
   } = {}) => {
     const seq = requestedSeq ?? ++playSeqRef.current;
     if (seq !== playSeqRef.current) return;
@@ -301,7 +306,7 @@ const WebPlayerProvider = ({ children }) => {
       });
       continuousPlaybackRef.current = playback;
       try {
-        await playback.start(song, { autoplay });
+        await playback.start(song, { autoplay, startAtSeconds });
         if (seq === playSeqRef.current) {
           reportPlaybackDiagnostic(buildPlayerDiagnostic({
             event: 'mse_play_resolved',
@@ -357,6 +362,7 @@ const WebPlayerProvider = ({ children }) => {
     }
     pauseReasonRef.current = 'source_change';
     destroyContinuousPlayback();
+    if (Number(startAtSeconds) > 0) resumeRef.current = Number(startAtSeconds);
     replaceAudioSource(audio, {
       src,
       playSeq: seq,
@@ -444,6 +450,8 @@ const WebPlayerProvider = ({ children }) => {
   useEffect(() => () => {
     playSeqRef.current += 1;
     prefetchSeqRef.current += 1;
+    seekRequestRef.current += 1;
+    if (seekTimerRef.current != null) globalThis.clearTimeout(seekTimerRef.current);
     prefetchControllerRef.current?.abort();
     cancelPlaybackFade();
     resetAudioElement(audioRef.current);
@@ -562,7 +570,10 @@ const WebPlayerProvider = ({ children }) => {
       nowPlayingRef.current = saved.song;
       setNowPlaying(saved.song);
       // 预载音频(paused 状态),onLoadedMetadata 会 seek 到 resumeRef
-      setTimeout(() => loadAudioForSong(saved.song, { autoplay: false }), 0);
+      setTimeout(() => loadAudioForSong(saved.song, {
+        autoplay: false,
+        startAtSeconds: saved.cur > 0 ? saved.cur : 0,
+      }), 0);
     } catch { /* 损坏数据忽略 */ }
   }, [loadAudioForSong, userId]);
 
@@ -611,6 +622,13 @@ const WebPlayerProvider = ({ children }) => {
   const startPlay = useCallback((song, { preparedAudio = null } = {}) => {
     const seq = ++playSeqRef.current;
     const nextSong = normalizeSong(song);
+    resumeRef.current = null;
+    seekRestartMarkerRef.current = '';
+    seekRequestRef.current += 1;
+    if (seekTimerRef.current != null) {
+      globalThis.clearTimeout(seekTimerRef.current);
+      seekTimerRef.current = null;
+    }
     prefetchSeqRef.current += 1;
     prefetchControllerRef.current?.abort();
     prefetchControllerRef.current = null;
@@ -763,6 +781,12 @@ const WebPlayerProvider = ({ children }) => {
 
   const recordStartedSong = useCallback((song, marker) => {
     if (offline || !song || !marker || recordedPlaySeqRef.current === marker) return;
+    const seekMarker = seekRestartMarkerRef.current;
+    if (seekMarker && String(marker).startsWith(`${seekMarker}:`)) {
+      recordedPlaySeqRef.current = marker;
+      return;
+    }
+    seekRestartMarkerRef.current = '';
     recordedPlaySeqRef.current = marker;
     recordPlayHistory(song);
     if (!shouldAutoDownloadOnPlay(song, isServerDownloaded)) return;
@@ -818,9 +842,58 @@ const WebPlayerProvider = ({ children }) => {
   const seek = useCallback((sec) => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.dataset?.sourceKind === 'media_source' && continuousPlaybackRef.current?.seekLocal(sec)) return;
-    audio.currentTime = sec;
-  }, []);
+    const song = nowPlayingRef.current;
+    if (!song) return;
+    const duration = Number(progress.dur || song?.duration || 0);
+    const upperBound = duration > 0 ? Math.max(0, duration - 0.05) : Number(sec || 0);
+    const target = Math.max(0, Math.min(Number(sec || 0), upperBound));
+    setProgress((current) => ({ cur: target, dur: current.dur || duration }));
+    resumeRef.current = null;
+
+    seekRequestRef.current += 1;
+    const request = seekRequestRef.current;
+    if (seekTimerRef.current != null) {
+      globalThis.clearTimeout(seekTimerRef.current);
+      seekTimerRef.current = null;
+    }
+
+    const playback = continuousPlaybackRef.current;
+    if (audio.dataset?.sourceKind !== 'media_source' || !playback) {
+      audio.currentTime = target;
+      return;
+    }
+    if (playback.seekLocal(target)) return;
+    resumeRef.current = target;
+
+    const expectedSongKey = songIdentityKey(song);
+    const autoplay = !audio.paused;
+    seekTimerRef.current = globalThis.setTimeout(() => {
+      seekTimerRef.current = null;
+      if (request !== seekRequestRef.current) return;
+      const currentAudio = audioRef.current;
+      const currentSong = nowPlayingRef.current;
+      if (!currentAudio || songIdentityKey(currentSong) !== expectedSongKey) return;
+      if (currentAudio.dataset?.sourceKind === 'media_source'
+        && continuousPlaybackRef.current?.seekLocal(target)) {
+        resumeRef.current = null;
+        return;
+      }
+
+      prefetchSeqRef.current += 1;
+      prefetchControllerRef.current?.abort();
+      prefetchControllerRef.current = null;
+      preparedNextRef.current = null;
+      resumeRef.current = target;
+      const seq = ++playSeqRef.current;
+      seekRestartMarkerRef.current = `${seq}:${songIdentityKey(currentSong)}`;
+      loadAudioForSong(currentSong, {
+        autoplay,
+        seq,
+        preferCache: false,
+        startAtSeconds: target,
+      }).catch((err) => console.warn('按目标进度重建播放管线失败', err));
+    }, SEEK_REBUILD_DEBOUNCE_MS);
+  }, [loadAudioForSong, progress.dur]);
 
   // 进度更新:刷新进度条 + 节流保存播放快照(每 5 秒)。
   const lastSaveRef = useRef(0);
@@ -831,9 +904,13 @@ const WebPlayerProvider = ({ children }) => {
     let cur = audio.currentTime;
     let dur = audio.duration || 0;
     if (audio.dataset?.sourceKind === 'media_source' && continuousPlaybackRef.current) {
-      if (resumeRef.current != null && isFinite(resumeRef.current)
-        && continuousPlaybackRef.current.seekLocal(resumeRef.current)) {
-        resumeRef.current = null;
+      if (resumeRef.current != null && isFinite(resumeRef.current)) {
+        if (continuousPlaybackRef.current.seekLocal(resumeRef.current)) {
+          resumeRef.current = null;
+        } else {
+          setProgress({ cur: resumeRef.current, dur: Number(song?.duration || 0) });
+          return;
+        }
       }
       const local = continuousPlaybackRef.current.handleTimeUpdate(audio.currentTime);
       cur = local.cur;
@@ -853,6 +930,10 @@ const WebPlayerProvider = ({ children }) => {
     const song = resolveCurrentPlaybackSong(nowPlayingRef.current, nowPlaying);
     if (!isCurrentAudioEvent(audio, playSeqRef.current, song)) return;
     if (audio.dataset?.sourceKind === 'media_source') {
+      if (resumeRef.current != null && isFinite(resumeRef.current)) {
+        setProgress({ cur: resumeRef.current, dur: Number(song?.duration || 0) });
+        return;
+      }
       const local = continuousPlaybackRef.current?.currentLocalProgress(audio.currentTime)
         || { cur: 0, dur: Number(song?.duration || 0) };
       setProgress(local);
@@ -938,9 +1019,11 @@ const WebPlayerProvider = ({ children }) => {
     const reason = pauseReasonRef.current || (audio?.ended ? 'ended' : 'unexpected');
     const playSeq = audio?.dataset?.playSeq || '';
     pauseReasonRef.current = '';
-    const savedTime = audio?.dataset?.sourceKind === 'media_source'
-      ? continuousPlaybackRef.current?.currentLocalProgress(audio?.currentTime || 0)?.cur || 0
-      : audio?.currentTime || 0;
+    const savedTime = resumeRef.current != null
+      ? resumeRef.current
+      : audio?.dataset?.sourceKind === 'media_source'
+        ? continuousPlaybackRef.current?.currentLocalProgress(audio?.currentTime || 0)?.cur || 0
+        : audio?.currentTime || 0;
     savePlayback(savedTime);
     reportPauseRecoveryDiagnostic('pause', audio, cur, reason);
     if (shouldDeferPausedStateToEndedHandler(reason)) return;

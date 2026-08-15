@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import {
+  bufferedRangeContains,
   bufferedAheadSeconds,
   CONTINUOUS_AUDIO_MIME,
   ContinuousMediaSourcePlayback,
   fetchPlaybackChunkWithRetry,
   localProgressForSegment,
   MAX_BUFFER_AHEAD_SECONDS,
+  PLAYBACK_CHUNK_DURATION_SECONDS,
   PLAYBACK_CHUNK_MAX_ATTEMPTS,
   PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS,
   PLAYBACK_CHUNK_RETRY_BASE_MS,
+  playbackChunkIndexForTime,
   QUOTA_RETRY_BUFFER_AHEAD_SECONDS,
   segmentForTimelineTime,
   shouldApplyBufferBackpressure,
@@ -29,6 +32,7 @@ const segments = [
 ];
 
 assert.equal(CONTINUOUS_AUDIO_MIME, 'audio/mp4; codecs="flac"');
+assert.equal(PLAYBACK_CHUNK_DURATION_SECONDS, 12);
 assert.equal(MAX_BUFFER_AHEAD_SECONDS, 36);
 assert.equal(QUOTA_RETRY_BUFFER_AHEAD_SECONDS, 12);
 assert.equal(PLAYBACK_CHUNK_MAX_ATTEMPTS, 6);
@@ -37,6 +41,20 @@ assert.equal(PLAYBACK_CHUNK_REQUEST_TIMEOUT_MS, 30000);
 assert.equal(bufferedAheadSeconds({ buffered: { length: 1, end: () => 80 } }, 12), 68);
 assert.equal(shouldApplyBufferBackpressure(37), true, '超过 36 秒前向缓冲时必须暂停追加');
 assert.equal(shouldApplyBufferBackpressure(36), false, '缓冲回落到三个完整分块后应恢复追加');
+assert.equal(playbackChunkIndexForTime(0), 0);
+assert.equal(playbackChunkIndexForTime(11.99), 0);
+assert.equal(playbackChunkIndexForTime(12), 1);
+assert.equal(playbackChunkIndexForTime(125), 10, '125秒应直接请求第10个12秒分块');
+assert.equal(
+  bufferedRangeContains({ length: 1, start: () => 84, end: () => 132 }, 126),
+  true,
+  '目标仍在当前缓冲范围内时应原地跳转',
+);
+assert.equal(
+  bufferedRangeContains({ length: 1, start: () => 84, end: () => 132 }, 20),
+  false,
+  '目标已被清理时必须重建播放管线',
+);
 assert.equal(
   supportsContinuousMediaSource({ MediaSourceCtor: { isTypeSupported: (mime) => mime === CONTINUOUS_AUDIO_MIME } }),
   true,
@@ -143,10 +161,12 @@ class FakeSourceBuffer extends FakeEventTarget {
     super();
     this.mode = '';
     this.updating = false;
+    this.timestampOffset = 0;
+    this.rangeStart = 0;
     this.end = 0;
     this.buffered = {
       get length() { return 1; },
-      start: () => 0,
+      start: () => this.rangeStart,
       end: () => this.end,
     };
   }
@@ -154,6 +174,10 @@ class FakeSourceBuffer extends FakeEventTarget {
   appendBuffer() {
     this.updating = true;
     queueMicrotask(() => {
+      if (this.end === 0 && this.timestampOffset > 0) {
+        this.rangeStart = this.timestampOffset;
+        this.end = this.timestampOffset;
+      }
       this.end += 12;
       this.updating = false;
       this.emit('updateend');
@@ -320,6 +344,53 @@ assert.deepEqual(
   'MSE 自动预接下一段时,单曲循环必须再次追加当前歌曲而不是队列下一首',
 );
 assert.equal(repeatAudio.src, 'blob:repeat-media-source', '单曲循环也必须保持同一个 MediaSource URL');
+
+const randomSeekRequests = [];
+const randomSeekAudio = new FakeEventTarget();
+Object.assign(randomSeekAudio, {
+  src: '',
+  currentTime: 0,
+  load() {},
+  play: async () => {},
+});
+const randomSeekPlayback = new ContinuousMediaSourcePlayback({
+  audio: randomSeekAudio,
+  MediaSourceCtor: FakeMediaSource,
+  createObjectURL: (mediaSource) => {
+    queueMicrotask(() => {
+      mediaSource.readyState = 'open';
+      mediaSource.emit('sourceopen');
+    });
+    return 'blob:random-seek-media-source';
+  },
+  revokeObjectURL: () => {},
+  getSegmentUrl: (_song, chunkIndex) => `/seek/${chunkIndex}`,
+  getNextSong: () => null,
+  fetchImpl: async (url) => {
+    randomSeekRequests.push(url);
+    const chunkIndex = Number(url.split('/').at(-1));
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => ({
+          'content-type': 'audio/mp4',
+          'x-melodex-chunk-index': String(chunkIndex),
+          'x-melodex-chunk-final': '1',
+        }[name.toLowerCase()] ?? null),
+      },
+      arrayBuffer: async () => Uint8Array.from([chunkIndex + 1]).buffer,
+    };
+  },
+});
+await randomSeekPlayback.start(songs[0], { startAtSeconds: 15.5 });
+await randomSeekPlayback.appendPromise;
+assert.deepEqual(randomSeekRequests, ['/seek/1'], '生产15.5秒回跳不得从第0块重新顺序下载');
+assert.equal(randomSeekPlayback.sourceBuffer.timestampOffset, 12, '目标分块必须放到原歌曲时间轴位置');
+assert.equal(randomSeekAudio.currentTime, 15.5, '首个目标分块就绪后应立即应用生产点击进度');
+assert.equal(randomSeekPlayback.seekLocal(5), false, '未缓冲区间不能伪装成原地 seek 成功');
+assert.equal(randomSeekPlayback.seekLocal(20), true, '目标分块内的后续点击应直接完成');
+assert.equal(randomSeekAudio.currentTime, 20);
 
 const quotaAudio = new FakeEventTarget();
 Object.assign(quotaAudio, {

@@ -1,6 +1,8 @@
 import { songIdentityKey } from '../utils/songIdentity.js';
 
 export const CONTINUOUS_AUDIO_MIME = 'audio/mp4; codecs="flac"';
+// 与 backend/internal/web/playback_chunk.go 保持一致的分块协议常量。
+export const PLAYBACK_CHUNK_DURATION_SECONDS = 12;
 // 每块约 12 秒。Chrome 对高码率 FLAC SourceBuffer 的限制按字节而非时长计算，
 // 继续预取到 75~84 秒会在部分歌曲上先触发 QuotaExceededError。保留三个完整
 // 分块的前向余量，同时在每次追加前回收已播放区间，避免等配额耗尽后才清理。
@@ -35,6 +37,22 @@ const bufferedEnd = (sourceBuffer) => {
   } catch {
     return 0;
   }
+};
+
+export const playbackChunkIndexForTime = (seconds) => Math.max(
+  0,
+  Math.floor(Math.max(0, Number(seconds || 0)) / PLAYBACK_CHUNK_DURATION_SECONDS),
+);
+
+export const bufferedRangeContains = (ranges, time, endMarginSeconds = 0.05) => {
+  const target = Number(time);
+  if (!ranges?.length || !Number.isFinite(target)) return false;
+  for (let index = 0; index < ranges.length; index += 1) {
+    const start = Number(ranges.start(index));
+    const end = Number(ranges.end(index));
+    if (target >= start && target <= end - endMarginSeconds) return true;
+  }
+  return false;
 };
 
 export const bufferedAheadSeconds = (sourceBuffer, currentTime = 0) => (
@@ -244,7 +262,7 @@ export class ContinuousMediaSourcePlayback {
     this.failed = false;
   }
 
-  async start(song, { autoplay = true } = {}) {
+  async start(song, { autoplay = true, startAtSeconds = 0 } = {}) {
     if (!this.audio || !this.fetchImpl || !this.createObjectURL) {
       throw new Error('当前环境不支持连续媒体管线');
     }
@@ -265,8 +283,19 @@ export class ContinuousMediaSourcePlayback {
 
     this.sourceBuffer = this.mediaSource.addSourceBuffer(CONTINUOUS_AUDIO_MIME);
     this.sourceBuffer.mode = 'sequence';
+    const requestedStart = Math.max(0, Number(startAtSeconds || 0));
+    const startChunkIndex = playbackChunkIndexForTime(requestedStart);
+    if (startChunkIndex > 0) {
+      this.sourceBuffer.timestampOffset = startChunkIndex * PLAYBACK_CHUNK_DURATION_SECONDS;
+    }
     this.abortController = new AbortController();
-    this.appendPromise = this.appendSong(song)
+    this.appendPromise = this.appendSong(song, {
+      startChunkIndex,
+      segmentStart: 0,
+      onFirstChunkReady: requestedStart > 0
+        ? () => { this.audio.currentTime = requestedStart; }
+        : null,
+    })
       .then(() => this.appendNextAfter(song))
       .catch((error) => this.handlePipelineError(error, song))
       .finally(() => { this.appendPromise = null; });
@@ -285,9 +314,13 @@ export class ContinuousMediaSourcePlayback {
     await this.appendSong(nextSong);
   }
 
-  async appendSong(song) {
+  async appendSong(song, {
+    startChunkIndex = 0,
+    segmentStart,
+    onFirstChunkReady = null,
+  } = {}) {
     if (this.destroyed) throw new DOMException('播放会话已取消', 'AbortError');
-    const start = bufferedEnd(this.sourceBuffer);
+    const start = Number.isFinite(segmentStart) ? segmentStart : bufferedEnd(this.sourceBuffer);
     const segment = {
       id: `${this.segments.length}:${songIdentityKey(song)}`,
       song,
@@ -298,7 +331,8 @@ export class ContinuousMediaSourcePlayback {
     this.segments.push(segment);
 
     let bytes = 0;
-    let chunkIndex = 0;
+    let chunkIndex = Math.max(0, Number(startChunkIndex || 0));
+    let firstChunk = true;
     while (!this.destroyed) {
       const chunk = await fetchPlaybackChunkWithRetry({
         url: this.getSegmentUrl(song, chunkIndex),
@@ -313,6 +347,11 @@ export class ContinuousMediaSourcePlayback {
       });
       bytes += chunk.bytes.byteLength;
       await this.appendBytes(chunk.bytes);
+      if (this.destroyed) throw abortError();
+      if (firstChunk) {
+        firstChunk = false;
+        onFirstChunkReady?.({ chunkIndex, song });
+      }
       if (this.activeIndex < 0) this.activateSegment(0);
       this.onDiagnostic({
         event: 'mse_chunk_ready',
@@ -414,7 +453,9 @@ export class ContinuousMediaSourcePlayback {
     const segment = this.segments[this.activeIndex];
     if (!segment || !this.audio) return false;
     const progress = localProgressForSegment(segment, segment.start + Number(seconds || 0));
-    this.audio.currentTime = segment.start + progress.cur;
+    const timelineTime = segment.start + progress.cur;
+    if (!bufferedRangeContains(this.sourceBuffer?.buffered, timelineTime)) return false;
+    this.audio.currentTime = timelineTime;
     return true;
   }
 
