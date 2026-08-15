@@ -3,20 +3,20 @@ package model
 // Track is the provider-neutral audio item consumed by Melodex services.
 // JSON names are the public API contract and intentionally remain stable.
 type Track struct {
+	Extra     map[string]string `json:"extra,omitempty"`
+	Size      int64             `json:"size"`
+	Duration  int               `json:"duration"`
+	Bitrate   int               `json:"bitrate"`
 	ID        string            `json:"id"`
+	Source    string            `json:"source"`
 	Name      string            `json:"name"`
 	Artist    string            `json:"artist"`
 	Album     string            `json:"album"`
 	AlbumID   string            `json:"album_id"`
-	Duration  int               `json:"duration"`
-	Size      int64             `json:"size"`
-	Bitrate   int               `json:"bitrate"`
-	Source    string            `json:"source"`
 	URL       string            `json:"url"`
-	Ext       string            `json:"ext"`
 	Cover     string            `json:"cover"`
 	Link      string            `json:"link"`
-	Extra     map[string]string `json:"extra,omitempty"`
+	Ext       string            `json:"ext"`
 	IsInvalid bool              `json:"is_invalid,omitempty"`
 	IsVIP     bool              `json:"is_vip,omitempty"`
 }

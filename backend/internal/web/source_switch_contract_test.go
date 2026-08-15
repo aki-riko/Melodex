@@ -23,22 +23,9 @@ func isolateSourceSwitchHooks(t *testing.T) {
 
 func TestSourceSwitchReturnsHighConfidenceResultWithoutSlowTail(t *testing.T) {
 	isolateSourceSwitchHooks(t)
-	switchAllSourceNames = func() []string { return []string{"slow", "fast"} }
-	switchDefaultSourceNames = func() []string { return []string{"slow", "fast"} }
-	switchSearchFuncProvider = func(source string) func(string) ([]model.Track, error) {
-		if source == "slow" {
-			return func(string) ([]model.Track, error) {
-				time.Sleep(2 * time.Second)
-				return []model.Track{{ID: "slow-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
-			}
-		}
-		if source == "fast" {
-			return func(string) ([]model.Track, error) {
-				return []model.Track{{ID: "fast-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
-			}
-		}
-		return nil
-	}
+	switchAllSourceNames = switchContractSourceNames
+	switchDefaultSourceNames = switchContractSourceNames
+	switchSearchFuncProvider = switchContractSearchProvider
 	switchValidatePlayable = func(track *model.Track) bool { return track != nil && track.ID == "fast-song" }
 	started := time.Now()
 	track, score, err := findBestSwitchSong("Track", "Artist", "netease", "", 180)
@@ -48,6 +35,27 @@ func TestSourceSwitchReturnsHighConfidenceResultWithoutSlowTail(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
 		t.Fatalf("source switch waited for slow tail: %s", elapsed)
 	}
+}
+
+func switchContractSourceNames() []string {
+	return []string{"slow", "fast"}
+}
+
+func switchContractSearchProvider(source string) func(string) ([]model.Track, error) {
+	providers := map[string]func(string) ([]model.Track, error){
+		"slow": switchContractSlowSearch,
+		"fast": switchContractFastSearch,
+	}
+	return providers[source]
+}
+
+func switchContractSlowSearch(string) ([]model.Track, error) {
+	time.Sleep(2 * time.Second)
+	return []model.Track{{ID: "slow-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
+}
+
+func switchContractFastSearch(string) ([]model.Track, error) {
+	return []model.Track{{ID: "fast-song", Name: "Track", Artist: "Artist", Duration: 180}}, nil
 }
 
 func TestSourceSwitchValidationPreservesRanking(t *testing.T) {

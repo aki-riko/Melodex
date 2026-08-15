@@ -11,7 +11,11 @@ import (
 const expectedSaveUserHeader = "X-Melodex-Expected-User-ID"
 
 func wantsSaveLocal(c *gin.Context) bool {
-	return c != nil && strings.TrimSpace(c.Query("save_local")) == "1"
+	if c == nil {
+		return false
+	}
+	requested := strings.TrimSpace(c.Query("save_local"))
+	return requested == "1"
 }
 
 func allowSameOriginWrite(c *gin.Context) bool {

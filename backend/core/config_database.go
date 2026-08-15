@@ -168,8 +168,8 @@ func migrateLegacyCookies() error {
 		return nil
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Source < entries[j].Source })
-	return configDB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "source"}},
-		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
-	}).Create(&entries).Error
+	conflict := clause.OnConflict{}
+	conflict.Columns = []clause.Column{{Name: "source"}}
+	conflict.DoUpdates = clause.AssignmentColumns([]string{"value", "updated_at"})
+	return configDB.Clauses(conflict).Create(&entries).Error
 }

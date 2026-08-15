@@ -89,10 +89,7 @@ func TestLyricFormattingContract(t *testing.T) {
 
 func TestCoverProxySSRFContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write([]byte{0x89, 0x50, 0x4e, 0x47})
-	}))
+	upstream := httptest.NewServer(http.HandlerFunc(writeTinyPNGFixture))
 	defer upstream.Close()
 	router := gin.New()
 	RegisterMusicRoutes(router.Group(RoutePrefix))
@@ -113,6 +110,11 @@ func TestCoverProxySSRFContract(t *testing.T) {
 			t.Fatalf("public cover target rejected: %s (%v)", target, err)
 		}
 	}
+}
+
+func writeTinyPNGFixture(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write([]byte{0x89, 0x50, 0x4e, 0x47})
 }
 
 func TestSearchSourceAndAlbumPriorityContract(t *testing.T) {

@@ -82,9 +82,7 @@ func TestRangeParsingAndChunkAssembly(t *testing.T) {
 	for _, size := range []int{20_000, 800_000} {
 		t.Run(filepath.Base(time.Duration(size).String()), func(t *testing.T) {
 			payload := append([]byte{'f', 'L', 'a', 'C'}, bytes.Repeat([]byte("0123456789abcdef"), size/16)...)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				http.ServeContent(w, r, "song.flac", time.Unix(1, 0), bytes.NewReader(payload))
-			}))
+			server := httptest.NewServer(http.HandlerFunc(audioPipelineFixtureHandler(payload)))
 			defer server.Close()
 			data, contentType, err := FetchBytesWithMime(server.URL, "netease")
 			if err != nil {
@@ -94,6 +92,12 @@ func TestRangeParsingAndChunkAssembly(t *testing.T) {
 				t.Fatalf("assembled media length/type = %d/%q, want %d/non-empty", len(data), contentType, len(payload))
 			}
 		})
+	}
+}
+
+func audioPipelineFixtureHandler(payload []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "song.flac", time.Unix(1, 0), bytes.NewReader(payload))
 	}
 }
 

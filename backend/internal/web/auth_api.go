@@ -110,21 +110,7 @@ func registerAuthAPIRoutes(api *gin.RouterGroup, opts StartOptions) {
 			return
 		}
 		username := strings.TrimSpace(req.Username)
-		attemptKey := loginAttemptKey(c, username)
-		now := time.Now()
-		if lockedUntil, locked := loginLockedUntil(attemptKey, now); locked {
-			wait := int(time.Until(lockedUntil).Seconds()) + 1
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录失败次数过多，请稍后重试", "retryAfter": wait})
-			return
-		}
-		user, ok := authenticateCredentials(username, req.Password)
-		if !ok {
-			recordLoginFailure(attemptKey, now)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码不正确"})
-			return
-		}
-		clearLoginFailures(attemptKey)
-		issueSessionResponse(c, user)
+		loginJSONWithCredentials(c, username, req.Password)
 	})
 
 	// 自助注册(默认关闭;开放时创建普通用户)。
@@ -164,6 +150,34 @@ func registerAuthAPIRoutes(api *gin.RouterGroup, opts StartOptions) {
 		clearAuthCookie(c)
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+}
+
+func loginJSONWithCredentials(c *gin.Context, username, password string) {
+	attemptKey := loginAttemptKey(c, username)
+	now := time.Now()
+	if rejectThrottledJSONLogin(c, attemptKey, now) {
+		return
+	}
+	user, authenticated := authenticateCredentials(username, password)
+	if authenticated {
+		clearLoginFailures(attemptKey)
+		issueSessionResponse(c, user)
+		return
+	}
+	recordLoginFailure(attemptKey, now)
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码不正确"})
+}
+
+func rejectThrottledJSONLogin(c *gin.Context, attemptKey string, now time.Time) bool {
+	lockedUntil, locked := loginLockedUntil(attemptKey, now)
+	if !locked {
+		return false
+	}
+	waitSeconds := int(time.Until(lockedUntil).Seconds()) + 1
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"error": "登录失败次数过多，请稍后重试", "retryAfter": waitSeconds,
+	})
+	return true
 }
 
 // issueSessionResponse 签发会话 cookie 并返回脱敏用户。

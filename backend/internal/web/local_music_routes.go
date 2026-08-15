@@ -141,23 +141,23 @@ func writeUploadParseError(c *gin.Context, err error) {
 }
 
 func deleteLocalMusicRoute(c *gin.Context) {
-	if err := deleteLocalMusicTrackForUser(
+	err := deleteLocalMusicTrackForUser(
 		c.Query("id"), currentUserID(c), currentUserIsAdmin(c),
-	); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	)
+	if err != nil {
+		writeLocalMusicDeleteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+func writeLocalMusicDeleteError(c *gin.Context, err error) {
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+}
+
 func addLocalMusicToCollectionRoute(c *gin.Context) {
-	collection, err := loadOwnedCollection(c.Param("id"), currentUserID(c))
-	if err != nil || collection == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "歌单不存在"})
-		return
-	}
-	if err := validateLocalCollectionTarget(collection); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "外部导入歌单/专辑不支持直接添加本地音乐"})
+	collection, ok := writableCollectionForRoute(c, "外部导入歌单/专辑不支持直接添加本地音乐")
+	if !ok {
 		return
 	}
 	var request struct {
@@ -186,11 +186,7 @@ func addLocalMusicToCollectionRoute(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "本地音乐元数据无效"})
 		return
 	}
-	song := SavedSong{
-		CollectionID: collection.ID, SongID: track.ID, Source: localMusicSource,
-		Extra: string(extra), Name: track.Name, Artist: track.Artist,
-		Cover: track.Cover, Duration: track.Duration, AddedAt: time.Now(),
-	}
+	song := newSavedSongFromLocalTrack(collection.ID, track, string(extra), time.Now())
 	result := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&song)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "添加失败: " + result.Error.Error()})
@@ -199,6 +195,20 @@ func addLocalMusicToCollectionRoute(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": "ok", "duplicate": result.RowsAffected == 0, "song": song,
 	})
+}
+
+func newSavedSongFromLocalTrack(collectionID uint, track *localMusicTrack, extra string, addedAt time.Time) SavedSong {
+	song := SavedSong{}
+	song.CollectionID = collectionID
+	song.SongID = track.ID
+	song.Source = localMusicSource
+	song.Extra = extra
+	song.Name = track.Name
+	song.Artist = track.Artist
+	song.Cover = track.Cover
+	song.Duration = track.Duration
+	song.AddedAt = addedAt
+	return song
 }
 
 func validateLocalCollectionTarget(collection *Collection) error {

@@ -136,23 +136,17 @@ type localProbePayload struct {
 
 type localProbeStream struct {
 	Tags      map[string]string `json:"tags"`
-	BitRate   string            `json:"bit_rate"`
-	Duration  string            `json:"duration"`
 	CodecType string            `json:"codec_type"`
+	Duration  string            `json:"duration"`
+	BitRate   string            `json:"bit_rate"`
 }
 
 func probeLocalMusicTrack(track *localMusicTrack) (*localProbeResult, error) {
-	if track == nil || strings.TrimSpace(track.absPath) == "" {
-		return nil, errors.New("empty local music track")
-	}
-	ffprobe, err := core.ResolveFFprobePath()
+	audioPath, err := localProbeAudioPath(track)
 	if err != nil {
 		return nil, err
 	}
-	output, err := exec.Command(
-		ffprobe, "-v", "quiet", "-print_format", "json",
-		"-show_format", "-show_streams", track.absPath,
-	).Output()
+	output, err := runLocalMusicProbe(audioPath)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +163,29 @@ func probeLocalMusicTrack(track *localMusicTrack) (*localProbeResult, error) {
 		break
 	}
 	return result, nil
+}
+
+func localProbeAudioPath(track *localMusicTrack) (string, error) {
+	if track == nil {
+		return "", errors.New("empty local music track")
+	}
+	path := strings.TrimSpace(track.absPath)
+	if path == "" {
+		return "", errors.New("empty local music track")
+	}
+	return path, nil
+}
+
+func runLocalMusicProbe(audioPath string) ([]byte, error) {
+	ffprobe, err := core.ResolveFFprobePath()
+	if err != nil {
+		return nil, err
+	}
+	command := exec.Command(
+		ffprobe, "-v", "quiet", "-print_format", "json",
+		"-show_format", "-show_streams", audioPath,
+	)
+	return command.Output()
 }
 
 func probeResultFromStream(stream localProbeStream) *localProbeResult {
@@ -470,27 +487,50 @@ func writeMissingLocalLyric(c *gin.Context, download bool) {
 	c.String(http.StatusOK, "[00:00.00] 纯音乐 / 无歌词")
 }
 
-func inspectLocalMusicFile(id, fallbackDuration string) (gin.H, error) {
+type localMusicInspection struct {
+	Valid    bool                     `json:"valid"`
+	URL      string                   `json:"url"`
+	Size     string                   `json:"size"`
+	Bitrate  string                   `json:"bitrate"`
+	Duration int                      `json:"duration"`
+	Song     localMusicInspectionSong `json:"song"`
+}
+
+type localMusicInspectionSong struct {
+	ID       string            `json:"id"`
+	Source   string            `json:"source"`
+	Name     string            `json:"name"`
+	Artist   string            `json:"artist"`
+	Album    string            `json:"album"`
+	Cover    string            `json:"cover"`
+	Duration int               `json:"duration"`
+	Extra    map[string]string `json:"extra"`
+}
+
+func inspectLocalMusicFile(id, fallbackDuration string) (any, error) {
 	track, err := localMusicTrackByID(id)
 	if err != nil {
 		return gin.H{"valid": false}, err
 	}
+	refreshLocalMusicInspection(track)
+	return &localMusicInspection{
+		Valid: true, Size: track.SizeText, Bitrate: localTrackBitrateText(track, fallbackDuration), Duration: track.Duration,
+		Song: localMusicInspectionSong{
+			ID: track.ID, Source: track.Source, Name: track.Name, Artist: track.Artist,
+			Album: track.Album, Cover: track.Cover, Duration: track.Duration, Extra: track.Extra,
+		},
+	}, nil
+}
+
+func refreshLocalMusicInspection(track *localMusicTrack) {
 	if probe, err := probeLocalMusicTrack(track); err == nil {
 		applyLocalProbeResult(track, probe)
 	}
-	if root, err := filepath.Abs(localMusicDownloadDir()); err == nil {
-		cacheLocalMusicTrack(root, track)
+	root, err := filepath.Abs(localMusicDownloadDir())
+	if err != nil {
+		return
 	}
-	bitrate := localTrackBitrateText(track, fallbackDuration)
-	return gin.H{
-		"valid": true, "url": "", "size": track.SizeText,
-		"bitrate": bitrate, "duration": track.Duration,
-		"song": gin.H{
-			"id": track.ID, "source": track.Source, "name": track.Name,
-			"artist": track.Artist, "album": track.Album, "cover": track.Cover,
-			"duration": track.Duration, "extra": track.Extra,
-		},
-	}, nil
+	cacheLocalMusicTrack(root, track)
 }
 
 func localTrackBitrateText(track *localMusicTrack, fallbackDuration string) string {
@@ -591,9 +631,7 @@ func serveLocalMusicDownload(c *gin.Context, id string, saveLocal bool) {
 		return
 	}
 	if saveLocal {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok", "saved": true, "path": track.absPath, "filename": track.Filename,
-		})
+		writeLocalMusicSavedResponse(c, track)
 		return
 	}
 	media, err := os.Open(track.absPath)
@@ -606,6 +644,19 @@ func serveLocalMusicDownload(c *gin.Context, id string, saveLocal bool) {
 	setDownloadHeader(c, track.Filename)
 	clearWriteDeadline(c)
 	http.ServeContent(c.Writer, c.Request, track.Filename, track.modTime, media)
+}
+
+type localMusicSavedResponse struct {
+	Status   string `json:"status"`
+	Saved    bool   `json:"saved"`
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+}
+
+func writeLocalMusicSavedResponse(c *gin.Context, track *localMusicTrack) {
+	response := localMusicSavedResponse{Status: "ok", Saved: true}
+	response.Path, response.Filename = track.absPath, track.Filename
+	c.JSON(http.StatusOK, response)
 }
 
 func resolveLocalMusicRead(c *gin.Context, id string) (*localMusicTrack, bool, error) {

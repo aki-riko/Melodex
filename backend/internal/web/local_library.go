@@ -30,13 +30,18 @@ const (
 var (
 	localMusicMaxUploadRequestBytes int64 = localMusicMaxUploadBytes + 1024*1024
 	localMusicDownloadDirProvider         = func() string { return core.GetWebSettings().DownloadDir }
-	localMusicAudioExts                   = map[string]struct{}{
-		".aac": {}, ".flac": {}, ".m4a": {}, ".mp3": {},
-		".ogg": {}, ".wav": {}, ".wma": {},
-	}
-	localMusicCoverExts = []string{".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
-	localMusicLyricExts = []string{".lrc", ".txt", ".lyric"}
+	localMusicAudioExts                   = localMusicExtensionSet(".aac", ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".wma")
+	localMusicCoverExts                   = []string{".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
+	localMusicLyricExts                   = []string{".lrc", ".txt", ".lyric"}
 )
+
+func localMusicExtensionSet(extensions ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(extensions))
+	for _, extension := range extensions {
+		set[extension] = struct{}{}
+	}
+	return set
+}
 
 type localMusicTrack struct {
 	absPath string
@@ -101,13 +106,22 @@ func localMusicTracksToSongs(tracks []*localMusicTrack) []model.Track {
 		if track == nil {
 			continue
 		}
-		result = append(result, model.Track{
-			ID: track.ID, Source: localMusicSource, Name: track.Name,
-			Artist: track.Artist, Album: track.Album, Cover: track.Cover,
-			Duration: track.Duration, Extra: cloneStringMap(track.Extra),
-		})
+		result = append(result, providerTrackFromLocalMusic(track))
 	}
 	return result
+}
+
+func providerTrackFromLocalMusic(track *localMusicTrack) model.Track {
+	song := model.Track{}
+	song.ID = track.ID
+	song.Source = localMusicSource
+	song.Name = track.Name
+	song.Artist = track.Artist
+	song.Album = track.Album
+	song.Cover = track.Cover
+	song.Duration = track.Duration
+	song.Extra = cloneStringMap(track.Extra)
+	return song
 }
 
 func localMusicDownloadDir() string {
@@ -278,15 +292,24 @@ func (store *localMusicSnapshotStore) store(snapshot localMusicScanSnapshot) {
 }
 
 func sameCleanPath(left, right string) bool {
-	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if left == right {
+		return true
+	}
+	return strings.EqualFold(left, right)
 }
 
 func parseLocalMusicRangeInt(raw string, fallback int) int {
-	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	value, err := strconv.Atoi(raw)
 	if err != nil || value < 0 {
 		return fallback
 	}
-	return min(value, 1000)
+	if value > 1000 {
+		return 1000
+	}
+	return value
 }
 
 func paginateLocalMusicTracks(tracks []*localMusicTrack, offset, limit int) []*localMusicTrack {
@@ -305,19 +328,12 @@ func markAlreadyAddedLocalTracks(collectionID string, userID uint, tracks []*loc
 	if db == nil || strings.TrimSpace(collectionID) == "" || len(tracks) == 0 {
 		return
 	}
-	collection, err := loadOwnedCollection(collectionID, userID)
-	if err != nil || collection == nil || collection.isImported() {
+	collection := localTrackMarkingCollection(collectionID, userID)
+	if collection == nil {
 		return
 	}
-	ids := make([]string, 0, len(tracks))
-	for _, track := range tracks {
-		ids = append(ids, track.ID)
-	}
-	var savedTracks []SavedSong
-	if err := db.Where(
-		"collection_id = ? AND source IN ? AND song_id IN ?",
-		collection.ID, []string{localMusicSource, legacyLocalMusicSource}, ids,
-	).Find(&savedTracks).Error; err != nil {
+	savedTracks, err := localSavedTracksByIDs(collection.ID, tracks)
+	if err != nil {
 		return
 	}
 	added := make(map[string]struct{}, len(savedTracks))
@@ -329,21 +345,42 @@ func markAlreadyAddedLocalTracks(collectionID string, userID uint, tracks []*loc
 	}
 }
 
+func localTrackMarkingCollection(collectionID string, userID uint) *Collection {
+	collection, err := loadOwnedCollection(collectionID, userID)
+	if err != nil || collection == nil || collection.isImported() {
+		return nil
+	}
+	return collection
+}
+
+func localSavedTracksByIDs(collectionID uint, tracks []*localMusicTrack) ([]SavedSong, error) {
+	ids := make([]string, 0, len(tracks))
+	for _, track := range tracks {
+		ids = append(ids, track.ID)
+	}
+	sources := []string{localMusicSource, legacyLocalMusicSource}
+	query := db.Where("collection_id = ?", collectionID)
+	query = query.Where("source IN ?", sources)
+	query = query.Where("song_id IN ?", ids)
+	var songs []SavedSong
+	return songs, query.Find(&songs).Error
+}
+
 func isLocalMusicAudioFile(path string) bool {
-	_, ok := localMusicAudioExts[strings.ToLower(filepath.Ext(path))]
-	return ok
+	extension := strings.ToLower(filepath.Ext(strings.TrimSpace(path)))
+	if extension == "" {
+		return false
+	}
+	for supported := range localMusicAudioExts {
+		if extension == supported {
+			return true
+		}
+	}
+	return false
 }
 
 func buildLocalMusicTrackFast(rootAbs, audioPath string) (*localMusicTrack, error) {
-	track, err := buildLocalMusicTrackFallback(rootAbs, audioPath)
-	if err != nil {
-		return nil, err
-	}
-	if cached := getCachedLocalMusicTrack(rootAbs, track.RelPath, track.Size, track.modTime); cached != nil {
-		cached.absPath, cached.modTime = track.absPath, track.modTime
-		return cached, nil
-	}
-	return enrichLocalMusicTrack(rootAbs, track)
+	return buildCachedLocalMusicTrack(rootAbs, audioPath)
 }
 
 func buildLocalMusicTrackFallback(rootAbs, audioPath string) (*localMusicTrack, error) {
@@ -355,32 +392,43 @@ func buildLocalMusicTrackFallback(rootAbs, audioPath string) (*localMusicTrack, 
 	extWithDot := strings.ToLower(filepath.Ext(filename))
 	ext := strings.TrimPrefix(extWithDot, ".")
 	id := encodeLocalMusicID(rel)
-	track := &localMusicTrack{
-		ID: id, Source: localMusicSource,
-		Name:   strings.TrimSpace(strings.TrimSuffix(filename, filepath.Ext(filename))),
-		Artist: "未知歌手", Filename: filename, RelPath: rel, Ext: ext,
-		Size: info.Size(), SizeText: core.FormatSize(info.Size()),
-		ModifiedAt: info.ModTime(), Missing: []string{"title", "artist", "album"},
-		Extra: map[string]string{
-			"local_music": "true", "file_id": id, "filename": filename,
-			"rel_path": rel, "ext": ext, "size": strconv.FormatInt(info.Size(), 10),
-		},
-		absPath: absPath, modTime: info.ModTime(),
-	}
+	track := newLocalMusicFileTrack(absPath, rel, filename, ext, id, info)
 	applyExactSidecarHints(track)
 	return track, nil
 }
 
 func buildLocalMusicTrack(rootAbs, audioPath string) (*localMusicTrack, error) {
+	return buildCachedLocalMusicTrack(rootAbs, audioPath)
+}
+
+func buildCachedLocalMusicTrack(rootAbs, audioPath string) (*localMusicTrack, error) {
 	track, err := buildLocalMusicTrackFallback(rootAbs, audioPath)
 	if err != nil {
 		return nil, err
 	}
-	if cached := getCachedLocalMusicTrack(rootAbs, track.RelPath, track.Size, track.modTime); cached != nil {
-		cached.absPath, cached.modTime = track.absPath, track.modTime
-		return cached, nil
+	cached := getCachedLocalMusicTrack(rootAbs, track.RelPath, track.Size, track.modTime)
+	if cached == nil {
+		return enrichLocalMusicTrack(rootAbs, track)
 	}
-	return enrichLocalMusicTrack(rootAbs, track)
+	cached.absPath = track.absPath
+	cached.modTime = track.modTime
+	return cached, nil
+}
+
+func newLocalMusicFileTrack(absPath, rel, filename, extension, id string, info os.FileInfo) *localMusicTrack {
+	track := new(localMusicTrack)
+	track.ID, track.Source = id, localMusicSource
+	track.Name = strings.TrimSpace(strings.TrimSuffix(filename, filepath.Ext(filename)))
+	track.Artist, track.Filename, track.RelPath, track.Ext = "未知歌手", filename, rel, extension
+	track.Size, track.SizeText = info.Size(), core.FormatSize(info.Size())
+	track.ModifiedAt, track.modTime = info.ModTime(), info.ModTime()
+	track.Missing = []string{"title", "artist", "album"}
+	track.Extra = map[string]string{
+		"local_music": "true", "file_id": id, "filename": filename,
+		"rel_path": rel, "ext": extension, "size": strconv.FormatInt(info.Size(), 10),
+	}
+	track.absPath = absPath
+	return track
 }
 
 func resolveLocalAudio(rootAbs, audioPath string) (string, os.FileInfo, string, error) {
@@ -577,7 +625,10 @@ func localMusicTrackByID(id string) (*localMusicTrack, error) {
 }
 
 func encodeLocalMusicID(relPath string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(filepath.ToSlash(relPath)))
+	normalized := []byte(filepath.ToSlash(relPath))
+	encoded := make([]byte, base64.RawURLEncoding.EncodedLen(len(normalized)))
+	base64.RawURLEncoding.Encode(encoded, normalized)
+	return string(encoded)
 }
 
 func decodeLocalMusicID(id string) (string, error) {

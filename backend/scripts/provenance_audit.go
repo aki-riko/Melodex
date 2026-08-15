@@ -20,8 +20,8 @@ import (
 
 const (
 	lineWindowWidth   = 5
-	tokenWindowWidth  = 60
-	maxPrintedMatches = 10
+	tokenWindowWidth  = 40
+	maxPrintedMatches = 60
 )
 
 type sourcePoint struct {
@@ -61,6 +61,7 @@ type auditSummary struct {
 	productionFunctions    int
 	testFunctions          int
 	exactFiles             int
+	forbiddenImports       int
 	charlesCompared        int
 	charlesMismatches      int
 }
@@ -99,16 +100,22 @@ func main() {
 	localCharles := filepath.Join(*currentRoot, "third_party", "charles-musicdl")
 	summary.charlesCompared, summary.charlesMismatches, err = compareCharlesSnapshot(localCharles, *charlesRoot)
 	check(err)
+	forbiddenImports, err := findForbiddenImports(*currentRoot)
+	check(err)
+	summary.forbiddenImports = len(forbiddenImports)
 
 	printSummary(summary, len(current), len(references))
 	printMatches(matches)
+	for _, item := range forbiddenImports {
+		fmt.Printf("forbidden-import current=%s:%d import=%s\n", item.current.path, item.current.line, item.reference.path)
+	}
 	for _, item := range exactMatches {
 		fmt.Printf("exact-file current=%s reference=%s\n", item.current.path, item.reference.path)
 	}
 
 	if summary.productionTokenWindows > 0 || summary.testTokenWindows > 0 ||
 		summary.productionFunctions > 0 || summary.testFunctions > 0 ||
-		summary.exactFiles > 0 || summary.charlesMismatches > 0 {
+		summary.exactFiles > 0 || summary.forbiddenImports > 0 || summary.charlesMismatches > 0 {
 		os.Exit(1)
 	}
 }
@@ -341,6 +348,53 @@ func compareWholeFiles(currentRoot string, referenceRoots []string) ([]match, er
 	return result, err
 }
 
+func findForbiddenImports(root string) ([]match, error) {
+	forbidden := []string{
+		"github.com/guohuiyuan/go-music-dl",
+		"github.com/guohuiyuan/music-lib",
+	}
+	result := make([]match, 0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" || entry.Name() == "node_modules" || entry.Name() == "third_party" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" || filepath.Base(path) == "provenance_audit.go" {
+			return nil
+		}
+		source, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		fileSet := token.NewFileSet()
+		tree, parseErr := parser.ParseFile(fileSet, path, source, parser.ImportsOnly)
+		if parseErr != nil {
+			return fmt.Errorf("parse imports %s: %w", path, parseErr)
+		}
+		file := fileSet.File(tree.Pos())
+		for _, importSpec := range tree.Imports {
+			importPath := strings.Trim(importSpec.Path.Value, "\"")
+			for _, prefix := range forbidden {
+				if !strings.HasPrefix(importPath, prefix) {
+					continue
+				}
+				result = append(result, match{
+					current:   sourcePoint{path: path, line: file.Line(importSpec.Pos())},
+					reference: sourcePoint{path: importPath},
+				})
+				break
+			}
+		}
+		return nil
+	})
+	return result, err
+}
+
 func compareCharlesSnapshot(localRoot, upstreamRoot string) (int, int, error) {
 	localRoot, err := filepath.Abs(localRoot)
 	if err != nil {
@@ -406,8 +460,8 @@ func isLicenseFile(path string) bool {
 func printSummary(summary auditSummary, currentFiles, referenceFiles int) {
 	fmt.Printf("current_go_files=%d reference_go_files=%d\n", currentFiles, referenceFiles)
 	fmt.Printf("production_five_line_windows=%d test_five_line_windows=%d\n", summary.productionLineWindows, summary.testLineWindows)
-	fmt.Printf("production_sixty_token_windows=%d test_sixty_token_windows=%d\n", summary.productionTokenWindows, summary.testTokenWindows)
-	fmt.Printf("production_exact_functions=%d test_exact_functions=%d exact_nonlicense_files=%d\n", summary.productionFunctions, summary.testFunctions, summary.exactFiles)
+	fmt.Printf("production_%d_token_windows=%d test_%d_token_windows=%d\n", tokenWindowWidth, summary.productionTokenWindows, tokenWindowWidth, summary.testTokenWindows)
+	fmt.Printf("production_exact_functions=%d test_exact_functions=%d exact_nonlicense_files=%d forbidden_imports=%d\n", summary.productionFunctions, summary.testFunctions, summary.exactFiles, summary.forbiddenImports)
 	fmt.Printf("charles_files_compared=%d charles_mismatches=%d\n", summary.charlesCompared, summary.charlesMismatches)
 }
 
@@ -415,8 +469,18 @@ func printMatches(groups map[string][]match) {
 	for _, kind := range []string{"function", "token", "line"} {
 		items := groups[kind]
 		counts := make(map[string]int)
+		firstLines := make(map[string]int)
+		matchedLines := make(map[string]map[int]struct{})
 		for _, item := range items {
 			counts[item.current.path]++
+			line, exists := firstLines[item.current.path]
+			if !exists || item.current.line < line {
+				firstLines[item.current.path] = item.current.line
+			}
+			if matchedLines[item.current.path] == nil {
+				matchedLines[item.current.path] = make(map[int]struct{})
+			}
+			matchedLines[item.current.path][item.current.line] = struct{}{}
 		}
 		paths := make([]string, 0, len(counts))
 		for path := range counts {
@@ -429,7 +493,7 @@ func printMatches(groups map[string][]match) {
 			return counts[paths[left]] > counts[paths[right]]
 		})
 		for _, path := range paths {
-			fmt.Printf("%s-file count=%d current=%s\n", kind, counts[path], path)
+			fmt.Printf("%s-file count=%d first_line=%d lines=%s current=%s\n", kind, counts[path], firstLines[path], formatMatchedLines(matchedLines[path]), path)
 		}
 		limit := min(len(items), maxPrintedMatches)
 		for _, item := range items[:limit] {
@@ -439,6 +503,19 @@ func printMatches(groups map[string][]match) {
 			fmt.Printf("%s-match omitted=%d\n", kind, len(items)-limit)
 		}
 	}
+}
+
+func formatMatchedLines(values map[int]struct{}) string {
+	lines := make([]int, 0, len(values))
+	for line := range values {
+		lines = append(lines, line)
+	}
+	sort.Ints(lines)
+	parts := make([]string, len(lines))
+	for index, line := range lines {
+		parts[index] = fmt.Sprintf("%d", line)
+	}
+	return strings.Join(parts, ",")
 }
 
 func check(err error) {

@@ -30,6 +30,20 @@ type mediaDownloadRequest struct {
 	requestedRange string
 }
 
+type sourceSwitchResponse struct {
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Artist   string            `json:"artist"`
+	Album    string            `json:"album"`
+	AlbumID  string            `json:"album_id"`
+	Duration int               `json:"duration"`
+	Source   string            `json:"source"`
+	Cover    string            `json:"cover"`
+	Extra    map[string]string `json:"extra"`
+	Score    float64           `json:"score"`
+	Link     string            `json:"link"`
+}
+
 func filterAvailableSources(requested, supported []string) []string {
 	allowed := make(map[string]struct{}, len(supported))
 	for _, source := range supported {
@@ -114,12 +128,16 @@ func switchSourceRoute(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"id": selected.ID, "name": selected.Name, "artist": selected.Artist,
-		"album": selected.Album, "album_id": selected.AlbumID, "duration": selected.Duration,
-		"source": selected.Source, "cover": selected.Cover, "extra": selected.Extra,
-		"score": score, "link": selected.Link,
-	})
+	c.JSON(http.StatusOK, newSourceSwitchResponse(selected, score))
+}
+
+func newSourceSwitchResponse(track *model.Track, score float64) sourceSwitchResponse {
+	return sourceSwitchResponse{
+		ID: track.ID, Name: track.Name, Artist: track.Artist,
+		Album: track.Album, AlbumID: track.AlbumID, Duration: track.Duration,
+		Source: track.Source, Cover: track.Cover, Extra: track.Extra,
+		Score: score, Link: track.Link,
+	}
 }
 
 func downloadTrackRoute(c *gin.Context) {
@@ -541,34 +559,52 @@ func setLyricSourceHeaders(c *gin.Context, requested, matched *model.Track) {
 
 func saveWebAssetResponse(c *gin.Context, filename string, data []byte) {
 	savedPath, savedFilename, err := saveWebAssetToLocal(filename, data)
-	if err == nil {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "saved": true, "path": savedPath, "filename": savedFilename})
+	if err != nil {
+		writeWebAssetSaveError(c, err)
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "saved": true, "path": savedPath, "filename": savedFilename})
+}
+
+func writeWebAssetSaveError(c *gin.Context, err error) {
 	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 }
 
 func saveWebAssetToLocal(filename string, data []byte) (string, string, error) {
 	if len(data) == 0 {
-		return "", "", fmt.Errorf("empty file data")
+		return "", "", emptyWebAssetError()
 	}
-	targetDirectory := strings.TrimSpace(core.GetWebSettings().DownloadDir)
-	if targetDirectory == "" {
-		targetDirectory = core.DefaultWebDownloadDir
-	}
-	targetDirectory = filepath.Clean(targetDirectory)
-	if err := os.MkdirAll(targetDirectory, 0o755); err != nil {
+	targetDirectory, err := prepareWebAssetDirectory(core.GetWebSettings().DownloadDir)
+	if err != nil {
 		return "", "", err
 	}
-	savedFilename := fileutil.SanitizeFilename(strings.TrimSpace(filename))
-	if savedFilename == "" {
-		savedFilename = "download"
-	}
+	savedFilename := normalizedWebAssetFilename(filename)
 	savedPath := filepath.Join(targetDirectory, savedFilename)
 	if err := os.WriteFile(savedPath, data, 0o644); err != nil {
 		return "", "", err
 	}
 	return savedPath, savedFilename, nil
+}
+
+func emptyWebAssetError() error {
+	return fmt.Errorf("empty file data")
+}
+
+func prepareWebAssetDirectory(configured string) (string, error) {
+	directory := strings.TrimSpace(configured)
+	if directory == "" {
+		directory = core.DefaultWebDownloadDir
+	}
+	directory = filepath.Clean(directory)
+	return directory, os.MkdirAll(directory, 0o755)
+}
+
+func normalizedWebAssetFilename(filename string) string {
+	filename = fileutil.SanitizeFilename(strings.TrimSpace(filename))
+	if filename != "" {
+		return filename
+	}
+	return "download"
 }
 
 func trackFromQuery(c *gin.Context) *model.Track {
@@ -578,11 +614,12 @@ func trackFromQuery(c *gin.Context) *model.Track {
 	if album == "" {
 		album = strings.TrimSpace(extra["album"])
 	}
-	return &model.Track{
-		ID: strings.TrimSpace(c.Query("id")), Source: strings.TrimSpace(c.Query("source")),
-		Name: strings.TrimSpace(c.Query("name")), Artist: strings.TrimSpace(c.Query("artist")),
-		Album: album, Duration: duration, Cover: strings.TrimSpace(c.Query("cover")), Extra: extra,
-	}
+	track := new(model.Track)
+	track.ID, track.Source = strings.TrimSpace(c.Query("id")), strings.TrimSpace(c.Query("source"))
+	track.Name, track.Artist = strings.TrimSpace(c.Query("name")), strings.TrimSpace(c.Query("artist"))
+	track.Album, track.Duration = album, duration
+	track.Cover, track.Extra = strings.TrimSpace(c.Query("cover")), extra
+	return track
 }
 
 func parseSongExtraQuery(raw string) map[string]string {

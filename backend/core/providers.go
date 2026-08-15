@@ -52,9 +52,10 @@ var (
 	userLibrarySourceNames  = []string{"netease", "qq"}
 	cookieSourceNames       = []string{"netease", "qq", "qq_wx", "kugou", "kuwo", "migu", "bilibili", "soda"}
 	providerDescriptions    = map[string]string{
-		"netease": "网易云音乐", "qq": "QQ音乐", "kugou": "酷狗音乐", "kuwo": "酷我音乐",
-		"migu": "咪咕音乐", "fivesing": "5sing", "jamendo": "Jamendo (CC)", "joox": "JOOX",
-		"qianqian": "千千音乐", "soda": "汽水音乐", "bilibili": "Bilibili", "apple": "Apple Music",
+		"apple": "Apple Music", "bilibili": "Bilibili", "fivesing": "5sing",
+		"jamendo": "Jamendo (CC)", "joox": "JOOX", "kugou": "酷狗音乐",
+		"kuwo": "酷我音乐", "migu": "咪咕音乐", "netease": "网易云音乐",
+		"qianqian": "千千音乐", "qq": "QQ音乐", "soda": "汽水音乐",
 	}
 )
 

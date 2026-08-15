@@ -284,7 +284,7 @@ func pathIsInside(root, target string) bool {
 	if err != nil {
 		return false
 	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	return filepath.IsLocal(rel)
 }
 
 func backfillResolvedAudio(audioPath string, record downloadRecord, options LyricsBackfillOptions) candidateResult {
