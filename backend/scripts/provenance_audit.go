@@ -21,7 +21,7 @@ import (
 const (
 	lineWindowWidth   = 5
 	tokenWindowWidth  = 60
-	maxPrintedMatches = 25
+	maxPrintedMatches = 10
 )
 
 type sourcePoint struct {
@@ -414,6 +414,23 @@ func printSummary(summary auditSummary, currentFiles, referenceFiles int) {
 func printMatches(groups map[string][]match) {
 	for _, kind := range []string{"function", "token", "line"} {
 		items := groups[kind]
+		counts := make(map[string]int)
+		for _, item := range items {
+			counts[item.current.path]++
+		}
+		paths := make([]string, 0, len(counts))
+		for path := range counts {
+			paths = append(paths, path)
+		}
+		sort.Slice(paths, func(left, right int) bool {
+			if counts[paths[left]] == counts[paths[right]] {
+				return paths[left] < paths[right]
+			}
+			return counts[paths[left]] > counts[paths[right]]
+		})
+		for _, path := range paths {
+			fmt.Printf("%s-file count=%d current=%s\n", kind, counts[path], path)
+		}
 		limit := min(len(items), maxPrintedMatches)
 		for _, item := range items[:limit] {
 			fmt.Printf("%s-match current=%s:%d reference=%s:%d\n", kind, item.current.path, item.current.line, item.reference.path, item.reference.line)

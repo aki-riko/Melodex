@@ -29,29 +29,45 @@ type embeddedMetadata struct {
 }
 
 func decodeID3SynchsafeSize(data []byte) (int, bool) {
-	if len(data) < 4 || data[0]&0x80 != 0 || data[1]&0x80 != 0 || data[2]&0x80 != 0 || data[3]&0x80 != 0 {
+	if len(data) < 4 {
 		return 0, false
 	}
-	return int(data[0])<<21 | int(data[1])<<14 | int(data[2])<<7 | int(data[3]), true
+	value := 0
+	for _, part := range data[:4] {
+		if part >= 0x80 {
+			return 0, false
+		}
+		value = value*0x80 + int(part)
+	}
+	return value, true
 }
 
 func id3SynchsafeSize(size int) [4]byte {
-	return [4]byte{byte(size >> 21 & 0x7F), byte(size >> 14 & 0x7F), byte(size >> 7 & 0x7F), byte(size & 0x7F)}
+	var encoded [4]byte
+	remaining := uint(size)
+	for index := len(encoded) - 1; index >= 0; index-- {
+		encoded[index] = byte(remaining % 0x80)
+		remaining /= 0x80
+	}
+	return encoded
 }
 
 func id3TagEnd(audio []byte) (int, bool) {
-	if len(audio) < id3HeaderLength || !bytes.Equal(audio[:3], []byte("ID3")) {
+	if len(audio) < id3HeaderLength || string(audio[:3]) != "ID3" {
 		return 0, false
 	}
-	size, ok := decodeID3SynchsafeSize(audio[6:10])
-	if !ok {
+	payloadSize, validSize := decodeID3SynchsafeSize(audio[6:id3HeaderLength])
+	if !validSize {
 		return 0, false
 	}
-	end := id3HeaderLength + size
+	end := id3HeaderLength + payloadSize
 	if audio[5]&0x10 != 0 {
 		end += id3HeaderLength
 	}
-	return end, end >= id3HeaderLength && end <= len(audio)
+	if end < id3HeaderLength || end > len(audio) {
+		return 0, false
+	}
+	return end, true
 }
 
 func stripID3v2Prefix(audio []byte) []byte {
@@ -63,10 +79,10 @@ func stripID3v2Prefix(audio []byte) []byte {
 
 func id3UTF16LEText(value string) []byte {
 	units := utf16.Encode([]rune(value))
-	encoded := make([]byte, 2, 2+len(units)*2)
-	encoded[0], encoded[1] = 0xFF, 0xFE
-	for _, unit := range units {
-		encoded = binary.LittleEndian.AppendUint16(encoded, unit)
+	encoded := make([]byte, 2+len(units)*2)
+	copy(encoded, []byte{0xFF, 0xFE})
+	for index, unit := range units {
+		binary.LittleEndian.PutUint16(encoded[2+index*2:], unit)
 	}
 	return encoded
 }
@@ -76,27 +92,33 @@ func id3TextFramePayload(value string) []byte {
 }
 
 func id3USLTPayload(lyrics string) []byte {
-	payload := []byte{0x01, 'e', 'n', 'g'}
-	payload = append(payload, id3UTF16LEText("")...)
-	payload = append(payload, 0x00, 0x00)
-	return append(payload, id3UTF16LEText(lyrics)...)
+	var payload bytes.Buffer
+	payload.Write([]byte{0x01, 'e', 'n', 'g', 0xFF, 0xFE, 0x00, 0x00})
+	payload.Write(id3UTF16LEText(lyrics))
+	return payload.Bytes()
 }
 
 func id3APICPayload(cover []byte, coverMIME string) []byte {
-	payload := append([]byte{0x00}, []byte(normalizeCoverMime(coverMIME))...)
-	payload = append(payload, 0x00, 0x03, 0x00)
-	return append(payload, cover...)
+	var payload bytes.Buffer
+	payload.Grow(4 + len(coverMIME) + len(cover))
+	payload.WriteByte(0x00)
+	payload.WriteString(normalizeCoverMime(coverMIME))
+	payload.Write([]byte{0x00, 0x03, 0x00})
+	payload.Write(cover)
+	return payload.Bytes()
 }
 
 func id3v23Frame(identifier string, payload []byte) []byte {
 	if len(identifier) != 4 || len(payload) == 0 {
 		return nil
 	}
-	frame := make([]byte, 0, id3HeaderLength+len(payload))
-	frame = append(frame, identifier...)
-	frame = binary.BigEndian.AppendUint32(frame, uint32(len(payload)))
-	frame = append(frame, 0x00, 0x00)
-	return append(frame, payload...)
+	header := [id3HeaderLength]byte{}
+	copy(header[:4], identifier)
+	binary.BigEndian.PutUint32(header[4:8], uint32(len(payload)))
+	frame := make([]byte, len(header)+len(payload))
+	copy(frame, header[:])
+	copy(frame[len(header):], payload)
+	return frame
 }
 
 func validID3FrameIdentifier(identifier []byte) bool {
@@ -104,11 +126,36 @@ func validID3FrameIdentifier(identifier []byte) bool {
 		return false
 	}
 	for _, character := range identifier {
-		if (character < 'A' || character > 'Z') && (character < '0' || character > '9') {
+		letter := character >= 'A' && character <= 'Z'
+		digit := character >= '0' && character <= '9'
+		if !letter && !digit {
 			return false
 		}
 	}
 	return true
+}
+
+type id3FrameCursor struct {
+	data   []byte
+	offset int
+}
+
+func (cursor *id3FrameCursor) next() (string, []byte, bool) {
+	if cursor == nil || cursor.offset+id3HeaderLength > len(cursor.data) {
+		return "", nil, false
+	}
+	header := cursor.data[cursor.offset : cursor.offset+id3HeaderLength]
+	if !validID3FrameIdentifier(header[:4]) {
+		return "", nil, false
+	}
+	payloadSize := int(binary.BigEndian.Uint32(header[4:8]))
+	frameEnd := cursor.offset + id3HeaderLength + payloadSize
+	if payloadSize <= 0 || frameEnd > len(cursor.data) {
+		return "", nil, false
+	}
+	start := cursor.offset
+	cursor.offset = frameEnd
+	return string(header[:4]), cursor.data[start:frameEnd], true
 }
 
 func preservedID3v23Frames(audio []byte, replacements map[string]bool) []byte {
@@ -116,44 +163,39 @@ func preservedID3v23Frames(audio []byte, replacements map[string]bool) []byte {
 	if !valid || audio[3] != 0x03 || audio[5]&0x40 != 0 {
 		return nil
 	}
-	frames := audio[id3HeaderLength:end]
-	preserved := make([]byte, 0, len(frames))
-	for offset := 0; offset+id3HeaderLength <= len(frames); {
-		header := frames[offset : offset+id3HeaderLength]
-		if bytes.Equal(header, make([]byte, id3HeaderLength)) || !validID3FrameIdentifier(header[:4]) {
-			break
+	cursor := id3FrameCursor{data: audio[id3HeaderLength:end]}
+	preserved := make([]byte, 0, len(cursor.data))
+	for {
+		identifier, rawFrame, ok := cursor.next()
+		if !ok {
+			return preserved
 		}
-		payloadLength := int(binary.BigEndian.Uint32(header[4:8]))
-		frameEnd := offset + id3HeaderLength + payloadLength
-		if payloadLength <= 0 || frameEnd > len(frames) {
-			break
+		if !replacements[identifier] {
+			preserved = append(preserved, rawFrame...)
 		}
-		if !replacements[string(header[:4])] {
-			preserved = append(preserved, frames[offset:frameEnd]...)
-		}
-		offset = frameEnd
 	}
-	return preserved
 }
 
 func embedMP3ID3v23Metadata(audio []byte, title, artist, album, lyrics string, cover []byte, coverMIME string) ([]byte, error) {
-	replacements := map[string]bool{
-		"TIT2": title != "", "TPE1": artist != "", "TPE2": artist != "",
-		"TALB": album != "", "USLT": lyrics != "", "APIC": len(cover) > 0,
+	values := map[string]string{"TIT2": title, "TPE1": artist, "TPE2": artist, "TALB": album, "USLT": lyrics}
+	replacements := make(map[string]bool, len(values)+1)
+	for identifier, value := range values {
+		replacements[identifier] = value != ""
 	}
+	replacements["APIC"] = len(cover) != 0
+
 	var frames bytes.Buffer
 	frames.Write(preservedID3v23Frames(audio, replacements))
-	for _, frame := range []struct {
-		identifier string
-		payload    []byte
-	}{
-		{identifier: "TIT2", payload: payloadWhen(title, id3TextFramePayload)},
-		{identifier: "TPE1", payload: payloadWhen(artist, id3TextFramePayload)},
-		{identifier: "TPE2", payload: payloadWhen(artist, id3TextFramePayload)},
-		{identifier: "TALB", payload: payloadWhen(album, id3TextFramePayload)},
-		{identifier: "USLT", payload: payloadWhen(lyrics, id3USLTPayload)},
-	} {
-		frames.Write(id3v23Frame(frame.identifier, frame.payload))
+	for _, identifier := range []string{"TIT2", "TPE1", "TPE2", "TALB", "USLT"} {
+		value := values[identifier]
+		if value == "" {
+			continue
+		}
+		encode := id3TextFramePayload
+		if identifier == "USLT" {
+			encode = id3USLTPayload
+		}
+		frames.Write(id3v23Frame(identifier, encode(value)))
 	}
 	if len(cover) > 0 {
 		frames.Write(id3v23Frame("APIC", id3APICPayload(cover, coverMIME)))
@@ -162,19 +204,14 @@ func embedMP3ID3v23Metadata(audio []byte, title, artist, album, lyrics string, c
 		return audio, nil
 	}
 
-	size := id3SynchsafeSize(frames.Len())
-	output := make([]byte, 0, id3HeaderLength+frames.Len()+len(audio))
-	output = append(output, 'I', 'D', '3', 0x03, 0x00, 0x00)
-	output = append(output, size[:]...)
+	header := [id3HeaderLength]byte{'I', 'D', '3', 0x03}
+	encodedSize := id3SynchsafeSize(frames.Len())
+	copy(header[6:], encodedSize[:])
+	output := make([]byte, 0, len(header)+frames.Len()+len(audio))
+	output = append(output, header[:]...)
 	output = append(output, frames.Bytes()...)
-	return append(output, stripID3v2Prefix(audio)...), nil
-}
-
-func payloadWhen(value string, encode func(string) []byte) []byte {
-	if value == "" {
-		return nil
-	}
-	return encode(value)
+	output = append(output, stripID3v2Prefix(audio)...)
+	return output, nil
 }
 
 func normalizeCoverMime(value string) string {
