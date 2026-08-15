@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 val melodexVersionName = providers.gradleProperty("melodexVersionName").orElse("0.2.0").get()
 val melodexVersionCode = providers.gradleProperty("melodexVersionCode").orElse("2").map(String::toInt).get()
 val releaseKeystoreFile = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
@@ -15,7 +13,6 @@ val releaseSigningReady = listOf(
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -61,12 +58,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
-    }
 }
 
 dependencies {
