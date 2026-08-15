@@ -23,6 +23,7 @@ import {
   lastBufferedEnd,
   replaceAudioSource,
   resolveCurrentPlaybackSong,
+  shouldKeepMediaSourceAfterStartFailure,
   shouldPreferPlaybackCache,
 } from '../src/contexts/playerPlayback.js';
 import { songIdentityKey } from '../src/utils/songIdentity.js';
@@ -96,6 +97,44 @@ const currentAudio = { dataset: { playSeq: '7', songKey: songIdentityKey(songs[0
 assert.equal(isCurrentAudioEvent(currentAudio, 7, songs[0]), true, '当前播放请求的事件应被处理');
 assert.equal(isCurrentAudioEvent(currentAudio, 8, songs[0]), false, '同一首歌的旧请求事件应被忽略');
 assert.equal(isCurrentAudioEvent(currentAudio, 7, songs[1]), false, '旧歌曲事件不应污染当前歌曲');
+
+const activeMediaPlayback = { destroyed: false };
+assert.equal(
+  shouldKeepMediaSourceAfterStartFailure({
+    error: { name: 'AbortError' },
+    playback: activeMediaPlayback,
+    currentPlayback: activeMediaPlayback,
+  }),
+  true,
+  '用户暂停打断 MSE 的 play() 时必须保留当前媒体管线',
+);
+assert.equal(
+  shouldKeepMediaSourceAfterStartFailure({
+    error: { name: 'NotAllowedError' },
+    playback: activeMediaPlayback,
+    currentPlayback: activeMediaPlayback,
+  }),
+  true,
+  '自动播放策略拒绝时必须保留当前媒体管线供用户手动恢复',
+);
+assert.equal(
+  shouldKeepMediaSourceAfterStartFailure({
+    error: { name: 'NotSupportedError' },
+    playback: activeMediaPlayback,
+    currentPlayback: activeMediaPlayback,
+  }),
+  false,
+  '真正的媒体格式错误仍应进入普通流回退',
+);
+assert.equal(
+  shouldKeepMediaSourceAfterStartFailure({
+    error: { name: 'AbortError' },
+    playback: activeMediaPlayback,
+    currentPlayback: null,
+  }),
+  false,
+  '旧播放序号已被新切歌接管时不得保留旧媒体管线',
+);
 
 assert.equal(
   shouldPreferPlaybackCache({ offline: false, visibilityState: 'hidden' }),

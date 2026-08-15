@@ -25,6 +25,7 @@ import {
   buildPlaybackDiagnostic,
   replaceAudioSource,
   resolveCurrentPlaybackSong,
+  shouldKeepMediaSourceAfterStartFailure,
 } from './playerPlayback.js';
 import {
   createPreparedAudio,
@@ -312,10 +313,23 @@ const WebPlayerProvider = ({ children }) => {
         }
         return;
       } catch (err) {
-        if (continuousPlaybackRef.current === playback) {
-          destroyContinuousPlayback();
+        const isCurrentPlayback = continuousPlaybackRef.current === playback;
+        if (seq !== playSeqRef.current) {
+          if (isCurrentPlayback) destroyContinuousPlayback();
+          return;
         }
-        if (seq !== playSeqRef.current) return;
+        if (shouldKeepMediaSourceAfterStartFailure({
+          error: err,
+          playback,
+          currentPlayback: continuousPlaybackRef.current,
+        })) {
+          if (audio.paused) setIsPaused(true);
+          if (err?.name === 'NotAllowedError') {
+            setNotice(`「${song.name}」未能自动续播,请在锁屏播放器点一次播放。`);
+          }
+          return;
+        }
+        if (isCurrentPlayback) destroyContinuousPlayback();
         reportPlaybackDiagnostic(buildPlayerDiagnostic({
           event: 'mse_start_failed',
           audio,
