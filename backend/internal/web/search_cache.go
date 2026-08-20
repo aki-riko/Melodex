@@ -19,7 +19,11 @@ const searchCacheTTL = 24 * time.Hour
 const searchCacheMaxAge = 7 * 24 * time.Hour
 const searchCacheDefaultRefreshEvery = 30 * time.Minute
 const searchCacheBackgroundRefreshRows = 20
-const searchRankingCacheVersion = "rank-v4"
+
+// Bump this when the serialized search payload changes. The previous cache
+// intentionally removed provider lyrics, so old rows must not hide the new
+// embedded-lyric fast path after deployment.
+const searchRankingCacheVersion = "rank-v5"
 const lyricSearchCacheVersion = "native-v3"
 
 // searchCacheRow 一行缓存。Key 为查询指纹,Payload 为 jsonSearchResponse 的 JSON。
