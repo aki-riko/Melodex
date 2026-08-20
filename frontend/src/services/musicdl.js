@@ -8,6 +8,8 @@ export { serverSaveSucceeded };
 // 生产/同源部署(如 Docker 内后端托管前端)留空 → axios 走相对路径,自动用当前 origin。
 // 禁止硬编码,遵循全局规则。
 const API_BASE = import.meta.env.VITE_MUSICDL_API || '';
+const SEARCH_TIMEOUT_MS = 120000;
+const LYRIC_TIMEOUT_MS = 120000;
 
 const client = axios.create({
   baseURL: API_BASE,
@@ -52,7 +54,9 @@ export const searchMusic = async (keyword, { type = 'song', sources = [], exactA
   if (skipWarm) params.set('skip_warm', '1');
   sources.forEach((s) => params.append('sources', s));
 
-  const { data } = await client.get(`/api/v1/search?${params.toString()}`);
+  const { data } = await client.get(`/api/v1/search?${params.toString()}`, {
+    timeout: SEARCH_TIMEOUT_MS,
+  });
   return withSongs(data); // { songs, playlists, type, keyword, sources, error }
 };
 
@@ -179,6 +183,8 @@ export const getAlbumDetail = async (id, source) => {
 // 歌词(纯文本 LRC,沿用 /music/lyric)
 export const getLyric = async (song) => {
   const s = normalizeSong(song);
+  const embeddedLyric = typeof s.extra?.lyric === 'string' ? s.extra.lyric.trim() : '';
+  if (embeddedLyric) return embeddedLyric;
   const params = new URLSearchParams();
   params.set('id', s.id);
   params.set('source', s.source);
@@ -190,7 +196,10 @@ export const getLyric = async (song) => {
     const extraValue = typeof s.extra === 'string' ? s.extra : JSON.stringify(s.extra);
     if (extraValue && extraValue !== '{}' && extraValue !== 'null') params.set('extra', extraValue);
   }
-  const { data } = await client.get(`/music/lyric?${params.toString()}`, { responseType: 'text' });
+  const { data } = await client.get(`/music/lyric?${params.toString()}`, {
+    responseType: 'text',
+    timeout: LYRIC_TIMEOUT_MS,
+  });
   return data;
 };
 

@@ -177,6 +177,14 @@ func ResolveProviderMedia(song *providermodel.Track) (ProviderMedia, error) {
 }
 
 func providerLyrics(source string, song *providermodel.Track) (string, error) {
+	// Search responses already contain the provider lyric when the sidecar was
+	// able to fetch it. Reuse that payload instead of re-running a full provider
+	// search for an otherwise identical track.
+	if song != nil {
+		if lyric := strings.TrimSpace(song.Extra["lyric"]); lyric != "" {
+			return lyric, nil
+		}
+	}
 	resolved, err := resolveProviderSong(source, song, cookieForSource(source))
 	if err != nil {
 		return "", err
@@ -231,7 +239,6 @@ func providerSongCacheKey(source, id, cookie string) string {
 func publicProviderSong(song providermodel.Track) providermodel.Track {
 	extra := cloneStringMap(song.Extra)
 	delete(extra, "download_headers")
-	delete(extra, "lyric")
 	delete(extra, "play_auth")
 	if extra == nil {
 		extra = make(map[string]string)

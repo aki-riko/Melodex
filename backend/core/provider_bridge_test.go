@@ -47,8 +47,11 @@ func TestProviderBridgeSearchDownloadAndLyrics(t *testing.T) {
 	if len(songs) != 1 || songs[0].ID != "song-1" {
 		t.Fatalf("unexpected songs: %#v", songs)
 	}
-	if songs[0].URL != "" || songs[0].Extra["lyric"] != "" || songs[0].Extra["download_headers"] != "" {
+	if songs[0].URL != "" || songs[0].Extra["download_headers"] != "" {
 		t.Fatalf("public song leaked provider media data: %#v", songs[0])
+	}
+	if songs[0].Extra["lyric"] != "[00:00.00]晴天" {
+		t.Fatalf("public song lyric = %q", songs[0].Extra["lyric"])
 	}
 	if songs[0].Extra["provider_lookup"] != "晴天 周杰伦" {
 		t.Fatalf("provider_lookup = %q", songs[0].Extra["provider_lookup"])
