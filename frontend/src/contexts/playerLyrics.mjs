@@ -51,4 +51,9 @@ export const parseLRC = (raw) => {
   return out;
 };
 
-export const hasParsedLyrics = (lines) => Array.isArray(lines) && lines.length > 0;
+const unavailableLyricText = /^暂无歌词[。.!！]?$/;
+
+export const hasUsableLyrics = (lines) => Array.isArray(lines) && lines.some((line) => {
+  const text = String(line?.text || '').trim();
+  return text && !unavailableLyricText.test(text);
+});
