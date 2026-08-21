@@ -383,6 +383,10 @@ class ApiClient(QObject):
     def load_lyrics(self, song: dict[str, Any]) -> None:
         normalized = normalize_song(song)
         key = f"{normalized['source']}:{normalized['id']}"
+        embedded_lyric = str(normalized["extra"].get("lyric") or "").strip()
+        if embedded_lyric:
+            self.lyricLoaded.emit(key, embedded_lyric)
+            return
         url = self._root_url("/music/lyric")
         url.setQuery(encoded_query(song_query(normalized)))
         relative = url.toString(QUrl.FullyEncoded).removeprefix(self._settings.serviceUrl)

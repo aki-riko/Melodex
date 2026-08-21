@@ -67,6 +67,42 @@ class NormalizeSongTests(unittest.TestCase):
         self.assertEqual(items["stream"], "1")
         self.assertEqual(items["extra"], '{"quality":"flac"}')
 
+    def test_embedded_lyrics_are_preserved_in_normalized_song(self) -> None:
+        song = normalize_song(
+            {
+                "id": "track-id",
+                "source": "qq",
+                "name": "フレグランス",
+                "extra": {"lyric": "[00:00.00]歌词"},
+            }
+        )
+        self.assertEqual(song["extra"]["lyric"], "[00:00.00]歌词")
+
+    def test_load_lyrics_uses_embedded_lyrics_without_network_request(self) -> None:
+        captured = []
+
+        class Harness:
+            load_lyrics = ApiClient.load_lyrics
+
+            @staticmethod
+            def _root_url(_path):
+                raise AssertionError("embedded lyrics should skip network setup")
+
+            @staticmethod
+            def _request(*_args, **_kwargs):
+                raise AssertionError("embedded lyrics should skip network request")
+
+            lyricLoaded = type("Signal", (), {"emit": lambda _self, *args: captured.append(args)})()
+
+        Harness().load_lyrics(
+            {
+                "id": "track-id",
+                "source": "qq",
+                "extra": {"lyric": "  [00:00.00]歌词  "},
+            }
+        )
+        self.assertEqual(captured, [("qq:track-id", "[00:00.00]歌词")])
+
     def test_encoded_query_escapes_nested_cover_url(self) -> None:
         query = song_query(
             {
