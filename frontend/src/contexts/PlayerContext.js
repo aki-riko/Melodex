@@ -42,6 +42,7 @@ import {
 } from './playerMediaSource.js';
 import NativePlayerProvider from './NativePlayerProvider.js';
 import { isNativeAndroidPlayback } from './nativePlayback.js';
+import { hasParsedLyrics, parseLRC } from './playerLyrics.mjs';
 
 const PlayerContext = createContext(null);
 
@@ -1376,52 +1377,6 @@ const Marquee = ({ text, className }) => {
   );
 };
 
-// 解析 LRC 为 [{t, end, text, words}],按时间升序。
-//   - 逐字 LRC(QQ:一行多个时间戳,每字一个)→ words=[{t, end, s}],可做卡拉OK填色
-//   - 行级 LRC(网易:一行仅一个时间戳)→ words=null,整行高亮
-// end = 下一行起始时间(用于算最后一字/整行的结束)。
-const parseLRC = (raw) => {
-  if (!raw || typeof raw !== 'string') return [];
-  const re = /\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
-  const toSec = (m) => parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseInt(m[3].padEnd(3, '0'), 10) / 1000 : 0);
-  const out = [];
-  for (const line of raw.split(/\r?\n/)) {
-    // 收集本行所有 (时间戳, 其后到下一个时间戳前的文本) 片段
-    re.lastIndex = 0;
-    const segs = [];
-    let m, prev = null, prevEnd = 0;
-    while ((m = re.exec(line)) !== null) {
-      if (prev !== null) segs.push({ t: prev, s: line.slice(prevEnd, m.index) });
-      prev = toSec(m);
-      prevEnd = re.lastIndex;
-    }
-    if (prev !== null) segs.push({ t: prev, s: line.slice(prevEnd) });
-    if (segs.length === 0) continue; // 无时间戳:元信息行,跳过
-
-    const text = segs.map((x) => x.s).join('').replace(/\s+$/, '');
-    if (!text.trim()) continue;
-
-    // 真逐字 LRC(QQ)每字一个时间戳,过滤空段后仍有多个有效字段;
-    // 网易"行首+行尾两个时间戳"过滤空段后只剩 1 个有效字段 → 走整行高亮。
-    const words = segs.filter((x) => x.s.length > 0).map((x) => ({ t: x.t, s: x.s }));
-    if (words.length >= 2) {
-      out.push({ t: segs[0].t, text, words });
-    } else {
-      out.push({ t: segs[0].t, text, words: null });
-    }
-  }
-  out.sort((a, b) => a.t - b.t);
-  // 填充每行/每字的 end = 下一个起点
-  for (let i = 0; i < out.length; i++) {
-    out[i].end = i + 1 < out.length ? out[i + 1].t : out[i].t + 5;
-    if (out[i].words) {
-      const w = out[i].words;
-      for (let j = 0; j < w.length; j++) w[j].end = j + 1 < w.length ? w[j + 1].t : out[i].end;
-    }
-  }
-  return out;
-};
-
 // 当前时间对应的歌词行索引(最后一个 t<=cur)。
 const currentLyricIndex = (lines, cur) => {
   if (!lines.length) return -1;
@@ -1551,7 +1506,7 @@ export const PlayerBar = () => {
     }
     let cancelled = false;
     const cached = lyricCache.get(curKey);
-    if (cached) {
+    if (hasParsedLyrics(cached)) {
       setLrc(cached);
       return () => { cancelled = true; };
     }
@@ -1559,8 +1514,10 @@ export const PlayerBar = () => {
     getLyric(nowPlaying)
       .then((text) => {
         const parsed = parseLRC(text);
-        lyricCache.set(curKey, parsed);
-        if (!cancelled) setLrc(parsed);
+        // 旧请求可能在切歌后才返回，不能覆盖新歌状态或污染同 key 缓存。
+        if (cancelled) return;
+        if (hasParsedLyrics(parsed)) lyricCache.set(curKey, parsed);
+        setLrc(parsed);
       })
       .catch(() => { if (!cancelled) setLrc([]); });
     return () => { cancelled = true; };
