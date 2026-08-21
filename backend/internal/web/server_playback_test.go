@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -83,6 +84,50 @@ func TestStreamPlaybackPrefersOwnedServerDownload(t *testing.T) {
 	}
 	if !bytes.Equal(rec.Body.Bytes(), qqAudio[5:16]) {
 		t.Fatalf("range body=%q, want %q", rec.Body.Bytes(), qqAudio[5:16])
+	}
+}
+
+func TestLyricPrefersOwnedServerDownload(t *testing.T) {
+	setupUserTestDB(t)
+
+	alice, err := createUser("alice-server-lyric", "alicepass1", RoleUser)
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+
+	downloadDir := t.TempDir()
+	withLocalMusicDownloadDir(t, downloadDir)
+	rel := "フレグランス - 茉ひる、RINZO.flac"
+	if err := os.WriteFile(filepath.Join(downloadDir, rel), []byte("fLaC-real-server-copy-fragrance"), 0644); err != nil {
+		t.Fatalf("write audio fixture: %v", err)
+	}
+	lyrics := "[ti:フレグランス]\n[00:18.07]あなたに似たようなこの香り"
+	if err := os.WriteFile(filepath.Join(downloadDir, "フレグランス - 茉ひる、RINZO.lrc"), []byte(lyrics), 0644); err != nil {
+		t.Fatalf("write lyric fixture: %v", err)
+	}
+	if err := recordDownload(alice.ID, rel, "qq", "001NQjFz2V6tgw", "フレグランス", "茉ひる、RINZO"); err != nil {
+		t.Fatalf("record download: %v", err)
+	}
+
+	previousLyricProvider := lyricFuncProvider
+	lyricFuncProvider = func(string) func(*model.Track) (string, error) {
+		t.Fatal("owned server lyrics must not call the remote provider")
+		return nil
+	}
+	t.Cleanup(func() { lyricFuncProvider = previousLyricProvider })
+
+	router := musicRouterForUser(alice.ID, RoleUser)
+	params := url.Values{
+		"id": {"001NQjFz2V6tgw"}, "source": {"qq"},
+		"name": {"フレグランス"}, "artist": {"茉ひる、RINZO"},
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, RoutePrefix+"/lyric?"+params.Encode(), nil))
+	if recorder.Code != http.StatusOK || recorder.Body.String() != lyrics {
+		t.Fatalf("server lyric response=%d/%q", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("X-Lyric-Source"); got != "qq" {
+		t.Fatalf("server lyric source=%q", got)
 	}
 }
 

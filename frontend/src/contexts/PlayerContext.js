@@ -42,7 +42,7 @@ import {
 } from './playerMediaSource.js';
 import NativePlayerProvider from './NativePlayerProvider.js';
 import { isNativeAndroidPlayback } from './nativePlayback.js';
-import { hasParsedLyrics, parseLRC } from './playerLyrics.mjs';
+import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
 
 const PlayerContext = createContext(null);
 
@@ -1506,7 +1506,7 @@ export const PlayerBar = () => {
     }
     let cancelled = false;
     const cached = lyricCache.get(curKey);
-    if (hasParsedLyrics(cached)) {
+    if (hasUsableLyrics(cached)) {
       setLrc(cached);
       return () => { cancelled = true; };
     }
@@ -1516,7 +1516,7 @@ export const PlayerBar = () => {
         const parsed = parseLRC(text);
         // 旧请求可能在切歌后才返回，不能覆盖新歌状态或污染同 key 缓存。
         if (cancelled) return;
-        if (hasParsedLyrics(parsed)) lyricCache.set(curKey, parsed);
+        if (hasUsableLyrics(parsed)) lyricCache.set(curKey, parsed);
         setLrc(parsed);
       })
       .catch(() => { if (!cancelled) setLrc([]); });

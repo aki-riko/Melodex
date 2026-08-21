@@ -531,6 +531,13 @@ func lyricRoute(c *gin.Context) {
 		serveLocalMusicLyric(c, track, false)
 		return
 	}
+	if lyrics, ok := loadOwnedServerCopyLyrics(c, track); ok {
+		lyrics = formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
+		c.Header("X-Lyric-Format", classifyLyricFormat(lyrics))
+		c.Header("X-Lyric-Source", track.Source)
+		c.String(http.StatusOK, lyrics)
+		return
+	}
 	lyrics, matched, err := loadLyricWithFallback(track)
 	if err != nil || lyrics == "" {
 		log.Printf("[lyric] fetch source=%q id=%q name=%q artist=%q: %v", track.Source, track.ID, track.Name, track.Artist, err)
@@ -541,6 +548,32 @@ func lyricRoute(c *gin.Context) {
 	c.Header("X-Lyric-Format", classifyLyricFormat(lyrics))
 	setLyricSourceHeaders(c, track, matched)
 	c.String(http.StatusOK, lyrics)
+}
+
+func loadOwnedServerCopyLyrics(c *gin.Context, track *model.Track) (string, bool) {
+	if track == nil {
+		return "", false
+	}
+	relativePath, err := existingDownloadRelPathForPlayback(
+		currentUserID(c), currentUserIsAdmin(c), localMusicDownloadDir(),
+		track.Source, track.ID, track.Name, track.Artist,
+	)
+	if err != nil {
+		log.Printf("[lyric] query server copy user=%d: %v", currentUserID(c), err)
+		return "", false
+	}
+	if relativePath == "" {
+		return "", false
+	}
+	localTrack, err := localMusicTrackByID(encodeLocalMusicID(relativePath))
+	if err != nil {
+		return "", false
+	}
+	lyrics, err := readLocalMusicLyrics(localTrack.absPath)
+	if err != nil || strings.TrimSpace(lyrics) == "" {
+		return "", false
+	}
+	return lyrics, true
 }
 
 func writeUnavailableLyric(c *gin.Context) {
