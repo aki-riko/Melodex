@@ -363,6 +363,15 @@ QString ApiClient::coverUrl(const QVariantMap &songValue) const {
 void ApiClient::loadLyrics(const QVariantMap &songValue) {
     const QVariantMap song = normalizeSong(songValue);
     const QString key = songKey(song);
+    const QString embeddedLyric = song.value(QStringLiteral("extra"))
+                                      .toMap()
+                                      .value(QStringLiteral("lyric"))
+                                      .toString()
+                                      .trimmed();
+    if (!embeddedLyric.isEmpty()) {
+        emit lyricLoaded(key, embeddedLyric);
+        return;
+    }
     const QString path = QStringLiteral("/music/lyric?") + encodedQuery(songQuery(song));
     request("GET", path,
             [this, key](const QVariant &payload, const QString &error, int) {
