@@ -8,8 +8,12 @@ export { serverSaveSucceeded };
 // 生产/同源部署(如 Docker 内后端托管前端)留空 → axios 走相对路径,自动用当前 origin。
 // 禁止硬编码,遵循全局规则。
 const API_BASE = import.meta.env.VITE_MUSICDL_API || '';
-const SEARCH_TIMEOUT_MS = 120000;
-const LYRIC_TIMEOUT_MS = 120000;
+// 必须 **大于** 后端 provider 客户端的 2 分钟硬上限(core/provider_bridge.go)。
+// 曾经这两个值都恰好是 120s:后端在 120.0s 交出结果的同一刻 axios 正好 abort,
+// 于是后端明明收集到了几十首歌(并已写入搜索缓存),前端却把这次请求判成失败、
+// 渲染成"0 首候选歌曲"。留出余量让服务端的结果总能落地。
+const SEARCH_TIMEOUT_MS = 150000;
+const LYRIC_TIMEOUT_MS = 150000;
 
 const client = axios.create({
   baseURL: API_BASE,

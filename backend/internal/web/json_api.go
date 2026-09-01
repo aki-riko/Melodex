@@ -3,10 +3,12 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aki-riko/Melodex/backend/core"
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
@@ -695,7 +697,30 @@ func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListR
 	return resp
 }
 
+// searchSourceBudget 是一次多源搜索最多愿意等的时间。
+//
+// 单个上游源可能病态地慢,而 concurrentKeywordSearch 过去会等齐所有源,于是整个
+// 扇出被最慢的那个源拖到 provider 客户端的 2 分钟硬超时。这里给扇出一个预算:
+// 预算内到齐的源全部采用,迟到的源本次丢弃(其 goroutine 仍会自行结束),
+// 用部分结果换取可预期的响应时间。
+//
+// 默认值按真实测量选取(容器内 limit=20 并发实测,关键词「浮夸」):
+//
+//	soda      0.7s songs=0    apple     2.1s HTTP 502
+//	qianqian 11.9s songs=0    kugou    26.7s songs=3
+//	migu     53.8s songs=14   kuwo     86.5s songs=20
+//	netease 103.9s songs=11   qq      215.0s songs=0
+//
+// 离群值只有 qq(215s 且返回 0 首)。预算取 100s:排除 qq,保住 netease/kuwo/migu
+// 这些真正出歌的源(约 48 首),同时留足余量早于 provider 的 2 分钟上限返回。
+func searchSourceBudget() time.Duration {
+	return durationFromEnv("MUSIC_DL_SEARCH_SOURCE_BUDGET", searchSourceDefaultBudget)
+}
+
+const searchSourceDefaultBudget = 100 * time.Second
+
 // concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
+// 在 searchSourceBudget 内收集结果;超预算的源本次不参与,避免一个慢源拖垮整次搜索。
 func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]model.Track, []model.RemoteCollection) {
 	results := make(chan keywordSearchResult, len(sources))
 	for _, source := range sources {
@@ -703,10 +728,22 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 	}
 	songs := make([]model.Track, 0)
 	collections := make([]model.RemoteCollection, 0)
+	budget := time.NewTimer(searchSourceBudget())
+	defer budget.Stop()
+	collected := 0
 	for range sources {
-		result := <-results
-		songs = append(songs, result.songs...)
-		collections = append(collections, result.collections...)
+		select {
+		case result := <-results:
+			songs = append(songs, result.songs...)
+			collections = append(collections, result.collections...)
+			collected++
+		case <-budget.C:
+			log.Printf(
+				"[search] %s %q: budget %s reached with %d/%d sources; returning partial results",
+				searchType, keyword, searchSourceBudget(), collected, len(sources),
+			)
+			return songs, collections
+		}
 	}
 	return songs, collections
 }
@@ -732,6 +769,10 @@ func searchKeywordAtSource(keyword, searchType, source string) keywordSearchResu
 	}
 	tracks, err := provider(keyword)
 	if err != nil {
+		// 禁止静默吞异常:单源失败不该中断整次搜索,但必须留下可排查的痕迹。
+		// 此前这里直接返回空,导致 sidecar 的 502(如 apple 源)在后端完全无声,
+		// 只能靠翻 provider 容器日志才能发现。
+		log.Printf("[search] %s source %s failed for %q: %v", searchType, source, keyword, err)
 		return keywordSearchResult{}
 	}
 	markProviderTrackRanks(tracks, source)
@@ -747,6 +788,7 @@ func keywordCollectionResult(source, keyword string, provider func(string) ([]mo
 	}
 	collections, err := provider(keyword)
 	if err != nil {
+		log.Printf("[search] collection source %s failed for %q: %v", source, keyword, err)
 		return keywordSearchResult{}
 	}
 	for index := range collections {
