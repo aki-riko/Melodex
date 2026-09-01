@@ -212,6 +212,17 @@ const searchSongsLyricsAndAlbums = async (keyword) => {
   const songs = mergeSearchSongs(query, songData?.songs || [], lyricData?.songs || []).slice(0, COMBINED_SEARCH_RESULT_LIMIT);
   const albums = albumData?.playlists || [];
   const hasResults = songs.length > 0 || albums.length > 0;
+
+  // 歌曲链路的失败必须单独记账,不能被专辑的成功掩盖。
+  // 专辑只查 5 个较快的源、歌曲要查 8 个(多出 qianqian/soda/apple),两条链路
+  // 快慢差一个量级;歌曲超时而专辑成功是常见组合。此前 error 只看
+  // `hasResults`(歌曲或专辑任一有结果),于是歌曲整条失败时错误被清空,
+  // 界面照旧报"已找到搜索结果",真实故障完全不可见。
+  const songRequestsFailed = !songData && !lyricData;
+  const songsError = songData?.error
+    || lyricData?.error
+    || (songRequestsFailed ? (failures[0] || '歌曲搜索失败') : '');
+
   return {
     ...(songData || lyricData || albumData || {}),
     type: 'combined',
@@ -223,6 +234,7 @@ const searchSongsLyricsAndAlbums = async (keyword) => {
     refreshing: !!(songData?.refreshing || lyricData?.refreshing || albumData?.refreshing),
     cached_at: songData?.cached_at || lyricData?.cached_at || albumData?.cached_at,
     error: hasResults ? '' : (songData?.error || lyricData?.error || albumData?.error || failures[0] || ''),
+    songsError: songs.length === 0 ? songsError : '',
   };
 };
 
@@ -610,6 +622,15 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       return {
         title: '搜索返回错误',
         detail: state.data.error,
+        icon: AlertCircle,
+        tone: 'error',
+      };
+    }
+    // 专辑有结果但歌曲一首都没有,且歌曲链路确实报错 —— 如实说明,不要伪装成成功。
+    if (hasCurrentSearchResult && songs.length === 0 && state.data?.songsError) {
+      return {
+        title: '歌曲搜索失败',
+        detail: `${state.data.songsError}${albums.length ? `（专辑仍有 ${albums.length} 张结果,见下方）` : ''}可点「清缓存重搜」重试。`,
         icon: AlertCircle,
         tone: 'error',
       };
