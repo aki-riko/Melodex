@@ -59,10 +59,15 @@ func GetSearchFunc(source string) SearchFunc {
 }
 
 func GetLyricSearchFunc(source string) SearchFunc {
-	if strings.TrimSpace(source) != "qq" {
+	source = strings.TrimSpace(source)
+	// 曾经歌词搜索只走 qq(因其原生支持按歌词片段检索),但 qq 的快照客户端
+	// 当前在有无凭据下都返回 0 首且耗时 215s(测量值),导致歌词搜索功能整条失效。
+	// 扩展到 netease/kuwo/migu:虽然这些源不做歌词内容匹配(只按标题/歌手),
+	// 但至少能返回结果,用户按标题搜也能找到歌——总比挂着"歌词搜索"功能却全黑强。
+	if source != "qq" && source != "netease" && source != "kuwo" && source != "migu" {
 		return nil
 	}
-	return GetSearchFunc("qq")
+	return GetSearchFunc(source)
 }
 
 func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
@@ -224,7 +229,11 @@ func GetPlaylistSourceNames() []string         { return slices.Clone(collectionP
 func GetAlbumSourceNames() []string            { return slices.Clone(collectionProviderNames) }
 func GetPlaylistCategorySourceNames() []string { return slices.Clone(collectionProviderNames) }
 func GetDefaultSourceNames() []string          { return slices.Clone(defaultProviderNames) }
-func GetLyricSearchSourceNames() []string      { return []string{"qq"} }
+func GetLyricSearchSourceNames() []string {
+	// 原设计只用 qq,因其原生支持歌词片段检索;但快照客户端当前失效(215s/0首),
+	// 导致歌词搜索全黑。扩展到能出结果的源——虽然不做歌词内容匹配,但能按标题找到歌。
+	return []string{"netease", "kuwo", "migu"}
+}
 
 func GetSourceDescription(source string) string {
 	if description := providerDescriptions[strings.TrimSpace(source)]; description != "" {
