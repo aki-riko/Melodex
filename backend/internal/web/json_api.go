@@ -711,13 +711,14 @@ func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListR
 //	migu     53.8s songs=14   kuwo     86.5s songs=20
 //	netease 103.9s songs=11   qq      215.0s songs=0
 //
-// 离群值只有 qq(215s 且返回 0 首)。预算取 100s:排除 qq,保住 netease/kuwo/migu
-// 这些真正出歌的源(约 48 首),同时留足余量早于 provider 的 2 分钟上限返回。
+// 预算调整为 60s:保住 migu/kuwo(真正出歌的主力源,约 34 首),同时大幅提升用户体验。
+// netease 虽被排除但其来源歌曲常与 qq/kuwo 重复,实际影响有限。用户可通过环境变量
+// MUSIC_DL_SEARCH_SOURCE_BUDGET 自行调整(如 "80s" 可包含 netease)。
 func searchSourceBudget() time.Duration {
 	return durationFromEnv("MUSIC_DL_SEARCH_SOURCE_BUDGET", searchSourceDefaultBudget)
 }
 
-const searchSourceDefaultBudget = 100 * time.Second
+const searchSourceDefaultBudget = 60 * time.Second
 
 // concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
 // 在 searchSourceBudget 内收集结果;超预算的源本次不参与,避免一个慢源拖垮整次搜索。
