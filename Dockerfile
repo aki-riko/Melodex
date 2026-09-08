@@ -3,7 +3,7 @@
 #   docker build -t melodex -f Dockerfile .
 
 # ===== 阶段1:构建 React 前端 =====
-FROM node:20-alpine AS frontend
+FROM docker.1ms.run/library/node:20-alpine AS frontend
 WORKDIR /fe
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ===== 阶段2:构建 Go 后端(嵌入前端产物)=====
-FROM --platform=$BUILDPLATFORM golang:1.25 AS builder
+FROM --platform=$BUILDPLATFORM docker.1ms.run/library/golang:1.25 AS builder
 WORKDIR /app
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -31,7 +31,7 @@ COPY --from=frontend /fe/build/ ./internal/web/frontend_dist/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -o melodex ./cmd/melodex
 
 # ===== 阶段3:运行镜像(含 ffmpeg)=====
-FROM alpine:3.22
+FROM docker.1ms.run/library/alpine:3.22
 RUN apk --no-cache add ca-certificates tzdata ffmpeg \
     && ffmpeg -version >/dev/null && ffprobe -version >/dev/null
 ENV TZ=Asia/Shanghai
