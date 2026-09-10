@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from provider_bridge import netease_lyric, qq_source
+from provider_bridge import kugou_lyric, netease_lyric, qq_source
 
 
 LOGGER = logging.getLogger(__name__)
@@ -113,26 +113,45 @@ def source_status() -> dict[str, Any]:
     return {"qq": qq_source.status()}
 
 
-def _enrich_netease_verbatim_lyrics(songs: list[dict[str, Any]]) -> None:
-    """网易的歌若带逐字歌词(YRC), 用它替换行级 LRC, 前端据此做卡拉OK逐字填色。
+def _fetch_verbatim_lyric(source: str, song: dict[str, Any]) -> str:
+    """按源取该首歌的逐字歌词(内联 LRC); 源没实现或取不到则空串。
 
-    YRC 是明文且实测原唱类歌曲可用(如 孤勇者 9868 字符), 而 QQ 的逐字歌词(QRC)已是
-    新加密格式无法解出, 所以逐字歌词当前只有网易这一路(同源, 不做跨源匹配)。
+    注意: 这里刻意每次用 getattr 取函数而不是在导入期缓存, 测试才能照常打桩
+    (mock.patch.object(netease_lyric, "fetch_verbatim_lyric"))。
+    """
+    if source == "netease":
+        return netease_lyric.fetch_verbatim_lyric(_string(song.get("id")))
+    if source == "kugou":
+        # 酷狗按歌名/歌手检索(identifier 就是音频文件 hash, 一并带上提高命中)。
+        return kugou_lyric.fetch_verbatim_lyric(
+            _string(song.get("name")),
+            _string(song.get("artist")),
+            duration_s=_integer(song.get("duration")),
+            file_hash=_string(song.get("id")),
+        )
+    return ""
+
+
+def _enrich_verbatim_lyrics(songs: list[dict[str, Any]], source: str) -> None:
+    """把能拿到的逐字歌词替换掉行级 LRC, 前端据此做卡拉OK逐字填色。
+
+    当前两路(都只给自己的源用, 不做跨源匹配):
+      - 网易 YRC: 明文逐字, 但覆盖稀(周杰伦多首原唱都没有 yrc 字段);
+      - 酷狗 KRC: 覆盖主流中文原唱(晴天/稻香等), 是 YRC 的互补项。
+    QQ 的 QRC 已是新加密格式(旧密钥全解不开), 暂不可用。
     整段是尽力而为: 任何失败都保留原有行级歌词, 绝不影响搜索本身。
     """
-    if not songs or not netease_lyric.verbatim_lyric_enabled():
+    module = {"netease": netease_lyric, "kugou": kugou_lyric}.get(source)
+    if not songs or module is None or not module.verbatim_lyric_enabled():
         return
-    targets = [song for song in songs if _string(song.get("id"))]
+    targets = [song for song in songs if _string(song.get("name"))]
     if not targets:
         return
     try:
         with ThreadPoolExecutor(max_workers=min(6, len(targets))) as pool:
-            results = list(pool.map(
-                lambda song: netease_lyric.fetch_verbatim_lyric(_string(song.get("id"))),
-                targets,
-            ))
+            results = list(pool.map(lambda song: _fetch_verbatim_lyric(source, song), targets))
     except Exception as error:
-        LOGGER.warning("[netease] 逐字歌词批量获取异常: %s", error)
+        LOGGER.warning("[%s] 逐字歌词批量获取异常: %s", source, error)
         return
     replaced = 0
     for song, verbatim in zip(targets, results):
@@ -146,7 +165,7 @@ def _enrich_netease_verbatim_lyrics(songs: list[dict[str, Any]]) -> None:
         extra["lyric_verbatim"] = "1"
         replaced += 1
     if replaced:
-        LOGGER.info("[netease] 逐字歌词已应用 %d/%d 首", replaced, len(songs))
+        LOGGER.info("[%s] 逐字歌词已应用 %d/%d 首", source, replaced, len(songs))
 
 
 def search(
@@ -206,6 +225,6 @@ def search(
                 for rank, song in enumerate(songs[:limit])
             ]
         }
-        if source == "netease":
-            _enrich_netease_verbatim_lyrics(result["songs"])
+        if source in {"netease", "kugou"}:
+            _enrich_verbatim_lyrics(result["songs"], source)
         return result

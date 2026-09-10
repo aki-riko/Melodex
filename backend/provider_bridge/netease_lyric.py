@@ -22,6 +22,7 @@ import re
 from typing import Any
 
 from provider_bridge.platform_http import PlatformHTTP
+from provider_bridge.verbatim_lyric import inline_lrc
 
 
 LOGGER = logging.getLogger(__name__)
@@ -33,9 +34,6 @@ NETEASE_REFERER = "https://music.163.com/"
 YRC_LINE_RE = re.compile(r"^\[(\d+),(\d+)\](.*)$")
 YRC_WORD_RE = re.compile(r"\((\d+),(\d+),\d+\)([^(\[]*)")
 
-# 前端 parseLRC 认得的时间戳形状, 这里用毫秒三位小数保持一致。
-TIMESTAMP_TEMPLATE = "[%02d:%02d.%03d]"
-
 
 def _string(value: Any) -> str:
     if value is None or value == "NULL":
@@ -43,11 +41,21 @@ def _string(value: Any) -> str:
     return str(value).strip()
 
 
-def _timestamp(milliseconds: int) -> str:
-    milliseconds = max(0, int(milliseconds))
-    minutes, remainder = divmod(milliseconds, 60_000)
-    seconds, millis = divmod(remainder, 1000)
-    return TIMESTAMP_TEMPLATE % (minutes, seconds, millis)
+def _segments(content: str, line_start: int) -> list[tuple[int, str]]:
+    """解析一行里的词单元; 没有词级数据时退化成"整行一个时间戳"。
+
+    词时间是绝对毫秒(与酷狗 KRC 的相对时间不同), 所以直接用, 不加行起。
+    """
+    segments: list[tuple[int, str]] = []
+    for word in YRC_WORD_RE.finditer(content):
+        text = word.group(3)
+        if not text:
+            continue
+        segments.append((int(word.group(1)), text))
+    if segments:
+        return segments
+    fallback = content.strip()
+    return [(line_start, fallback)] if fallback else []
 
 
 def yrc_to_verbatim_lrc(raw: str) -> str:
@@ -56,7 +64,7 @@ def yrc_to_verbatim_lrc(raw: str) -> str:
     没有词级数据的行退化成"整行一个时间戳"(前端会按行级高亮), 元信息 JSON 行跳过。
     无法转换时返回空串, 调用方应保留原有歌词。
     """
-    out: list[str] = []
+    lines: list[list[tuple[int, str]]] = []
     for raw_line in (raw or "").splitlines():
         line = raw_line.strip()
         if not line:
@@ -65,21 +73,10 @@ def yrc_to_verbatim_lrc(raw: str) -> str:
         if matched is None:
             # 作词/作曲等元信息行是 JSON, 不是歌词。
             continue
-        content = matched.group(3)
-        segments: list[tuple[int, str]] = []
-        for word in YRC_WORD_RE.finditer(content):
-            text = word.group(3)
-            if not text:
-                continue
-            segments.append((int(word.group(1)), text))
-        if not segments:
-            fallback = content.strip()
-            if fallback:
-                segments = [(int(matched.group(1)), fallback)]
-        if not segments:
-            continue
-        out.append("".join(_timestamp(start) + text for start, text in segments))
-    return "\n".join(out)
+        segments = _segments(matched.group(3), int(matched.group(1)))
+        if segments:
+            lines.append(segments)
+    return inline_lrc(lines)
 
 
 def verbatim_lyric_enabled() -> bool:
