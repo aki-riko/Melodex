@@ -212,6 +212,9 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   - `MUSIC_DL_CORS_ORIGINS`:逗号分隔的可信跨域来源(同源无需配)。CORS 不再反射任意 Origin,只对同源+此白名单回显凭据。
   - cookie `Secure` 自动按 `X-Forwarded-Proto=https` 置位(NPM 终止 TLS 场景),无需配置但 NPM 需透传该头。
   - 资源上限默认值:搜索 per-IP 30 次/分钟、search_cache 5000 行、上传单文件 200MB、m3u 导入 ≤1000 条(均硬编码,需调改源码)。
+  - **搜索延迟相关 env**:`MUSIC_DL_SEARCH_SOURCE_BUDGET`(默认 12s,compose 里已配)—— 只是安全网,
+    正常情况"主力源(qq/netease)齐了就返回",实测端到端 2~3s;想多等一会儿多收几个源就调大它。
+    `MELODEX_NETEASE_NATIVE_SEARCH=0` 可让网易退回快照实现(慢 130 倍,不建议)。
 
 ## Git
 
@@ -289,6 +292,33 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
   - **验收边界**: 扫码后在手机上"确认登录"以及之后的强登录换取, 必须由用户真机扫一次才能验收;
     create/轮询接口本身可以机器验证(实测 create 0.18s 返回真实 111×111 PNG + qrsig,
     check 0.19s 返回 code=66「二维码未失效。」)。
+
+### 搜索延迟与"主力源早退"(2026-09 提速)
+实测各家耗时(limit=20, 全部并发起跑, 生产容器内):
+
+| 源 | 耗时 | 结果 | 说明 |
+| --- | --- | --- | --- |
+| soda | 0.5s | 0 | 快但没货 |
+| qq | 1.7s(慢时 8.4s) | 3~10 | Melodex 原生实现; 会员凭证有效时 20 首全可播 |
+| netease(原生) | ~1.0s | 20 | `netease_source.search_songs`, 可播 20/20、FLAC 1394~1607k |
+| qianqian | 18.7s | 5 | 超预算, 现在基本不会参与 |
+| kugou | 25.2s | 2 | 同上(注意: KRC 逐字歌词是挂在酷狗歌曲上的, 它不参与就摸不到这条路) |
+| kuwo | 83.7s | 20 | 快照实现每首跑音质阶梯+探活 |
+| migu | 114.9s | 3 | 同上 |
+| netease(快照) | 131.7s | 17 | **已由原生实现取代**(131.7s → 1.0s) |
+
+慢的根因: 快照客户端对**每首歌**都要跑 8 档音质阶梯并探测下载地址, 20 首就是 1~2 分钟。
+历史与现状:
+- 最初 `MUSIC_DL_SEARCH_SOURCE_BUDGET=60s` → 端到端**每次实打实等满 60.1s**, 而且 netease/kuwo
+  跑不完被**整源丢掉**(用户既等得久又拿不到结果)。
+- 网易改原生后 → 12.1s。
+- 再改成"**等齐主力源就返回**"(`json_api.go` 的 `searchPrimarySources = {qq, netease}`:
+  主力源齐了立刻返回, 其余源只在预算内赶上才算) → **2.0~2.9s**, 且 netease 20 首回来了。
+  边界: 用户若在源选择里排除了全部主力源, 则仍等齐所选源(不超过预算), 免得第一个返回就丢其余的。
+  回归测试: `internal/web/search_primary_test.go`(慢源挂 10s 也必须 <3s 返回且不含其结果)。
+- 想换回"多等一会儿、尽量多收源": 调 `MUSIC_DL_SEARCH_SOURCE_BUDGET`(默认 12s, 只是个安全网)。
+  想让 qianqian/kugou/kuwo/migu 也进结果, 得给它们做**原生搜索**(每个 1~2 小时, 参照
+  `qq_source.py` / `netease_source.py`: 只打必要请求, 不逐档重试、不逐首探活)。
 
 ### 歌词能力现状(2026-09)
 - **逐字歌词**: 前端 `parseLRC` 认"一行里 >= 2 个 `[mm:ss(.sss)]` 段"为逐字行。provider 侧三路互补:
