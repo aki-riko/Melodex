@@ -362,6 +362,9 @@ type jsonPlaylistListResponse struct {
 // jsonSearchHandler 复用 core 的并发多源搜索逻辑,返回结构化 JSON
 // (对应原 music.go 的 /music/search,但用 c.JSON 替代 renderIndex 的 HTML 片段)。
 func jsonSearchHandler(c *gin.Context) {
+	// 多源搜索要等上游(预算就有 60s), 必须先把写截止时间推后, 否则预算到点准备写响应时
+	// 连接已被全局 30s 写超时关掉, 客户端只会拿到 0 字节 / 代理 502。
+	extendWriteDeadline(c, searchWriteTimeout)
 	request := jsonSearchRequestFromContext(c)
 	keyword, searchType := request.Keyword, request.Type
 	exactArtist, sources := request.ExactArtist, request.Sources

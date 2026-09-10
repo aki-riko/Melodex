@@ -87,6 +87,8 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 }
 
 func inspectTrackRoute(c *gin.Context) {
+	// 验活要真去上游探一次(慢源可跑十几秒), 同属"要等上游"的接口。
+	extendWriteDeadline(c, searchWriteTimeout)
 	track := trackFromQuery(c)
 	if isLocalMusicSource(track.Source) {
 		localTrack, err := localMusicTrackByID(track.ID)
@@ -526,6 +528,8 @@ func loadProxyCover(coverURL, source string) ([]byte, string, error) {
 }
 
 func lyricRoute(c *gin.Context) {
+	// 在线源歌词要走一次上游搜索, 同属"要等上游"的接口。
+	extendWriteDeadline(c, searchWriteTimeout)
 	track := trackFromQuery(c)
 	if isLocalMusicSource(track.Source) {
 		serveLocalMusicLyric(c, track, false)

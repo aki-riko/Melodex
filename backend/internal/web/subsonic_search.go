@@ -396,6 +396,8 @@ func songToSubsonicChild(song model.Track) subsonicChild {
 // subsonicSearch3 处理 search3:联网搜索 → 验活 → 映射成 searchResult3。
 // query 为空时返回空结果(不报错,兼容客户端"清空搜索框"行为)。
 func subsonicSearch3(c *gin.Context) {
+	// 与 /api/v1/search 同一条多源搜索路径, 同样必须先推后写截止时间。
+	extendWriteDeadline(c, searchWriteTimeout)
 	query := strings.TrimSpace(c.Query("query"))
 	songCount := parseIntDefault(c.Query("songCount"), 20)
 

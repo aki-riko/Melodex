@@ -212,6 +212,13 @@ func TestWriteTimeoutHonoredExceptForStreamEndpoints(t *testing.T) {
 		time.Sleep(400 * time.Millisecond)
 		c.String(http.StatusOK, "STREAM_OK")
 	})
+	// 要等上游的接口:把写截止推到 searchWriteTimeout 之后,慢写同样应能送达。
+	// 这正是线上"8 个源里 7 个已返回、客户端却在 61 秒后拿到 502"的成因与修法。
+	r.GET("/search", func(c *gin.Context) {
+		extendWriteDeadline(c, searchWriteTimeout)
+		time.Sleep(400 * time.Millisecond)
+		c.String(http.StatusOK, "SEARCH_OK")
+	})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -250,5 +257,61 @@ func TestWriteTimeoutHonoredExceptForStreamEndpoints(t *testing.T) {
 	}
 	if !strings.Contains(streamResp, "STREAM_OK") {
 		t.Fatalf("stream endpoint should bypass WriteTimeout, but body missing marker: %q", streamResp)
+	}
+
+	// 等上游的接口:extendWriteDeadline 推后截止时间 → 慢写也必须送达。
+	searchResp, err := get("/search")
+	if err != nil {
+		t.Fatalf("search request: %v", err)
+	}
+	if !strings.Contains(searchResp, "SEARCH_OK") {
+		t.Fatalf("search endpoint should extend WriteTimeout, but body missing marker: %q", searchResp)
+	}
+}
+
+// extendWriteDeadline 在不支持 SetWriteDeadline 的 writer / 非法入参下必须静默降级。
+func TestExtendWriteDeadlineGracefulOnUnsupportedWriter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
+
+	extendWriteDeadline(c, searchWriteTimeout) // 不应 panic
+	extendWriteDeadline(nil, searchWriteTimeout)
+	extendWriteDeadline(&gin.Context{}, searchWriteTimeout)
+	extendWriteDeadline(c, 0) // 非正超时:不做任何事
+}
+
+// 搜索类接口必须在 handler 开头推后写截止时间。
+//
+// 这里是源码级契约守卫而不是运行时断言:这些 handler 要真去上游取数据, 单测里无法
+// 制造 30s+ 的等待, 而漏掉任意一处就会让该接口在超过 serverWriteTimeout 时静默返回
+// 0 字节(线上就是这样:8 个源里 7 个已返回, 客户端只看到 61 秒后的 502)。
+// 运行时行为由 TestWriteTimeoutHonoredExceptForStreamEndpoints 的 /search 用例覆盖。
+func TestSearchLikeHandlersExtendWriteDeadline(t *testing.T) {
+	cases := []struct{ file, handler string }{
+		{"json_api.go", "func jsonSearchHandler("},
+		{"music_routes.go", "func inspectTrackRoute("},
+		{"music_routes.go", "func lyricRoute("},
+		{"subsonic_search.go", "func subsonicSearch3("},
+		{"subsonic_library.go", "func subsonicGetLyrics("},
+	}
+	for _, tc := range cases {
+		raw, err := os.ReadFile(tc.file)
+		if err != nil {
+			t.Fatalf("读取 %s: %v", tc.file, err)
+		}
+		source := string(raw)
+		index := strings.Index(source, tc.handler)
+		if index < 0 {
+			t.Fatalf("%s 中找不到 %s", tc.file, tc.handler)
+		}
+		// 只看函数体开头一段, 避免把文件里别处的调用误判成本函数的。
+		body := source[index:]
+		if end := strings.Index(body, "\n}"); end > 0 {
+			body = body[:end]
+		}
+		if !strings.Contains(body, "extendWriteDeadline(c, searchWriteTimeout)") {
+			t.Fatalf("%s 未在开头推后写截止时间: 该接口超过 %s 会返回 0 字节", tc.handler, "serverWriteTimeout")
+		}
 	}
 }
