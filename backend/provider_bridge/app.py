@@ -16,8 +16,10 @@ LOGGER = logging.getLogger(__name__)
 # 已知的"上游自己变了"的源:失败原因写清楚, 免得只留一句 'NoneType' 让人去猜。
 SOURCE_FAILURE_HINTS = {
     "apple": (
-        "Apple 已不再在页面 JS 里内联 developer token(实测两个 bundle 中 eyJh 出现 0 次), "
-        "快照取 token 的步骤必然失败; 要么重新逆向新的 token 获取方式, 要么从默认源里摘掉"
+        "Apple 的 JWT 头已由 {\"alg\":...}(eyJh 开头) 变成 {\"typ\":\"JWT\",\"alg\":...}(eyJ0 开头), "
+        "快照写死的 (?=eyJh) 匹配不到 → token_match=None → 这里报 AttributeError; "
+        "该源已从默认搜索源摘除(另实测: 没有 media-user-token 时下载地址只有 AudioPrev 试听片段, "
+        "要恢复需先有 Apple 会员登录态)"
     ),
 }
 
