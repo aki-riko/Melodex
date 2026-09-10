@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
 from provider_bridge import qq_source
+
+
+LOGGER = logging.getLogger(__name__)
+
+# 已知的"上游自己变了"的源:失败原因写清楚, 免得只留一句 'NoneType' 让人去猜。
+SOURCE_FAILURE_HINTS = {
+    "apple": (
+        "Apple 已不再在页面 JS 里内联 developer token(实测两个 bundle 中 eyJh 出现 0 次), "
+        "快照取 token 的步骤必然失败; 要么重新逆向新的 token 获取方式, 要么从默认源里摘掉"
+    ),
+}
 
 
 SOURCE_CLASSES = {
@@ -131,7 +143,18 @@ def search(
             disable_print=True,
             work_dir=search_work_dir,
         )
-        songs = client.search(keyword=keyword)
+        try:
+            songs = client.search(keyword=keyword)
+        except Exception as error:
+            # 不允许静默失败: 上游失效时必须留下"哪个源、为什么"的痕迹, 而不是只有
+            # 一句 Python 异常名让排查的人自己猜。
+            hint = SOURCE_FAILURE_HINTS.get(source, "")
+            LOGGER.warning(
+                "[%s] 搜索失败 keyword=%r limit=%d: %s: %s%s",
+                source, keyword, limit, type(error).__name__, error,
+                " —— " + hint if hint else "",
+            )
+            raise
         return {
             "songs": [
                 song_to_payload(song, source, rank)
