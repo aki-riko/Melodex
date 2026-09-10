@@ -167,7 +167,7 @@ func GetCategoryPlaylistsFunc(source string) CategoryPlaylistsFunc {
 }
 
 func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
-	if strings.TrimSpace(source) != "netease" {
+	if !qrLoginSourceSupported(source) {
 		return nil
 	}
 	return func() (*model.LoginChallenge, error) {
@@ -180,7 +180,7 @@ func GetQRLoginCreateFunc(source string) QRLoginCreateFunc {
 }
 
 func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
-	if strings.TrimSpace(source) != "netease" {
+	if !qrLoginSourceSupported(source) {
 		return nil
 	}
 	return func(key string) (*model.LoginResult, error) {
@@ -192,7 +192,16 @@ func GetQRLoginCheckFunc(source string) QRLoginCheckFunc {
 	}
 }
 
-func GetQRLoginSourceNames() []string { return []string{"netease"} }
+// QR 扫码登录的源。netease 用网易自己的 unikey 轮询; qq 用 ptlogin2 扫码 + QQ 互联强凭证
+// (provider_bridge/qq_login.py)。QQ 的扫码在 2026-08 的来源脱钩重构里丢过一次, 别再从
+// 名单里摘掉 —— 摘掉时界面上的"扫码"按钮会直接消失。
+var qrLoginSourceNames = []string{"netease", "qq"}
+
+func qrLoginSourceSupported(source string) bool {
+	return slices.Contains(qrLoginSourceNames, strings.TrimSpace(source))
+}
+
+func GetQRLoginSourceNames() []string { return slices.Clone(qrLoginSourceNames) }
 func GetCookieSourceNames() []string  { return slices.Clone(cookieSourceNames) }
 
 func GetUserPlaylistsFunc(source string) UserPlaylistsFunc {
