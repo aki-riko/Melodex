@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
+from provider_bridge import qq_source
+
 
 SOURCE_CLASSES = {
     "apple": "AppleMusicClient",
@@ -101,6 +103,12 @@ def search(
     if not keyword:
         raise ValueError("keyword is required")
     cookie = _string(payload.get("cookie"))
+    # QQ 走 Melodex 自有实现(见 qq_source 模块说明):快照的 QQ 取地址链路打的是 QQ 已
+    # 停用的 u.y.qq.com,拿不到 purl 就会把所有 QQ 歌曲当作不可播丢弃,导致 QQ 源恒为空。
+    if source == "qq" and client_factory is None:
+        work_root = Path(work_dir)
+        work_root.mkdir(parents=True, exist_ok=True)
+        return {"songs": qq_source.search(keyword, limit, cookie, work_dir=work_dir)}
     if client_factory is None:
         client_factory = load_client_class(source)
     work_root = Path(work_dir)

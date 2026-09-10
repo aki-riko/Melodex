@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from http import HTTPStatus
@@ -94,6 +95,11 @@ def main():
     host = _required_environment("MELODEX_PROVIDER_HOST")
     port = int(_required_environment("MELODEX_PROVIDER_PORT"))
     work_dir = _required_environment("MELODEX_PROVIDER_WORK_DIR")
+    # 适配层的诊断日志(如 QQ 被限流/凭证过期/未发放下载地址)必须可见,不能静默。
+    logging.basicConfig(
+        level=os.environ.get("MELODEX_PROVIDER_LOG_LEVEL", "INFO").strip().upper() or "INFO",
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     ProviderServer((host, port), RequestHandler, work_dir).serve_forever()
 
 
