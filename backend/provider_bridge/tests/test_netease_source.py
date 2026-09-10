@@ -10,6 +10,7 @@
 """
 
 import json
+import os
 import tempfile
 import unittest
 from unittest import mock
@@ -292,6 +293,80 @@ class NeteaseLyricSearchWiringTests(unittest.TestCase):
         extra = result["songs"][0]["extra"]
         self.assertEqual(extra["lyric"], "[00:01.000]都[00:01.500]是")
         self.assertEqual(extra["lyric_verbatim"], "1")
+
+
+class NativeSongSearchTests(unittest.TestCase):
+    """原生普通搜歌(type=1): 存在的理由就是快照实现太慢(limit=20 实测 131.7s)。"""
+
+    def test_uses_song_search_type_and_resolves_once_per_song(self):
+        session = FakeSession(urls={"569153583": URL_PAYLOAD})
+        with patch_eapi_params():
+            payloads = netease_source.search_songs("周杰伦 晴天", 6, cookie="", session=session)
+        search_calls = [c for c in session.calls if "api/search/get/web" in c["url"]]
+        self.assertEqual(len(search_calls), 1)
+        self.assertEqual(search_calls[0]["data"]["type"], 1, "普通搜歌必须用 type=1")
+        url_calls = [c for c in session.calls if "player/url/v1" in c["url"]]
+        self.assertEqual(len(url_calls), 2, "每首歌只打一次地址请求(不做音质阶梯)")
+        self.assertEqual([p["id"] for p in payloads], ["1901371647", "569153583"])
+
+    def test_playable_ratio_drives_snapshot_fallback(self):
+        session = FakeSession(urls={"569153583": URL_PAYLOAD})
+        with patch_eapi_params():
+            payloads = netease_source.search_songs("周杰伦 晴天", 6, cookie="", session=session)
+        # 付费曲拿不到地址(匿名) -> 可播率 0.5; 有 cookie 时网易会给出无损地址
+        self.assertAlmostEqual(netease_source.playable_ratio(payloads), 0.5, places=3)
+
+    def test_playable_ratio_of_empty_is_zero(self):
+        self.assertEqual(netease_source.playable_ratio([]), 0.0)
+
+    def test_empty_keyword_short_circuits(self):
+        self.assertEqual(netease_source.search_songs("   ", 5), [])
+
+    def test_kill_switch(self):
+        with mock.patch.dict("os.environ", {"MELODEX_NETEASE_NATIVE_SEARCH": "0"}):
+            self.assertFalse(netease_source.native_search_enabled())
+        with mock.patch.dict("os.environ", {}, clear=False):
+            self.assertTrue(netease_source.native_search_enabled())
+
+
+class NativeSearchWiringTests(unittest.TestCase):
+    def test_song_search_prefers_native_implementation(self):
+        native = [{"id": "1", "name": "晴天", "source": "netease", "extra": {}, "is_invalid": False}]
+        with mock.patch.object(netease_source, "search_songs", return_value=native) as search:
+            with mock.patch.object(bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value=""):
+                with tempfile.TemporaryDirectory() as work_dir:
+                    result = bridge_app.search(
+                        {"source": "netease", "keyword": "晴天", "limit": 8, "cookie": "MUSIC_U=x"},
+                        work_dir=work_dir,
+                    )
+        self.assertEqual(result["songs"], native)
+        search.assert_called_once_with("晴天", 8, cookie="MUSIC_U=x")
+
+    def test_low_playable_ratio_falls_back_to_snapshot(self):
+        """凭证失效时网易付费曲整片拿不到地址, 必须退回快照而不是给用户一片不可播。"""
+        dead = [{"id": "1", "name": "孤勇者", "source": "netease", "extra": {}, "is_invalid": True}]
+        with mock.patch.object(netease_source, "search_songs", return_value=dead):
+            with mock.patch.object(bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value=""):
+                with tempfile.TemporaryDirectory() as work_dir:
+                    result = bridge_app.search(
+                        {"source": "netease", "keyword": "孤勇者", "limit": 5, "cookie": ""},
+                        client_factory=FakeClient,
+                        work_dir=work_dir,
+                    )
+        self.assertEqual(result["songs"][0]["name"], "普通搜索的歌", "应回退到快照客户端")
+
+    def test_kill_switch_uses_snapshot(self):
+        with mock.patch.dict("os.environ", {"MELODEX_NETEASE_NATIVE_SEARCH": "0"}):
+            with mock.patch.object(netease_source, "search_songs") as search:
+                with mock.patch.object(bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value=""):
+                    with tempfile.TemporaryDirectory() as work_dir:
+                        result = bridge_app.search(
+                            {"source": "netease", "keyword": "晴天", "limit": 5, "cookie": ""},
+                            client_factory=FakeClient,
+                            work_dir=work_dir,
+                        )
+        search.assert_not_called()
+        self.assertEqual(result["songs"][0]["name"], "普通搜索的歌")
 
 
 if __name__ == "__main__":

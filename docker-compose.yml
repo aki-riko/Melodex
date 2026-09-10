@@ -64,6 +64,12 @@ services:
       MUSIC_DL_DATABASE_DSN: host=postgres user=${POSTGRES_USER:-melodex} password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env} dbname=${POSTGRES_DB:-melodex} port=5432 sslmode=disable TimeZone=Asia/Shanghai
       MUSIC_DL_LEGACY_SQLITE_DB: /home/appuser/data/settings.db
       MUSIC_DL_PROVIDER_URL: http://provider:${MELODEX_PROVIDER_PORT:-8840}
+      # 搜索扇出预算: 所有源同时起跑, 一次搜索最多等这么久, 超时的源本次不参与(结果丢弃)。
+      # 实测(limit=20)各源耗时: QQ 1.7s / 网易原生 1.0s / qianqian 18.7s / kugou 25.2s /
+      # kuwo 83.7s / migu 114.9s / 快照版网易 131.7s —— 默认 60s 会让每次搜索都等满一分钟,
+      # 而且慢源照样被丢。收到 12s 后 QQ+网易(原生)足够在 1~2s 内返回, 整体从 60s 降到 12s。
+      # 想换回"等更久、尽量多收几个源", 调大这个值即可(Go duration, 如 30s/1m)。
+      MUSIC_DL_SEARCH_SOURCE_BUDGET: ${MUSIC_DL_SEARCH_SOURCE_BUDGET:-12s}
       # Web 登录会话默认 180 天;可按需改天数,或用 MUSIC_DL_SESSION_MAX_AGE=720h 这类 Go duration。
       # MUSIC_DL_SESSION_DAYS: "180"
       # Subsonic API facade(默认关):配齐下面三项才启用,音流/substreamer 等
