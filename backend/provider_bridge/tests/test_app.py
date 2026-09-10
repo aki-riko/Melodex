@@ -40,7 +40,7 @@ class FailingClient:
         pass
 
     def search(self, keyword):
-        # 复现线上 apple 的真实报错(Apple 页面不再内联 developer token → re.search 返回 None)
+        # 复现线上 apple 的真实报错(Apple 的 JWT 头变成 eyJ0 开头, 快照写死的 (?=eyJh) 匹配不到)
         raise AttributeError("'NoneType' object has no attribute 'group'")
 
 
@@ -68,7 +68,8 @@ class ProviderBridgeTests(unittest.TestCase):
         joined = "\n".join(captured.output)
         self.assertIn("apple", joined)
         self.assertIn("NoneType", joined)
-        self.assertIn("developer token", joined)
+        self.assertIn("eyJ0", joined)
+        self.assertIn("AudioPrev", joined)
 
     def test_search_logs_source_failure_with_hint(self):
         """上游失效时必须留下"哪个源、为什么", 而不是只有一句 Python 异常名。"""
@@ -85,7 +86,8 @@ class ProviderBridgeTests(unittest.TestCase):
         self.assertIn("晴天", joined)
         self.assertIn("NoneType", joined)
         # apple 的已知根因必须出现在日志里。
-        self.assertIn("developer token", joined)
+        self.assertIn("eyJ0", joined)
+        self.assertIn("AudioPrev", joined)
 
     def test_search_does_not_swallow_unknown_source_failure(self):
         """未知源的失败也要照原样抛出(调用方仍按 502 处理), 只是多了一条带源名的日志。"""
