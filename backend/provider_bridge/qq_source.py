@@ -409,19 +409,28 @@ def _resolve_urls(
         attempts = [False, True]
     else:
         attempts = [False]
-    for use_auth in attempts:
+    last_mode = "匿名"
+    for index, use_auth in enumerate(attempts):
+        last_mode = "带凭证" if use_auth else "匿名"
         collected = _vkey_pass(mids, state, cookie, use_auth=use_auth, session=session)
         if collected:
-            mode = "带凭证" if use_auth else "匿名"
-            return collected, mode
-        if len(attempts) > 1:
+            return collected, last_mode
+        # 只有确实还有下一次尝试时才说"切换", 否则会留下误导性的日志。
+        if index + 1 < len(attempts):
             LOGGER.warning(
                 "[qq] %s模式未取到任何下载地址, 切换%s模式重试 (凭证=%s)",
-                "带凭证" if use_auth else "匿名",
+                last_mode,
                 "匿名" if use_auth else "带凭证",
                 state["summary"],
             )
-    return {}, "匿名" if not state["has_key"] else "带凭证"
+    LOGGER.warning(
+        "[qq] %s 都未取得任何下载地址(候选 %d 首), 凭证=%s%s",
+        "两种凭证模式" if len(attempts) > 1 else "匿名模式",
+        len(mids),
+        state["summary"],
+        ", 会员 key 已过期, 高音质歌曲不会发放地址" if state["has_key"] and state["expired"] else "",
+    )
+    return {}, last_mode
 
 
 def _lyric(mid: str, cookie: str) -> str:
