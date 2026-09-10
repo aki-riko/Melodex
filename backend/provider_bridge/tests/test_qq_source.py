@@ -296,6 +296,22 @@ class QQSourceTests(unittest.TestCase):
         self.assertEqual(len(songs), 1)
         self.assertTrue(any("切换" in line for line in captured.output))
 
+    def test_both_credential_modes_failing_logs_once_and_reports_last_mode(self):
+        # 两种模式都拿不到地址时: 只应有一条"切换"日志(不存在第三次尝试), 且末次模式准确。
+        expired = cookie_string(created_at=int(time.time()) - 40 * 86400, lifetime=259200)
+        backend = FakeBackend([song_item("AAA")], purl_by_quality={"quality": "M500"}, purl_plan=[[], []])
+        with self.assertLogs("provider_bridge.qq_source", level="WARNING") as captured:
+            songs = self.run_search(backend, cookie=expired, limit=5)
+        self.assertEqual(songs, [])
+        self.assertEqual(len(backend.vkey_calls), 2)
+        switches = [line for line in captured.output if "切换" in line]
+        self.assertEqual(len(switches), 1, "不应在最后一次尝试后宣称还要切换")
+        self.assertTrue(any("都未取得任何下载地址" in line for line in captured.output))
+        self.assertTrue(
+            any("搜索没有任何可播歌曲" in line for line in captured.output),
+            "整次搜索无结果时必须留下汇总日志",
+        )
+
     def test_valid_credential_is_used_first(self):
         fresh = cookie_string(created_at=int(time.time()), lifetime=259200)
         backend = FakeBackend([song_item("AAA")], purl_by_quality={"quality": "M500"})
