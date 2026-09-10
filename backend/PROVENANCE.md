@@ -71,6 +71,29 @@ this repository still contain historical source. Removing those objects would
 require a coordinated history rewrite and force push; that operation is outside
 this migration and has not been performed.
 
+## GPL-3.0-only component: `provider_bridge/qq_qrc.py`
+
+`provider_bridge/qq_qrc.py` (added 2026-09) decrypts QQ's QRC verbatim lyrics. Its
+DES core is **not** standard DES: a standard-library 3DES with the same 24-byte
+key cannot produce the expected zlib stream, so the bit operations and permutation
+tables are ported from:
+
+- <https://github.com/chenmozhijin/LDDC> — `LDDC/core/decryptor/tripledes.py`,
+  license **GPL-3.0-only**
+- which in turn ports <https://github.com/WXRIW/QQMusicDecoder> — `DESHelper.cs` /
+  `Decrypter.cs` (C#)
+
+Because the algorithm is not available from a permissive implementation, that file
+keeps the upstream license and is distributed as **GPL-3.0-only**. GPL-3.0-only and
+AGPL-3.0 (the repository license) are mutually compatible, so the combined work may
+be distributed under AGPL-3.0 with this file remaining GPL-3.0-only; the SPDX header
+at the top of the file states this. Everything else in `provider_bridge/` remains
+Melodex-owned code, and the pinned snapshot described above is untouched.
+
+Note this is an implementation port only — the two `GetPlayLyricInfo` request
+parameters that make QRC available at all, the hex/3DES/zlib pipeline, and the QRC
+text-to-inline-LRC conversion used by the frontend are Melodex code.
+
 ## Project license
 
 Melodex application code is distributed under the repository's AGPL-3.0 license.

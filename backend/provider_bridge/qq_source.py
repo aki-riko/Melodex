@@ -37,6 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Iterable
 
+from provider_bridge import qq_qrc
 from provider_bridge.platform_http import PlatformHTTP
 
 
@@ -461,29 +462,71 @@ def _resolve_urls(
     return {}, last_mode
 
 
-def _lyric(mid: str, cookie: str) -> str:
+def _qrc_lyric(client: PlatformHTTP, item: dict[str, Any]) -> str:
+    """取 QQ 逐字歌词(QRC)并转成内联逐字 LRC; 拿不到则空串(调用方回退行级歌词)。
+
+    注意参数必须带上 songName/albumName/singerName(base64) 与 qrc=1 这一整套 —— 实测只传
+    songMID 时响应里根本不带 QRC 数据(这也是"QRC 解不开"这个错误结论的来源之一)。
+    """
+    album = item.get("album") if isinstance(item.get("album"), dict) else {}
+    singers = item.get("singer") if isinstance(item.get("singer"), list) else []
+    artist = ", ".join(
+        _string(singer.get("name")) for singer in singers
+        if isinstance(singer, dict) and _string(singer.get("name"))
+    )
+    param = qq_qrc.qrc_request_param(
+        _string(item.get("mid")),
+        song_id=_integer(item.get("id")),
+        name=_string(item.get("title")) or _string(item.get("name")),
+        artist=artist,
+        album=_string(album.get("name")),
+        duration_s=_integer(item.get("interval")),
+    )
+    response = _post(client, {
+        "comm": _plain_comm(),
+        "req_1": {"module": LYRIC_MODULE, "method": LYRIC_METHOD, "param": param},
+    })
+    payload = ((response.get("req_1") or {}).get("data") or {}).get("lyric")
+    if not payload:
+        return ""
+    plaintext = qq_qrc.decrypt_qrc(payload)
+    if not plaintext:
+        return ""
+    return qq_qrc.qrc_to_verbatim_lrc(plaintext)
+
+
+def _lyric(item: dict[str, Any], cookie: str) -> tuple[str, bool]:
+    """返回 (歌词, 是否逐字)。逐字优先走 QRC, 失败回退 base64 行级 LRC。"""
+    mid = _string(item.get("mid"))
     try:
         client = PlatformHTTP(cookie)
+        if qq_qrc.verbatim_enabled():
+            verbatim = _qrc_lyric(client, item)
+            if verbatim:
+                return verbatim, True
         response = _post(client, _lyric_request(mid))
         node = response.get("req_1") or {}
         raw = _string((node.get("data") or {}).get("lyric"))
         if not raw:
-            return ""
-        return base64.b64decode(raw).decode("utf-8", "ignore").strip()
+            return "", False
+        # 带 qrc=1 的响应里 lyric 是十六进制 QRC 载荷, 不能按 base64 解 —— 上面已单独处理。
+        return base64.b64decode(raw).decode("utf-8", "ignore").strip(), False
     except Exception as error:  # 歌词是尽力而为,失败不影响搜索
         LOGGER.debug("[qq] 歌词获取失败 mid=%s: %s", mid, error)
-        return ""
+        return "", False
 
 
-def _lyrics_for(mids: list[str], cookie: str) -> dict[str, str]:
+def _lyrics_for(items: list[dict[str, Any]], cookie: str) -> dict[str, tuple[str, bool]]:
+    mids = [_string(item.get("mid")) for item in items]
     if not mids or not _bool_env("MELODEX_QQ_SEARCH_LYRICS", True):
         return {}
-    lyrics: dict[str, str] = {}
+    lyrics: dict[str, tuple[str, bool]] = {}
     try:
-        with ThreadPoolExecutor(max_workers=min(LYRIC_WORKERS, len(mids))) as pool:
-            for mid, text in zip(mids, pool.map(lambda item: _lyric(item, cookie), mids)):
+        with ThreadPoolExecutor(max_workers=min(LYRIC_WORKERS, len(items))) as pool:
+            for mid, result in zip(mids, pool.map(lambda entry: _lyric(entry, cookie), items)):
+                text = result[0] if isinstance(result, tuple) else result
                 if text:
-                    lyrics[mid] = text
+                    lyrics[mid] = (text, bool(result[1]) if isinstance(result, tuple) else False)
     except Exception as error:
         LOGGER.warning("[qq] 歌词批量获取异常: %s", error)
     return lyrics
@@ -494,6 +537,7 @@ def _payload(
     rank: int,
     resolved: tuple[str, str, str],
     lyric: str,
+    lyric_verbatim: bool = False,
 ) -> dict[str, Any]:
     mid = _string(item.get("mid"))
     duration = _integer(item.get("interval"))
@@ -527,6 +571,8 @@ def _payload(
     }
     if lyric:
         extra["lyric"] = lyric
+        if lyric_verbatim:
+            extra["lyric_verbatim"] = "1"
     if ext in LOSSLESS_EXTENSIONS:
         extra["has_lossless"] = "1"
     return {
@@ -613,7 +659,7 @@ def search(
 
     playable = [mid for mid in mids if mid in resolved]
     missing = [mid for mid in mids if mid not in resolved]
-    lyrics = _lyrics_for(playable, cookie)
+    lyrics = _lyrics_for([item for item in items if _string(item.get("mid")) in resolved], cookie)
 
     songs: list[dict[str, Any]] = []
     for rank, item in enumerate(items):
@@ -621,7 +667,8 @@ def search(
         quality = resolved.get(mid)
         if quality is None:
             continue
-        songs.append(_payload(item, rank, quality, lyrics.get(mid, "")))
+        lyric, lyric_verbatim = lyrics.get(mid, ("", False))
+        songs.append(_payload(item, rank, quality, lyric, lyric_verbatim))
 
     LOGGER.info(
         "[qq] 搜索 keyword=%r limit=%d 候选=%d 可播=%d 丢弃=%d 模式=%s code=%s 凭证=%s 耗时=%.2fs",
