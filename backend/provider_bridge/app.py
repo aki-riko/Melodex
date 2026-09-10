@@ -135,15 +135,17 @@ def search(
     work_root = Path(work_dir)
     work_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="search-", dir=work_root) as search_work_dir:
-        client = client_factory(
-            search_size_per_source=limit,
-            search_size_per_page=limit,
-            default_search_cookies=cookie,
-            default_download_cookies=cookie,
-            disable_print=True,
-            work_dir=search_work_dir,
-        )
+        # 注意: 必须连客户端构造一起包住。快照里不少源在 __init__ 阶段就要访问上游
+        # (apple 就在构造 authorization 头时调 _fetchtoken), 只包 search() 会漏掉它们。
         try:
+            client = client_factory(
+                search_size_per_source=limit,
+                search_size_per_page=limit,
+                default_search_cookies=cookie,
+                default_download_cookies=cookie,
+                disable_print=True,
+                work_dir=search_work_dir,
+            )
             songs = client.search(keyword=keyword)
         except Exception as error:
             # 不允许静默失败: 上游失效时必须留下"哪个源、为什么"的痕迹, 而不是只有
