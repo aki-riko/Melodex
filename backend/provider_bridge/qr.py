@@ -1,4 +1,8 @@
-"""NetEase QR login operations hosted by the provider sidecar."""
+"""QR login operations hosted by the provider sidecar.
+
+netease 走网易自己的 unikey 轮询; qq 走 ptlogin2 扫码 + QQ 互联强凭证
+(见 provider_bridge/qq_login.py —— 这个入口在 2026-08 的来源脱钩重构里被删过)。
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from urllib.parse import urlencode
 
 import requests
 
+from provider_bridge import qq_login
 from provider_bridge.collection_common import at, integer, string
 from provider_bridge.platform_http import USER_AGENT
 
@@ -29,7 +34,10 @@ def _request(path: str, form: dict[str, Any], *, session=None):
 
 
 def create(payload: dict[str, Any], *, session=None) -> dict[str, Any]:
-    if string(payload.get("source")).lower() != "netease":
+    source = string(payload.get("source")).lower()
+    if source == "qq":
+        return qq_login.create(session=session)
+    if source != "netease":
         raise ValueError("unsupported QR login source")
     data, _ = _request("/api/login/qrcode/unikey", {"type": 1}, session=session)
     key = string(at(data, "unikey")) or string(at(data, "data", "unikey"))
@@ -44,6 +52,8 @@ def create(payload: dict[str, Any], *, session=None) -> dict[str, Any]:
 def check(payload: dict[str, Any], *, session=None) -> dict[str, Any]:
     source = string(payload.get("source")).lower()
     key = string(payload.get("key"))
+    if source == "qq":
+        return qq_login.check(key, session=session)
     if source != "netease":
         raise ValueError("unsupported QR login source")
     if not key:
