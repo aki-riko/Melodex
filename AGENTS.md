@@ -276,12 +276,22 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
   **每个源的验收都必须包含"用户用手机真扫一次"**, 否则只能算实现完成、未验收。
 
 ### 歌词能力现状(2026-09)
-- **逐字歌词**: 前端 `parseLRC` 认"一行里 >= 2 个 `[mm:ss(.sss)]` 段"为逐字行。provider 侧两路互补:
-  网易 YRC(`netease_lyric.py`, 明文但覆盖稀, 周杰伦多首原唱都没有 yrc 字段) + 酷狗 KRC
-  (`kugou_lyric.py`, 解码 = base64 → 去 4 字节头 → 16 字节固定密钥 XOR → zlib; **词时间是相对行首的毫秒**,
-  与 YRC 的绝对毫秒不同, 必须先加行首)。QQ QRC 已是新加密格式(9 种旧密钥组合全解不开), 暂不可用。
-  两者都由 `app.py` 的 `_enrich_verbatim_lyrics` 按源(同源, 不做跨源匹配)写入 `extra.lyric` + `lyric_verbatim=1`,
-  开关 `MELODEX_NETEASE_VERBATIM_LYRIC` / `MELODEX_KUGOU_VERBATIM_LYRIC`。
+- **逐字歌词**: 前端 `parseLRC` 认"一行里 >= 2 个 `[mm:ss(.sss)]` 段"为逐字行。provider 侧三路互补:
+  - 网易 YRC(`netease_lyric.py`, 明文但覆盖稀, 周杰伦多首原唱都没有 yrc 字段);
+  - 酷狗 KRC(`kugou_lyric.py`, 解码 = base64 → 去 4 字节头 → 16 字节固定密钥 XOR → zlib;
+    **词时间是相对行首的毫秒**, 与 YRC 的绝对毫秒不同, 必须先加行首);
+  - QQ QRC(`qq_qrc.py`, 2026-09 打通)。**更正一条错误结论**: QRC 不是"新加密解不开", 当年失败
+    有两个真实原因 —— ①请求参数不齐: 只传 `songMID` 时响应里根本没有 QRC, 必须带
+    `songName/albumName/singerName`(base64)+ `interval` + `qrc:1/crypt:1/ct:19` 一整套
+    (`qq_qrc.qrc_request_param`); ②`lyric` 字段是**十六进制**, 不是 base64。解密是
+    hex → QQ 自家 DES 变体(**不是标准 3DES**, 标准库同密钥解不出 zlib 流) → zlib → 明文 XML
+    (`<QrcInfos>…<Lyric_1 …LyricContent="[ti:…][行起,行时长]文字(词起,词时长)…"/>`)。
+    实测匿名即可取到(晴天 36/36 行、稻香 79/79 行全为逐字行), 前端真解析器复核 3 首 172 行
+    100% 判为逐字行; 取不到时自动回退 base64 行级歌词。开关 `MELODEX_QQ_VERBATIM_LYRIC`。
+    该文件的 DES 移植自 LDDC(GPL-3.0-only), 本文件按上游继续以 GPL-3.0-only 分发, 见
+    `backend/PROVENANCE.md`。
+  三路都由 `app.py` 的 `_enrich_verbatim_lyrics`(网易/酷狗, 按源同源匹配)与 `qq_source`
+  自身的歌词链路写入 `extra.lyric`, 逐字时附 `lyric_verbatim=1`。
 - **歌词片段搜索**(`type=lyric`): 真正做歌词检索的是 QQ(`qq_source.py`, `search_type=7`)与
   网易(`netease_source.py`, 原生 `/api/search/get/web type=1006`, **匿名即可命中**; 带管理员 cookie 时付费曲
   能取到无损地址 —— 实测 孤勇者/陈奕迅 52391KB/1676k flac); kuwo/migu 仍是"按标题/歌手兜底"

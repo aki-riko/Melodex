@@ -8,6 +8,7 @@
 import base64
 import json
 import os
+import pathlib
 import tempfile
 import time
 import unittest
@@ -66,11 +67,14 @@ def cookie_string(uin="3058261811", musickey="MUSICKEY", created_at=None, lifeti
 class FakeBackend:
     """按请求内容应答的假后端,同时记录每次调用用的 cookie 与请求体。"""
 
-    def __init__(self, search_items, purl_by_quality=None, lyrics=None, search_code=0, purl_plan=None):
+    def __init__(self, search_items, purl_by_quality=None, lyrics=None, search_code=0, purl_plan=None,
+                 qrc_payload=None):
         self.search_items = search_items
         self.purl_by_quality = purl_by_quality or {}
         self.lyrics = lyrics or {}
         self.search_code = search_code
+        # qrc_payload: 带 qrc=1 的请求返回的 QRC 密文(十六进制); 不设则返回空 data。
+        self.qrc_payload = qrc_payload
         # purl_plan: 每次 vkey 调用依次弹出一个 "该次返回哪些 mid 的 purl" 列表;用尽后返回空。
         self.purl_plan = list(purl_plan) if purl_plan is not None else None
         self.calls = []
@@ -81,7 +85,12 @@ class FakeBackend:
             return search_response(self.search_items, self.search_code)
         module = (payload.get("req_1") or {}).get("module")
         if module == qq_source.LYRIC_MODULE:
-            mid = (payload["req_1"]["param"] or {}).get("songMID", "")
+            params = payload["req_1"]["param"] or {}
+            mid = params.get("songMID", "")
+            if params.get("qrc") == 1:
+                if self.qrc_payload:
+                    return {"req_1": {"code": 0, "data": {"lyric": self.qrc_payload}}}
+                return {"req_1": {"code": 0, "data": {}}}
             text = self.lyrics.get(mid)
             return lyric_response(text) if text else {"req_1": {"code": 0, "data": {}}}
         if module == qq_source.VKEY_MODULE:
@@ -415,12 +424,42 @@ class QQSourceTests(unittest.TestCase):
     # ---- 歌词 ----------------------------------------------------------
 
     def test_lyrics_are_attached_to_returned_songs(self):
+        """QRC 拿不到时回退 base64 行级歌词: 先发一次带 qrc=1 的请求, 再发一次普通歌词请求。"""
         items = [song_item("AAA")]
         backend = FakeBackend(items, purl_by_quality={"quality": "M500"}, lyrics={"AAA": "[00:01.00]晴天"})
         songs = self.run_search(backend, limit=5)
         self.assertEqual(songs[0]["extra"]["lyric"], "[00:01.00]晴天")
+        self.assertNotIn("lyric_verbatim", songs[0]["extra"], "行级歌词不能标成逐字")
+        self.assertEqual(len(backend.lyric_calls), 2)
+        self.assertEqual(backend.lyric_calls[0]["payload"]["req_1"]["param"]["qrc"], 1, "先试 QRC")
+        self.assertNotIn("qrc", backend.lyric_calls[1]["payload"]["req_1"]["param"], "回退请求不带 qrc")
+
+    def test_qrc_verbatim_lyric_takes_precedence(self):
+        """真实 QRC 密文(见 testdata 抓取说明)能被解密成逐字歌词, 且不再发第二次歌词请求。"""
+        fixture = json.loads(
+            (pathlib.Path(__file__).with_name("testdata") / "qq_qrc_fixture.json").read_text(encoding="utf-8")
+        )
+        items = [song_item("AAA")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500"},
+                              lyrics={"AAA": "[00:01.00]不该被用到"},
+                              qrc_payload=fixture["lyric_hex"])
+        songs = self.run_search(backend, limit=5)
+        extra = songs[0]["extra"]
+        self.assertEqual(extra["lyric_verbatim"], "1")
+        self.assertTrue(extra["lyric"].startswith("[00:00.000]晴"), extra["lyric"][:40])
+        self.assertNotIn("不该被用到", extra["lyric"])
+        self.assertEqual(len(backend.lyric_calls), 1, "QRC 成功就不该再打一次歌词请求")
+        self.assertEqual(backend.lyric_calls[0]["payload"]["req_1"]["param"]["qrc"], 1)
+
+    def test_qrc_can_be_disabled(self):
+        items = [song_item("AAA")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500"}, lyrics={"AAA": "[00:01.00]晴天"},
+                              qrc_payload="00" * 32)
+        with mock.patch.dict(os.environ, {"MELODEX_QQ_VERBATIM_LYRIC": "0"}):
+            songs = self.run_search(backend, limit=5)
+        self.assertEqual(songs[0]["extra"]["lyric"], "[00:01.00]晴天")
         self.assertEqual(len(backend.lyric_calls), 1)
-        self.assertEqual(backend.lyric_calls[0]["payload"]["req_1"]["module"], qq_source.LYRIC_MODULE)
+        self.assertNotIn("qrc", backend.lyric_calls[0]["payload"]["req_1"]["param"])
 
     def test_lyrics_can_be_disabled(self):
         items = [song_item("AAA")]
