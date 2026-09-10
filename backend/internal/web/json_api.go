@@ -725,6 +725,17 @@ const searchSourceDefaultBudget = 60 * time.Second
 
 // concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
 // 在 searchSourceBudget 内收集结果;超预算的源本次不参与,避免一个慢源拖垮整次搜索。
+//
+// 关于"要不要再给单源加独立超时 / 失败负缓存"(2026-09 评估,结论:不加,避免冗余):
+//
+//   - 所有源是同一时刻并发起跑的,所以"单源超时 T"与"总预算 T"在本实现里等价 ——
+//     再加一层只是把同一个数字写两遍。要收紧就调 MUSIC_DL_SEARCH_SOURCE_BUDGET。
+//   - 失败负缓存收益很低:会失败的源都失败得很快(apple 1~2s 502、soda 0.2s 空、
+//     QQ 被限流时 0.16s 返回空),真正慢的 migu/kuwo/netease 是"慢但成功",
+//     负缓存帮不到它们;而"成功但为空"的整次搜索已有 24h 搜索缓存兜底。
+//   - 单源请求本身另有 provider 客户端 2 分钟硬超时,不会无限挂住。
+//
+// 若将来改成"分批起跑"或发现某个源会长时间挂住,再引入单源超时才有意义。
 func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]model.Track, []model.RemoteCollection) {
 	results := make(chan keywordSearchResult, len(sources))
 	for _, source := range sources {
