@@ -44,7 +44,32 @@ class FailingClient:
         raise AttributeError("'NoneType' object has no attribute 'group'")
 
 
+class ConstructorFailingClient:
+    """复现 apple 的真实情况: 快照在 __init__ 里就访问上游并抛异常。"""
+
+    def __init__(self, **kwargs):
+        raise AttributeError("'NoneType' object has no attribute 'group'")
+
+    def search(self, keyword):  # pragma: no cover - 构造阶段就失败了
+        return []
+
+
 class ProviderBridgeTests(unittest.TestCase):
+    def test_search_logs_failure_raised_during_client_construction(self):
+        """构造阶段的失败也必须被记录 —— apple 就是死在 __init__ 的 _fetchtoken 上。"""
+        with tempfile.TemporaryDirectory() as work_dir:
+            with self.assertLogs("provider_bridge.app", level="WARNING") as captured:
+                with self.assertRaises(AttributeError):
+                    search(
+                        {"source": "apple", "keyword": "晴天", "limit": 5, "cookie": ""},
+                        client_factory=ConstructorFailingClient,
+                        work_dir=work_dir,
+                    )
+        joined = "\n".join(captured.output)
+        self.assertIn("apple", joined)
+        self.assertIn("NoneType", joined)
+        self.assertIn("developer token", joined)
+
     def test_search_logs_source_failure_with_hint(self):
         """上游失效时必须留下"哪个源、为什么", 而不是只有一句 Python 异常名。"""
         with tempfile.TemporaryDirectory() as work_dir:
