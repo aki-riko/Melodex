@@ -70,17 +70,21 @@ DOWNLOAD_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 )
 
-# 音质阶梯:从最好到最差。第二项是扩展名,第三项是搜索响应 file 子对象里的体积字段。
-QUALITY_LADDER: tuple[tuple[str, str, str], ...] = (
-    ("AI00", "flac", "size_flac"),
-    ("Q000", "flac", "size_flac"),
-    ("F000", "flac", "size_flac"),
-    ("O801", "ogg", "size_640ogg"),
-    ("O600", "ogg", "size_192ogg"),
-    ("M800", "mp3", "size_320mp3"),
-    ("M500", "mp3", "size_128mp3"),
+# 音质阶梯:从最好到最差。
+# (档位码, 扩展名, 搜索响应 file 子对象里的体积字段, 该档位标称码率 kbps)
+# 体积字段以 QQ 实际返回的键为准:有 size_flac / size_hires / size_dolby / size_192ogg /
+# size_96ogg / size_320mp3 / size_128mp3, 但**没有** size_640ogg, 所以 O801 档只能拿到
+# 标称码率、体积留 0 由前端验活补齐。标称码率为 0 表示该档位没有可用的标称值。
+QUALITY_LADDER: tuple[tuple[str, str, str, int], ...] = (
+    ("AI00", "flac", "size_hires", 0),
+    ("Q000", "flac", "size_dolby", 0),
+    ("F000", "flac", "size_flac", 0),
+    ("O801", "ogg", "size_640ogg", 640),
+    ("O600", "ogg", "size_192ogg", 192),
+    ("M800", "mp3", "size_320mp3", 320),
+    ("M500", "mp3", "size_128mp3", 128),
 )
-QUALITY_ORDER = {code: index for index, (code, _ext, _size) in enumerate(QUALITY_LADDER)}
+QUALITY_ORDER = {code: index for index, (code, _ext, _size, _nominal) in enumerate(QUALITY_LADDER)}
 LOSSLESS_EXTENSIONS = {"flac", "wav", "alac", "ape", "wv", "tta", "dsf", "dff"}
 
 DEVICE_ID_PATTERN = re.compile(r"^[0-9a-f]{36}$")
@@ -361,7 +365,7 @@ def _vkey_pass(
         filenames: list[str] = []
         songmids: list[str] = []
         for mid in chunk:
-            for quality, ext, _size_key in QUALITY_LADDER:
+            for quality, ext, _size_key, _nominal in QUALITY_LADDER:
                 name = "%s%s%s.%s" % (quality, mid, mid, ext)
                 sent[name] = (mid, quality, ext)
                 filenames.append(name)
@@ -464,11 +468,13 @@ def _payload(
         if isinstance(singer, dict) and _string(singer.get("name"))
     )
     quality_code, ext, download_url = resolved
-    size_key = next(
-        (key for code, _ext, key in QUALITY_LADDER if code == quality_code), ""
+    size_key, nominal_bitrate = next(
+        ((key, nominal) for code, _ext, key, nominal in QUALITY_LADDER if code == quality_code),
+        ("", 0),
     )
     size = _integer(file_info.get(size_key)) if size_key else 0
-    bitrate = 0
+    # 有真实体积时按体积/时长反算码率(更准), 否则退回该档位的标称码率, 都不假装知道。
+    bitrate = nominal_bitrate
     if size and duration > 0:
         bitrate = int(round(size * 8 / duration / 1000))
     album_mid = _string(album.get("mid"))
