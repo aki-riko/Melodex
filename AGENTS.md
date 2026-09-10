@@ -247,7 +247,7 @@ master 的分支保护要求 status check **`verify`**(来自 GitHub Actions, ap
 | `collectionProviderNames` 歌单/专辑/分类/推荐 | 5 | netease, qq, kugou, kuwo, migu |
 | `userLibrarySourceNames` 用户歌单导入 | 2 | netease, qq |
 | `cookieSourceNames` 可存 cookie | 8 | netease, qq, qq_wx, kugou, kuwo, migu, bilibili, soda |
-| `GetQRLoginSourceNames` 扫码登录 | 1 | netease |
+| `GetQRLoginSourceNames` 扫码登录 | 2 | netease, qq |
 
 2026-08-15 的 refactor `b681335`("将歌单与登录流程迁移到 Charles sidecar")迁移前的
 `collectionProviderFactories` **本来就只有那 5 个源**(`git show b681335 -- backend/core/providers.go` 可核)。
@@ -270,10 +270,25 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 - **会员校验**(`provider_bridge/account.py` → `/v1/account/verify` → `core.BuildCookieStatusDetail`): 目前只有
   netease(一个用户接口 + vipType 判断, 22 行)。每加一源 = 找该平台"当前用户"接口 + 判会员字段 + 合成响应单测,
   **1–2 小时/源**; 真机验收需要该源一份有效 cookie(生产当前只存 netease/qq/bilibili)。
-- **扫码登录**(`GetQRLoginSourceNames` 只有 netease, 其余源靠 Settings 手动填 cookie):
-  QQ `ptqrshow`/`ptqrlogin` + 拼 cookie ~3–4h(价值最高: 会员凭证失效时最需要); bilibili 有公开 QR 接口 ~2h;
-  kugou ~3h; kuwo/migu 无公开 QR 需逆向客户端 4–6h/源且成功率低。
-  **每个源的验收都必须包含"用户用手机真扫一次"**, 否则只能算实现完成、未验收。
+- **扫码登录**(`core.GetQRLoginSourceNames()` = **netease + qq**; 其余源靠 Settings 手动填 cookie):
+  - **netease**: 网易自己的 unikey 轮询(`provider_bridge/qr.py`)。
+  - **qq**: `provider_bridge/qq_login.py` —— ptqrshow 取二维码 → ptqrlogin 轮询 →
+    check_sig 收授权 cookie → `graph.qq.com/oauth2.0/authorize` 换 code →
+    `musicu` 的 `QQConnectLogin.LoginServer/QQLogin` 换强凭证(musickey/musicid/keyExpiresIn…)。
+    **这个入口被删过一次**: 2026-08-15 的 `d222a0c`(后端来源脱钩)把它连同
+    `music-lib/qq/login.go` 一起删了(当年还修过 5 次 check_sig: 650dcd3/192c63a/d07acc2/
+    d9bed20/21edac9), 之后界面 QQ 卡片就没有"扫码"按钮了; 2026-09 按新架构重建。
+    两个当年踩过的坑写在 `qq_login.py` 文件头: ptsigx 必须逐字节保留(URL 解码会把 `+`
+    变空格 → check_sig 失败), 以及授权 token 要按 p_skey→skey→superkey→supertoken→
+    pt_oauth_token→g_tk=5381 的顺序回退。
+  - 前端**不需要为新增扫码源改代码**: `qrSupported` 来自 `/api/v1/qr_login/sources`,
+    名单一变卡片上就自动出现"扫码"; `Settings.js` 的 `qrLoginNote` 早就写好 qq 分支
+    (`credential_source === 'qq_connect_login'` / `strong_login_error`) —— 当年只删了后端。
+  - 还要做的源: bilibili 有公开 QR 接口 ~2h; kugou ~3h; kuwo/migu 无公开 QR 需逆向客户端
+    4–6h/源且成功率低。
+  - **验收边界**: 扫码后在手机上"确认登录"以及之后的强登录换取, 必须由用户真机扫一次才能验收;
+    create/轮询接口本身可以机器验证(实测 create 0.18s 返回真实 111×111 PNG + qrsig,
+    check 0.19s 返回 code=66「二维码未失效。」)。
 
 ### 歌词能力现状(2026-09)
 - **逐字歌词**: 前端 `parseLRC` 认"一行里 >= 2 个 `[mm:ss(.sss)]` 段"为逐字行。provider 侧三路互补:
@@ -304,6 +319,6 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 - **刮削**:下载文件嵌入 标题/歌手/专辑/专辑艺人/日期/完整LRC歌词/封面(webp 自动转 JPEG)。track/genre/year **数据源没有**(model.Song + Extra 只有 song_id),硬加是空帧,别做。再要更全需接 MusicBrainz(另一量级)。
 - **发现页**:国内源只有"歌单"维度(推荐歌单/分类/歌手搜索),**没有艺人榜/单曲榜**接口。
 - **音质**:搜索返回的 bitrate/size 是**预览值常不准**(多为 128);真实值靠自动验活 / "验"按钮调 `/music/inspect`(对真实下载源发 Range 探测,算 size/bitrate)。部分歌曲版权受限(如 kugou privilege=10/8)inspect 返回 valid:false,自动验活会**隐藏死链**。
-- **无损/高音质依赖登录会员 cookie**:Provider sidecar 会把管理员保存的平台 Cookie 传给对应 Charles 客户端。除网易扫码外,其他平台使用 Settings 的**手动填 Cookie**入口;无损能否取得最终取决于上游能力、Cookie 有效性与账号会员等级。
+- **无损/高音质依赖登录会员 cookie**:Provider sidecar 会把管理员保存的平台 Cookie 传给对应 Charles 客户端。网易云与 QQ 都有**扫码登录**(QQ 见 `provider_bridge/qq_login.py`),其余平台使用 Settings 的**手动填 Cookie**入口;无损能否取得最终取决于上游能力、Cookie 有效性与账号会员等级。
 - **同名歌曲排序**:见上方「搜索排序」节(综合分:相关性+上游名次+正版信号−翻唱降权,无正版信号的完全匹配封顶600,同分按真实音质降序)。无"原唱"数据,译名翻唱仍可能压过原名原唱,带歌手/用原名搜最准。
 - **浏览器播放**:Web 前端 `<audio>` 原生解码 FLAC/WAV(现代浏览器支持,playwright 真机验证 FLAC 正常播);MediaSession 已接(锁屏/通知栏/蓝牙控制)。iOS Safari 后台播放限制比 Android 弱,未充分真机验。
