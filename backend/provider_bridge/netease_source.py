@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +38,7 @@ LOGGER = logging.getLogger(__name__)
 
 LYRIC_SEARCH_URL = "https://music.163.com/api/search/get/web"
 LYRIC_SEARCH_TYPE = 1006
+SONG_SEARCH_TYPE = 1
 SONG_DETAIL_URL = "https://music.163.com/api/song/detail"
 EAPI_URL = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1"
 NETEASE_HEADERS = {"Referer": "https://music.163.com/"}
@@ -113,9 +115,18 @@ def _album(raw: dict[str, Any]) -> dict[str, Any]:
 
 def lyric_matches(client: PlatformHTTP, keyword: str, limit: int) -> list[dict[str, Any]]:
     """歌词片段检索; 失败时抛异常由调用方决定降级。"""
+    return _search(client, keyword, limit, LYRIC_SEARCH_TYPE)
+
+
+def song_matches(client: PlatformHTTP, keyword: str, limit: int) -> list[dict[str, Any]]:
+    """普通搜歌(type=1)。"""
+    return _search(client, keyword, limit, SONG_SEARCH_TYPE)
+
+
+def _search(client: PlatformHTTP, keyword: str, limit: int, search_type: int) -> list[dict[str, Any]]:
     payload = client.post_form(
         LYRIC_SEARCH_URL,
-        {"s": keyword, "type": LYRIC_SEARCH_TYPE, "limit": limit, "offset": 0},
+        {"s": keyword, "type": search_type, "limit": limit, "offset": 0},
         headers=NETEASE_HEADERS,
     )
     songs = (payload.get("result") or {}).get("songs") if isinstance(payload, dict) else None
@@ -223,6 +234,29 @@ def build_payload(
     }
 
 
+def _payloads_for(
+    client: PlatformHTTP,
+    matches: list[dict[str, Any]],
+    cookie: str,
+    session: Any | None,
+) -> list[dict[str, Any]]:
+    song_ids = [_string(song.get("id")) for song in matches]
+    details = song_details(client, song_ids)
+    with ThreadPoolExecutor(max_workers=min(6, len(song_ids))) as pool:
+        resolutions = list(pool.map(lambda sid: resolve_play_url(sid, cookie, session), song_ids))
+    return [
+        build_payload(raw, details.get(_string(raw.get("id"))), resolution, rank)
+        for rank, (raw, resolution) in enumerate(zip(matches, resolutions))
+    ]
+
+
+def playable_ratio(payloads: list[dict[str, Any]]) -> float:
+    """可播比例; 凭证失效时网易付费曲会整片拿不到地址, 用它决定要不要退回快照实现。"""
+    if not payloads:
+        return 0.0
+    return sum(1 for item in payloads if not item["is_invalid"]) / len(payloads)
+
+
 def search_by_lyric(
     keyword: str,
     limit: int = 20,
@@ -240,14 +274,7 @@ def search_by_lyric(
     if not matches:
         LOGGER.info("[netease] 歌词片段检索无命中 keyword=%r", keyword)
         return []
-    song_ids = [_string(song.get("id")) for song in matches]
-    details = song_details(client, song_ids)
-    with ThreadPoolExecutor(max_workers=min(6, len(song_ids))) as pool:
-        resolutions = list(pool.map(lambda sid: resolve_play_url(sid, cookie, session), song_ids))
-    payloads = [
-        build_payload(raw, details.get(_string(raw.get("id"))), resolution, rank)
-        for rank, (raw, resolution) in enumerate(zip(matches, resolutions))
-    ]
+    payloads = _payloads_for(client, matches, cookie, session)
     playable = sum(1 for item in payloads if not item["is_invalid"])
     LOGGER.info(
         "[netease] 歌词片段检索命中 %d 首, 取到地址 %d 首 keyword=%r",
@@ -256,4 +283,51 @@ def search_by_lyric(
     return payloads
 
 
-__all__ = ["build_payload", "lyric_matches", "resolve_play_url", "search_by_lyric", "song_details"]
+def native_search_enabled() -> bool:
+    """原生搜歌开关(MELODEX_NETEASE_NATIVE_SEARCH=0 可退回快照实现)。"""
+    raw = os.environ.get("MELODEX_NETEASE_NATIVE_SEARCH", "").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def search_songs(
+    keyword: str,
+    limit: int = 20,
+    *,
+    cookie: str = "",
+    session: Any | None = None,
+) -> list[dict[str, Any]]:
+    """原生普通搜歌。
+
+    为什么需要它: 快照的 netease 客户端每首歌都要跑 8 档音质阶梯 + 探测下载地址,
+    实测 limit=20 要 **131.7s**(而 QQ 只要 1.7s) —— 超过 app 侧扇出预算就被整源丢掉,
+    用户既等得久又拿不到网易结果。本实现每首只打 **一次** eapi 地址请求(实测接口会
+    直接返回实际档位, 不需要逐档重试), 配上并发后整体 ~2s。
+    """
+    keyword = _string(keyword)
+    limit = min(max(_integer(limit) or 20, 1), 100)
+    if not keyword:
+        return []
+    client = PlatformHTTP(cookie, session)
+    matches = song_matches(client, keyword, limit)[:limit]
+    if not matches:
+        LOGGER.info("[netease] 原生搜歌无命中 keyword=%r", keyword)
+        return []
+    payloads = _payloads_for(client, matches, cookie, session)
+    LOGGER.info(
+        "[netease] 原生搜歌命中 %d 首, 取到地址 %d 首 keyword=%r",
+        len(payloads), sum(1 for item in payloads if not item["is_invalid"]), keyword,
+    )
+    return payloads
+
+
+__all__ = [
+    "build_payload",
+    "lyric_matches",
+    "native_search_enabled",
+    "playable_ratio",
+    "resolve_play_url",
+    "search_by_lyric",
+    "search_songs",
+    "song_details",
+    "song_matches",
+]
