@@ -342,18 +342,22 @@ class NativeSearchWiringTests(unittest.TestCase):
         self.assertEqual(result["songs"], native)
         search.assert_called_once_with("晴天", 8, cookie="MUSIC_U=x")
 
-    def test_low_playable_ratio_falls_back_to_snapshot(self):
-        """凭证失效时网易付费曲整片拿不到地址, 必须退回快照而不是给用户一片不可播。"""
-        dead = [{"id": "1", "name": "孤勇者", "source": "netease", "extra": {}, "is_invalid": True}]
+    def test_unplayable_native_results_never_fall_back_to_snapshot(self):
+        """拿不到地址也**不许**退回快照。
+
+        实测 林俊杰 江南 在无会员 cookie 时可播率 0.40, 早先"可播率低于 0.5 就回退"的设计把它
+        从 1s 变成 132.0s; 而 is_invalid 的歌前端验活本来就会隐藏, 直接返回原生结果又快又一致。
+        """
+        dead = [{"id": "1", "name": "江南", "source": "netease", "extra": {}, "is_invalid": True}]
         with mock.patch.object(netease_source, "search_songs", return_value=dead):
             with mock.patch.object(bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value=""):
                 with tempfile.TemporaryDirectory() as work_dir:
+                    # 注意不要传 client_factory: 传了就绕过原生分支, 测不到这条路径。
                     result = bridge_app.search(
-                        {"source": "netease", "keyword": "孤勇者", "limit": 5, "cookie": ""},
-                        client_factory=FakeClient,
+                        {"source": "netease", "keyword": "林俊杰 江南", "limit": 5, "cookie": ""},
                         work_dir=work_dir,
                     )
-        self.assertEqual(result["songs"][0]["name"], "普通搜索的歌", "应回退到快照客户端")
+        self.assertEqual(result["songs"], dead, "必须直接返回原生结果, 不能回退到快照")
 
     def test_kill_switch_uses_snapshot(self):
         with mock.patch.dict("os.environ", {"MELODEX_NETEASE_NATIVE_SEARCH": "0"}):

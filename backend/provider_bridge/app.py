@@ -17,10 +17,6 @@ LOGGER = logging.getLogger(__name__)
 # 与 Go 侧 core.providerSearchTypeLyric 对应: 按歌词片段检索。
 LYRIC_SEARCH_TYPE = 7
 
-# 原生搜歌的可播率下限: 低于它就说明凭证/上游出了问题(例如网易会员 cookie 失效导致付费曲
-# 整片拿不到地址), 退回快照实现, 免得用户看到一片"不可播"。
-NATIVE_SEARCH_MIN_PLAYABLE_RATIO = 0.5
-
 # 已知的"上游自己变了"的源:失败原因写清楚, 免得只留一句 'NoneType' 让人去猜。
 SOURCE_FAILURE_HINTS = {
     "apple": (
@@ -201,8 +197,11 @@ def search(
     # 网易普通搜歌也走原生实现: 快照的 netease 客户端每首歌都要跑 8 档音质阶梯 + 探测下载
     # 地址, 实测 limit=20 要 131.7s(QQ 只要 1.7s), 超过 app 侧扇出预算就被整源丢掉 ——
     # 用户既等得久, 又拿不到网易结果。原生实现每首只打一次 eapi 地址请求(实测接口直接返回
-    # 实际档位), 并发后整体 ~2s。凭证失效时付费曲会整片拿不到地址, 这时按可播率退回快照,
-    # 不会比原来更差。开关 MELODEX_NETEASE_NATIVE_SEARCH=0 可整体退回。
+    # 实际档位), 并发后整体 ~2s。开关 MELODEX_NETEASE_NATIVE_SEARCH=0 可整体退回快照。
+    #
+    # 曾经这里还按"可播率过低就退回快照"兜底, 已删: 没有会员 cookie 时网易付费曲本来就拿不到
+    # 地址(实测 林俊杰 江南 可播率 0.40), 而回退会把它从 1s 变成 **132.0s** —— 拿不到地址的歌
+    # 已标记 is_invalid, 前端验活本来就会隐藏它们, 直接返回原生结果反而又快又一致。
     if (
         source == "netease"
         and search_type != LYRIC_SEARCH_TYPE
@@ -210,14 +209,8 @@ def search(
         and netease_source.native_search_enabled()
     ):
         native_songs = netease_source.search_songs(keyword, limit, cookie=cookie)
-        ratio = netease_source.playable_ratio(native_songs)
-        if native_songs and ratio >= NATIVE_SEARCH_MIN_PLAYABLE_RATIO:
-            _enrich_verbatim_lyrics(native_songs, source)
-            return {"songs": native_songs}
-        LOGGER.warning(
-            "[netease] 原生搜歌结果不可用(可播率 %.2f, %d 首), 退回快照实现 keyword=%r",
-            ratio, len(native_songs), keyword,
-        )
+        _enrich_verbatim_lyrics(native_songs, source)
+        return {"songs": native_songs}
     # QQ 走 Melodex 自有实现(见 qq_source 模块说明):快照的 QQ 取地址链路打的是 QQ 已
     # 停用的 u.y.qq.com,拿不到 purl 就会把所有 QQ 歌曲当作不可播丢弃,导致 QQ 源恒为空。
     if source == "qq" and client_factory is None:
