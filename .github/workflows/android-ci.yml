@@ -1,22 +1,18 @@
 name: Android CI
 
+# 为什么不再用 paths 过滤触发条件(2026-09):
+# master 的分支保护要求 status check "verify" 通过, 但 paths 过滤会让不碰 android/**
+# 的推送根本不触发本 workflow —— 检查永远不上报, 于是每次直推 master 只能靠管理员权限
+# "绕过规则"(remote 回显 'Required status check "verify" is expected'), PR 也会一直卡在
+# "Expected — Waiting for status to be reported"。
+# 现在改为:**每次 push/PR 都运行本 workflow**, 让 verify 始终上报;
+# 是否需要跑完整 Android 构建, 由 "Detect Android-related changes" 步骤按改动路径决定
+# (范围与原来的 paths 列表完全一致), 不相关时其余步骤直接跳过, job 依然成功。
 on:
   pull_request:
     branches: [master]
-    paths:
-      - "android/**"
-      - "package.json"
-      - "package-lock.json"
-      - "capacitor.config.json"
-      - ".github/workflows/android-*.yml"
   push:
     branches: [master]
-    paths:
-      - "android/**"
-      - "package.json"
-      - "package-lock.json"
-      - "capacitor.config.json"
-      - ".github/workflows/android-*.yml"
   workflow_dispatch:
 
 permissions:
@@ -35,8 +31,45 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 需要与基线提交做 diff, 所以取完整历史(仓库很小, 约 10MB)。
+          fetch-depth: 0
+
+      - name: Detect Android-related changes
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE"
+          else
+            base="$PUSH_BEFORE"
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] \
+            || [ -z "$base" ] \
+            || [ "$base" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "拿不到可用的基线提交(手动触发/首次推送/强推), 保守地跑完整校验。"
+            echo "android=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$base" "$GITHUB_SHA")"
+          echo "本次改动文件:"
+          echo "$changed"
+          if echo "$changed" | grep -qE '^android/|^package\.json$|^package-lock\.json$|^capacitor\.config\.json$|^\.github/workflows/android-[^/]*\.yml$'; then
+            echo "命中 Android 相关路径, 跑完整校验。"
+            echo "android=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "没有 Android 相关改动, verify 直接通过。"
+            echo "android=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Node.js
+        if: steps.scope.outputs.android == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
@@ -44,38 +77,51 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Setup JDK 21
+        if: steps.scope.outputs.android == 'true'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: microsoft
           java-version: "21"
 
       - name: Setup Gradle cache
+        if: steps.scope.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Setup Android SDK
+        if: steps.scope.outputs.android == 'true'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
 
       - name: Install Android SDK 36
+        if: steps.scope.outputs.android == 'true'
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Install Capacitor dependencies
+        if: steps.scope.outputs.android == 'true'
         run: npm ci
 
       - name: Verify release version rules
+        if: steps.scope.outputs.android == 'true'
         run: npm run test:android-version
 
       - name: Sync Capacitor assets
+        if: steps.scope.outputs.android == 'true'
         run: npm run cap:copy
 
       - name: Test, lint and build Debug APK
+        if: steps.scope.outputs.android == 'true'
         run: |
           chmod +x android/gradlew
           ./android/gradlew -p android --no-daemon testDebugUnitTest lintDebug assembleDebug
 
       - name: Upload Debug APK
+        if: steps.scope.outputs.android == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Melodex-debug-${{ github.sha }}
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: No Android changes
+        if: steps.scope.outputs.android != 'true'
+        run: echo "本次改动不含 android/** 与相关根文件, verify 无需构建、直接通过。"
