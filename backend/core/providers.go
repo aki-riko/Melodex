@@ -66,14 +66,21 @@ func GetSearchFunc(source string) SearchFunc {
 
 func GetLyricSearchFunc(source string) SearchFunc {
 	source = strings.TrimSpace(source)
-	// 曾经歌词搜索只走 qq(因其原生支持按歌词片段检索),但 qq 的快照客户端
-	// 当前在有无凭据下都返回 0 首且耗时 215s(测量值),导致歌词搜索功能整条失效。
-	// 扩展到 netease/kuwo/migu:虽然这些源不做歌词内容匹配(只按标题/歌手),
-	// 但至少能返回结果,用户按标题搜也能找到歌——总比挂着"歌词搜索"功能却全黑强。
-	if source != "qq" && source != "netease" && source != "kuwo" && source != "migu" {
+	// 歌词搜索原本只走 qq,因其搜歌接口原生支持按歌词片段检索(search_type=7);当时快照
+	// 客户端在有无凭据下都返回 0 首且耗时 215s,整条链路失效,才临时扩到 netease/kuwo/migu
+	// 只按标题/歌手兜底。QQ 现由 Melodex 自有实现接管(provider_bridge/qq_source.py),
+	// 实测 search_type=7 对歌词片段精准命中(「故事的小黄花」→ 晴天/周杰伦、
+	// 「天青色等烟雨」→ 青花瓷/周杰伦),因此恢复走原生片段检索,其余源作为补充。
+	switch source {
+	case "qq":
+		return func(keyword string) ([]model.Track, error) {
+			return searchProviderSongsWithType(source, keyword, cookieForSource(source), providerSearchTypeLyric)
+		}
+	case "netease", "kuwo", "migu":
+		return GetSearchFunc(source)
+	default:
 		return nil
 	}
-	return GetSearchFunc(source)
 }
 
 func GetAlbumSearchFunc(source string) SearchPlaylistFunc {
@@ -236,9 +243,8 @@ func GetAlbumSourceNames() []string            { return slices.Clone(collectionP
 func GetPlaylistCategorySourceNames() []string { return slices.Clone(collectionProviderNames) }
 func GetDefaultSourceNames() []string          { return slices.Clone(defaultProviderNames) }
 func GetLyricSearchSourceNames() []string {
-	// 原设计只用 qq,因其原生支持歌词片段检索;但快照客户端当前失效(215s/0首),
-	// 导致歌词搜索全黑。扩展到能出结果的源——虽然不做歌词内容匹配,但能按标题找到歌。
-	return []string{"netease", "kuwo", "migu"}
+	// qq 原生支持按歌词片段检索,放首位;其余源不匹配歌词内容,只按标题/歌手兜底。
+	return []string{"qq", "netease", "kuwo", "migu"}
 }
 
 func GetSourceDescription(source string) string {

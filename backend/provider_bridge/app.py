@@ -126,12 +126,16 @@ def search(
     if not keyword:
         raise ValueError("keyword is required")
     cookie = _string(payload.get("cookie"))
+    # search_type 由 Go 侧传入: 0=普通搜歌, 7=按歌词片段检索(仅 QQ 原生支持)。
+    search_type = _integer(payload.get("search_type"))
     # QQ 走 Melodex 自有实现(见 qq_source 模块说明):快照的 QQ 取地址链路打的是 QQ 已
     # 停用的 u.y.qq.com,拿不到 purl 就会把所有 QQ 歌曲当作不可播丢弃,导致 QQ 源恒为空。
     if source == "qq" and client_factory is None:
         work_root = Path(work_dir)
         work_root.mkdir(parents=True, exist_ok=True)
-        return {"songs": qq_source.search(keyword, limit, cookie, work_dir=work_dir)}
+        return {"songs": qq_source.search(
+            keyword, limit, cookie, work_dir=work_dir, search_type=search_type,
+        )}
     if client_factory is None:
         client_factory = load_client_class(source)
     work_root = Path(work_dir)

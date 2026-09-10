@@ -95,13 +95,27 @@ func getProviderBridgeClient() (*bridge.Client, error) {
 	return client, nil
 }
 
+// providerSearchTypeSong / providerSearchTypeLyric 是传给 sidecar 的搜索类型。
+// QQ 的搜歌接口原生支持按歌词片段检索(search_type=7): 实测搜「故事的小黄花」直接命中
+// 晴天/周杰伦、搜「天青色等烟雨」命中青花瓷/周杰伦, 而 0(普通搜歌)只会返回同名噪音。
+// 其他源不区分类型, 非 0 也只按标题/歌手搜。
+const (
+	providerSearchTypeSong  = 0
+	providerSearchTypeLyric = 7
+)
+
 func searchProviderSongs(source, keyword, cookie string) ([]providermodel.Track, error) {
+	return searchProviderSongsWithType(source, keyword, cookie, providerSearchTypeSong)
+}
+
+func searchProviderSongsWithType(source, keyword, cookie string, searchType int) ([]providermodel.Track, error) {
 	client, err := getProviderBridgeClient()
 	if err != nil {
 		return nil, err
 	}
 	songs, err := client.Search(context.Background(), bridge.SearchRequest{
 		Source: source, Keyword: keyword, Limit: providerSearchLimit(), Cookie: cookie,
+		SearchType: searchType,
 	})
 	if err != nil {
 		return nil, err

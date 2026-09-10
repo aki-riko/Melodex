@@ -126,6 +126,33 @@ class QQSourceTests(unittest.TestCase):
 
     # ---- 端点与请求契约 ------------------------------------------------
 
+    def test_lyric_search_type_is_forwarded(self):
+        # 歌词片段检索靠 search_type=7 生效(实测搜「故事的小黄花」命中 晴天/周杰伦);
+        # 普通搜歌维持 0。默认值必须是 0, 否则所有普通搜索都会被当成歌词检索。
+        items = [song_item("AAA")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500"})
+        with mock.patch.object(qq_source, "_post", backend):
+            qq_source.search("故事的小黄花", 5, "", work_dir=self.work_dir,
+                             search_type=qq_source.SEARCH_TYPE_LYRIC)
+        param = backend.calls[0]["payload"][f"{qq_source.SEARCH_MODULE}.{qq_source.SEARCH_METHOD}"]["param"]
+        self.assertEqual(param["search_type"], qq_source.SEARCH_TYPE_LYRIC)
+        self.assertEqual(qq_source.SEARCH_TYPE_LYRIC, 7)
+        self.assertEqual(qq_source.SEARCH_TYPE_SONG, 0)
+
+    def test_default_search_type_is_song(self):
+        items = [song_item("AAA")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500"})
+        self.run_search(backend, limit=5)
+        param = backend.calls[0]["payload"][f"{qq_source.SEARCH_MODULE}.{qq_source.SEARCH_METHOD}"]["param"]
+        self.assertEqual(param["search_type"], qq_source.SEARCH_TYPE_SONG)
+
+    def test_status_records_search_type(self):
+        backend = FakeBackend([], search_code=2001)
+        with mock.patch.object(qq_source, "_post", backend):
+            qq_source.search("故事的小黄花", 5, "", work_dir=self.work_dir,
+                             search_type=qq_source.SEARCH_TYPE_LYRIC)
+        self.assertEqual(qq_source.status()["search_type"], qq_source.SEARCH_TYPE_LYRIC)
+
     def test_endpoint_is_u6_host(self):
         # QQ 已把 vkey 迁到 u6;打 u.y 只会得到 code=1000 且无 purl。
         self.assertEqual(qq_source.QQ_CGI_URL, "https://u6.y.qq.com/cgi-bin/musicu.fcg")
