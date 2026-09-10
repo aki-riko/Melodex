@@ -424,8 +424,8 @@ def _resolve_urls(
                 state["summary"],
             )
     LOGGER.warning(
-        "[qq] %s 都未取得任何下载地址(候选 %d 首), 凭证=%s%s",
-        "两种凭证模式" if len(attempts) > 1 else "匿名模式",
+        "[qq] %s未取得任何下载地址(候选 %d 首), 凭证=%s%s",
+        "两种凭证模式都" if len(attempts) > 1 else "匿名模式",
         len(mids),
         state["summary"],
         ", 会员 key 已过期, 高音质歌曲不会发放地址" if state["has_key"] and state["expired"] else "",
