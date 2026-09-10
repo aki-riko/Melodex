@@ -71,12 +71,22 @@ func GetLyricSearchFunc(source string) SearchFunc {
 	// 只按标题/歌手兜底。QQ 现由 Melodex 自有实现接管(provider_bridge/qq_source.py),
 	// 实测 search_type=7 对歌词片段精准命中(「故事的小黄花」→ 晴天/周杰伦、
 	// 「天青色等烟雨」→ 青花瓷/周杰伦),因此恢复走原生片段检索,其余源作为补充。
+	//
+	// 网易同样恢复了**真**歌词检索(provider_bridge/netease_source.py): 走网易自己的
+	// /api/search/get/web type=1006, 匿名即可命中(实测「都 是勇敢的」→ 孤勇者/陈奕迅原唱
+	// 第 1 名), 带管理员网易 cookie 时付费曲也能拿到地址(实测 52MB/1676k flac), 全程 ~1s。
+	// 这一点很重要: QQ 的会员凭证一旦失效, 歌词片段搜索本来会整体不可用, 网易这一路能兜住。
+	// kuwo/migu 仍按标题/歌手兜底(快照没有歌词检索能力)。
 	switch source {
 	case "qq":
 		return func(keyword string) ([]model.Track, error) {
 			return searchProviderSongsWithType(source, keyword, cookieForSource(source), providerSearchTypeLyric)
 		}
-	case "netease", "kuwo", "migu":
+	case "netease":
+		return func(keyword string) ([]model.Track, error) {
+			return searchProviderSongsWithType(source, keyword, cookieForSource(source), providerSearchTypeLyric)
+		}
+	case "kuwo", "migu":
 		return GetSearchFunc(source)
 	default:
 		return nil
