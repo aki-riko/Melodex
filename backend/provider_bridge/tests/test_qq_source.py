@@ -168,7 +168,10 @@ class QQSourceTests(unittest.TestCase):
         self.assertEqual(sorted(set(params["songmid"])), ["AAA", "BBB"])
         for mid in ("AAA", "BBB"):
             tiers = [name[:4] for name, song in zip(filenames, params["songmid"]) if song == mid]
-            self.assertEqual(sorted(tiers), sorted(code for code, _ext, _size in qq_source.QUALITY_LADDER))
+            self.assertEqual(
+                sorted(tiers),
+                sorted(code for code, _ext, _size, _nominal in qq_source.QUALITY_LADDER),
+            )
         self.assertEqual(len(songs), 2)
 
     # ---- 结果映射 ------------------------------------------------------
@@ -217,6 +220,39 @@ class QQSourceTests(unittest.TestCase):
         self.assertEqual(songs[0]["ext"], "flac")
         self.assertEqual(songs[0]["size"], 30000000)
         self.assertEqual(songs[0]["extra"]["has_lossless"], "1")
+
+    def test_missing_size_key_falls_back_to_nominal_bitrate(self):
+        # QQ 的 file 子对象里没有 size_640ogg, 所以 O801 档只能给出标称码率, 体积留 0 由验活补齐。
+        items = [song_item("AAA")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "O801"})
+        songs = self.run_search(backend, limit=5)
+        self.assertEqual(songs[0]["ext"], "ogg")
+        self.assertEqual(songs[0]["size"], 0)
+        self.assertEqual(songs[0]["bitrate"], 640)
+
+    def test_size_key_uses_qq_real_field_names(self):
+        # 实测 file 子对象的键名:有 size_flac/size_hires/size_dolby, 无 size_640ogg。
+        keys = {size_key for _code, _ext, size_key, _nominal in qq_source.QUALITY_LADDER}
+        self.assertIn("size_flac", keys)
+        self.assertIn("size_hires", keys)
+        self.assertIn("size_192ogg", keys)
+        self.assertIn("size_320mp3", keys)
+        self.assertEqual(
+            len(keys), len(qq_source.QUALITY_LADDER),
+            "每个档位必须映射到不同的体积字段",
+        )
+
+    def test_payload_keys_match_go_track_json_contract(self):
+        # 这些键名是 internal/provider/model.Track 的 JSON 契约, 写错会静默丢字段。
+        items = [song_item("AAA")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500"})
+        song = self.run_search(backend, limit=5)[0]
+        self.assertEqual(
+            set(song),
+            {"id", "name", "artist", "album", "album_id", "duration", "size", "bitrate",
+             "source", "url", "ext", "cover", "link", "extra", "is_invalid", "is_vip"},
+        )
+        self.assertTrue(all(isinstance(value, str) for value in song["extra"].values()))
 
     def test_unplayable_songs_are_dropped_with_warning(self):
         items = [song_item("AAA"), song_item("BBB")]
