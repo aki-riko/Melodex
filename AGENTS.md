@@ -319,6 +319,10 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 - 想换回"多等一会儿、尽量多收源": 调 `MUSIC_DL_SEARCH_SOURCE_BUDGET`(默认 12s, 只是个安全网)。
   想让 qianqian/kugou/kuwo/migu 也进结果, 得给它们做**原生搜索**(每个 1~2 小时, 参照
   `qq_source.py` / `netease_source.py`: 只打必要请求, 不逐档重试、不逐首探活)。
+- **别再加"可播率低就退回快照"这类兜底**(踩过): 无会员 cookie 时网易付费曲本来就没有地址,
+  早先按"可播率 <0.5 回退"的写法把「林俊杰 江南」(可播率 0.40)从 1s 变成 **132.0s**, 直接超预算
+  被丢。拿不到地址的歌已标 `is_invalid`, 前端验活会隐藏它们 —— 直接返回原生结果又快又一致。
+  网易原生实现的开关是 `MELODEX_NETEASE_NATIVE_SEARCH=0`(真出问题时才用)。
 
 ### 歌词能力现状(2026-09)
 - **逐字歌词**: 前端 `parseLRC` 认"一行里 >= 2 个 `[mm:ss(.sss)]` 段"为逐字行。provider 侧三路互补:
