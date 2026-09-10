@@ -9,10 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from provider_bridge import kugou_lyric, netease_lyric, qq_source
+from provider_bridge import kugou_lyric, netease_lyric, netease_source, qq_source
 
 
 LOGGER = logging.getLogger(__name__)
+
+# 与 Go 侧 core.providerSearchTypeLyric 对应: 按歌词片段检索。
+LYRIC_SEARCH_TYPE = 7
 
 # 已知的"上游自己变了"的源:失败原因写清楚, 免得只留一句 'NoneType' 让人去猜。
 SOURCE_FAILURE_HINTS = {
@@ -182,8 +185,15 @@ def search(
     if not keyword:
         raise ValueError("keyword is required")
     cookie = _string(payload.get("cookie"))
-    # search_type 由 Go 侧传入: 0=普通搜歌, 7=按歌词片段检索(仅 QQ 原生支持)。
+    # search_type 由 Go 侧传入: 0=普通搜歌, 7=按歌词片段检索。
     search_type = _integer(payload.get("search_type"))
+    # 网易的歌词检索: Go 侧 type=lyric 会对 netease 也发 search_type=7, 但快照只会把关键词
+    # 当歌名搜(搜歌词片段得到一堆同名垃圾), 所以这里换成网易自己的歌词检索接口(type=1006)。
+    # 实测匿名可用(搜「都 是勇敢的」→ 孤勇者/陈奕迅原唱第 1 名)。
+    if source == "netease" and search_type == LYRIC_SEARCH_TYPE and client_factory is None:
+        songs = netease_source.search_by_lyric(keyword, limit, cookie=cookie)
+        _enrich_verbatim_lyrics(songs, source)
+        return {"songs": songs}
     # QQ 走 Melodex 自有实现(见 qq_source 模块说明):快照的 QQ 取地址链路打的是 QQ 已
     # 停用的 u.y.qq.com,拿不到 purl 就会把所有 QQ 歌曲当作不可播丢弃,导致 QQ 源恒为空。
     if source == "qq" and client_factory is None:
