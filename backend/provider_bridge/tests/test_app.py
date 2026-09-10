@@ -35,7 +35,44 @@ class FakeClient:
         return [FakeSong()]
 
 
+class FailingClient:
+    def __init__(self, **kwargs):
+        pass
+
+    def search(self, keyword):
+        # 复现线上 apple 的真实报错(Apple 页面不再内联 developer token → re.search 返回 None)
+        raise AttributeError("'NoneType' object has no attribute 'group'")
+
+
 class ProviderBridgeTests(unittest.TestCase):
+    def test_search_logs_source_failure_with_hint(self):
+        """上游失效时必须留下"哪个源、为什么", 而不是只有一句 Python 异常名。"""
+        with tempfile.TemporaryDirectory() as work_dir:
+            with self.assertLogs("provider_bridge.app", level="WARNING") as captured:
+                with self.assertRaises(AttributeError):
+                    search(
+                        {"source": "apple", "keyword": "晴天", "limit": 5, "cookie": ""},
+                        client_factory=FailingClient,
+                        work_dir=work_dir,
+                    )
+        joined = "\n".join(captured.output)
+        self.assertIn("apple", joined)
+        self.assertIn("晴天", joined)
+        self.assertIn("NoneType", joined)
+        # apple 的已知根因必须出现在日志里。
+        self.assertIn("developer token", joined)
+
+    def test_search_does_not_swallow_unknown_source_failure(self):
+        """未知源的失败也要照原样抛出(调用方仍按 502 处理), 只是多了一条带源名的日志。"""
+        with tempfile.TemporaryDirectory() as work_dir:
+            with self.assertLogs("provider_bridge.app", level="WARNING"):
+                with self.assertRaises(AttributeError):
+                    search(
+                        {"source": "kugou", "keyword": "晴天", "limit": 5, "cookie": ""},
+                        client_factory=FailingClient,
+                        work_dir=work_dir,
+                    )
+
     def test_song_mapping_preserves_playback_fields(self):
         song = song_to_payload(FakeSong(), "qq", 0)
         self.assertEqual(song["id"], "0039MnYb0qxYhV")
