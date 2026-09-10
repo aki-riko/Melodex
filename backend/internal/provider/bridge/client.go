@@ -24,6 +24,8 @@ type SearchRequest struct {
 	Keyword string `json:"keyword"`
 	Limit   int    `json:"limit,omitempty"`
 	Cookie  string `json:"cookie,omitempty"`
+	// SearchType 交给 sidecar 转给上游: 0=普通搜歌, 7=按歌词片段检索(QQ 原生支持)。
+	SearchType int `json:"search_type,omitempty"`
 }
 
 type CollectionRequest struct {

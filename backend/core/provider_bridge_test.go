@@ -88,6 +88,66 @@ func TestProviderBridgeSearchDownloadAndLyrics(t *testing.T) {
 	}
 }
 
+// QQ 的歌词搜索必须真的按歌词片段检索(search_type=7), 普通搜歌必须仍是 0;
+// 这条链路的参数一旦写错, 用户按歌词搜歌就会静默退化成"按标题搜", 只有翻唱同名噪音。
+func TestQQLyricSearchSendsLyricSearchType(t *testing.T) {
+	resetProviderBridgeStateForTest()
+	defer resetProviderBridgeStateForTest()
+
+	type capturedRequest struct {
+		Source     string `json:"source"`
+		Keyword    string `json:"keyword"`
+		SearchType int    `json:"search_type"`
+	}
+	var captured []capturedRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body capturedRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode provider request: %v", err)
+		}
+		captured = append(captured, body)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"songs": []providermodel.Track{}})
+	}))
+	defer server.Close()
+	t.Setenv(providerBridgeURLEnv, server.URL)
+
+	lyricSearchFn := GetLyricSearchFunc("qq")
+	if lyricSearchFn == nil {
+		t.Fatal("GetLyricSearchFunc(qq) 返回 nil")
+	}
+	if _, err := lyricSearchFn("故事的小黄花"); err != nil {
+		t.Fatalf("歌词搜索失败: %v", err)
+	}
+	if len(captured) != 1 || captured[0].SearchType != providerSearchTypeLyric {
+		t.Fatalf("歌词搜索 search_type = %#v, 期望 %d", captured, providerSearchTypeLyric)
+	}
+
+	songSearchFn := GetSearchFunc("qq")
+	if songSearchFn == nil {
+		t.Fatal("GetSearchFunc(qq) 返回 nil")
+	}
+	if _, err := songSearchFn("周杰伦 晴天"); err != nil {
+		t.Fatalf("普通搜索失败: %v", err)
+	}
+	if len(captured) != 2 || captured[1].SearchType != providerSearchTypeSong {
+		t.Fatalf("普通搜索 search_type = %#v, 期望 %d", captured, providerSearchTypeSong)
+	}
+}
+
+// 歌词片段检索只有 QQ 原生支持, 它必须在歌词搜索源名单里(此前因快照失效被摘掉过)。
+func TestLyricSearchSourcesIncludeQQ(t *testing.T) {
+	found := false
+	for _, source := range GetLyricSearchSourceNames() {
+		if source == "qq" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("歌词搜索源 %v 里缺少 qq", GetLyricSearchSourceNames())
+	}
+}
+
 func resetProviderBridgeStateForTest() {
 	providerBridgeClientMu.Lock()
 	providerBridgeClientURL = ""

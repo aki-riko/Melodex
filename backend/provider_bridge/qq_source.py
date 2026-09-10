@@ -56,6 +56,11 @@ LYRIC_METHOD = "GetPlayLyricInfo"
 APP_VERSION_CODE = 13020508
 WEB_UID = "3931641530"
 SEARCH_COOKIE_UI = "11"
+
+# QQ 搜歌接口的 search_type。实测 7 = 按歌词片段检索:搜「故事的小黄花」直接命中
+# 晴天/周杰伦,搜「天青色等烟雨」命中青花瓷/周杰伦;而 0(普通搜歌)只会返回同名噪音。
+SEARCH_TYPE_SONG = 0
+SEARCH_TYPE_LYRIC = 7
 VKEY_CT = 24
 VKEY_CV = 4747474
 VKEY_PLATFORM = "20"
@@ -298,7 +303,7 @@ def _post(client: PlatformHTTP, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _search_request(keyword: str, limit: int, device_id: str) -> dict[str, Any]:
+def _search_request(keyword: str, limit: int, device_id: str, search_type: int = SEARCH_TYPE_SONG) -> dict[str, Any]:
     return {
         "comm": _search_comm(device_id),
         f"{SEARCH_MODULE}.{SEARCH_METHOD}": {
@@ -307,7 +312,7 @@ def _search_request(keyword: str, limit: int, device_id: str) -> dict[str, Any]:
             "param": {
                 "searchid": _random_search_id(),
                 "query": keyword,
-                "search_type": 0,
+                "search_type": search_type,
                 "num_per_page": limit,
                 "page_num": 1,
                 "highlight": 1,
@@ -359,8 +364,14 @@ def _lyric_request(mid: str) -> dict[str, Any]:
     }
 
 
-def _search_items(client: PlatformHTTP, keyword: str, limit: int, device_id: str) -> tuple[list[dict[str, Any]], int]:
-    response = _post(client, _search_request(keyword, limit, device_id))
+def _search_items(
+    client: PlatformHTTP,
+    keyword: str,
+    limit: int,
+    device_id: str,
+    search_type: int = SEARCH_TYPE_SONG,
+) -> tuple[list[dict[str, Any]], int]:
+    response = _post(client, _search_request(keyword, limit, device_id, search_type))
     node = response.get(f"{SEARCH_MODULE}.{SEARCH_METHOD}") or {}
     code = _integer(node.get("code"))
     items = ((node.get("data") or {}).get("body") or {}).get("item_song") or []
@@ -570,6 +581,7 @@ def search(
     *,
     work_dir: str,
     session: Any | None = None,
+    search_type: int = SEARCH_TYPE_SONG,
 ) -> list[dict[str, Any]]:
     keyword = _string(keyword)
     if not keyword:
@@ -581,15 +593,16 @@ def search(
     # 搜索这一步按实测形状走匿名请求(不需要也不发送凭证);凭证只在取地址时使用。
     client = PlatformHTTP("", session)
 
-    items, code = _search_items(client, keyword, limit, device_id)
+    items, code = _search_items(client, keyword, limit, device_id, search_type)
     if not items:
         # 不允许静默返回空:被限流/被拒绝时必须留下可排查痕迹。
         LOGGER.warning(
-            "[qq] 搜索无结果 keyword=%r limit=%d code=%s 凭证=%s 耗时=%.2fs",
-            keyword, limit, code, state["summary"], time.monotonic() - started,
+            "[qq] 搜索无结果 keyword=%r limit=%d type=%d code=%s 凭证=%s 耗时=%.2fs",
+            keyword, limit, search_type, code, state["summary"], time.monotonic() - started,
         )
         _record_search_status(
             keyword=keyword, limit=limit, state=state, code=code, started=started,
+            search_type=search_type,
             candidates=0, playable=0, dropped=0, mode="未知", empty_reason="搜索未返回歌曲",
         )
         return []
@@ -627,6 +640,7 @@ def search(
         )
     _record_search_status(
         keyword=keyword, limit=limit, state=state, code=code, started=started,
+        search_type=search_type,
         candidates=len(mids), playable=len(playable), dropped=len(missing), mode=mode,
         empty_reason="" if songs else "没有任何歌曲取得下载地址",
     )
