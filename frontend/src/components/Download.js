@@ -214,7 +214,7 @@ const searchSongsLyricsAndAlbums = async (keyword) => {
   const hasResults = songs.length > 0 || albums.length > 0;
 
   // 歌曲链路的失败必须单独记账,不能被专辑的成功掩盖。
-  // 专辑只查 5 个较快的源、歌曲要查 8 个(多出 qianqian/soda/apple),两条链路
+  // 专辑只查 5 个较快的源、歌曲要查 7 个(多出 qianqian/soda;apple 已摘除),两条链路
   // 快慢差一个量级;歌曲超时而专辑成功是常见组合。此前 error 只看
   // `hasResults`(歌曲或专辑任一有结果),于是歌曲整条失败时错误被清空,
   // 界面照旧报"已找到搜索结果",真实故障完全不可见。

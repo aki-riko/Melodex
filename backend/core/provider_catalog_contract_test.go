@@ -10,6 +10,27 @@ import (
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
+func TestDefaultSearchSourcesExcludeRetiredApple(t *testing.T) {
+	// apple 已确认失效(上游改了 JWT 头格式, 快照正则匹配不到; 且无 Apple Music 登录态时
+	// 只能拿到 AudioPrev 试听片段)。它不应再出现在默认搜索扇出里, 否则每次搜索都白占
+	// 一个槽位并恒返回 0 首。
+	for _, source := range GetDefaultSourceNames() {
+		if source == "apple" {
+			t.Fatal("apple 不应出现在默认搜索源中(上游失效且只能拿试听片段)")
+		}
+	}
+	// 但必须仍留在全部源名单里, 以便拿到 Apple 登录态后显式 sources=apple 重新启用。
+	found := false
+	for _, source := range GetAllSourceNames() {
+		if source == "apple" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("apple 应保留在全部源名单/白名单中以便显式启用")
+	}
+}
+
 func TestProviderCatalogExposesSupportedCollections(t *testing.T) {
 	collectionSources := []string{"netease", "qq", "kugou", "kuwo", "migu"}
 	if got := GetAlbumSourceNames(); !reflect.DeepEqual(got, collectionSources) {

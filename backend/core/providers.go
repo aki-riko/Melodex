@@ -21,7 +21,13 @@ type UserPlaylistsFunc func(page, limit int) ([]model.RemoteCollection, error)
 var (
 	allProviderNames        = []string{"netease", "qq", "kugou", "kuwo", "migu", "fivesing", "jamendo", "joox", "qianqian", "soda", "bilibili", "apple"}
 	collectionProviderNames = []string{"netease", "qq", "kugou", "kuwo", "migu"}
-	defaultProviderNames    = []string{"netease", "qq", "kugou", "kuwo", "migu", "qianqian", "soda", "apple"}
+	// defaultProviderNames 是歌曲搜索默认扇出的源。apple 已从中摘除(2026-09):
+	// 实测其上游已变(快照正则写死旧 JWT 头 (?=eyJh), Apple 改发 eyJ0 开头), 每次搜索
+	// 必然 502、恒返回 0 首, 白占一个扇出槽位; 即便在 bridge 层修好 token 获取, 没有
+	// Apple Music 登录态(media-user-token)时拿到的也只是 AudioPrev 试听片段, 会让搜索结果
+	// 混入"验活能过、实际只有试听"的假候选。仍保留在 allProviderNames/bridge 白名单里,
+	// 需要时(如拿到 Apple 会员登录态)可显式指定 sources=apple 重新启用。
+	defaultProviderNames    = []string{"netease", "qq", "kugou", "kuwo", "migu", "qianqian", "soda"}
 	recommendProviderNames  = []string{"netease", "qq", "kugou", "kuwo"}
 	userLibrarySourceNames  = []string{"netease", "qq"}
 	cookieSourceNames       = []string{"netease", "qq", "qq_wx", "kugou", "kuwo", "migu", "bilibili", "soda"}
