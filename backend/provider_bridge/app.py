@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from provider_bridge import qq_source
+from provider_bridge import netease_lyric, qq_source
 
 
 LOGGER = logging.getLogger(__name__)
@@ -112,6 +113,42 @@ def source_status() -> dict[str, Any]:
     return {"qq": qq_source.status()}
 
 
+def _enrich_netease_verbatim_lyrics(songs: list[dict[str, Any]]) -> None:
+    """网易的歌若带逐字歌词(YRC), 用它替换行级 LRC, 前端据此做卡拉OK逐字填色。
+
+    YRC 是明文且实测原唱类歌曲可用(如 孤勇者 9868 字符), 而 QQ 的逐字歌词(QRC)已是
+    新加密格式无法解出, 所以逐字歌词当前只有网易这一路(同源, 不做跨源匹配)。
+    整段是尽力而为: 任何失败都保留原有行级歌词, 绝不影响搜索本身。
+    """
+    if not songs or not netease_lyric.verbatim_lyric_enabled():
+        return
+    targets = [song for song in songs if _string(song.get("id"))]
+    if not targets:
+        return
+    try:
+        with ThreadPoolExecutor(max_workers=min(6, len(targets))) as pool:
+            results = list(pool.map(
+                lambda song: netease_lyric.fetch_verbatim_lyric(_string(song.get("id"))),
+                targets,
+            ))
+    except Exception as error:
+        LOGGER.warning("[netease] 逐字歌词批量获取异常: %s", error)
+        return
+    replaced = 0
+    for song, verbatim in zip(targets, results):
+        if not verbatim:
+            continue
+        extra = song.get("extra")
+        if not isinstance(extra, dict):
+            extra = {}
+            song["extra"] = extra
+        extra["lyric"] = verbatim
+        extra["lyric_verbatim"] = "1"
+        replaced += 1
+    if replaced:
+        LOGGER.info("[netease] 逐字歌词已应用 %d/%d 首", replaced, len(songs))
+
+
 def search(
     payload: dict[str, Any],
     *,
@@ -163,9 +200,12 @@ def search(
                 " —— " + hint if hint else "",
             )
             raise
-        return {
+        result = {
             "songs": [
                 song_to_payload(song, source, rank)
                 for rank, song in enumerate(songs[:limit])
             ]
         }
+        if source == "netease":
+            _enrich_netease_verbatim_lyrics(result["songs"])
+        return result
