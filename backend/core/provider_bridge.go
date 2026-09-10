@@ -20,6 +20,16 @@ import (
 const (
 	providerBridgeURLEnv = "MUSIC_DL_PROVIDER_URL"
 	providerSongCacheTTL = 10 * time.Minute
+
+	// providerSearchLimitEnv 是单源搜索的候选数。
+	//
+	// 上游是按"每首歌都要解析一次下载地址"计费的, 实测延迟近似线性于该值: 同一批源
+	// limit=1 时 netease 7.6s / migu 7.4s / kuwo 6.2s, limit=20 时 migu 63s /
+	// kuwo 99s / netease 211s。所以允许用环境变量下调以换取响应速度; 默认值保持
+	// 改动前的 20 不变, 避免静默改变用户看到的候选数量。
+	providerSearchLimitEnv     = "MUSIC_DL_PROVIDER_SEARCH_LIMIT"
+	providerSearchLimitDefault = 20
+	providerSearchLimitMax     = 100
 )
 
 var providerBridgeSources = map[string]struct{}{
@@ -56,6 +66,15 @@ func providerBridgeSupports(source string) bool {
 	return ok
 }
 
+// providerSearchLimit 返回单源搜索候选数(可用 MUSIC_DL_PROVIDER_SEARCH_LIMIT 覆盖)。
+func providerSearchLimit() int {
+	limit := intEnv(providerSearchLimitEnv, providerSearchLimitDefault)
+	if limit > providerSearchLimitMax {
+		return providerSearchLimitMax
+	}
+	return limit
+}
+
 func getProviderBridgeClient() (*bridge.Client, error) {
 	rawURL := strings.TrimSpace(os.Getenv(providerBridgeURLEnv))
 	if rawURL == "" {
@@ -82,7 +101,7 @@ func searchProviderSongs(source, keyword, cookie string) ([]providermodel.Track,
 		return nil, err
 	}
 	songs, err := client.Search(context.Background(), bridge.SearchRequest{
-		Source: source, Keyword: keyword, Limit: 20, Cookie: cookie,
+		Source: source, Keyword: keyword, Limit: providerSearchLimit(), Cookie: cookie,
 	})
 	if err != nil {
 		return nil, err
@@ -119,7 +138,7 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 		return providermodel.Track{}, err
 	}
 	candidates, err := client.Search(context.Background(), bridge.SearchRequest{
-		Source: source, Keyword: keyword, Limit: 20, Cookie: cookie,
+		Source: source, Keyword: keyword, Limit: providerSearchLimit(), Cookie: cookie,
 	})
 	if err != nil {
 		return providermodel.Track{}, err

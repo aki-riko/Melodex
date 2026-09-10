@@ -391,6 +391,8 @@ func subsonicGetArtist(c *gin.Context) {
 //   - id 为在线源 → GetLyricFunc 拉真实 LRC
 //   - 无 id → 仅回 artist/title 占位(拿不到歌词源)
 func subsonicGetLyrics(c *gin.Context) {
+	// 在线源歌词要按歌曲自身源走一次上游搜索, 同属"要等上游"的接口。
+	extendWriteDeadline(c, searchWriteTimeout)
 	artist := strings.TrimSpace(c.Query("artist"))
 	title := strings.TrimSpace(c.Query("title"))
 	lrc := fetchLyricByID(strings.TrimSpace(c.Query("id")))

@@ -33,6 +33,29 @@ func clearWriteDeadline(c *gin.Context) {
 	_ = rc.SetWriteDeadline(time.Time{})
 }
 
+// searchWriteTimeout 是"要等上游"接口(多源搜索/验活/歌词)的写超时上界。
+//
+// 这类接口天生要等:多源搜索的时间预算就有 60s(MUSIC_DL_SEARCH_SOURCE_BUDGET),
+// 验活单首也可能跑十几秒,而全局 serverWriteTimeout 只有 30s。后果是 handler 在
+// 预算到点准备写响应时,写截止时间早已过期 → 连接被关闭 → 客户端拿到 0 字节、
+// 反向代理报 502。实测:8 个源里 7 个已返回(含 QQ),客户端仍然只看到 61 秒后
+// 的 502,因为响应根本写不出去。
+//
+// 这里给一个明确上界而不是像音频流那样完全不限制:既让慢搜索能送达,又不至于
+// 让慢速读取的客户端长期占住连接。
+const searchWriteTimeout = 3 * time.Minute
+
+// extendWriteDeadline 把当前连接的写截止时间推到 timeout 之后。与 clearWriteDeadline
+// 的区别是保留了上界,供"要等上游但终会结束"的接口使用;不支持 SetWriteDeadline 的
+// writer 静默降级。
+func extendWriteDeadline(c *gin.Context, timeout time.Duration) {
+	if c == nil || c.Writer == nil || timeout <= 0 {
+		return
+	}
+	rc := http.NewResponseController(c.Writer)
+	_ = rc.SetWriteDeadline(time.Now().Add(timeout))
+}
+
 var outboundStreamingHTTPClient = &http.Client{
 	Transport: &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
