@@ -89,6 +89,15 @@ def song_to_payload(song: Any, source: str, rank: int) -> dict[str, Any]:
     }
 
 
+def source_status() -> dict[str, Any]:
+    """各源最近一次请求的观测状态, 供 /health 暴露。
+
+    QQ 之前整条失效时是完全静默的, 光靠日志需要人去翻; 放到 /health 里之后, 巡检和
+    监控也能直接看到"这个源在被限流 / 凭证过期 / 一首都没取到地址"。
+    """
+    return {"qq": qq_source.status()}
+
+
 def search(
     payload: dict[str, Any],
     *,

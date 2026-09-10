@@ -16,7 +16,7 @@ VENDOR_ROOT = BACKEND_ROOT / "third_party" / "charles-musicdl"
 sys.path.insert(0, str(VENDOR_ROOT))
 
 from provider_bridge.account import verify  # noqa: E402
-from provider_bridge.app import search  # noqa: E402
+from provider_bridge.app import search, source_status  # noqa: E402
 from provider_bridge.collections import collection  # noqa: E402
 from provider_bridge.qr import check as qr_check  # noqa: E402
 from provider_bridge.qr import create as qr_create  # noqa: E402
@@ -42,6 +42,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             "commit": "b4cecd9d450ede6f5c8d4df08763668256dfee58",
             "license": "Apache-2.0",
             "capabilities": ["search", "media", "lyrics", "collections", "qr_login", "account_verify"],
+            # 各源最近一次请求的观测状态(限流/凭证过期/未取到下载地址都会在这里体现)。
+            "sources": source_status(),
         })
 
     def do_POST(self):

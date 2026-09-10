@@ -91,6 +91,23 @@ DEVICE_ID_PATTERN = re.compile(r"^[0-9a-f]{36}$")
 _device_lock = threading.Lock()
 _device_cache = ""
 
+# 最近一次 QQ 请求的观测快照。QQ 之前整条失效时是完全静默的(搜索恒返回 0 首、日志里
+# 什么都没有), 所以除了日志之外, 这里再留一份可被 /health 读到的状态, 便于巡检和监控。
+_status_lock = threading.Lock()
+_status: dict[str, Any] = {}
+
+
+def _record_status(**fields: Any) -> None:
+    with _status_lock:
+        _status.update(fields)
+        _status["updated_at"] = int(time.time())
+
+
+def status() -> dict[str, Any]:
+    """返回最近一次 QQ 请求的观测快照(未发生过请求时为空字典)。"""
+    with _status_lock:
+        return dict(_status)
+
 
 def _string(value: Any) -> str:
     if value is None or value == "NULL":
@@ -521,6 +538,31 @@ def _payload(
     }
 
 
+def _record_search_status(
+    *,
+    keyword: str,
+    limit: int,
+    state: dict[str, Any],
+    code: int,
+    started: float,
+    **extra: Any,
+) -> None:
+    snapshot: dict[str, Any] = {
+        "keyword": keyword,
+        "limit": limit,
+        "credential": state["summary"],
+        "credential_expired": state["expired"],
+        "credential_refreshable": state["refreshable"],
+        "has_credential_key": state["has_key"],
+        "search_code": code,
+        # QQ 用 2001 表示这次搜索被限流, 是"搜不出东西"里最常见、也最容易被误判成故障的一种。
+        "rate_limited": code == 2001,
+        "elapsed_ms": int((time.monotonic() - started) * 1000),
+    }
+    snapshot.update(extra)
+    _record_status(**snapshot)
+
+
 def search(
     keyword: str,
     limit: int,
@@ -545,6 +587,10 @@ def search(
         LOGGER.warning(
             "[qq] 搜索无结果 keyword=%r limit=%d code=%s 凭证=%s 耗时=%.2fs",
             keyword, limit, code, state["summary"], time.monotonic() - started,
+        )
+        _record_search_status(
+            keyword=keyword, limit=limit, state=state, code=code, started=started,
+            candidates=0, playable=0, dropped=0, mode="未知", empty_reason="搜索未返回歌曲",
         )
         return []
 
@@ -579,6 +625,11 @@ def search(
         LOGGER.warning(
             "[qq] 本次搜索没有任何可播歌曲 keyword=%r 凭证=%s", keyword, state["summary"]
         )
+    _record_search_status(
+        keyword=keyword, limit=limit, state=state, code=code, started=started,
+        candidates=len(mids), playable=len(playable), dropped=len(missing), mode=mode,
+        empty_reason="" if songs else "没有任何歌曲取得下载地址",
+    )
     return songs
 
 
@@ -594,4 +645,5 @@ __all__ = [
     "credential_summary",
     "cookie_map",
     "search",
+    "status",
 ]

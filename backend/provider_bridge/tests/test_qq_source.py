@@ -117,6 +117,8 @@ class FakeBackend:
 class QQSourceTests(unittest.TestCase):
     def setUp(self):
         self.work_dir = tempfile.mkdtemp(prefix="qq-test-")
+        with qq_source._status_lock:
+            qq_source._status.clear()
 
     def run_search(self, backend, keyword="晴天", limit=20, cookie="", work_dir=None):
         with mock.patch.object(qq_source, "_post", backend):
@@ -269,6 +271,55 @@ class QQSourceTests(unittest.TestCase):
         self.assertEqual(songs, [])
         self.assertTrue(any("2001" in line for line in captured.output))
         self.assertEqual(len(backend.vkey_calls), 0)
+
+    # ---- 可观测性(/health 暴露的观测快照) ------------------------------
+
+    def test_status_records_rate_limited_search(self):
+        backend = FakeBackend([], search_code=2001)
+        self.run_search(backend, limit=5)
+        snapshot = qq_source.status()
+        self.assertTrue(snapshot["rate_limited"])
+        self.assertEqual(snapshot["search_code"], 2001)
+        self.assertEqual(snapshot["candidates"], 0)
+        self.assertTrue(snapshot["empty_reason"])
+        self.assertIn("updated_at", snapshot)
+        # 必须能直接进 /health 的 JSON 响应。
+        json.dumps(snapshot)
+
+    def test_status_records_playable_search(self):
+        items = [song_item("AAA"), song_item("BBB")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500", "mid": "AAA"})
+        with self.assertLogs("provider_bridge.qq_source", level="WARNING"):
+            self.run_search(backend, limit=5)
+        snapshot = qq_source.status()
+        self.assertEqual(snapshot["candidates"], 2)
+        self.assertEqual(snapshot["playable"], 1)
+        self.assertEqual(snapshot["dropped"], 1)
+        self.assertEqual(snapshot["mode"], "匿名")
+        self.assertFalse(snapshot["rate_limited"])
+        self.assertEqual(snapshot["empty_reason"], "")
+
+    def test_status_reports_credential_expiry(self):
+        expired = cookie_string(created_at=int(time.time()) - 40 * 86400, lifetime=259200)
+        backend = FakeBackend([song_item("AAA")], purl_by_quality={"quality": "M500"})
+        self.run_search(backend, cookie=expired, limit=5)
+        snapshot = qq_source.status()
+        self.assertTrue(snapshot["credential_expired"])
+        self.assertTrue(snapshot["has_credential_key"])
+        # 这份 cookie 里没有 refresh_token, 所以不可续期。
+        self.assertFalse(snapshot["credential_refreshable"])
+        self.assertIn("已过期", snapshot["credential"])
+
+    def test_credential_state_detects_refresh_token(self):
+        with_token = cookie_string(created_at=int(time.time()), lifetime=259200) + "; refresh_token=abc"
+        self.assertTrue(qq_source.credential_state(with_token)["refreshable"])
+
+    def test_app_exposes_source_status_for_health(self):
+        backend = FakeBackend([], search_code=2001)
+        self.run_search(backend, limit=5)
+        payload = bridge_app.source_status()
+        self.assertEqual(payload["qq"]["search_code"], 2001)
+        json.dumps(payload)
 
     def test_empty_keyword_returns_empty_without_requests(self):
         backend = FakeBackend([song_item("AAA")], purl_by_quality={"quality": "M500"})
