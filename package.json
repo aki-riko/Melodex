@@ -7,10 +7,10 @@
     "test:android-version": "node --test android/scripts/resolve-release-version.test.mjs"
   },
   "dependencies": {
-    "@capacitor/core": "8.4.2"
+    "@capacitor/core": "8.5.0"
   },
   "devDependencies": {
-    "@capacitor/android": "8.4.2",
-    "@capacitor/cli": "8.4.2"
+    "@capacitor/android": "8.5.0",
+    "@capacitor/cli": "8.5.0"
   }
 }
