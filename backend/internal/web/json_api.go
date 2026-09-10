@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -723,35 +724,62 @@ func searchSourceBudget() time.Duration {
 
 const searchSourceDefaultBudget = 60 * time.Second
 
+// searchPrimarySources 是"等到就能返回"的主力源。实测(limit=20):
+// QQ 1.7s(慢时 8.4s, 有会员凭证时 20 首全可播)、网易原生 ~1s(20 首, FLAC),
+// 而 qianqian 18.7s / kugou 25.2s / kuwo 83.7s / migu 114.9s —— 后面这些在 12s 预算内
+// 本来就回不来(与它们无关的等待纯粹是白等: 60s 预算时每次搜索都等满整整一分钟)。
+// 所以这里不再"一律等到预算耗尽", 而是等齐主力源就立刻返回; 其余源在预算内赶上就算。
+var searchPrimarySources = []string{"qq", "netease"}
+
 // concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
-// 在 searchSourceBudget 内收集结果;超预算的源本次不参与,避免一个慢源拖垮整次搜索。
+// 收集到主力源齐了、或 searchSourceBudget 到期就返回, 慢源本次不参与。
 //
-// 关于"要不要再给单源加独立超时 / 失败负缓存"(2026-09 评估,结论:不加,避免冗余):
+// 关于"要不要再给单源加独立超时 / 失败负缓存"(2026-09 评估):
 //
-//   - 所有源是同一时刻并发起跑的,所以"单源超时 T"与"总预算 T"在本实现里等价 ——
-//     再加一层只是把同一个数字写两遍。要收紧就调 MUSIC_DL_SEARCH_SOURCE_BUDGET。
+//   - 所有源是同一时刻并发起跑的,所以"单源超时 T"与"总预算 T"大致等价(要收紧先调
+//     MUSIC_DL_SEARCH_SOURCE_BUDGET);真正把等待时间砍下来的是下面的"主力源齐了就返回"。
 //   - 失败负缓存收益很低:会失败的源都失败得很快(apple 1~2s 502、soda 0.2s 空、
-//     QQ 被限流时 0.16s 返回空),真正慢的 migu/kuwo/netease 是"慢但成功",
-//     负缓存帮不到它们;而"成功但为空"的整次搜索已有 24h 搜索缓存兜底。
+//     QQ 被限流时 0.16s 返回空),真正慢的 migu/kuwo 是"慢但成功",负缓存帮不到它们;
+//     而"成功但为空"的整次搜索已有 24h 搜索缓存兜底。
 //   - 单源请求本身另有 provider 客户端 2 分钟硬超时,不会无限挂住。
-//
-// 若将来改成"分批起跑"或发现某个源会长时间挂住,再引入单源超时才有意义。
 func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]model.Track, []model.RemoteCollection) {
 	results := make(chan keywordSearchResult, len(sources))
 	for _, source := range sources {
-		go func() { results <- searchKeywordAtSource(keyword, searchType, source) }()
+		go func(source string) { results <- searchKeywordAtSource(keyword, searchType, source) }(source)
 	}
 	songs := make([]model.Track, 0)
 	collections := make([]model.RemoteCollection, 0)
 	budget := time.NewTimer(searchSourceBudget())
 	defer budget.Stop()
+	started := time.Now()
 	collected := 0
+	primaryPending := 0
+	for _, source := range sources {
+		if slices.Contains(searchPrimarySources, source) {
+			primaryPending++
+		}
+	}
+	// 用户如果在源选择里排除了所有主力源(例如只选酷我+咪咕), 那就没有"早退"的依据了 ——
+	// 这时按老行为等齐全部所选源(仍在预算内), 免得第一个返回就把其余的丢掉。
+	if primaryPending == 0 {
+		primaryPending = len(sources)
+	}
 	for range sources {
 		select {
 		case result := <-results:
 			songs = append(songs, result.songs...)
 			collections = append(collections, result.collections...)
 			collected++
+			if slices.Contains(searchPrimarySources, result.source) {
+				primaryPending--
+			}
+			if primaryPending == 0 {
+				log.Printf(
+					"[search] %s %q: primary sources done after %s with %d/%d sources; returning early",
+					searchType, keyword, time.Since(started).Round(time.Millisecond), collected, len(sources),
+				)
+				return songs, collections
+			}
 		case <-budget.C:
 			log.Printf(
 				"[search] %s %q: budget %s reached with %d/%d sources; returning partial results",
@@ -764,6 +792,7 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 }
 
 type keywordSearchResult struct {
+	source      string
 	songs       []model.Track
 	collections []model.RemoteCollection
 }
@@ -780,7 +809,7 @@ func searchKeywordAtSource(keyword, searchType, source string) keywordSearchResu
 		provider = core.GetLyricSearchFunc(source)
 	}
 	if provider == nil {
-		return keywordSearchResult{}
+		return keywordSearchResult{source: source}
 	}
 	tracks, err := provider(keyword)
 	if err != nil {
@@ -788,28 +817,28 @@ func searchKeywordAtSource(keyword, searchType, source string) keywordSearchResu
 		// 此前这里直接返回空,导致 sidecar 的 502(如 apple 源)在后端完全无声,
 		// 只能靠翻 provider 容器日志才能发现。
 		log.Printf("[search] %s source %s failed for %q: %v", searchType, source, keyword, err)
-		return keywordSearchResult{}
+		return keywordSearchResult{source: source}
 	}
 	markProviderTrackRanks(tracks, source)
 	if searchType == "lyric" {
 		tracks = augmentLyricSearchOriginals(source, tracks, searchInferredLyricOriginalCandidates)
 	}
-	return keywordSearchResult{songs: tracks}
+	return keywordSearchResult{source: source, songs: tracks}
 }
 
 func keywordCollectionResult(source, keyword string, provider func(string) ([]model.RemoteCollection, error)) keywordSearchResult {
 	if provider == nil {
-		return keywordSearchResult{}
+		return keywordSearchResult{source: source}
 	}
 	collections, err := provider(keyword)
 	if err != nil {
 		log.Printf("[search] collection source %s failed for %q: %v", source, keyword, err)
-		return keywordSearchResult{}
+		return keywordSearchResult{source: source}
 	}
 	for index := range collections {
 		collections[index].Source = source
 	}
-	return keywordSearchResult{collections: collections}
+	return keywordSearchResult{source: source, collections: collections}
 }
 
 func markProviderTrackRanks(tracks []model.Track, source string) {
