@@ -219,6 +219,76 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - 仓库名、品牌名和界面名称统一为 **Melodex**。
 - git 身份 local:Kotori <kotori@9li.life>。每次改动提交,push 前确保 build/test 过。
 
+### 分支保护 `verify` 检查(2026-09 修)
+master 的分支保护要求 status check **`verify`**(来自 GitHub Actions, app_id 15368;`enforce_admins=false`,
+所以管理员直推只是被"提示绕过")。原先 `android-ci.yml` 用 `paths:` 过滤**触发条件**, 不碰 `android/**` 的推送
+根本不跑 workflow → 检查永不上报, 每次直推 master 都靠管理员权限绕过(remote 回显
+`Required status check "verify" is expected`), 且 dependabot 之外没有任何 `verify` 运行记录
+(`gh run list -R aki-riko/Melodex --workflow=android-ci.yml` 可核)。
+
+现在改为: 去掉触发条件上的 `paths`, **每次 push/PR 都运行**, 是否跑完整 Android 构建由 job 内
+`Detect Android-related changes`(`git diff` 比对 `github.event.before` / PR base, 路径范围与旧 `paths` 完全一致)
+决定 —— 不相关时 11 个重步骤跳过、job 仍成功。实测: 非 Android 推送 14s 通过, Android 改动 2m8s 跑完整构建。
+**注意**: 直推 master 时 remote 仍会打印那次 bypass 提示 —— 检查不可能在被推的那个 commit 上"已经"通过。
+要彻底消除只有两条路: (a) 改走 PR 合入(required check 在 PR 上判定, 无需绕过),
+或 (b) 在 GitHub 上关掉该 required check(需仓库管理员权限; 本机 `gh` token 没有 `administration` scope)。
+`desktop-lyrics-ci.yml` 里也有个 job 键名叫 `verify`, 但它的 `name` 是 `${{ matrix.name }}`(windows/macos),
+不占用 `verify` 这个 check 名, 不要把它接成 required。
+
+## Provider 源覆盖、歌词能力与补源工作量(2026-09 核查)
+
+### "歌单/专辑源覆盖 12→5" 不是重构退步, 是能力矩阵
+`core/providers.go` 的清单(由 `core/provider_catalog_contract_test.go` 锁定):
+
+| 清单 | 数量 | 源 |
+| --- | --- | --- |
+| `allProviderNames` 全部 | 12 | netease, qq, kugou, kuwo, migu, fivesing, jamendo, joox, qianqian, soda, bilibili, apple |
+| `defaultProviderNames` 搜索默认 | 7 | netease, qq, kugou, kuwo, migu, qianqian, soda |
+| `collectionProviderNames` 歌单/专辑/分类/推荐 | 5 | netease, qq, kugou, kuwo, migu |
+| `userLibrarySourceNames` 用户歌单导入 | 2 | netease, qq |
+| `cookieSourceNames` 可存 cookie | 8 | netease, qq, qq_wx, kugou, kuwo, migu, bilibili, soda |
+| `GetQRLoginSourceNames` 扫码登录 | 1 | netease |
+
+2026-08-15 的 refactor `b681335`("将歌单与登录流程迁移到 Charles sidecar")迁移前的
+`collectionProviderFactories` **本来就只有那 5 个源**(`git show b681335 -- backend/core/providers.go` 可核)。
+即"12 个源里只有 5 个具备歌单/专辑能力"一直是事实, 迁移前后一致, 没有源在重构中丢掉歌单支持。
+
+### 为什么补歌单/专辑贵: 固定快照根本不提供这个能力
+`third_party/charles-musicdl` 是**搜索/下载库**: 所有源类只有 `_search` + `download`
+(`grep -n 'def ' musicdl/modules/sources/*.py` 可核), 没有任何歌单/专辑/分类接口。
+现有 5 个源能歌单, 靠的是 `provider_bridge/platforms/<source>.py` 里**自研**的平台客户端(6.5–14KB/个)。
+再补一个源 = 从零逆向该平台的 专辑/歌单/推荐/分类/用户歌单/parse 链接 六类接口, **0.5–1 天/源**。
+
+### 快照里那 ~34 个源大多已死: 别指望"多接源"白捡覆盖率
+快照 `MusicClientBuilder.REGISTERED_MODULES` 注册 34 个源, Melodex 只放行 12 个。
+2026-09 用真实关键词扫过其余候选(jcpoo/gequbao/htqyy/kkws/yinyuedao/mitu/fivesong/buguyy/fangpi/
+gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰伦 晴天」**全部 0 首**,
+其中 flmp3/kkws/fivesong 直接 `AssertionError`(站点结构已变)、mp3juice `AttributeError`。
+结论: 在这份固定快照上"加源"提不了覆盖率, 有效路径是修好现有源(如 2026-09 给 QQ/网易做的原生实现)。
+
+### 其他源"扫码登录 / 会员校验"的可行方案与工作量
+- **会员校验**(`provider_bridge/account.py` → `/v1/account/verify` → `core.BuildCookieStatusDetail`): 目前只有
+  netease(一个用户接口 + vipType 判断, 22 行)。每加一源 = 找该平台"当前用户"接口 + 判会员字段 + 合成响应单测,
+  **1–2 小时/源**; 真机验收需要该源一份有效 cookie(生产当前只存 netease/qq/bilibili)。
+- **扫码登录**(`GetQRLoginSourceNames` 只有 netease, 其余源靠 Settings 手动填 cookie):
+  QQ `ptqrshow`/`ptqrlogin` + 拼 cookie ~3–4h(价值最高: 会员凭证失效时最需要); bilibili 有公开 QR 接口 ~2h;
+  kugou ~3h; kuwo/migu 无公开 QR 需逆向客户端 4–6h/源且成功率低。
+  **每个源的验收都必须包含"用户用手机真扫一次"**, 否则只能算实现完成、未验收。
+
+### 歌词能力现状(2026-09)
+- **逐字歌词**: 前端 `parseLRC` 认"一行里 >= 2 个 `[mm:ss(.sss)]` 段"为逐字行。provider 侧两路互补:
+  网易 YRC(`netease_lyric.py`, 明文但覆盖稀, 周杰伦多首原唱都没有 yrc 字段) + 酷狗 KRC
+  (`kugou_lyric.py`, 解码 = base64 → 去 4 字节头 → 16 字节固定密钥 XOR → zlib; **词时间是相对行首的毫秒**,
+  与 YRC 的绝对毫秒不同, 必须先加行首)。QQ QRC 已是新加密格式(9 种旧密钥组合全解不开), 暂不可用。
+  两者都由 `app.py` 的 `_enrich_verbatim_lyrics` 按源(同源, 不做跨源匹配)写入 `extra.lyric` + `lyric_verbatim=1`,
+  开关 `MELODEX_NETEASE_VERBATIM_LYRIC` / `MELODEX_KUGOU_VERBATIM_LYRIC`。
+- **歌词片段搜索**(`type=lyric`): 真正做歌词检索的是 QQ(`qq_source.py`, `search_type=7`)与
+  网易(`netease_source.py`, 原生 `/api/search/get/web type=1006`, **匿名即可命中**; 带管理员 cookie 时付费曲
+  能取到无损地址 —— 实测 孤勇者/陈奕迅 52391KB/1676k flac); kuwo/migu 仍是"按标题/歌手兜底"
+  (`core.GetLyricSearchFunc`)。QQ 会员凭证失效时, 靠网易这一路兜住整条功能。
+- **缓存版本坑**: `search_cache` 的 key 含版本号, payload 形状一变(如新增逐字歌词)必须 bump
+  `searchRankingCacheVersion`, 否则旧行会在 TTL(24h)内继续返回旧内容, 看起来像"改动没生效"。
+
 ## 能力边界(已做到极限,别白费功夫)
 
 - **刮削**:下载文件嵌入 标题/歌手/专辑/专辑艺人/日期/完整LRC歌词/封面(webp 自动转 JPEG)。track/genre/year **数据源没有**(model.Song + Extra 只有 song_id),硬加是空帧,别做。再要更全需接 MusicBrainz(另一量级)。

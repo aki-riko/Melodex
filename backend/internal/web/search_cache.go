@@ -26,7 +26,10 @@ const searchCacheBackgroundRefreshRows = 20
 // rank-v6: provider 开始在 extra.lyric 里放逐字歌词(网易 YRC / 酷狗 KRC), payload 变了;
 // 不 bump 的话旧行(TTL 24h)会在部署后继续返回行级歌词, 让人以为逐字歌词没生效。
 const searchRankingCacheVersion = "rank-v6"
-const lyricSearchCacheVersion = "native-v3"
+// native-v4: 网易接上了原生歌词片段检索(netease_source.py, type=1006), 歌词搜索结果
+// 的形状/来源都变了; 同理不 bump 的话旧行会在 24h 内继续返回"只有 QQ 命中 + 其余源歌名
+// 兜底"的旧结果, 看起来像新实现没生效。
+const lyricSearchCacheVersion = "native-v4"
 
 // searchCacheRow 一行缓存。Key 为查询指纹,Payload 为 jsonSearchResponse 的 JSON。
 type searchCacheRow struct {
