@@ -20,7 +20,7 @@ services:
     build:
       context: .
       dockerfile: backend/provider_bridge/Dockerfile
-    image: melodex-provider:apache-2.0
+    image: ${MELODEX_PROVIDER_IMAGE:-melodex-provider:apache-2.0}
     container_name: melodex-provider
     restart: unless-stopped
     init: true
@@ -45,7 +45,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: melodex:latest
+    # 默认用本地构建出来的 melodex:latest;想在 .env 里换成预构建镜像就设 MELODEX_IMAGE
+    # (如 MELODEX_IMAGE=ghcr.io/aki-riko/melodex:edge),再 docker compose up -d --no-build
+    image: ${MELODEX_IMAGE:-melodex:latest}
     container_name: melodex
     restart: unless-stopped
     ports:
