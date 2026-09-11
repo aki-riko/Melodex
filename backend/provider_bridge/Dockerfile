@@ -1,4 +1,8 @@
-FROM python:3.12-slim
+# 基础镜像前缀 IMAGE_PREFIX:NAS 上直连 docker.io 会拉不到, 用它可以切到国内镜像站:
+#   docker build --build-arg IMAGE_PREFIX=docker.1ms.run/library -f backend/provider_bridge/Dockerfile .
+ARG IMAGE_PREFIX=docker.io/library
+
+FROM ${IMAGE_PREFIX}/python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
