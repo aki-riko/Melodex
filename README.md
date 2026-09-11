@@ -65,6 +65,16 @@ docker compose up -d --build      # 构建并启动应用 + PostgreSQL
 镜像三阶段构建(Node 构建前端 → Go 编译并 `go:embed` 嵌入前端产物 → Alpine + ffmpeg 运行)。
 PostgreSQL 使用当前稳定线 `postgres:18.4-alpine`;数据库数据持久化在 Compose volume `postgres_data`,下载的音乐与旧 SQLite 迁移源仍挂载在 `./data`。首次启用 Postgres 时,后端会从 `./data/settings.db` 迁移配置、账号、歌单、播放历史、搜索缓存等旧数据。
 
+**音乐下载位置**默认是宿主的 `./data/downloads`(容器内 `/home/appuser/data/downloads`)。想换到别的盘或给 Plex/Navidrome 扫的媒体目录,在 `.env` 里设宿主的绝对路径即可,应用内不需要改任何设置(容器内路径不变,「已下载」记录与本地音乐库照旧):
+
+```bash
+sudo mkdir -p /mnt/user/media/Music && sudo chown 1000:1000 /mnt/user/media/Music   # 容器内是 appuser(uid 1000),不 chown 会 Permission denied
+echo 'MELODEX_DOWNLOAD_DIR=/mnt/user/media/Music' >> .env
+docker compose up -d                # 只重建 melodex 服务
+# 已有下载要一起搬过去,否则「已下载」里那些记录会因文件不在而消失:
+# mv ./data/downloads/* /mnt/user/media/Music/
+```
+
 不想在部署机上编译,也可以直接拉 GitHub Actions 发布的预构建镜像(公开仓库,匿名可拉):
 
 ```bash
