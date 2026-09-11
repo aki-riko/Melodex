@@ -1,9 +1,14 @@
 # Melodex 一体化镜像:React 前端 + Go 后端 + ffmpeg,单容器同源部署。
 # 构建上下文为仓库根(同时含 frontend/ 与 backend/):
 #   docker build -t melodex -f Dockerfile .
+#
+# 基础镜像前缀 IMAGE_PREFIX:默认走国内镜像站(NAS 上直连 docker.io 会拉不到)。
+# 能直连 Docker Hub 的环境(如 GitHub Actions)覆盖成官方库即可, 否则会去拉那个镜像站:
+#   docker build --build-arg IMAGE_PREFIX=docker.io/library -t melodex -f Dockerfile .
+ARG IMAGE_PREFIX=docker.1ms.run/library
 
 # ===== 阶段1:构建 React 前端 =====
-FROM docker.1ms.run/library/node:20-alpine AS frontend
+FROM ${IMAGE_PREFIX}/node:20-alpine AS frontend
 WORKDIR /fe
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -12,7 +17,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ===== 阶段2:构建 Go 后端(嵌入前端产物)=====
-FROM --platform=$BUILDPLATFORM docker.1ms.run/library/golang:1.25 AS builder
+FROM --platform=$BUILDPLATFORM ${IMAGE_PREFIX}/golang:1.25 AS builder
 WORKDIR /app
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -31,7 +36,7 @@ COPY --from=frontend /fe/build/ ./internal/web/frontend_dist/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -o melodex ./cmd/melodex
 
 # ===== 阶段3:运行镜像(含 ffmpeg)=====
-FROM docker.1ms.run/library/alpine:3.22
+FROM ${IMAGE_PREFIX}/alpine:3.22
 RUN apk --no-cache add ca-certificates tzdata ffmpeg \
     && ffmpeg -version >/dev/null && ffprobe -version >/dev/null
 ENV TZ=Asia/Shanghai

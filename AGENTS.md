@@ -216,6 +216,25 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
     正常情况"主力源(qq/netease)齐了就返回",实测端到端 2~3s;想多等一会儿多收几个源就调大它。
     `MELODEX_NETEASE_NATIVE_SEARCH=0` 可让网易退回快照实现(慢 130 倍,不建议)。
 
+## 镜像发布(GHCR,2026-09 新增)
+
+`.github/workflows/docker-publish.yml`:打 `v*` 标签或手动 dispatch 才跑(**普通 push 不跑**,免得每次提交都推镜像),
+用内置 `GITHUB_TOKEN`(`packages: write`)推到 `ghcr.io/aki-riko/melodex` 与 `ghcr.io/aki-riko/melodex-provider`,
+**不需要任何额外 secret**。标签规则:`v1.2.3` → `v1.2.3` + `latest` + `sha-<short>`;手动触发 → `<extra_tag>`(默认 `edge`)+ `sha-<short>`。
+
+- 两个镜像各跑一次**真启动冒烟**:应用镜像起服务 + `wget /api/v1/healthz` + 断言首页含 `id="root"` 与 `/assets/`
+  (证明 React 产物确实被 `go:embed` 进去了,这是最容易悄悄坏掉的一环);provider 镜像 import 一遍
+  `provider_bridge`(含 `server`/`app`/`qq_*`/`netease_source`/`kugou_lyric`)并确认固定快照 `LICENSE` 在位。
+- **基础镜像前缀 `IMAGE_PREFIX`**:两个 Dockerfile 都改成 `ARG IMAGE_PREFIX=…` + `FROM ${IMAGE_PREFIX}/…`。
+  应用镜像默认仍是 `docker.1ms.run/library`(NAS 直连 docker.io 拉不到),provider 默认 `docker.io/library`(=原样);
+  **CI 显式传 `--build-arg IMAGE_PREFIX=docker.io/library`** —— 境外 runner 不要去拉国内镜像站。
+- **冒烟脚本必须落文件再挂进容器**(`printf '%s\n' "$SMOKE" > /tmp/smoke.sh` + `-v /tmp/smoke.sh:/smoke.sh:ro`),
+  不要写成 `sh -c "${{ matrix.smoke }}"`:多行命令里的引号会被外层 shell 吃掉(实测 `python -c "…"` 直接语法错误,
+  由 `sh -n` 预检抓出)。
+- 发布后 NAS 想不再本地构建:把 `docker-compose.yml` 的 `build:` 换成 `image: ghcr.io/aki-riko/melodex:<tag>`
+  (仓库公开,匿名可拉;私有才需要 `docker login ghcr.io`)。
+- 许可证标签:应用镜像 `AGPL-3.0`;provider 镜像 `AGPL-3.0 AND Apache-2.0 AND GPL-3.0-only`(内含固定快照与 QRC 解密实现)。
+
 ## Git
 
 - 双远程:fetch 走私仓,`git push` 一次双发 → 私仓 `git@git.9li.life:Aquila/Melodex.git` + GitHub `git@github.com:aki-riko/Melodex.git`。

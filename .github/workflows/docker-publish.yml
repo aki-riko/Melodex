@@ -1,0 +1,159 @@
+name: Docker Publish
+
+# 什么时候跑: 打 v* 标签(发版) 或手动触发。
+# **普通 push 不会跑** —— 免得每次提交都往 GHCR 推镜像(镜像不小)。
+# 发布到 GitHub Container Registry(ghcr.io), 用内置 GITHUB_TOKEN, 不需要任何额外 secret。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      extra_tag:
+        description: "手动触发时额外打的标签(默认 edge)"
+        required: false
+        default: edge
+
+permissions:
+  contents: read
+  packages: write # 推 ghcr.io 必须
+  id-token: write # 保留给 provenance/attestation 用
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    # 用户输入与标签名一律走 env, 不直接拼进 run 脚本(避免 shell 注入)。
+    env:
+      EXTRA_TAG: ${{ inputs.extra_tag }}
+      REF_TYPE: ${{ github.ref_type }}
+      REF_NAME: ${{ github.ref_name }}
+      REPO_OWNER: ${{ github.repository_owner }}
+      REPO_SLUG: ${{ github.repository }}
+      SERVER_URL: ${{ github.server_url }}
+      ACTOR: ${{ github.actor }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: melodex
+            dockerfile: Dockerfile
+            # 境外 runner 直连 Docker Hub, 不要走 Dockerfile 默认的国内镜像站
+            build_args: "--build-arg IMAGE_PREFIX=docker.io/library"
+            # 应用镜像就是本仓库代码
+            licenses: "AGPL-3.0"
+            description: "Melodex 自托管音乐应用(Go 后端 + 内嵌 PWA)"
+            # 真启动一次: 二进制在 + 服务起得来 + React 产物确实被 go:embed 进去了
+            smoke: |
+              set -e
+              test -x /home/appuser/melodex
+              /home/appuser/melodex web --port 8399 --desktop --no-browser >/tmp/melodex.log 2>&1 &
+              i=0
+              until wget -qO- http://127.0.0.1:8399/api/v1/healthz >/tmp/health.json 2>/dev/null; do
+                i=$((i + 1))
+                if [ "$i" -ge 30 ]; then
+                  echo "服务 30s 内没起来:"
+                  cat /tmp/melodex.log
+                  exit 1
+                fi
+                sleep 1
+              done
+              cat /tmp/health.json
+              wget -qO- http://127.0.0.1:8399/ | grep -q 'id="root"'
+              wget -qO- http://127.0.0.1:8399/ | grep -q '/assets/'
+              echo "OK: 二进制可执行 + 服务能起 + 内嵌前端在位"
+          - image: melodex-provider
+            dockerfile: backend/provider_bridge/Dockerfile
+            # 基础镜像默认就是 docker.io/library, 无需覆盖
+            build_args: ""
+            # 这个镜像里除本仓库代码, 还打包固定快照(Apache-2.0)与 QRC 解密实现(GPL-3.0-only)
+            licenses: "AGPL-3.0 AND Apache-2.0 AND GPL-3.0-only"
+            description: "Melodex Provider sidecar(固定 musicdl 快照 + Melodex 自有平台适配)"
+            smoke: |
+              set -e
+              python -c 'import provider_bridge, provider_bridge.server, provider_bridge.app, provider_bridge.qq_source, provider_bridge.qq_qrc, provider_bridge.qq_login, provider_bridge.netease_source, provider_bridge.kugou_lyric'
+              test -f third_party/charles-musicdl/LICENSE
+              echo "OK: provider 模块与固定快照均在位"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 计算镜像标签
+        id: meta
+        run: |
+          set -euo pipefail
+          owner="$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"   # GHCR 要求全小写
+          revision="$(git rev-parse HEAD)"
+          short="$(git rev-parse --short HEAD)"
+
+          tags=""
+          add() { [ -n "$1" ] && tags="${tags}${tags:+,}$1"; }
+          if [ "${REF_TYPE}" = "tag" ]; then
+            add "${REF_NAME}"        # 例: v1.2.3
+            add "latest"
+            version="${REF_NAME}"
+          else
+            add "${EXTRA_TAG:-edge}"
+            version="${EXTRA_TAG:-edge}"
+          fi
+          add "sha-${short}"
+
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${owner}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+          echo "本次标签: ${tags}"
+
+      - name: 登录 GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${ACTOR}" --password-stdin
+
+      - name: 构建镜像
+        run: |
+          set -euo pipefail
+          docker build \
+            ${{ matrix.build_args }} \
+            --file "${{ matrix.dockerfile }}" \
+            --label "org.opencontainers.image.source=${SERVER_URL}/${REPO_SLUG}" \
+            --label "org.opencontainers.image.revision=${{ steps.meta.outputs.revision }}" \
+            --label "org.opencontainers.image.version=${{ steps.meta.outputs.version }}" \
+            --label "org.opencontainers.image.licenses=${{ matrix.licenses }}" \
+            --label "org.opencontainers.image.description=${{ matrix.description }}" \
+            --tag "${{ steps.meta.outputs.image }}:build" \
+            .
+
+      - name: 冒烟测试(镜像必须真的能跑起来)
+        env:
+          IMG: ${{ steps.meta.outputs.image }}:build
+          SMOKE: ${{ matrix.smoke }}
+        run: |
+          set -euo pipefail
+          # 脚本落文件再挂进容器: 避免多行命令里的引号被外层 shell 吃掉
+          printf '%s\n' "$SMOKE" > /tmp/smoke.sh
+          docker run --rm -v /tmp/smoke.sh:/smoke.sh:ro --entrypoint sh "$IMG" /smoke.sh
+
+      - name: 打标签并推送
+        run: |
+          set -euo pipefail
+          image="${{ steps.meta.outputs.image }}"
+          IFS=',' read -ra list <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${list[@]}"; do
+            docker tag "${image}:build" "${image}:${tag}"
+            docker push "${image}:${tag}"
+          done
+          {
+            echo "### 已发布 \`${{ matrix.image }}\`"
+            echo ""
+            echo '```bash'
+            for tag in "${list[@]}"; do echo "docker pull ${image}:${tag}"; done
+            echo '```'
+            echo ""
+            echo "- 许可证: \`${{ matrix.licenses }}\`"
+            echo "- 提交: \`${{ steps.meta.outputs.revision }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
