@@ -301,9 +301,9 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 | soda | 0.5s | 0 | 快但没货 |
 | qq | 1.7s(慢时 8.4s) | 3~10 | Melodex 原生实现; 会员凭证有效时 20 首全可播 |
 | netease(原生) | ~1.0s | 20 | `netease_source.search_songs`, 可播 20/20、FLAC 1394~1607k |
-| qianqian | 18.7s | 5 | 超预算, 现在基本不会参与 |
-| kugou | 25.2s | 2 | 同上(注意: KRC 逐字歌词是挂在酷狗歌曲上的, 它不参与就摸不到这条路) |
-| kuwo | 83.7s | 20 | 快照实现每首跑音质阶梯+探活 |
+| qianqian | 18.7s | 5 | 前台不等, 由后台补齐任务写进缓存后再出现 |
+| kugou | 25.2s | 2 | 同上。缺酷狗会员 cookie 时每一档 hash 都回 "Needs to be Paid", 所以只有免费曲 |
+| kuwo | 83.7s | 20 | 快照实现每首跑音质阶梯+探活; 官方接口现已加签名("request is illegal"), 做原生要另找路子 |
 | migu | 114.9s | 3 | 同上 |
 | netease(快照) | 131.7s | 17 | **已由原生实现取代**(131.7s → 1.0s) |
 
@@ -315,10 +315,18 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 - 再改成"**等齐主力源就返回**"(`json_api.go` 的 `searchPrimarySources = {qq, netease}`:
   主力源齐了立刻返回, 其余源只在预算内赶上才算) → **2.0~2.9s**, 且 netease 20 首回来了。
   边界: 用户若在源选择里排除了全部主力源, 则仍等齐所选源(不超过预算), 免得第一个返回就丢其余的。
-  回归测试: `internal/web/search_primary_test.go`(慢源挂 10s 也必须 <3s 返回且不含其结果)。
-- 想换回"多等一会儿、尽量多收源": 调 `MUSIC_DL_SEARCH_SOURCE_BUDGET`(默认 12s, 只是个安全网)。
-  想让 qianqian/kugou/kuwo/migu 也进结果, 得给它们做**原生搜索**(每个 1~2 小时, 参照
-  `qq_source.py` / `netease_source.py`: 只打必要请求, 不逐档重试、不逐首探活)。
+  回归测试: `internal/web/search_primary_test.go`(慢源挂 10s 也必须 <3s 返回、不含其结果,
+  并断言 pending 准确报出没等到的源)。
+- **慢源照样参与(2026-09, 用户明确要求"它们还是要参与搜索")**: 前台不等, 但也不丢 ——
+  没等到的源名报在响应字段 `pending_sources` 里; 后台 `completeSearchCacheAsync` 用
+  `MUSIC_DL_SEARCH_COMPLETE_BUDGET`(默认 150s)把它们跑完并写进 24h 搜索缓存(置空 pending);
+  前端 `Download.js` 每 25s 自动补拉一次(最多 6 次, 期间显示"还有 N 个源在后台补齐"提示)。
+  实测: 第一次 2.0s/22 首(pending=[kugou,kuwo,migu,qianqian]) → 后台 1m55s 写入 52 首 →
+  第二次 0.1s/**52 首、六个源齐全** (qianqian 5+kuwo 20+netease 20+qq 2+kugou 2+migu 3)。
+- 想让它们**第一次搜索就在**, 只有两条路: 调大 `MUSIC_DL_SEARCH_SOURCE_BUDGET`(等于重新变慢),
+  或给它们做**原生搜索**(每个 1~2 小时, 参照 `qq_source.py` / `netease_source.py`: 只打必要请求,
+  不逐档重试、不逐首探活)。酷狗原生可行性已验证可行(搜索 `songsearch.kugou.com` 0.5s、
+  取址 `trackercdn` + `md5(hash+"kgcloud")` 0.1s, 但没会员 cookie 时仍只有免费曲)。
 - **别再加"可播率低就退回快照"这类兜底**(踩过): 无会员 cookie 时网易付费曲本来就没有地址,
   早先按"可播率 <0.5 回退"的写法把「林俊杰 江南」(可播率 0.40)从 1s 变成 **132.0s**, 直接超预算
   被丢。拿不到地址的歌已标 `is_invalid`, 前端验活会隐藏它们 —— 直接返回原生结果又快又一致。
