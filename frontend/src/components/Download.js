@@ -319,6 +319,10 @@ const QueryRefreshProgress = ({ active, className = '' }) => {
 // 搜索面板
 const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCache, query, state, onOpenAlbum, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
   const allSongs = state.data?.songs || [];
+  // 后端只等主力源就返回, pending_sources 列出还没等到的慢源(跑完会写进搜索缓存)。
+  // 注意: 它必须在本组件里从 state 取 —— 早先放到父组件定义、这里直接用, 结果是
+  // ReferenceError 把整棵 React 树卸掉, 搜索后页面全白。
+  const pendingSources = state.data?.pending_sources || [];
   const albums = state.data?.albums || [];
   const feedback = useFeedback();
   const [autoPlayQuery, setAutoPlayQuery] = useState('');
