@@ -220,6 +220,15 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   要改应用内的路径只能走管理员接口 `POST /music/settings`(GET 完整设置 → 改 `downloadDir` → 整份 POST 回去,
   别只发一个字段:那是整份覆盖,`embedDownload` 这类 bool 没有默认值兜底会被清掉),
   而且换应用内路径会让旧的 relPath 记录失配 —— 所以优先用上面的挂载法。
+  **生产已于 2026-09-11 实际切换**(可用此法核对/回退):`.env` 里
+  `MELODEX_DOWNLOAD_DIR=/mnt/user/Media/link/音乐`(阵列 shfs,宿主目录已 `chown 1000:1000`),
+  迁移方式 `rsync -a` 741 个文件 / 19,653,291,976 字节,校验用 `rsync -rcn --delete` 复核传输数 = 0,
+  核对无误后才删缓存池旧副本(`/mnt/cache/appdata/melodex-src/data/downloads` 现为空目录,
+  19G 从 appdata 缓存池释放)。库构成:.flac 550 / .mp3 59 / .m4a 12 / .ogg 11 + .lrc 109 = 741;
+  应用侧临时容器调 `GET /music/local_music` 扫到 **632 首**(音频数,`exists:true`),
+  Postgres 里 633 条 `download_records` 的 rel_path **全部**在新目录命中(633 记录 = 632 文件,
+  因为 `晚安 - 许莉洁.ogg` 有两条身份记录)—— 所以「已下载」状态与"服务器副本优先播放"不需要改任何数据。
+  回退只需把 `.env` 里那行删掉再 `docker compose up -d melodex`(文件不会自己回去)。
 - **安全相关 env(2026-06 审计后新增,反代部署建议配)**:
   - `MUSIC_DL_TRUSTED_PROXIES`:逗号分隔 CIDR/IP(如 NPM 容器网段 `172.18.0.0/16`)。配后仅这些来源的 `X-Forwarded-For` 被 `ClientIP()` 采信,防客户端伪造 XFF 绕过限流/登录锁。**不配时后端不信任任何代理并忽略 XFF**;配置非法则拒绝启动。有反代且需要还原客户端 IP 时务必准确配置。
   - `MUSIC_DL_CORS_ORIGINS`:逗号分隔的可信跨域来源(同源无需配)。CORS 不再反射任意 Origin,只对同源+此白名单回显凭据。
