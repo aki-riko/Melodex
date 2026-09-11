@@ -224,7 +224,8 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   `MELODEX_DOWNLOAD_DIR=/mnt/user/Media/link/音乐`(阵列 shfs,宿主目录已 `chown 1000:1000`),
   迁移方式 `rsync -a` 741 个文件 / 19,653,291,976 字节,校验用 `rsync -rcn --delete` 复核传输数 = 0,
   核对无误后才删缓存池旧副本(`/mnt/cache/appdata/melodex-src/data/downloads` 现为空目录,
-  19G 从 appdata 缓存池释放)。库构成:.flac 550 / .mp3 59 / .m4a 12 / .ogg 11 + .lrc 109 = 741;
+  19G 从 appdata 缓存池释放 —— **appdata 是 ZFS,`df` 有片刻延迟**:删完立刻看可能还是 207G/13%,
+  过一会儿才是 188G/12%,别以为没释放又去折腾)。库构成:.flac 550 / .mp3 59 / .m4a 12 / .ogg 11 + .lrc 109 = 741;
   应用侧临时容器调 `GET /music/local_music` 扫到 **632 首**(音频数,`exists:true`),
   Postgres 里 633 条 `download_records` 的 rel_path **全部**在新目录命中(633 记录 = 632 文件,
   因为 `晚安 - 许莉洁.ogg` 有两条身份记录)—— 所以「已下载」状态与"服务器副本优先播放"不需要改任何数据。
