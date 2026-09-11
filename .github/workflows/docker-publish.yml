@@ -96,7 +96,11 @@ jobs:
           add() { [ -n "$1" ] && tags="${tags}${tags:+,}$1"; }
           if [ "${REF_TYPE}" = "tag" ]; then
             add "${REF_NAME}"        # 例: v1.2.3
-            add "latest"
+            # 预发布(带 - 的, 如 v0.2.1-rc.1)不占用 latest, 免得 latest 指向候选版
+            case "${REF_NAME}" in
+              *-*) echo "预发布标签 ${REF_NAME}: 不打 latest" ;;
+              *)   add "latest" ;;
+            esac
             version="${REF_NAME}"
           else
             add "${EXTRA_TAG:-edge}"

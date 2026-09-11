@@ -65,6 +65,20 @@ docker compose up -d --build      # 构建并启动应用 + PostgreSQL
 镜像三阶段构建(Node 构建前端 → Go 编译并 `go:embed` 嵌入前端产物 → Alpine + ffmpeg 运行)。
 PostgreSQL 使用当前稳定线 `postgres:18.4-alpine`;数据库数据持久化在 Compose volume `postgres_data`,下载的音乐与旧 SQLite 迁移源仍挂载在 `./data`。首次启用 Postgres 时,后端会从 `./data/settings.db` 迁移配置、账号、歌单、播放历史、搜索缓存等旧数据。
 
+不想在部署机上编译,也可以直接拉 GitHub Actions 发布的预构建镜像(公开仓库,匿名可拉):
+
+```bash
+docker pull ghcr.io/aki-riko/melodex:edge            # 主干手动触发构建的最新镜像
+docker pull ghcr.io/aki-riko/melodex-provider:edge   # Provider sidecar
+
+# 在 .env 里指定后启动(--no-build 保证不会又去本地构建):
+#   MELODEX_IMAGE=ghcr.io/aki-riko/melodex:edge
+#   MELODEX_PROVIDER_IMAGE=ghcr.io/aki-riko/melodex-provider:edge
+docker compose up -d --no-build
+```
+
+镜像由 `.github/workflows/docker-publish.yml` 构建:打 `v*` 标签发版(→ `vX.Y.Z` + `latest`,带 `-` 的预发布标签如 `v0.2.1-rc.1` 不占用 `latest`),或在 Actions 页面手动触发(→ `edge`);两者都带 `sha-<短提交>`。推送前两个镜像都会各跑一次真启动冒烟。
+
 > 对外暴露前请阅读下方「安全说明」:除健康检查、登录/setup/register 与静态前端外,音乐数据接口均要求 Melodex 登录;首次部署需在 `/music/setup` 初始化管理员。
 
 ## 开发运行

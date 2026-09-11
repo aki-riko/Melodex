@@ -221,6 +221,12 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 `.github/workflows/docker-publish.yml`:打 `v*` 标签或手动 dispatch 才跑(**普通 push 不跑**,免得每次提交都推镜像),
 用内置 `GITHUB_TOKEN`(`packages: write`)推到 `ghcr.io/aki-riko/melodex` 与 `ghcr.io/aki-riko/melodex-provider`,
 **不需要任何额外 secret**。标签规则:`v1.2.3` → `v1.2.3` + `latest` + `sha-<short>`;手动触发 → `<extra_tag>`(默认 `edge`)+ `sha-<short>`。
+**带 `-` 的预发布标签(本仓库在用的 `v0.2.1-rc.1` 这种)故意不打 `latest`** —— 否则 `latest` 会指向候选版。
+标签计算这一步可以脱网真跑验证:`GITHUB_OUTPUT=<临时文件> REF_TYPE=tag REF_NAME=v1.2.3 bash <(渲染后的步骤)`。
+实测真跑结果:`v1.2.3` → `v1.2.3,latest,sha-…`;`v0.2.1-rc.3` → `v0.2.1-rc.3,sha-…`(无 latest);
+dispatch → `edge,sha-…`(extra_tag 空也回退 `edge`);owner 大写会被转成小写。
+首次真实运行(2026-09,run 34610640123,手动 dispatch)实测:两个 job 全绿(melodex 2m40s / provider 1m8s),
+`edge` 与 `sha-4ac6c71` 同 digest,包为**公开**(匿名 token 可取 ✓)。
 
 - 两个镜像各跑一次**真启动冒烟**:应用镜像起服务 + `wget /api/v1/healthz` + 断言首页含 `id="root"` 与 `/assets/`
   (证明 React 产物确实被 `go:embed` 进去了,这是最容易悄悄坏掉的一环);provider 镜像 import 一遍
@@ -231,8 +237,12 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **冒烟脚本必须落文件再挂进容器**(`printf '%s\n' "$SMOKE" > /tmp/smoke.sh` + `-v /tmp/smoke.sh:/smoke.sh:ro`),
   不要写成 `sh -c "${{ matrix.smoke }}"`:多行命令里的引号会被外层 shell 吃掉(实测 `python -c "…"` 直接语法错误,
   由 `sh -n` 预检抓出)。
-- 发布后 NAS 想不再本地构建:把 `docker-compose.yml` 的 `build:` 换成 `image: ghcr.io/aki-riko/melodex:<tag>`
-  (仓库公开,匿名可拉;私有才需要 `docker login ghcr.io`)。
+- 用预构建镜像:compose 里两个服务都写成 `image: ${MELODEX_IMAGE:-melodex:latest}` /
+  `${MELODEX_PROVIDER_IMAGE:-melodex-provider:apache-2.0}`(默认值不变,NAS 现状零影响)。
+  在 `.env` 设 `MELODEX_IMAGE=ghcr.io/aki-riko/melodex:edge` 后 `docker compose up -d --no-build` 即可切过去。
+  **注意 NAS 拉 GHCR 很慢**:实测经 daemon 的 `127.0.0.1:7890` 代理只有 ~90KB/s(12s 长 1.08MB),
+  131MB 的应用镜像要二十多分钟。registry 本身是通的(匿名 token 可取、manifest 与 blob 都能拿,
+  blob 主机 `pkg-containers.githubusercontent.com` 直连/代理都返回 400 = 可达),纯粹是吞吐问题。
 - 许可证标签:应用镜像 `AGPL-3.0`;provider 镜像 `AGPL-3.0 AND Apache-2.0 AND GPL-3.0-only`(内含固定快照与 QRC 解密实现)。
 
 ## Git
