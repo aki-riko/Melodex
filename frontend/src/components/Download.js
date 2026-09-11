@@ -42,6 +42,7 @@ import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
 import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
+import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
 import SearchAlbumRow from './SearchAlbumRow';
 
@@ -183,6 +184,9 @@ const mergeSearchSongs = (query, songSongs = [], lyricSongs = []) => {
   return merged.map((key) => byKey.get(key));
 };
 
+const PENDING_REFETCH_DELAY_MS = 25000;
+const PENDING_REFETCH_MAX = 6;
+
 const searchSongsLyricsAndAlbums = async (keyword) => {
   const query = keyword.trim();
   const isLink = SEARCH_LINK_RE.test(query);
@@ -233,6 +237,9 @@ const searchSongsLyricsAndAlbums = async (keyword) => {
     cached: !!(songData?.cached || lyricData?.cached || albumData?.cached),
     refreshing: !!(songData?.refreshing || lyricData?.refreshing || albumData?.refreshing),
     cached_at: songData?.cached_at || lyricData?.cached_at || albumData?.cached_at,
+    // 后端只等主力源(qq/网易)就返回, 这里列出"还没等到"的慢源(kuwo 84s / migu 115s /
+    // kugou 25s / qianqian 19s); 它们在后台跑完会写进搜索缓存, 界面据此自动补拉一次。
+    pending_sources: [...new Set([...(songData?.pending_sources || []), ...(lyricData?.pending_sources || [])])],
     error: hasResults ? '' : (songData?.error || lyricData?.error || albumData?.error || failures[0] || ''),
     songsError: songs.length === 0 ? songsError : '',
   };
@@ -753,6 +760,11 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       <CacheRefreshNotice data={state.data} />
       <QueryRefreshProgress active={state.isFetching && !!state.data && !state.isLoading && !searchStage?.loading && !(state.data?.cached && state.data?.refreshing)} />
       <SearchStatusPanel stage={searchStage} available={songs.length} total={allSongs.length} />
+      {pendingSources.length > 0 && (
+        <div className="mb-4 rounded-md border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+          还有 {pendingSources.length} 个源在后台补齐({pendingSources.map(sourceLabel).join('、')}),结果会自动刷新。
+        </div>
+      )}
       <SearchAlbumRow albums={albums} onOpen={onOpenAlbum} />
       {songs.length > 0 && (
         <div className="mb-4 flex flex-wrap items-stretch gap-2">
@@ -1112,6 +1124,26 @@ const Download = ({ downloadRequest }) => {
     }
   );
   useCachedRefresh(search, tab === 'search' && !!query);
+
+  // 慢源补齐: 后端返回 pending_sources(kuwo/migu/kugou/qianqian 这些实测 19~115s 的源)时,
+  // 说明它们还在后台跑, 跑完会写进 24h 搜索缓存 —— 这里每隔一会儿自动补拉一次, 直到补全为止。
+  // 最多补 6 次(约 2.5 分钟), 免得后台任务一直失败时无限重试。
+  const pendingSources = search.data?.pending_sources || [];
+  const pendingSourcesKey = pendingSources.join(',');
+  const pendingRefetchCountRef = useRef(0);
+  useEffect(() => {
+    if (!pendingSourcesKey) {
+      pendingRefetchCountRef.current = 0;
+      return undefined;
+    }
+    if (pendingRefetchCountRef.current >= PENDING_REFETCH_MAX) return undefined;
+    const timer = window.setTimeout(() => {
+      pendingRefetchCountRef.current += 1;
+      search.refetch();
+    }, PENDING_REFETCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSourcesKey]);
 
   // 推荐歌单(默认网易云 + QQ)
   const recommend = useQuery(

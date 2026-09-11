@@ -7,6 +7,7 @@ const SOURCE_LABELS = {
   kugou: '酷狗音乐',
   kuwo: '酷我音乐',
   migu: '咪咕音乐',
+  qianqian: '千千音乐',
   bilibili: '哔哩哔哩',
   soda: '汽水音乐',
   local: '本地音乐',
