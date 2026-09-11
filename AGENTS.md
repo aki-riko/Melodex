@@ -207,6 +207,19 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - 访问 `https://music.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
 - **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@192.168.1.99:28022/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:22-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)。
 - 部署流程:NAS 上 `git pull origin master` → `docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t melodex:latest .` → `docker compose up -d`。
+- **音乐下载位置可自定义**:compose 里 `- ${MELODEX_DOWNLOAD_DIR:-./data/downloads}:/home/appuser/data/downloads`
+  —— 默认值与现状一致(宿主 `./data/downloads` ↔ 容器 `/home/appuser/data/downloads`,实测 741 个文件两边一致、
+  目录属 `1000:1000`);在 `.env` 设 `MELODEX_DOWNLOAD_DIR=/宿主/绝对路径` 就能换地方(如 Plex/Navidrome 扫的媒体目录)。
+  **容器内路径恒定不变**是刻意的:应用里的「下载目录」系统设置(`core.WebSettings.DownloadDir`,默认相对路径
+  `data/downloads`)、`DownloadRecord.RelPath`(相对下载目录,是本地库/服务器副本播放的关联键)、本地音乐库扫描
+  全部照旧,不需要动应用设置。
+  两个前提:① 宿主目录要先 `mkdir` 并 `chown 1000:1000`(容器内 appuser;实测 root:root 的目录 `touch` 直接
+  Permission denied,1000:1000 才 WRITE_OK,而且 Docker 会以 root 自动创建不存在的宿主目录,很容易踩),
+  ② 换目录要把 `data/downloads` 已有文件搬过去,否则文件不在、`GET /music/downloads` 会把这些记录过滤掉。
+  另外注意:**「下载目录」目前在 React 界面里只显示不可改**(Settings 页只有一行「下载目录:…」);
+  要改应用内的路径只能走管理员接口 `POST /music/settings`(GET 完整设置 → 改 `downloadDir` → 整份 POST 回去,
+  别只发一个字段:那是整份覆盖,`embedDownload` 这类 bool 没有默认值兜底会被清掉),
+  而且换应用内路径会让旧的 relPath 记录失配 —— 所以优先用上面的挂载法。
 - **安全相关 env(2026-06 审计后新增,反代部署建议配)**:
   - `MUSIC_DL_TRUSTED_PROXIES`:逗号分隔 CIDR/IP(如 NPM 容器网段 `172.18.0.0/16`)。配后仅这些来源的 `X-Forwarded-For` 被 `ClientIP()` 采信,防客户端伪造 XFF 绕过限流/登录锁。**不配时后端不信任任何代理并忽略 XFF**;配置非法则拒绝启动。有反代且需要还原客户端 IP 时务必准确配置。
   - `MUSIC_DL_CORS_ORIGINS`:逗号分隔的可信跨域来源(同源无需配)。CORS 不再反射任意 Origin,只对同源+此白名单回显凭据。
