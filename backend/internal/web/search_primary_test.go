@@ -44,7 +44,9 @@ func TestConcurrentKeywordSearchReturnsWhenPrimarySourcesFinish(t *testing.T) {
 	t.Setenv("MUSIC_DL_PROVIDER_URL", server.URL)
 
 	start := time.Now()
-	songs, _ := concurrentKeywordSearch("周杰伦 晴天", "song", []string{"qq", "netease", "kugou"})
+	songs, _, pending := concurrentKeywordSearchDetailed(
+		"周杰伦 晴天", "song", []string{"qq", "netease", "kugou"}, 12*time.Second, true,
+	)
 	elapsed := time.Since(start)
 
 	if elapsed >= 3*time.Second {
@@ -52,6 +54,10 @@ func TestConcurrentKeywordSearchReturnsWhenPrimarySourcesFinish(t *testing.T) {
 	}
 	if len(songs) != 2 {
 		t.Fatalf("songs = %d, want 2 (只应有 qq 与 netease 的结果)", len(songs))
+	}
+	// 没等到的源必须报进 pending: 前端凭它自动补拉, 后台凭它补齐缓存写进去。
+	if len(pending) != 1 || pending[0] != "kugou" {
+		t.Fatalf("pending = %v, want [kugou]", pending)
 	}
 	sources := map[string]bool{}
 	for _, song := range songs {

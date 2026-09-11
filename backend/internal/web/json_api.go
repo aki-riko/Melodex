@@ -316,7 +316,11 @@ type jsonSearchResponse struct {
 	Keyword     string                   `json:"keyword"`
 	ExactArtist string                   `json:"exact_artist,omitempty"`
 	Sources     []string                 `json:"sources"`
-	Error       string                   `json:"error,omitempty"`
+	// PendingSources 是这次还没等到的慢源(实测 kuwo 83.7s / migu 114.9s / kugou 25.2s /
+	// qianqian 18.7s)。它们的结果由后台补齐任务写进搜索缓存, 前端拿到这个字段会自动再拉
+	// 一次(直到为空), 所以慢源照样"参与搜索", 只是晚几十秒到 —— 而不是让第一次响应急一分钟。
+	PendingSources []string `json:"pending_sources,omitempty"`
+	Error          string   `json:"error,omitempty"`
 	cachedResponseMeta
 }
 
@@ -430,6 +434,10 @@ func jsonSearchHandler(c *gin.Context) {
 
 		// 写缓存(排序/过滤后的最终结果)+ 记搜索历史。
 		putCachedSearch(cacheKey, resp)
+		// 慢源没等到: 后台补齐后覆盖缓存, 前端会凭 pending_sources 自动再拉一次。
+		if len(resp.PendingSources) > 0 {
+			completeSearchCacheAsync(cacheKey, keyword, searchType, exactArtist, resp.Sources, resp.PendingSources)
+		}
 		recordSearchHistory(currentUserID(c), keyword, resp.Type)
 		if !skipWarm && isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {
 			warmQualityCache(resp.Songs, 6)
@@ -524,6 +532,17 @@ func isTrackSearchType(searchType string) bool {
 }
 
 func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources []string) jsonSearchResponse {
+	return buildKeywordSearchResponseWithBudget(keyword, searchType, exactArtist, sources, searchSourceBudget(), true)
+}
+
+// buildKeywordSearchResponseWithBudget 是 buildKeywordSearchResponse 的显式预算版本。
+// 后台补齐任务用 earlyReturnOnPrimary=false + 更长的预算, 一次把慢源也等齐。
+func buildKeywordSearchResponseWithBudget(
+	keyword, searchType, exactArtist string,
+	sources []string,
+	budget time.Duration,
+	earlyReturnOnPrimary bool,
+) jsonSearchResponse {
 	resp := jsonSearchResponse{
 		Songs:       []model.Track{},
 		Playlists:   []model.RemoteCollection{},
@@ -533,9 +552,12 @@ func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources
 		Sources:     append([]string(nil), sources...),
 	}
 
-	songs, playlists := concurrentKeywordSearch(keyword, searchType, sources)
+	songs, playlists, pending := concurrentKeywordSearchDetailed(
+		keyword, searchType, sources, budget, earlyReturnOnPrimary,
+	)
 	resp.Songs = songs
 	resp.Playlists = playlists
+	resp.PendingSources = pending
 
 	// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
 	if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
@@ -546,6 +568,39 @@ func buildKeywordSearchResponse(keyword, searchType, exactArtist string, sources
 	}
 	applyAlbumSourcePreference(&resp)
 	return resp
+}
+
+// completeSearchCacheAsync 在后台把本次没等到的慢源补齐, 完成后覆盖搜索缓存。
+//
+// 为什么需要它: kuwo 83.7s / migu 114.9s / kugou 25.2s / qianqian 18.7s(limit=20 实测)——
+// 前台等它们会让每次搜索都拖到一分钟, 但直接丢掉又等于这几个源"不参与搜索"。折中办法是前台
+// 先返回主力源结果(pending_sources 里告诉前端还差哪些源), 后台继续把慢源跑完写进 24h 搜索
+// 缓存; 前端拿到 pending_sources 后会自动再拉一次, 于是慢源照样进结果, 只是晚几十秒到。
+func completeSearchCacheAsync(cacheKey, keyword, searchType, exactArtist string, sources, pending []string) {
+	if cacheKey == "" || len(pending) == 0 {
+		return
+	}
+	budget := searchCompleteBudget()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[search] %s %q: background completion panicked: %v", searchType, keyword, r)
+			}
+		}()
+		started := time.Now()
+		resp := buildKeywordSearchResponseWithBudget(keyword, searchType, exactArtist, sources, budget, false)
+		if len(resp.Songs) == 0 && len(resp.Playlists) == 0 {
+			log.Printf("[search] %s %q: background completion produced nothing (pending=%v)", searchType, keyword, pending)
+			return
+		}
+		resp.PendingSources = nil
+		putCachedSearch(cacheKey, resp)
+		log.Printf(
+			"[search] %s %q: background completion stored %d songs / %d playlists in %s (was pending=%v)",
+			searchType, keyword, len(resp.Songs), len(resp.Playlists),
+			time.Since(started).Round(time.Millisecond), pending,
+		)
+	}()
 }
 
 // applyAlbumSourcePreference 让已保存平台凭据的专辑优先展示。
@@ -715,14 +770,21 @@ func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListR
 //	migu     53.8s songs=14   kuwo     86.5s songs=20
 //	netease 103.9s songs=11   qq      215.0s songs=0
 //
-// 预算调整为 60s:保住 migu/kuwo(真正出歌的主力源,约 34 首),同时大幅提升用户体验。
-// netease 虽被排除但其来源歌曲常与 qq/kuwo 重复,实际影响有限。用户可通过环境变量
-// MUSIC_DL_SEARCH_SOURCE_BUDGET 自行调整(如 "80s" 可包含 netease)。
+// 前台预算默认 12s: 实测主力源 qq(1.7~8.4s)与网易原生(~1s)足够在 1~2s 内返回, 而
+// qianqian 18.7s / kugou 25.2s / kuwo 83.7s / migu 114.9s —— 等它们只会把每次搜索拖到一分钟,
+// 所以前台不等(见 concurrentKeywordSearchDetailed), 它们的结果由后台补齐任务写进缓存。
+// 可用 MUSIC_DL_SEARCH_SOURCE_BUDGET 改(如 "60s" 就是"宁可慢也要当前就能拿到慢源结果")。
 func searchSourceBudget() time.Duration {
 	return durationFromEnv("MUSIC_DL_SEARCH_SOURCE_BUDGET", searchSourceDefaultBudget)
 }
 
-const searchSourceDefaultBudget = 60 * time.Second
+const searchSourceDefaultBudget = 12 * time.Second
+
+// searchCompleteBudget 是后台补齐任务的上限: 慢源 kuwo/migu 需要 80~115s, provider 客户端
+// 另有 2 分钟硬超时, 给到 150s 就够, 再长也没意义。
+func searchCompleteBudget() time.Duration {
+	return durationFromEnv("MUSIC_DL_SEARCH_COMPLETE_BUDGET", 150*time.Second)
+}
 
 // searchPrimarySources 是"等到就能返回"的主力源。实测(limit=20):
 // QQ 1.7s(慢时 8.4s, 有会员凭证时 20 首全可播)、网易原生 ~1s(20 首, FLAC),
@@ -731,37 +793,67 @@ const searchSourceDefaultBudget = 60 * time.Second
 // 所以这里不再"一律等到预算耗尽", 而是等齐主力源就立刻返回; 其余源在预算内赶上就算。
 var searchPrimarySources = []string{"qq", "netease"}
 
-// concurrentKeywordSearch 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
-// 收集到主力源齐了、或 searchSourceBudget 到期就返回, 慢源本次不参与。
-//
-// 关于"要不要再给单源加独立超时 / 失败负缓存"(2026-09 评估):
-//
-//   - 所有源是同一时刻并发起跑的,所以"单源超时 T"与"总预算 T"大致等价(要收紧先调
-//     MUSIC_DL_SEARCH_SOURCE_BUDGET);真正把等待时间砍下来的是下面的"主力源齐了就返回"。
-//   - 失败负缓存收益很低:会失败的源都失败得很快(apple 1~2s 502、soda 0.2s 空、
-//     QQ 被限流时 0.16s 返回空),真正慢的 migu/kuwo 是"慢但成功",负缓存帮不到它们;
-//     而"成功但为空"的整次搜索已有 24h 搜索缓存兜底。
-//   - 单源请求本身另有 provider 客户端 2 分钟硬超时,不会无限挂住。
+// concurrentKeywordSearch 前台搜索: 等齐主力源、或预算到期就返回, 未等到的源交给后台补齐。
 func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]model.Track, []model.RemoteCollection) {
+	songs, collections, _ := concurrentKeywordSearchDetailed(keyword, searchType, sources, searchSourceBudget(), true)
+	return songs, collections
+}
+
+// concurrentKeywordSearchDetailed 多源并发搜索(从 music.go 搜索闭包提炼,去掉 HTML 渲染)。
+//
+// 返回的 pending 是本次**没有等到**的源名 —— 前台不等它们(实测 kuwo 83.7s / migu 114.9s /
+// kugou 25.2s / qianqian 18.7s, 等它们会把每次搜索拖到一分钟), 但也不能就此丢掉: 调用方会拿
+// 这个名单去后台补齐并写进搜索缓存(见 completeSearchCacheAsync), 前端再自动拉一次就齐了。
+//
+// earlyReturnOnPrimary=true 是前台行为(等齐 searchPrimarySources 就返回);
+// false 是后台补齐任务用的(等齐所有源或预算耗尽)。
+//
+// 关于"要不要再加单源超时 / 失败负缓存"(2026-09 评估):
+//
+//   - 所有源同一时刻并发起跑, "单源超时 T"与"总预算 T"基本等价(要收紧先调
+//     MUSIC_DL_SEARCH_SOURCE_BUDGET);真正把等待时间砍下来的是"主力源齐了就返回"。
+//   - 失败负缓存收益很低:会失败的源都失败得很快(apple 1~2s 502、soda 0.2s 空、
+//     QQ 被限流时 0.16s 返回空),真正慢的 migu/kuwo 是"慢但成功",负缓存帮不到它们。
+//   - 单源请求本身另有 provider 客户端 2 分钟硬超时,不会无限挂住。
+func concurrentKeywordSearchDetailed(
+	keyword, searchType string,
+	sources []string,
+	budgetDuration time.Duration,
+	earlyReturnOnPrimary bool,
+) ([]model.Track, []model.RemoteCollection, []string) {
 	results := make(chan keywordSearchResult, len(sources))
 	for _, source := range sources {
 		go func(source string) { results <- searchKeywordAtSource(keyword, searchType, source) }(source)
 	}
 	songs := make([]model.Track, 0)
 	collections := make([]model.RemoteCollection, 0)
-	budget := time.NewTimer(searchSourceBudget())
+	budget := time.NewTimer(budgetDuration)
 	defer budget.Stop()
 	started := time.Now()
+	reported := make(map[string]bool, len(sources))
+	pendingSources := func() []string {
+		out := make([]string, 0, len(sources))
+		for _, source := range sources {
+			if !reported[source] {
+				out = append(out, source)
+			}
+		}
+		return out
+	}
 	collected := 0
 	primaryPending := 0
-	for _, source := range sources {
-		if slices.Contains(searchPrimarySources, source) {
-			primaryPending++
+	if earlyReturnOnPrimary {
+		for _, source := range sources {
+			if slices.Contains(searchPrimarySources, source) {
+				primaryPending++
+			}
 		}
-	}
-	// 用户如果在源选择里排除了所有主力源(例如只选酷我+咪咕), 那就没有"早退"的依据了 ——
-	// 这时按老行为等齐全部所选源(仍在预算内), 免得第一个返回就把其余的丢掉。
-	if primaryPending == 0 {
+		// 用户如果在源选择里排除了所有主力源(例如只选酷我+咪咕), 那就没有"早退"的依据了 ——
+		// 这时按老行为等齐全部所选源(仍在预算内), 免得第一个返回就把其余的丢掉。
+		if primaryPending == 0 {
+			primaryPending = len(sources)
+		}
+	} else {
 		primaryPending = len(sources)
 	}
 	for range sources {
@@ -770,25 +862,26 @@ func concurrentKeywordSearch(keyword, searchType string, sources []string) ([]mo
 			songs = append(songs, result.songs...)
 			collections = append(collections, result.collections...)
 			collected++
+			reported[result.source] = true
 			if slices.Contains(searchPrimarySources, result.source) {
 				primaryPending--
 			}
 			if primaryPending == 0 {
 				log.Printf(
-					"[search] %s %q: primary sources done after %s with %d/%d sources; returning early",
+					"[search] %s %q: sources done after %s with %d/%d sources; returning",
 					searchType, keyword, time.Since(started).Round(time.Millisecond), collected, len(sources),
 				)
-				return songs, collections
+				return songs, collections, pendingSources()
 			}
 		case <-budget.C:
 			log.Printf(
-				"[search] %s %q: budget %s reached with %d/%d sources; returning partial results",
-				searchType, keyword, searchSourceBudget(), collected, len(sources),
+				"[search] %s %q: budget %s reached with %d/%d sources; returning partial results (pending=%v)",
+				searchType, keyword, budgetDuration, collected, len(sources), pendingSources(),
 			)
-			return songs, collections
+			return songs, collections, pendingSources()
 		}
 	}
-	return songs, collections
+	return songs, collections, pendingSources()
 }
 
 type keywordSearchResult struct {
