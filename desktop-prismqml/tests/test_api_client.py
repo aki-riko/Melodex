@@ -67,6 +67,29 @@ class NormalizeSongTests(unittest.TestCase):
         self.assertEqual(items["stream"], "1")
         self.assertEqual(items["extra"], '{"quality":"flac"}')
 
+    def test_song_query_strips_bulky_embedded_lyric(self) -> None:
+        # 回归:QQ 逐字歌词整首 LRC 进查询串会撑爆反向代理请求行,流地址必须保持精简。
+        bulky = "[00:00.00]街[00:00.01]角" + "晚风" * 4000
+        query = song_query(
+            {
+                "id": "track-id",
+                "source": "qq",
+                "extra": {"lyric": bulky, "songmid": "mid-1", "lyric_verbatim": "1"},
+            },
+            stream="1",
+        )
+        items = dict(query.queryItems())
+        self.assertEqual(items["extra"], '{"songmid":"mid-1","lyric_verbatim":"1"}')
+        self.assertNotIn(bulky, encoded_query(query))
+
+    def test_song_query_omits_extra_when_only_lyric_present(self) -> None:
+        query = song_query(
+            {"id": "track-id", "source": "qq", "extra": {"lyric": "[00:00.00]词"}},
+            stream="1",
+        )
+        items = dict(query.queryItems())
+        self.assertNotIn("extra", items)
+
     def test_embedded_lyrics_are_preserved_in_normalized_song(self) -> None:
         song = normalize_song(
             {

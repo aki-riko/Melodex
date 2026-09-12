@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { normalizeSong, normalizeSongs, songWritePayload } from '../utils/songFields';
 import { serverSaveSucceeded } from '../utils/serverDownloads';
+import { urlSafeExtraValue } from '../utils/songUrlExtra';
 
 export { serverSaveSucceeded };
 
@@ -195,10 +196,10 @@ export const getLyric = async (song) => {
   params.set('artist', s.artist || '');
   if (s.album) params.set('album', s.album);
   if (s.duration) params.set('duration', String(s.duration));
-  if (s.extra) {
-    const extraValue = typeof s.extra === 'string' ? s.extra : JSON.stringify(s.extra);
-    if (extraValue && extraValue !== '{}' && extraValue !== 'null') params.set('extra', extraValue);
-  }
+  // 歌词请求同样禁止携带逐字歌词:有内嵌歌词时上面已短路返回,走到这里
+  // extra.lyric 本应为空;剔除是防历史脏数据把请求行撑爆代理。
+  const lyricExtraValue = urlSafeExtraValue(s.extra);
+  if (lyricExtraValue) params.set('extra', lyricExtraValue);
   const { data } = await client.get(`/music/lyric?${params.toString()}`, {
     responseType: 'text',
     timeout: LYRIC_TIMEOUT_MS,
@@ -218,10 +219,10 @@ const buildDownloadParams = (song, extra = {}) => {
   if (s.album) params.set('album', s.album);
   if (s.duration) params.set('duration', String(s.duration));
   if (s.cover) params.set('cover', s.cover);
-  if (s.extra) {
-    const extraValue = typeof s.extra === 'string' ? s.extra : JSON.stringify(s.extra);
-    if (extraValue && extraValue !== '{}' && extraValue !== 'null') params.set('extra', extraValue);
-  }
+  // 逐字歌词只供前端直接展示,绝不进 URL:整首 LRC 可达几十 KB,会让
+  // 播放/下载请求行超过反向代理上限、在 nginx 层被掐断(表现为 Failed to fetch)。
+  const extraValue = urlSafeExtraValue(s.extra);
+  if (extraValue) params.set('extra', extraValue);
   Object.entries(extra).forEach(([k, v]) => params.set(k, v));
   return params.toString();
 };

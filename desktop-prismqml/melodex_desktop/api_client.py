@@ -65,9 +65,18 @@ def song_query(song: dict[str, Any], **extra_values: str) -> QUrlQuery:
         if value not in (None, "", 0, 0.0):
             query.addQueryItem(key, str(value))
     if normalized["extra"]:
-        query.addQueryItem(
-            "extra", json.dumps(normalized["extra"], ensure_ascii=False, separators=(",", ":"))
-        )
+        # 逐字歌词(extra.lyric)整首可达几十 KB,进查询串会让请求行超过反向代理
+        # (Nginx)的头部上限并在代理层直接断连:Qt 侧表现为流地址打不开、
+        # 后端与代理日志零记录。歌词在展示层直接从 song dict 消费,URL 无需携带。
+        play_extra = {
+            key: value
+            for key, value in normalized["extra"].items()
+            if key != "lyric"
+        }
+        if play_extra:
+            query.addQueryItem(
+                "extra", json.dumps(play_extra, ensure_ascii=False, separators=(",", ":"))
+            )
     for key, value in extra_values.items():
         query.addQueryItem(key, value)
     return query
