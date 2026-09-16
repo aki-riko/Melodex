@@ -526,6 +526,46 @@ func jsonSearchCacheDeleteHandler(c *gin.Context) {
 }
 
 var searchCacheRefreshInFlight sync.Map
+var searchCompletionInFlight sync.Map
+
+const searchBackgroundConcurrencyDefault = 1
+
+var searchBackgroundLimiter = struct {
+	sync.Mutex
+	cond   *sync.Cond
+	active int
+}{}
+
+func searchBackgroundConcurrency() int {
+	return envPositiveInt("MUSIC_DL_SEARCH_BACKGROUND_CONCURRENCY", searchBackgroundConcurrencyDefault)
+}
+
+// acquireSearchBackgroundSlot limits all cache-refresh/completion fan-outs.
+// A single stale-cache refresh can launch one request per source and each
+// provider request can create its own worker pool; allowing twenty refreshes
+// at once exhausts the long-lived Python sidecar's allocator.
+func acquireSearchBackgroundSlot() {
+	searchBackgroundLimiter.Lock()
+	if searchBackgroundLimiter.cond == nil {
+		searchBackgroundLimiter.cond = sync.NewCond(&searchBackgroundLimiter.Mutex)
+	}
+	for searchBackgroundLimiter.active >= searchBackgroundConcurrency() {
+		searchBackgroundLimiter.cond.Wait()
+	}
+	searchBackgroundLimiter.active++
+	searchBackgroundLimiter.Unlock()
+}
+
+func releaseSearchBackgroundSlot() {
+	searchBackgroundLimiter.Lock()
+	if searchBackgroundLimiter.active > 0 {
+		searchBackgroundLimiter.active--
+	}
+	if searchBackgroundLimiter.cond != nil {
+		searchBackgroundLimiter.cond.Broadcast()
+	}
+	searchBackgroundLimiter.Unlock()
+}
 
 func isTrackSearchType(searchType string) bool {
 	return searchType == "song" || searchType == "lyric"
@@ -580,8 +620,14 @@ func completeSearchCacheAsync(cacheKey, keyword, searchType, exactArtist string,
 	if cacheKey == "" || len(pending) == 0 {
 		return
 	}
+	if _, loaded := searchCompletionInFlight.LoadOrStore(cacheKey, struct{}{}); loaded {
+		return
+	}
 	budget := searchCompleteBudget()
 	go func() {
+		defer searchCompletionInFlight.Delete(cacheKey)
+		acquireSearchBackgroundSlot()
+		defer releaseSearchBackgroundSlot()
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[search] %s %q: background completion panicked: %v", searchType, keyword, r)
@@ -656,6 +702,8 @@ func refreshSearchCacheAsync(key, searchType, keyword, exactArtist string, sourc
 	}
 	go func() {
 		defer searchCacheRefreshInFlight.Delete(key)
+		acquireSearchBackgroundSlot()
+		defer releaseSearchBackgroundSlot()
 		resp := buildKeywordSearchResponse(keyword, searchType, exactArtist, sources)
 		putCachedSearch(key, resp)
 		if warmQuality && isTrackSearchType(resp.Type) && len(resp.Songs) > 0 {

@@ -80,6 +80,9 @@ services:
       # 而且慢源照样被丢。收到 12s 后 QQ+网易(原生)足够在 1~2s 内返回, 整体从 60s 降到 12s。
       # 想换回"等更久、尽量多收几个源", 调大这个值即可(Go duration, 如 30s/1m)。
       MUSIC_DL_SEARCH_SOURCE_BUDGET: ${MUSIC_DL_SEARCH_SOURCE_BUDGET:-12s}
+      # 后台刷新/补齐搜索缓存的并发数。每个任务会扇出多个 provider 源，默认串行，
+      # 防止长期运行的 Python provider 因多轮慢源搜索叠加而持续吃满内存。
+      MUSIC_DL_SEARCH_BACKGROUND_CONCURRENCY: ${MUSIC_DL_SEARCH_BACKGROUND_CONCURRENCY:-1}
       # Web 登录会话默认 180 天;可按需改天数,或用 MUSIC_DL_SESSION_MAX_AGE=720h 这类 Go duration。
       # MUSIC_DL_SESSION_DAYS: "180"
       # Subsonic API facade(默认关):配齐下面三项才启用,音流/substreamer 等

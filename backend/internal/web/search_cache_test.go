@@ -43,6 +43,17 @@ func TestSearchCacheKeySeparatesNativeLyricSearchFromLegacy(t *testing.T) {
 	}
 }
 
+func TestSearchBackgroundConcurrencyHonorsEnv(t *testing.T) {
+	t.Setenv("MUSIC_DL_SEARCH_BACKGROUND_CONCURRENCY", "3")
+	if got := searchBackgroundConcurrency(); got != 3 {
+		t.Fatalf("background concurrency = %d, want 3", got)
+	}
+	t.Setenv("MUSIC_DL_SEARCH_BACKGROUND_CONCURRENCY", "not-a-number")
+	if got := searchBackgroundConcurrency(); got != searchBackgroundConcurrencyDefault {
+		t.Fatalf("invalid background concurrency = %d, want default %d", got, searchBackgroundConcurrencyDefault)
+	}
+}
+
 func legacySearchCacheKeyForTest(searchType, keyword, exactArtist string, sources []string) string {
 	s := append([]string(nil), sources...)
 	sort.Strings(s)
