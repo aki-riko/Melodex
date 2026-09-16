@@ -294,29 +294,27 @@ class AudioLinkTester(object):
         outputs = dict(file_size='NULL', ctype='NULL', ext='NULL', download_url=url, final_url='NULL')
         # HEAD probe
         try:
-            resp = self.session.head(url, allow_redirects=True, **request_overrides)
-            resp.raise_for_status()
-            resp_headers, final_url = resp.headers, resp.url
-            resp.close()
-            file_size, ctype = byte2mb(resp_headers.get('content-length')), resp_headers.get('content-type')
-            if ctype == 'image/jpg; charset=UTF-8' or ctype == 'image/jpg': ctype = 'audio/mpeg'
-            if ctype == 'text/plain' and naive_guess_ext == 'm4s': ctype = 'audio/mp4'
-            ext = self.CTYPE_TO_EXT.get(ctype, 'NULL')
-            outputs = dict(file_size=file_size, ctype=ctype, ext=ext, download_url=url, final_url=final_url)
+            with self.session.head(url, allow_redirects=True, **request_overrides) as resp:
+                resp.raise_for_status()
+                resp_headers, final_url = resp.headers, resp.url
+                file_size, ctype = byte2mb(resp_headers.get('content-length')), resp_headers.get('content-type')
+                if ctype == 'image/jpg; charset=UTF-8' or ctype == 'image/jpg': ctype = 'audio/mpeg'
+                if ctype == 'text/plain' and naive_guess_ext == 'm4s': ctype = 'audio/mp4'
+                ext = self.CTYPE_TO_EXT.get(ctype, 'NULL')
+                outputs = dict(file_size=file_size, ctype=ctype, ext=ext, download_url=url, final_url=final_url)
         except:
             outputs = dict(file_size='NULL', ctype='NULL', ext='NULL', download_url=url, final_url='NULL')
         if outputs['file_size'] and outputs['file_size'] not in ('NULL',): return outputs
         # GETSTREAM probe
         try:
-            resp = self.session.get(url, allow_redirects=True, stream=True, **request_overrides)
-            resp.raise_for_status()
-            resp_headers, final_url = resp.headers, resp.url
-            resp.close()
-            file_size, ctype = byte2mb(resp_headers.get('content-length')), resp_headers.get('content-type')
-            if ctype == 'image/jpg; charset=UTF-8' or ctype == 'image/jpg': ctype = 'audio/mpeg'
-            if ctype == 'text/plain' and naive_guess_ext == 'm4s': ctype = 'audio/mp4'
-            ext = self.CTYPE_TO_EXT.get(ctype, 'NULL')
-            outputs = dict(file_size=file_size, ctype=ctype, ext=ext, download_url=url, final_url=final_url)
+            with self.session.get(url, allow_redirects=True, stream=True, **request_overrides) as resp:
+                resp.raise_for_status()
+                resp_headers, final_url = resp.headers, resp.url
+                file_size, ctype = byte2mb(resp_headers.get('content-length')), resp_headers.get('content-type')
+                if ctype == 'image/jpg; charset=UTF-8' or ctype == 'image/jpg': ctype = 'audio/mpeg'
+                if ctype == 'text/plain' and naive_guess_ext == 'm4s': ctype = 'audio/mp4'
+                ext = self.CTYPE_TO_EXT.get(ctype, 'NULL')
+                outputs = dict(file_size=file_size, ctype=ctype, ext=ext, download_url=url, final_url=final_url)
         except:
             outputs = dict(file_size='NULL', ctype='NULL', ext='NULL', download_url=url, final_url='NULL')
         return outputs
@@ -329,34 +327,37 @@ class AudioLinkTester(object):
         outputs = dict(ok=False, status=0, method="", final_url=None, ctype=None, clen=None, range=None, fmt=None, reason="")
         # HEAD test
         try:
-            resp = self.session.head(url, allow_redirects=True, **request_overrides)
-            clen = resp.headers.get("Content-Length")
-            clen = int(clen) if clen and clen.isdigit() else None
-            outputs.update(dict(status=resp.status_code, method="HEAD", final_url=str(resp.url), ctype=resp.headers.get("Content-Type"), clen=clen, range=(resp.headers.get("Accept-Ranges") or "").lower() == "bytes"))
-            if outputs["ctype"] == 'text/plain' and naive_guess_ext == 'm4s': outputs["ctype"] = 'audio/mp4'
-            if 200 <= resp.status_code < 300 and ((self.isaudioct(outputs["ctype"]) or (naive_guess_ext in ('m4s',))) and (outputs["clen"] or outputs["range"])):
-                outputs.update(dict(ok=True, reason="HEAD success"))
-                return outputs
+            with self.session.head(url, allow_redirects=True, **request_overrides) as resp:
+                clen = resp.headers.get("Content-Length")
+                clen = int(clen) if clen and clen.isdigit() else None
+                outputs.update(dict(status=resp.status_code, method="HEAD", final_url=str(resp.url), ctype=resp.headers.get("Content-Type"), clen=clen, range=(resp.headers.get("Accept-Ranges") or "").lower() == "bytes"))
+                if outputs["ctype"] == 'text/plain' and naive_guess_ext == 'm4s': outputs["ctype"] = 'audio/mp4'
+                if 200 <= resp.status_code < 300 and ((self.isaudioct(outputs["ctype"]) or (naive_guess_ext in ('m4s',))) and (outputs["clen"] or outputs["range"])):
+                    outputs.update(dict(ok=True, reason="HEAD success"))
+                    return outputs
         except Exception as err:
             outputs["reason"] = f"HEAD error: {err}"
         # RANGEGET test
         try:
             headers = copy.deepcopy(self.headers)
             headers["Range"] = "bytes=0-15"
-            resp = self.session.get(url, stream=True, allow_redirects=True, **request_overrides)
-            outputs.update(dict(status=resp.status_code, method="RANGEGET", final_url=str(resp.url)))
-            if resp.status_code not in (200, 206): outputs["reason"] = f"RANGEGET error: response status {resp.status_code}"; return outputs
-            chunk = b""
-            for b in resp.iter_content(chunk_size=16): chunk = b; break
-            resp.close()
-            outputs["ctype"] = outputs["ctype"] or resp.headers.get("Content-Type")
-            if outputs["ctype"] == 'text/plain' and naive_guess_ext == 'm4s': outputs["ctype"] = 'audio/mp4'
-            outputs["range"] = outputs["range"] or (resp.status_code == 206) or (resp.headers.get("Content-Range") is not None)
-            clen = resp.headers.get("Content-Length") or (resp.headers.get("Content-Range") or "").split("/")[-1]
-            if clen and clen.isdigit(): outputs["clen"] = int(clen)
-            outputs["fmt"] = self.sniffmagic(chunk)
-            if self.isaudioct(outputs["ctype"]) or outputs["fmt"] or (naive_guess_ext in ('m4s',)): outputs.update(dict(ok=True, reason="RANGEGET success"))
-            else: outputs.update(dict(ok=False, reason="RANGEGET error: Not audio-like (CT/magic)"))
+            with self.session.get(url, stream=True, allow_redirects=True, **request_overrides) as resp:
+                outputs.update(dict(status=resp.status_code, method="RANGEGET", final_url=str(resp.url)))
+                if resp.status_code not in (200, 206):
+                    outputs["reason"] = f"RANGEGET error: response status {resp.status_code}"
+                    return outputs
+                chunk = b""
+                for b in resp.iter_content(chunk_size=16):
+                    chunk = b
+                    break
+                outputs["ctype"] = outputs["ctype"] or resp.headers.get("Content-Type")
+                if outputs["ctype"] == 'text/plain' and naive_guess_ext == 'm4s': outputs["ctype"] = 'audio/mp4'
+                outputs["range"] = outputs["range"] or (resp.status_code == 206) or (resp.headers.get("Content-Range") is not None)
+                clen = resp.headers.get("Content-Length") or (resp.headers.get("Content-Range") or "").split("/")[-1]
+                if clen and clen.isdigit(): outputs["clen"] = int(clen)
+                outputs["fmt"] = self.sniffmagic(chunk)
+                if self.isaudioct(outputs["ctype"]) or outputs["fmt"] or (naive_guess_ext in ('m4s',)): outputs.update(dict(ok=True, reason="RANGEGET success"))
+                else: outputs.update(dict(ok=False, reason="RANGEGET error: Not audio-like (CT/magic)"))
         except Exception as err:
             outputs["reason"] = f"RANGEGET error: {err}"
         # return

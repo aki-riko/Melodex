@@ -24,6 +24,7 @@ func resetCollectionStateForTest() {
 	localMusicMetaCacheMu.Unlock()
 	apiCacheRefreshFlight = sync.Map{}
 	searchCacheRefreshInFlight = sync.Map{}
+	searchCompletionInFlight = sync.Map{}
 	qualityWarmInFlight = sync.Map{}
 	apiCacheLastGC = time.Time{}
 	searchCacheLastGC = time.Time{}
