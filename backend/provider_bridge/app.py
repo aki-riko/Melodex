@@ -255,3 +255,15 @@ def search(
         if source in {"netease", "kugou"}:
             _enrich_verbatim_lyrics(result["songs"], source)
         return result
+
+
+def lyric(payload: dict[str, Any]) -> dict[str, str]:
+    """按歌曲标识按需取歌词，避免原生快速搜索为每首候选额外请求。"""
+    source = _string(payload.get("source")).lower()
+    song_id = _string(payload.get("id"))
+    cookie = _string(payload.get("cookie"))
+    if not source or not song_id:
+        raise ValueError("source and id are required")
+    if source == "netease":
+        return {"lyric": netease_source.fetch_lyric(song_id, cookie=cookie)}
+    raise ValueError(f"lyrics unsupported for source: {source}")

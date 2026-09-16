@@ -28,6 +28,12 @@ type SearchRequest struct {
 	SearchType int `json:"search_type,omitempty"`
 }
 
+type LyricRequest struct {
+	Source string `json:"source"`
+	ID     string `json:"id"`
+	Cookie string `json:"cookie,omitempty"`
+}
+
 type CollectionRequest struct {
 	Source     string `json:"source"`
 	Action     string `json:"action"`
@@ -70,6 +76,11 @@ type QRCheckRequest struct {
 type searchResponse struct {
 	Songs []model.Track `json:"songs"`
 	Error string        `json:"error,omitempty"`
+}
+
+type lyricResponse struct {
+	Lyric string `json:"lyric"`
+	Error string `json:"error,omitempty"`
 }
 
 type qrCreateResponse struct {
@@ -138,6 +149,22 @@ func (c *Client) Search(ctx context.Context, request SearchRequest) ([]model.Tra
 		payload.Songs = []model.Track{}
 	}
 	return payload.Songs, nil
+}
+
+func (c *Client) Lyric(ctx context.Context, request LyricRequest) (string, error) {
+	request.Source = strings.TrimSpace(request.Source)
+	request.ID = strings.TrimSpace(request.ID)
+	if request.Source == "" || request.ID == "" {
+		return "", errors.New("provider lyric requires source and id")
+	}
+	var payload lyricResponse
+	if err := c.postJSON(ctx, "/v1/lyric", request, &payload); err != nil {
+		return "", err
+	}
+	if payload.Error != "" {
+		return "", errors.New(payload.Error)
+	}
+	return strings.TrimSpace(payload.Lyric), nil
 }
 
 func (c *Client) Collections(ctx context.Context, request CollectionRequest) (CollectionResponse, error) {

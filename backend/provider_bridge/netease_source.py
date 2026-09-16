@@ -37,6 +37,7 @@ from provider_bridge.platform_http import PlatformHTTP
 LOGGER = logging.getLogger(__name__)
 
 LYRIC_SEARCH_URL = "https://music.163.com/api/search/get/web"
+SONG_LYRIC_URL = "https://music.163.com/api/song/lyric/v1"
 LYRIC_SEARCH_TYPE = 1006
 SONG_SEARCH_TYPE = 1
 SONG_DETAIL_URL = "https://music.163.com/api/song/detail"
@@ -121,6 +122,40 @@ def lyric_matches(client: PlatformHTTP, keyword: str, limit: int) -> list[dict[s
 def song_matches(client: PlatformHTTP, keyword: str, limit: int) -> list[dict[str, Any]]:
     """普通搜歌(type=1)。"""
     return _search(client, keyword, limit, SONG_SEARCH_TYPE)
+
+
+def fetch_lyric(song_id: str, *, cookie: str = "", session: Any | None = None) -> str:
+    """按网易歌曲 ID 取行级 LRC。
+
+    原生搜歌为了保持低延迟不会给每个候选额外请求歌词；播放页按需取歌词时
+    再走这条接口，避免把“搜索结果没有 lyric”误当成“歌曲没有歌词”。
+    """
+    song_id = _string(song_id)
+    if not song_id.isdigit():
+        return ""
+    client = PlatformHTTP(cookie, session)
+    try:
+        payload = client.post_form(
+            SONG_LYRIC_URL,
+            {
+                "id": song_id,
+                "cp": "false",
+                "lv": 0,
+                "kv": 0,
+                "tv": 0,
+                "rv": 0,
+                "yv": 0,
+                "ytv": 0,
+                "yrv": 0,
+            },
+            headers=NETEASE_HEADERS,
+        )
+    except Exception as error:
+        LOGGER.warning("[netease] 按 ID 取歌词失败 id=%s: %s", song_id, error)
+        return ""
+    node = payload.get("lrc") if isinstance(payload, dict) else None
+    lyric = _string(node.get("lyric")) if isinstance(node, dict) else ""
+    return lyric
 
 
 def _search(client: PlatformHTTP, keyword: str, limit: int, search_type: int) -> list[dict[str, Any]]:
@@ -322,6 +357,7 @@ def search_songs(
 
 __all__ = [
     "build_payload",
+    "fetch_lyric",
     "lyric_matches",
     "native_search_enabled",
     "playable_ratio",

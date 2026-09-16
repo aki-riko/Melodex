@@ -211,11 +211,24 @@ func ResolveProviderMedia(song *providermodel.Track) (ProviderMedia, error) {
 
 func providerLyrics(source string, song *providermodel.Track) (string, error) {
 	// Search responses already contain the provider lyric when the sidecar was
-	// able to fetch it. Reuse that payload instead of re-running a full provider
-	// search for an otherwise identical track.
+	// able to fetch it. Reuse that payload instead of replacing richer verbatim
+	// lyrics with a second, line-level request.
 	if song != nil {
 		if lyric := strings.TrimSpace(song.Extra["lyric"]); lyric != "" {
 			return lyric, nil
+		}
+	}
+	// 原生网易快速搜索不为每个候选额外取歌词，因此搜索缓存里可能没有
+	// extra.lyric。播放页按歌曲 ID 按需补取，不能把“缓存无 lyric”当成无歌词。
+	if song != nil && strings.EqualFold(strings.TrimSpace(source), "netease") {
+		if client, err := getProviderBridgeClient(); err == nil {
+			if lyric, lyricErr := client.Lyric(context.Background(), bridge.LyricRequest{
+				Source: source,
+				ID:     song.ID,
+				Cookie: cookieForSource(source),
+			}); lyricErr == nil && strings.TrimSpace(lyric) != "" {
+				return strings.TrimSpace(lyric), nil
+			}
 		}
 	}
 	resolved, err := resolveProviderSong(source, song, cookieForSource(source))
