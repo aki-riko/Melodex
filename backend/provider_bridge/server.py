@@ -16,7 +16,7 @@ VENDOR_ROOT = BACKEND_ROOT / "third_party" / "charles-musicdl"
 sys.path.insert(0, str(VENDOR_ROOT))
 
 from provider_bridge.account import verify  # noqa: E402
-from provider_bridge.app import search, source_status  # noqa: E402
+from provider_bridge.app import lyric, search, source_status  # noqa: E402
 from provider_bridge.collections import collection  # noqa: E402
 from provider_bridge.qr import check as qr_check  # noqa: E402
 from provider_bridge.qr import create as qr_create  # noqa: E402
@@ -49,6 +49,7 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         handlers = {
             "/v1/search": search,
+            "/v1/lyric": lyric,
             "/v1/collections": collection,
             "/v1/account/verify": verify,
             "/v1/qr/create": qr_create,

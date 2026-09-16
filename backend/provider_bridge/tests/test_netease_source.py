@@ -56,17 +56,22 @@ URL_PAYLOAD = {
     "data": [{"id": 569153583, "url": "https://m801.music.126.net/x/北京残阳.mp3",
               "size": 10627701, "br": 320000, "type": "mp3", "level": "exhigh", "fee": 0}],
 }
+LYRIC_PAYLOAD = {
+    "code": 200,
+    "lrc": {"lyric": "[00:01.00]第一句\n[00:03.50]第二句"},
+}
 PAID_URL_PAYLOAD = {"code": 200, "data": [{"id": 1901371647, "url": None, "size": 0, "br": 0, "fee": 1}]}
 
 
 class FakeSession:
     """假的 requests.Session: 按 URL 返回预制响应, 并记录请求。"""
 
-    def __init__(self, *, detail=..., urls=None, detail_error=False, url_error=False):
+    def __init__(self, *, detail=..., urls=None, detail_error=False, url_error=False, lyric=None):
         self.detail = DETAIL_PAYLOAD if detail is ... else detail
         self.urls = urls or {}
         self.detail_error = detail_error
         self.url_error = url_error
+        self.lyric = LYRIC_PAYLOAD if lyric is None else lyric
         self.calls = []
 
     def request(self, method, url, **kwargs):
@@ -78,6 +83,8 @@ class FakeSession:
             if self.detail_error:
                 raise RuntimeError("detail boom")
             return _Response(self.detail)
+        if "api/song/lyric/v1" in url:
+            return _Response(self.lyric)
         if "player/url/v1" in url:
             if self.url_error:
                 raise RuntimeError("eapi boom")
@@ -105,6 +112,16 @@ def patch_eapi_params():
 
 
 class LyricMatchTests(unittest.TestCase):
+    def test_fetches_line_lyric_by_song_id(self):
+        session = FakeSession()
+        lyric = netease_source.fetch_lyric(
+            "2110700883", cookie="MUSIC_U=test", session=session
+        )
+        self.assertEqual(lyric, LYRIC_PAYLOAD["lrc"]["lyric"])
+        call = next(call for call in session.calls if "api/song/lyric/v1" in call["url"])
+        self.assertEqual(call["data"]["id"], "2110700883")
+        self.assertIn("MUSIC_U=test", call["headers"]["Cookie"])
+
     def test_requests_lyric_search_type(self):
         session = FakeSession()
         with patch_eapi_params():

@@ -59,6 +59,34 @@ func TestSearchReturnsProviderError(t *testing.T) {
 	}
 }
 
+func TestLyricLoadsBySongID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/lyric" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var request LyricRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.Source != "netease" || request.ID != "2110700883" || request.Cookie != "MUSIC_U=test" {
+			t.Fatalf("unexpected payload: %#v", request)
+		}
+		_ = json.NewEncoder(w).Encode(lyricResponse{Lyric: "[00:01.00]第一句"})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lyric, err := client.Lyric(context.Background(), LyricRequest{
+		Source: "netease", ID: "2110700883", Cookie: "MUSIC_U=test",
+	})
+	if err != nil || lyric != "[00:01.00]第一句" {
+		t.Fatalf("lyric = %q, err = %v", lyric, err)
+	}
+}
+
 func TestCollectionQRAndAccountContracts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

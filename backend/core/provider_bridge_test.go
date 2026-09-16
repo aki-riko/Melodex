@@ -88,6 +88,44 @@ func TestProviderBridgeSearchDownloadAndLyrics(t *testing.T) {
 	}
 }
 
+func TestProviderLyricsLoadsNativeNeteaseLyricAfterSearchCacheMiss(t *testing.T) {
+	resetProviderBridgeStateForTest()
+	defer resetProviderBridgeStateForTest()
+
+	var lyricRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"songs": []providermodel.Track{{
+					ID: "2110700883", Source: "netease", Name: "冬眠", Artist: "阿YueYue, 刘兆宇",
+				}},
+			})
+		case "/v1/lyric":
+			lyricRequests++
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"lyric": "[00:01.00]第一句\n[00:03.50]第二句",
+			})
+		default:
+			t.Fatalf("unexpected provider request: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	t.Setenv(providerBridgeURLEnv, server.URL)
+
+	songs, err := GetSearchFunc("netease")("冬眠")
+	if err != nil || len(songs) != 1 {
+		t.Fatalf("search songs = %#v, err = %v", songs, err)
+	}
+	lyric, err := GetLyricFunc("netease")(&songs[0])
+	if err != nil || lyric != "[00:01.00]第一句\n[00:03.50]第二句" {
+		t.Fatalf("lyric = %q, err = %v", lyric, err)
+	}
+	if lyricRequests != 1 {
+		t.Fatalf("provider lyric requests = %d, want 1", lyricRequests)
+	}
+}
+
 // QQ 的歌词搜索必须真的按歌词片段检索(search_type=7), 普通搜歌必须仍是 0;
 // 这条链路的参数一旦写错, 用户按歌词搜歌就会静默退化成"按标题搜", 只有翻唱同名噪音。
 func TestQQLyricSearchSendsLyricSearchType(t *testing.T) {
