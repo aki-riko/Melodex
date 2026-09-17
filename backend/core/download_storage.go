@@ -15,6 +15,8 @@ var audioQualityRanks = map[string]int{
 	"wma": 0, "mp3": 1, "ogg": 2, "aac": 3, "m4a": 3, "flac": 5, "wav": 5,
 }
 
+const downloadedAudioFileMode = 0o644
+
 func normalizedAudioExtension(extension string) string {
 	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(extension), "."))
 }
@@ -117,6 +119,11 @@ func writeAudioFile(target string, data []byte) error {
 			_ = os.Remove(temporaryPath)
 		}
 	}()
+	// os.CreateTemp 固定创建 0600。最终文件经 Rename 继承该权限；若运行身份
+	// 曾是 root，之后降权运行的 appuser 就无法播放已下载的服务器副本。
+	if err := temporary.Chmod(downloadedAudioFileMode); err != nil {
+		return err
+	}
 	if _, err := temporary.Write(data); err != nil {
 		return err
 	}

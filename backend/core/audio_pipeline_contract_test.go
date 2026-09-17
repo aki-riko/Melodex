@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -126,6 +127,15 @@ func TestDownloadFilenameTemplateAndQualityPolicy(t *testing.T) {
 		data, readErr := os.ReadFile(want)
 		if readErr != nil || result.SavedPath != want || string(data) != "audio" {
 			t.Fatalf("nested output = %#v, data=%q, err=%v", result, data, readErr)
+		}
+		if runtime.GOOS != "windows" {
+			info, statErr := os.Stat(want)
+			if statErr != nil {
+				t.Fatalf("stat nested output: %v", statErr)
+			}
+			if info.Mode().Perm() != downloadedAudioFileMode {
+				t.Fatalf("nested output mode = %04o, want %04o", info.Mode().Perm(), downloadedAudioFileMode)
+			}
 		}
 	})
 
