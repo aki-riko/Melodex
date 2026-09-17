@@ -23,7 +23,7 @@ RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt
 COPY backend/third_party/charles-musicdl/ ./third_party/charles-musicdl/
 COPY backend/provider_bridge/ ./provider_bridge/
 
-RUN useradd --create-home --uid 10001 provider
+RUN id -u provider >/dev/null 2>&1 || useradd --create-home --uid 10001 provider
 USER provider
 
 CMD ["python", "-m", "provider_bridge.server"]
