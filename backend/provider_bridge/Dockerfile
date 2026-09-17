@@ -4,6 +4,9 @@ ARG IMAGE_PREFIX=docker.io/library
 
 FROM ${IMAGE_PREFIX}/python:3.12-slim
 
+# 安装系统与 Python 依赖的构建阶段必须显式使用 root；运行阶段仍会在末尾降权。
+USER root
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
