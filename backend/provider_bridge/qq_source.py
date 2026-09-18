@@ -33,9 +33,11 @@ import random
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable
+
+import requests
 
 from provider_bridge import qq_qrc
 from provider_bridge.platform_http import PlatformHTTP
@@ -379,6 +381,27 @@ def _search_items(
     return [item for item in items if isinstance(item, dict)], code
 
 
+def _probe_media_url(url: str, cookie: str) -> tuple[bool, int]:
+    """确认 QQ vkey 返回的地址仍存在，再交给 Go 播放/下载链路。"""
+    headers = {
+        "Referer": "https://y.qq.com/",
+        "User-Agent": DOWNLOAD_USER_AGENT,
+        "Range": "bytes=0-1",
+    }
+    if cookie:
+        headers["Cookie"] = cookie
+    response = None
+    try:
+        response = requests.get(url, headers=headers, timeout=8, stream=True)
+        status = int(response.status_code)
+        return status in (200, 206), status
+    except requests.RequestException:
+        return False, 0
+    finally:
+        if response is not None:
+            response.close()
+
+
 def _vkey_pass(
     mids: list[str],
     state: dict[str, Any],
@@ -388,7 +411,7 @@ def _vkey_pass(
     session: Any | None,
 ) -> dict[str, tuple[str, str, str]]:
     """分片批量取地址。返回 {mid: (音质档位, 扩展名, 完整播放地址)}。"""
-    collected: dict[str, tuple[str, str, str]] = {}
+    candidates: dict[str, list[tuple[str, str, str]]] = {}
     for chunk in _chunks(mids, SONGS_PER_VKEY_REQUEST):
         sent: dict[str, tuple[str, str, str]] = {}
         filenames: list[str] = []
@@ -416,10 +439,52 @@ def _vkey_pass(
             if target is None:
                 continue
             mid, quality, ext = target
-            previous = collected.get(mid)
-            if previous and QUALITY_ORDER.get(previous[0], 99) <= QUALITY_ORDER.get(quality, 99):
-                continue
-            collected[mid] = (quality, ext, MEDIA_BASE + purl)
+            candidates.setdefault(mid, []).append((quality, ext, MEDIA_BASE + purl))
+
+    probe_jobs = [
+        (mid, quality, ext, url)
+        for mid, values in candidates.items()
+        for quality, ext, url in sorted(values, key=lambda value: QUALITY_ORDER.get(value[0], 99))
+    ]
+    if not probe_jobs:
+        return {}
+
+    probe_results: dict[tuple[str, str, str], tuple[bool, int]] = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(probe_jobs))) as pool:
+        futures = {
+            pool.submit(_probe_media_url, url, cookie): (mid, quality, url)
+            for mid, quality, _ext, url in probe_jobs
+        }
+        for future in as_completed(futures):
+            mid, quality, url = futures[future]
+            try:
+                probe_results[(mid, quality, url)] = future.result()
+            except Exception as error:
+                LOGGER.warning("[qq] 媒体地址探测异常 mid=%s quality=%s: %s", mid, quality, error)
+                probe_results[(mid, quality, url)] = (False, 0)
+
+    collected: dict[str, tuple[str, str, str]] = {}
+    for mid, values in candidates.items():
+        ordered = sorted(values, key=lambda value: QUALITY_ORDER.get(value[0], 99))
+        selected = None
+        statuses = []
+        for quality, ext, url in ordered:
+            ok, status = probe_results.get((mid, quality, url), (False, 0))
+            statuses.append(f"{quality}:{status}")
+            if ok:
+                selected = (quality, ext, url)
+                break
+        if selected is None:
+            LOGGER.warning("[qq] 所有媒体地址不可用 mid=%s probes=%s", mid, ",".join(statuses))
+            continue
+        collected[mid] = selected
+        if selected[0] != ordered[0][0]:
+            LOGGER.warning(
+                "[qq] 媒体档位回退 mid=%s probes=%s selected=%s",
+                mid,
+                ",".join(statuses),
+                selected[0],
+            )
     return collected
 
 

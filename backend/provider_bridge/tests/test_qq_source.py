@@ -129,9 +129,11 @@ class QQSourceTests(unittest.TestCase):
         with qq_source._status_lock:
             qq_source._status.clear()
 
-    def run_search(self, backend, keyword="晴天", limit=20, cookie="", work_dir=None):
+    def run_search(self, backend, keyword="晴天", limit=20, cookie="", work_dir=None, probe=None):
+        probe = probe or (lambda _url, _cookie: (True, 206))
         with mock.patch.object(qq_source, "_post", backend):
-            return qq_source.search(keyword, limit, cookie, work_dir=work_dir or self.work_dir)
+            with mock.patch.object(qq_source, "_probe_media_url", side_effect=probe):
+                return qq_source.search(keyword, limit, cookie, work_dir=work_dir or self.work_dir)
 
     # ---- 端点与请求契约 ------------------------------------------------
 
@@ -254,10 +256,37 @@ class QQSourceTests(unittest.TestCase):
             return vkey_response(pairs)
 
         with mock.patch.object(qq_source, "_post", post_with_two_tiers):
-            songs = qq_source.search("晴天", 5, "", work_dir=self.work_dir)
+            with mock.patch.object(qq_source, "_probe_media_url", return_value=(True, 206)):
+                songs = qq_source.search("晴天", 5, "", work_dir=self.work_dir)
         self.assertEqual(songs[0]["ext"], "flac")
         self.assertEqual(songs[0]["size"], 30000000)
         self.assertEqual(songs[0]["extra"]["has_lossless"], "1")
+
+    def test_dead_higher_quality_falls_back_to_playable_lower_quality(self):
+        items = [song_item("AAA")]
+
+        def post_with_two_qualities(client, payload):
+            if f"{qq_source.SEARCH_MODULE}.{qq_source.SEARCH_METHOD}" in payload:
+                return search_response(items)
+            mid = "AAA"
+            return vkey_response([
+                (f"O600{mid}{mid}.ogg", f"O600{mid}.ogg?guid=1&vkey=ogg"),
+                (f"M500{mid}{mid}.mp3", f"M500{mid}.mp3?guid=1&vkey=mp3"),
+            ])
+
+        def probe(url, _cookie):
+            if "/O600" in url:
+                return False, 404
+            return True, 206
+
+        songs = self.run_search(
+            post_with_two_qualities,
+            limit=5,
+            probe=probe,
+        )
+        self.assertEqual(len(songs), 1)
+        self.assertEqual(songs[0]["ext"], "mp3")
+        self.assertIn("/M500AAA.mp3", songs[0]["url"])
 
     def test_missing_size_key_falls_back_to_nominal_bitrate(self):
         # QQ 的 file 子对象里没有 size_640ogg, 所以 O801 档只能给出标称码率, 体积留 0 由验活补齐。
@@ -479,7 +508,8 @@ class QQSourceTests(unittest.TestCase):
             return backend(client, payload)
 
         with mock.patch.object(qq_source, "_post", post):
-            songs = qq_source.search("晴天", 5, "", work_dir=self.work_dir)
+            with mock.patch.object(qq_source, "_probe_media_url", return_value=(True, 206)):
+                songs = qq_source.search("晴天", 5, "", work_dir=self.work_dir)
         self.assertEqual(len(songs), 1)
         self.assertNotIn("lyric", songs[0]["extra"])
 
