@@ -286,6 +286,16 @@ assert.doesNotMatch(
   /standbyAudioRef|bindPrimaryAudio|bindSecondaryAudio|handoffAudioElement/,
   '播放器不得恢复双 audio 主备交接架构',
 );
+assert.match(playerContextSource, /document\.addEventListener\('visibilitychange'/, '页面恢复时应重新校准睡眠定时');
+assert.match(playerContextSource, /window\.addEventListener\('pageshow'/, '页面 pageshow 时应重新校准睡眠定时');
+assert.match(playerContextSource, /window\.addEventListener\('focus'/, '页面重新获得焦点时应重新校准睡眠定时');
+
+const nativePlayerProviderSource = await readFile(
+  new URL('../src/contexts/NativePlayerProvider.js', import.meta.url),
+  'utf8',
+);
+assert.match(nativePlayerProviderSource, /NativePlayback\.setSleepTimer\(/, '安卓原生播放器应把睡眠截止时间下发给原生服务');
+assert.match(nativePlayerProviderSource, /NativePlayback\.clearSleepTimer\(/, '安卓原生播放器取消睡眠定时应清理原生服务任务');
 
 const storage = new Map();
 const mockStorage = {
