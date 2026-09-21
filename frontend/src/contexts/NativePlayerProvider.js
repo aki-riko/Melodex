@@ -320,7 +320,12 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
         }
         return;
       }
-      if (!isPaused) setNotice('睡眠定时已停止播放。');
+      if (!isPaused) {
+        // 原生服务负责锁屏场景；前台同时发一次暂停，覆盖 JS tick 与原生
+        // 截止任务在同一时刻竞争时先清理原生任务的竞态。
+        NativePlayback.pause().catch((error) => console.warn('睡眠定时暂停失败', error));
+        setNotice('睡眠定时已停止播放。');
+      }
       clearSleepTimer();
     };
     tick();

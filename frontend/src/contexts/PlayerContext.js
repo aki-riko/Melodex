@@ -594,7 +594,7 @@ const WebPlayerProvider = ({ children }) => {
   useEffect(() => {
     if (!sleepTimer) return undefined;
 
-    const tick = () => {
+    const reconcile = () => {
       const timer = sleepTimerRef.current;
       if (!timer) return;
       const remaining = getSleepTimerRemainingMs(timer);
@@ -615,9 +615,20 @@ const WebPlayerProvider = ({ children }) => {
       stopPlaybackForSleepTimer();
     };
 
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') reconcile();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pageshow', reconcile);
+    window.addEventListener('focus', reconcile);
+    reconcile();
+    const id = window.setInterval(reconcile, 1000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pageshow', reconcile);
+      window.removeEventListener('focus', reconcile);
+      window.clearInterval(id);
+    };
   }, [sleepTimer, stopPlaybackForSleepTimer]);
 
   const startPlay = useCallback((song, { preparedAudio = null } = {}) => {
