@@ -140,6 +140,32 @@ class NativePlaybackPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun setSleepTimer(call: PluginCall) {
+        val deadlineMs = call.getLong("deadlineMs", 0L) ?: 0L
+        val mode = try {
+            sleepTimerMode(call.getString("mode", "immediate"))
+        } catch (error: IllegalArgumentException) {
+            call.reject(error.message ?: "睡眠定时模式无效", error)
+            return
+        }
+        withController(call) { player ->
+            try {
+                PlaybackRuntime.sleepTimer?.set(deadlineMs, mode)
+                    ?: error("睡眠定时器尚未初始化")
+                call.resolve(stateObject(player))
+            } catch (error: Exception) {
+                call.reject(error.message ?: "设置睡眠定时失败", error)
+            }
+        }
+    }
+
+    @PluginMethod
+    fun clearSleepTimer(call: PluginCall) = withController(call) {
+        PlaybackRuntime.sleepTimer?.clear()
+        call.resolve(stateObject(it))
+    }
+
+    @PluginMethod
     fun getState(call: PluginCall) = withController(call) { call.resolve(stateObject(it)) }
 
     private fun parseQueue(call: PluginCall): List<NativeQueueItem> {
