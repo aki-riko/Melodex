@@ -13,6 +13,9 @@ internal object PlaybackRuntime {
     @Volatile
     var player: ExoPlayer? = null
 
+    @Volatile
+    var sleepTimer: SleepTimerController? = null
+
     fun requestHeaders(): Map<String, String> = cookieRequestHeaders(cookieHeader)
 }
 

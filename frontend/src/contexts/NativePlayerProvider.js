@@ -52,6 +52,7 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
   const mutedRef = useRef(muted);
   const sleepTimerRef = useRef(null);
   const pendingStopAfterTrackRef = useRef(false);
+  const sleepStopAfterTrackRef = useRef(sleepStopAfterTrack);
   const restoredRef = useRef(false);
   const recordedSongRef = useRef('');
   const autoDownloadedRef = useRef(new Set());
@@ -65,7 +66,17 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
   useEffect(() => { volumeRef.current = volume; localStorage.setItem(VOLUME_KEY, String(volume)); }, [volume]);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
   useEffect(() => { sleepTimerRef.current = sleepTimer; }, [sleepTimer]);
-  useEffect(() => { saveStopAfterTrackPreference(sleepStopAfterTrack); }, [sleepStopAfterTrack]);
+  useEffect(() => {
+    sleepStopAfterTrackRef.current = sleepStopAfterTrack;
+    saveStopAfterTrackPreference(sleepStopAfterTrack);
+    const timer = sleepTimerRef.current;
+    if (timer) {
+      NativePlayback.setSleepTimer({
+        deadlineMs: timer.endsAt,
+        mode: sleepStopAfterTrack ? 'track' : 'immediate',
+      }).catch((error) => console.warn('同步原生睡眠定时模式失败', error));
+    }
+  }, [sleepStopAfterTrack]);
 
   const savePlayback = useCallback((cur) => {
     try {
@@ -114,6 +125,16 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
     if (now - lastSavedAtRef.current >= 5000 || snapshot.isPaused) {
       lastSavedAtRef.current = now;
       savePlayback(snapshot.progress.cur);
+    }
+
+    const timer = sleepTimerRef.current;
+    if (timer && snapshot.isPaused && Date.now() >= timer.endsAt) {
+      const stoppedAfterTrack = timer.pendingEndOfTrack || pendingStopAfterTrackRef.current;
+      pendingStopAfterTrackRef.current = false;
+      sleepTimerRef.current = null;
+      setSleepTimer(null);
+      setSleepRemainingMs(0);
+      setNotice(stoppedAfterTrack ? '睡眠定时已在本曲结束后停止播放。' : '睡眠定时已停止播放。');
     }
 
     if (pendingStopAfterTrackRef.current && snapshot.isPaused && !snapshot.playWhenReady) {
@@ -262,6 +283,7 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
     pendingStopAfterTrackRef.current = false;
     setSleepTimer(null);
     setSleepRemainingMs(0);
+    NativePlayback.clearSleepTimer().catch((error) => console.warn('取消原生睡眠定时失败', error));
     NativePlayback.setStopAfterCurrent({ enabled: false }).catch(() => {});
   }, []);
   const startSleepTimer = useCallback((minutes) => {
@@ -270,6 +292,10 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
     sleepTimerRef.current = timer;
     setSleepTimer(timer);
     setSleepRemainingMs(getSleepTimerRemainingMs(timer));
+    NativePlayback.setSleepTimer({
+      deadlineMs: timer.endsAt,
+      mode: sleepStopAfterTrackRef.current ? 'track' : 'immediate',
+    }).catch((error) => setNotice(`设置原生睡眠定时失败：${error?.message || error}`));
     setNotice(`睡眠定时已设置为 ${minutes} 分钟。`);
   }, []);
   const cancelSleepTimer = useCallback(() => {
@@ -289,15 +315,13 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
       if (sleepStopAfterTrack && !isPaused) {
         if (!pendingStopAfterTrackRef.current) {
           pendingStopAfterTrackRef.current = true;
-          NativePlayback.setStopAfterCurrent({ enabled: true })
-            .catch((error) => setNotice(`设置播完停止失败：${error?.message || error}`));
+          setSleepTimer((current) => current ? { ...current, pendingEndOfTrack: true } : current);
           setNotice('睡眠定时已到点，播完当前歌曲后停止。');
         }
         return;
       }
-      NativePlayback.pause().catch(() => {});
+      if (!isPaused) setNotice('睡眠定时已停止播放。');
       clearSleepTimer();
-      setNotice('睡眠定时已停止播放。');
     };
     tick();
     const timerID = window.setInterval(tick, 1000);

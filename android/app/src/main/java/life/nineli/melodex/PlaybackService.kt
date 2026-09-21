@@ -103,6 +103,7 @@ class PlaybackService : MediaSessionService() {
     }
     private val recoveryListener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            PlaybackRuntime.sleepTimer?.onPlayWhenReadyChanged(playWhenReady, reason)
             val player = mediaSession?.player
             val message = "playWhenReady=$playWhenReady reason=${playWhenReadyReasonName(reason)}($reason) " +
                 "index=${player?.currentMediaItemIndex} positionMs=${player?.currentPosition} " +
@@ -225,6 +226,24 @@ class PlaybackService : MediaSessionService() {
             addListener(recoveryListener)
         }
         PlaybackRuntime.player = player
+        PlaybackRuntime.sleepTimer = SleepTimerController(
+            scheduler = object : SleepTimerScheduler {
+                override fun postDelayed(task: Runnable, delayMs: Long) {
+                    mainHandler.postDelayed(task, delayMs)
+                }
+
+                override fun removeCallbacks(task: Runnable) {
+                    mainHandler.removeCallbacks(task)
+                }
+            },
+            playback = object : SleepTimerPlayback {
+                override val isPlaying: Boolean get() = player.isPlaying
+                override fun pause() = player.pause()
+                override fun setPauseAtEndOfMediaItems(enabled: Boolean) {
+                    player.setPauseAtEndOfMediaItems(enabled)
+                }
+            },
+        )
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(sessionCallback)
             .build()
@@ -233,6 +252,8 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        PlaybackRuntime.sleepTimer?.clear()
+        PlaybackRuntime.sleepTimer = null
         mainHandler.removeCallbacksAndMessages(null)
         deferredMediaPause = null
         pendingNoisyEvent = null
