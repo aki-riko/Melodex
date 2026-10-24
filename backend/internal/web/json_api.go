@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -998,7 +999,7 @@ func searchKeywordAtSource(keyword, searchType, source string) keywordSearchResu
 		return keywordSearchResult{source: source}
 	}
 	markProviderTrackRanks(tracks, source)
-	if searchType == "lyric" {
+	if searchType == "lyric" && lyricInferOriginalEnabled() {
 		tracks = augmentLyricSearchOriginals(source, tracks, searchInferredLyricOriginalCandidates)
 	}
 	return keywordSearchResult{source: source, songs: tracks}
@@ -1134,8 +1135,31 @@ func appendUniqueSearchSong(target *[]model.Track, seen map[string]struct{}, son
 	return true
 }
 
+// lyricInferOriginalEnabled 控制歌词检索的"推断原唱"补搜, **默认关闭**。
+//
+// 为什么默认关掉(2026-10 实测): 这个启发式假设歌名形如"原唱歌手《歌名》"就可以反推原唱,
+// 但真实数据里《》绝大多数时候装的是**别的东西**, 提取出来的是垃圾查询:
+//     年轮《0.8X》                        -> artist="年轮", title="0.8X"     -> 搜 "0.8X 年轮"
+//     凉凉 (《三生三世十里桃花》电视剧片尾曲)  -> artist="凉凉 (", title="三生三世十里桃花"
+//     V.A. - 《打上花火》和《病名为爱》...      -> title="打上花火》和《病名为爱"
+// 这些补搜必然匹配不到任何东西(结果会被原名/原唱校验过滤掉), 却要**串行**再等一次完整
+// 多源搜索 —— 实测让一次歌词检索从 1.5s 变成 2.5~3s。
+// 同时歌曲检索(song 类型, 前端并发发起)本来就会返回原唱: 实测搜「年轮」song 结果里
+// 就是 汪苏泷/张碧晨 的原唱, 「凉凉」是 张碧晨/杨宗纬 —— 补搜的价值基本为零。
+// 需要时可用 MELODEX_LYRIC_INFER_ORIGINAL=1 打开。
+func lyricInferOriginalEnabled() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("MELODEX_LYRIC_INFER_ORIGINAL")))
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+}
+
+// searchInferredLyricOriginalCandidates 为"推断原唱"补搜一次。
+//
+// 只查主力源(qq/netease): 目的是找同一首歌的原唱, 这两个源的曲库最全、也是最快返回的。
+// 早先这里走 defaultSourcesForSearchType("song")(7 个源), 等于 4 个并发补搜 × 7 源 =
+// 28 个 provider 请求, 把 kugou/kuwo/migu 这些本来就慢(20~110s)的源也拉进来陪跑,
+// 还得等软超时 —— 实测一次歌词检索因此多花 1~2.5s。
 func searchInferredLyricOriginalCandidates(keyword string) ([]model.Track, error) {
-	songs, _ := concurrentKeywordSearch(keyword, "song", defaultSourcesForSearchType("song"))
+	songs, _ := concurrentKeywordSearch(keyword, "song", searchPrimarySources)
 	return songs, nil
 }
 
@@ -1201,9 +1225,20 @@ func inferredOriginalFromQuotedTitle(name string) (artist string, title string, 
 	if start <= 0 || end <= start+len("《") {
 		return "", "", false
 	}
+	// 必须**恰好只有一对**书名号。歌名里出现多对时(实测有
+	// "V.A. - 《打上花火》和《病名为爱》其实是一首歌"), LastIndex 会把中间那段
+	// "打上花火》和《病名为爱" 当成歌名 —— 拿它去补搜 7 个源纯属白跑(实测拖慢 2.5s),
+	// 而且永远匹配不到真原唱。宁可放弃这次推断, 也不发一个必然无用的搜索。
+	if strings.Count(name, "《") != 1 || strings.Count(name, "》") != 1 {
+		return "", "", false
+	}
 	artist = strings.TrimSpace(name[:start])
 	title = strings.TrimSpace(name[start+len("《") : end])
 	if artist == "" || title == "" {
+		return "", "", false
+	}
+	// 书名号之间的内容本身不该再含书名号(双保险, 防止上述垃圾标题进搜索)。
+	if strings.ContainsAny(title, "《》") {
 		return "", "", false
 	}
 	return artist, title, true
