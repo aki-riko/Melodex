@@ -54,6 +54,15 @@ from provider_bridge.qq_login import (
 LOGGER = logging.getLogger(__name__)
 
 QQ_CGI_URL = "https://u6.y.qq.com/cgi-bin/musicu.fcg"
+# **带凭证**取地址必须走 u.y.qq.com, 走 u6 会被判定 invalidq。
+#
+# 2026-10 实测(同一份刚扫码登录、豪华绿钻 2030 到期的 cookie):
+#   u6.y.qq.com + authst -> {"code":104009,"msg":"<本机IP>;invalidq;"}, purl 全空
+#   u.y.qq.com  + authst -> code=0, purl 正常, 且能拿到 F000(FLAC 无损)
+# 匿名模式在 u6 上一直可用, 所以这个问题此前被"失败后自动回退匿名"完全掩盖了 ——
+# 表现为"VIP 凭证明明有效却总是拿不到无损", 同时因为退回匿名只剩 128k mp3, 大量歌曲
+# 要逐档降级探活, 探活次数与耗时都翻几倍(这是 QQ 搜索抖动的真实来源)。
+QQ_VKEY_AUTH_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg"
 MEDIA_BASE = "https://ws.stream.qqmusic.qq.com/"
 COVER_BASE = "https://y.gtimg.cn/music/photo_new/T002R300x300M000{}.jpg"
 
@@ -399,9 +408,9 @@ def _vkey_comm(state: dict[str, Any], use_auth: bool) -> dict[str, Any]:
     return comm
 
 
-def _post(client: PlatformHTTP, payload: dict[str, Any]) -> dict[str, Any]:
+def _post(client: PlatformHTTP, payload: dict[str, Any], url: str = "") -> dict[str, Any]:
     return client.post_json(
-        QQ_CGI_URL,
+        url or QQ_CGI_URL,
         payload,
         headers={"Referer": "https://y.qq.com/", "Origin": "https://y.qq.com/"},
     )
@@ -534,7 +543,13 @@ def _vkey_pass(
                 sent[name] = (mid, quality, ext)
                 filenames.append(name)
                 songmids.append(mid)
-        response = _post(client, _vkey_request(filenames, songmids, state, use_auth, _random_guid()))
+        # 带凭证必须走 u.y.qq.com(u6 会回 104009 invalidq); 匿名仍走 u6。
+        endpoint = QQ_VKEY_AUTH_URL if use_auth else QQ_CGI_URL
+        response = _post(
+            client,
+            _vkey_request(filenames, songmids, state, use_auth, _random_guid()),
+            url=endpoint,
+        )
         node = response.get("req_1") or {}
         code = _integer(node.get("code"))
         entries = ((node.get("data") or {}).get("midurlinfo") or [])

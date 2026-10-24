@@ -79,7 +79,7 @@ class FakeBackend:
         self.purl_plan = list(purl_plan) if purl_plan is not None else None
         self.calls = []
 
-    def __call__(self, client, payload):
+    def __call__(self, client, payload, url=None):
         self.calls.append({"cookie": getattr(client, "cookie", ""), "payload": payload})
         if f"{qq_source.SEARCH_MODULE}.{qq_source.SEARCH_METHOD}" in payload:
             return search_response(self.search_items, self.search_code)
@@ -243,7 +243,7 @@ class QQSourceTests(unittest.TestCase):
         items = [song_item("AAA")]
         backend = FakeBackend(items, purl_by_quality={"quality": "M500"})
 
-        def post_with_two_tiers(client, payload):
+        def post_with_two_tiers(client, payload, url=None):
             backend.calls.append({"cookie": getattr(client, "cookie", ""), "payload": payload})
             if f"{qq_source.SEARCH_MODULE}.{qq_source.SEARCH_METHOD}" in payload:
                 return search_response(items)
@@ -265,7 +265,7 @@ class QQSourceTests(unittest.TestCase):
     def test_dead_higher_quality_falls_back_to_playable_lower_quality(self):
         items = [song_item("AAA")]
 
-        def post_with_two_qualities(client, payload):
+        def post_with_two_qualities(client, payload, url=None):
             if f"{qq_source.SEARCH_MODULE}.{qq_source.SEARCH_METHOD}" in payload:
                 return search_response(items)
             mid = "AAA"
@@ -510,7 +510,7 @@ class QQSourceTests(unittest.TestCase):
         items = [song_item("AAA")]
         backend = FakeBackend(items, purl_by_quality={"quality": "M500"})
 
-        def post(client, payload):
+        def post(client, payload, url=None):
             if (payload.get("req_1") or {}).get("module") == qq_source.LYRIC_MODULE:
                 raise RuntimeError("lyric endpoint down")
             return backend(client, payload)
@@ -829,3 +829,47 @@ class AuthPassBreakerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class VkeyEndpointTests(unittest.TestCase):
+    """带凭证取地址必须走 u.y.qq.com。
+
+    2026-10 实测(刚扫码登录、豪华绿钻 2030 到期的 cookie):
+      u6.y.qq.com + authst -> 104009 "invalidq", purl 全空
+      u.y.qq.com  + authst -> code=0, purl 正常, 且能拿到 F000(FLAC 无损)
+    匿名模式在 u6 一直可用, 所以这个 bug 此前被"失败后回退匿名"完全掩盖 ——
+    表现为 VIP 凭证明明有效却永远拿不到无损, 且退回匿名后大量歌要逐档降级探活,
+    探活次数与耗时翻几倍(这才是 QQ 搜索抖动的真实来源)。
+    """
+
+    def test_authenticated_vkey_uses_u_host(self):
+        calls = []
+
+        def fake_post(client, payload, url=None):
+            calls.append(url)
+            return {"req_1": {"code": 0, "data": {"midurlinfo": []}}}
+
+        with mock.patch.object(qq_source, "_post", side_effect=fake_post):
+            with mock.patch.object(qq_source, "_probe_media_url", return_value=(True, 206)):
+                qq_source._vkey_pass(
+                    ["AAA"], {"uin": "1", "musickey": "KEY", "has_key": True, "expired": False},
+                    "cookie", use_auth=True, session=None,
+                )
+        self.assertTrue(calls, "应当发出取地址请求")
+        self.assertEqual(calls[0], qq_source.QQ_VKEY_AUTH_URL)
+        self.assertEqual(qq_source.QQ_VKEY_AUTH_URL, "https://u.y.qq.com/cgi-bin/musicu.fcg")
+
+    def test_anonymous_vkey_keeps_u6_host(self):
+        calls = []
+
+        def fake_post(client, payload, url=None):
+            calls.append(url)
+            return {"req_1": {"code": 0, "data": {"midurlinfo": []}}}
+
+        with mock.patch.object(qq_source, "_post", side_effect=fake_post):
+            with mock.patch.object(qq_source, "_probe_media_url", return_value=(True, 206)):
+                qq_source._vkey_pass(
+                    ["AAA"], {"uin": "", "musickey": "", "has_key": False, "expired": True},
+                    "", use_auth=False, session=None,
+                )
+        self.assertTrue(calls, "应当发出取地址请求")
+        self.assertEqual(calls[0], qq_source.QQ_CGI_URL)
