@@ -200,7 +200,34 @@ try {
   fail(resolve(srcRoot, 'contexts', 'FeedbackContext.js'), 1, 'toast-aria-live', '读不到 FeedbackContext.js');
 }
 
-// ---- 10. 中文界面禁止 'N/A' ----
+// ---- 10. 中文界面文案标点必须是全角 ----
+// 曾出现 120 处「中文后接半角逗号/问号」混用,视觉上像半角拼凑的机器翻译。
+// 只检查字符串字面量内部且含中文的情况,注释与代码不动。
+function scanCjkPunctuation(file, code) {
+  const CJK = /[\u4e00-\u9fa5]/;
+  code.split(/\r?\n/).forEach((line, idx) => {
+    const strings = line.match(/(['"`])(?:\\.|(?!\1).)*\1/g) || [];
+    for (const s of strings) {
+      if (!CJK.test(s)) continue;
+      // 先把 ${...} 模板表达式挖掉,避免把代码里的半角标点当文案
+      const plain = s.replace(/\$\{[^}]*\}/g, '');
+      const bad = [];
+      if (CJK.test(plain) && /[\u4e00-\u9fa5],/.test(plain)) bad.push('半角逗号');
+      if (CJK.test(plain) && /[\u4e00-\u9fa5]\?/.test(plain)) bad.push('半角问号');
+      if (CJK.test(plain) && /[\u4e00-\u9fa5];/.test(plain)) bad.push('半角分号');
+      if (/[\u4e00-\u9fa5]\.\.\./.test(plain)) bad.push('三点省略号');
+      if (bad.length) {
+        fail(file, idx + 1, 'cjk-punctuation', `${bad.join('+')} —— 中文文案请用全角「，？」与「…」:${s.slice(0, 40)}`);
+      }
+    }
+  });
+}
+
+for (const file of sourceFiles) {
+  scanCjkPunctuation(file, stripComments(readFileSync(file, 'utf8')));
+}
+
+// ---- 11. 中文界面禁止 'N/A' ----
 for (const file of sourceFiles) {
   const code = stripComments(readFileSync(file, 'utf8'));
   code.split(/\r?\n/).forEach((line, idx) => {

@@ -109,8 +109,8 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
         // 导入本身成功了,只是"整单自动下载"这一步失败 —— 要给用户可见提示,
         // 否则会以为歌已经存进服务器了(实际只有歌单记录)。
         console.warn('导入歌单自动下载失败', err);
-        update({ ...DL_IDLE, phase: 'fail', text: '自动下载失败,可在歌单页手动下载' });
-        feedback.warning('歌单已导入,但自动下载失败,可在歌单页手动下载');
+        update({ ...DL_IDLE, phase: 'fail', text: '自动下载失败，可在歌单页手动下载' });
+        feedback.warning('歌单已导入，但自动下载失败，可在歌单页手动下载');
       }
     });
   };
@@ -123,11 +123,11 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
       const r = await importPlaylist({ ...playlist, source }, { mergeIntoId: mergeInto?.id });
       setDoneIds((m) => ({ ...m, [taskKey]: r?.merged ? 'merged' : 'imported' }));
       if (r?.merged) {
-        feedback.success(`已合并到「${r.name || mergeInto?.name || playlist.name}」,新增 ${r.added ?? 0}/${r.total ?? 0} 首,开始下载到服务器`);
+        feedback.success(`已合并到「${r.name || mergeInto?.name || playlist.name}」，新增 ${r.added ?? 0}/${r.total ?? 0} 首，开始下载到服务器`);
       } else if (r?.duplicate) {
-        feedback.info(`「${r.name || playlist.name}」已导入过,继续下载到服务器`);
+        feedback.info(`「${r.name || playlist.name}」已导入过，继续下载到服务器`);
       } else {
-        feedback.success(`已导入「${r?.name || playlist.name}」,开始下载到服务器`);
+        feedback.success(`已导入「${r?.name || playlist.name}」，开始下载到服务器`);
       }
       await refresh();
       // 后台整单下载到服务器(不 await,不阻塞弹窗交互)。

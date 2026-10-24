@@ -117,13 +117,15 @@ const CoverThumb = ({ song, size = 44 }) => {
 };
 
 // 列表表头:列宽与行布局共用同一套 grid 定义,避免"表头/行/窄屏"三者错位。
+// 末列必须容得下「收藏(36px) + 更多(36px)」两个按钮 —— 曾按 2.5rem 写,
+// 结果两个按钮在窄列里互相挤压。这里给 5rem(80px),并让移动端同样留足。
 const ROW_GRID =
-  'grid grid-cols-[minmax(0,1fr)_2.75rem] lg:grid-cols-[2rem_minmax(0,1.6fr)_7rem_minmax(6rem,0.8fr)_3.5rem_2.5rem] items-center gap-3 px-3';
+  'grid grid-cols-[minmax(0,1fr)_5rem] lg:grid-cols-[2rem_minmax(0,1.6fr)_7rem_minmax(6rem,0.8fr)_3.5rem_5rem] items-center gap-3 px-3';
 
 export const SongListHeader = ({ className = '' }) => (
   <div
     className={cn(
-      'hidden lg:grid lg:grid-cols-[2rem_minmax(0,1.6fr)_7rem_minmax(6rem,0.8fr)_3.5rem_2.5rem]',
+      'hidden lg:grid lg:grid-cols-[2rem_minmax(0,1.6fr)_7rem_minmax(6rem,0.8fr)_3.5rem_5rem]',
       'items-center gap-3 px-3 pb-1.5 type-micro font-semibold uppercase tracking-wider text-muted-foreground',
       className,
     )}
@@ -134,7 +136,7 @@ export const SongListHeader = ({ className = '' }) => (
     <span>音质</span>
     <span>专辑</span>
     <span className="text-right">时长</span>
-    <span />
+    <span className="text-right">操作</span>
   </div>
 );
 
@@ -451,7 +453,7 @@ const SongRow = ({
               <Badge key={label} tone="ok">{label}</Badge>
             ))}
             {(cacheState === 'fail' || dlState === 'fail') && (
-              <Badge tone="bad" title="上次操作失败,点行内按钮或菜单可重试">失败</Badge>
+              <Badge tone="bad" title="上次操作失败，点行内按钮或菜单可重试">失败</Badge>
             )}
             <span className="type-micro text-muted-foreground/80">{sourceLabel(rowSong.source)}</span>
             {sizeLabel && <span className="type-micro nums">{sizeLabel}</span>}
@@ -536,7 +538,7 @@ const SongRow = ({
         <MenuItem
           icon={dlState === 'done' ? Check : dlState === 'fail' ? RotateCw : Download}
           label={dlState === 'done' ? '已存到服务器' : dlState === 'fail' ? '重试存到服务器' : '存到服务器'}
-          hint="长期保存进 NAS 曲库,任何设备可听"
+          hint="长期保存进 NAS 曲库，任何设备可听"
           onClick={runMenuAction(handleDownload)}
           disabled={offline || dlState === 'saving' || dlState === 'done'}
           busy={dlState === 'saving'}
@@ -546,7 +548,7 @@ const SongRow = ({
           <MenuItem
             icon={cacheState === 'done' ? Check : cacheState === 'fail' ? RotateCw : HardDriveDownload}
             label={cacheState === 'done' ? '已缓存到本机' : cacheState === 'fail' ? '重试缓存到本机' : '缓存到本机'}
-            hint="存进当前浏览器,可离线听"
+            hint="存进当前浏览器，可离线听"
             onClick={runMenuAction(handleCache)}
             disabled={offline || cacheState === 'saving' || cacheState === 'done'}
             busy={cacheState === 'saving'}

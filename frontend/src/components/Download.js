@@ -123,7 +123,7 @@ const pickRecognitionMimeType = () => {
 };
 
 const recognitionErrorMessage = (err) => (
-  err?.response?.data?.error || err?.message || '听歌识曲失败,请稍后再试'
+  err?.response?.data?.error || err?.message || '听歌识曲失败，请稍后再试'
 );
 
 const formatRecognitionBytes = (bytes) => {
@@ -338,7 +338,7 @@ const DiscoverPane = ({ state, onOpen, onRetry }) => {
       <EmptyState
         icon={Compass}
         title="暂时没有推荐歌单"
-        description="上游源可能繁忙或需要登录。稍后重试,或先去「搜索下载」找歌。"
+        description="上游源可能繁忙或需要登录。稍后重试，或先去「搜索下载」找歌。"
         action={<Button variant="secondary" onClick={onRetry} loading={state.isFetching}>重新加载</Button>}
       />
     );
@@ -443,7 +443,7 @@ const RemoteCollectionDetail = ({
               onClick={handleCacheAll}
               loading={bulkCache.phase === 'running'}
               disabled={!songs.length || offline || bulkCache.phase === 'running'}
-              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA,可离线听'}
+              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA，可离线听'}
             >
               {cacheLabel}
             </Button>
@@ -592,8 +592,8 @@ const SearchPane = ({
         recognitionRef.current.failed = true;
         cleanupRecognitionResources();
         if (!mountedRef.current) return;
-        setRecognition({ phase: 'error', message: '录音失败,请重新授权麦克风后再试' });
-        feedback.error('录音失败,请重新授权麦克风后再试');
+        setRecognition({ phase: 'error', message: '录音失败，请重新授权麦克风后再试' });
+        feedback.error('录音失败，请重新授权麦克风后再试');
       };
       recorder.onstop = async () => {
         const current = recognitionRef.current;
@@ -604,13 +604,13 @@ const SearchPane = ({
         if (failed || !mountedRef.current) return;
         const blob = new Blob(chunks, { type: blobType });
         if (!blob.size) {
-          feedback.error('没有录到声音,请再试一次');
+          feedback.error('没有录到声音，请再试一次');
           return;
         }
         const maxBytes = Number(recognitionStatus.data?.max_bytes || 0);
         if (maxBytes > 0 && blob.size > maxBytes) {
           const limitText = formatRecognitionBytes(maxBytes);
-          feedback.error(limitText ? `录音过大,单次上限 ${limitText}` : '录音过大,请缩短后再试');
+          feedback.error(limitText ? `录音过大，单次上限 ${limitText}` : '录音过大，请缩短后再试');
           return;
         }
         setRecognition({ phase: 'uploading', message: '正在识别这段声音' });
@@ -618,7 +618,7 @@ const SearchPane = ({
           const data = await recognizeAudio(blob);
           if (!mountedRef.current) return;
           if (!data?.matched) {
-            const msg = data?.error || '没有识别到歌曲,可以再录一段更清晰的';
+            const msg = data?.error || '没有识别到歌曲，可以再录一段更清晰的';
             setRecognition({ phase: 'error', message: msg });
             feedback.error(msg);
             return;
@@ -626,7 +626,7 @@ const SearchPane = ({
           const result = data.result || {};
           const nextQuery = (data.query || [result.title, result.artist].filter(Boolean).join(' ')).trim();
           if (!nextQuery) {
-            feedback.error('识别到了结果,但没有可搜索的歌名');
+            feedback.error('识别到了结果，但没有可搜索的歌名');
             return;
           }
           setKeyword(nextQuery);
@@ -634,7 +634,7 @@ const SearchPane = ({
           if (runSearch) runSearch(nextQuery);
           const foundText = result.artist ? `${result.title || nextQuery} · ${result.artist}` : (result.title || nextQuery);
           setRecognition({ phase: 'success', message: `识别到 ${foundText}` });
-          feedback.success('识别成功,正在搜索');
+          feedback.success('识别成功，正在搜索');
         } catch (err) {
           if (!mountedRef.current) return;
           feedback.error(recognitionErrorMessage(err));
@@ -668,13 +668,13 @@ const SearchPane = ({
       await clearSearchHistory(kw);
       history.refetch();
     } catch {
-      feedback.error('删除搜索记录失败,请稍后重试');
+      feedback.error('删除搜索记录失败，请稍后重试');
     }
   };
   const onClearAll = async () => {
     const ok = await feedback.confirm({
-      title: '清空最近搜索?',
-      body: '只清空当前账号的搜索记录,不影响歌单或曲库。',
+      title: '清空最近搜索？',
+      body: '只清空当前账号的搜索记录，不影响歌单或曲库。',
       confirmLabel: '清空',
       danger: true,
     });
@@ -684,7 +684,7 @@ const SearchPane = ({
       history.refetch();
       feedback.success('最近搜索已清空');
     } catch {
-      feedback.error('清空搜索记录失败,请稍后重试');
+      feedback.error('清空搜索记录失败，请稍后重试');
     }
   };
   const handleClearSearchCache = async () => {
@@ -693,7 +693,7 @@ const SearchPane = ({
     setClearingSearchCache(true);
     try {
       await onClearSearchCache?.(k);
-      feedback.success('搜索缓存已清理,正在重新搜索');
+      feedback.success('搜索缓存已清理，正在重新搜索');
     } catch (err) {
       feedback.error(err?.response?.data?.error || err?.message || '搜索缓存清理失败');
     } finally {
@@ -756,7 +756,7 @@ const SearchPane = ({
     if (hasCurrentSearchResult && songs.length === 0 && state.data?.songsError) {
       return {
         tone: 'error',
-        text: `歌曲搜索失败:${state.data.songsError}${albums.length ? `(专辑仍有 ${albums.length} 张,见下方)` : ''}`,
+        text: `歌曲搜索失败:${state.data.songsError}${albums.length ? `(专辑仍有 ${albums.length} 张，见下方)` : ''}`,
       };
     }
     return null;
@@ -790,7 +790,7 @@ const SearchPane = ({
                 // 中文输入法上屏回车不应触发搜索
                 if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault();
               }}
-              placeholder="输入歌名 / 歌手 / 歌词,或粘贴链接"
+              placeholder="输入歌名 / 歌手 / 歌词，或粘贴链接"
               aria-label="搜索歌名、歌手或歌词"
               enterKeyHint="search"
               className="pl-9"
@@ -887,7 +887,7 @@ const SearchPane = ({
             <EmptyState
               icon={Search}
               title="没有找到结果"
-              description="可以换成「歌手 歌名」再试,或粘贴歌曲/歌单链接。"
+              description="可以换成「歌手 歌名」再试，或粘贴歌曲/歌单链接。"
             />
           ) : (
             <>
@@ -916,8 +916,8 @@ const SearchPane = ({
       {!query && historyItems.length === 0 && (
         <EmptyState
           icon={Search}
-          title="搜全网,存到你的曲库"
-          description="支持歌名、歌手、歌词片段,也能直接粘贴网易云/QQ 的歌曲或歌单链接。"
+          title="搜全网，存到你的曲库"
+          description="支持歌名、歌手、歌词片段，也能直接粘贴网易云/QQ 的歌曲或歌单链接。"
         />
       )}
     </div>
@@ -1059,7 +1059,7 @@ const Download = ({ downloadRequest }) => {
     <div>
       <PageHeader
         title="找歌"
-        subtitle="搜全网多源,存到你的服务器曲库或本机,随时离线听"
+        subtitle="搜全网多源，存到你的服务器曲库或本机，随时离线听"
       />
 
       {/* 视图切换:紧凑分段,替代两个药丸大按钮 */}

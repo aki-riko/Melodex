@@ -95,7 +95,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
               onClick={handleCacheAll}
               loading={bulkCache.phase === 'running'}
               disabled={!songs.length || offline || bulkCache.phase === 'running'}
-              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA,可离线听'}
+              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA，可离线听'}
             >
               <HardDriveDownload size={16} aria-hidden="true" />
               {cacheLabel}
