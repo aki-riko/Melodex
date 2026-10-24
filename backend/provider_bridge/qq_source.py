@@ -657,20 +657,24 @@ def _select_working_media(
     return collected
 
 
-# 带凭证取址的短期熔断状态。
-# 实测现象: 凭证本身有效(musickey 剩 70 小时), 但 vkey 对整轮候选一律回 code=104009
-# 且一个 purl 都不发(常见于该账号当次没有 VIP 权益/上游临时降级)。这时"带凭证"这一轮
-# 纯属白跑(~0.39s), 而匿名模式反而能拿到地址。熔断后短期直接走匿名, 到点再探一次,
-# 这样 VIP 恢复时能自动切回来, 不会永久降级。
+# 带凭证取址的熔断状态。
+#
+# 实测两种"整轮带凭证拿不到 purl"的情形, 两者都值得熔断(否则每次搜索白跑一趟):
+#   1. `invalidq` —— 上游对本机 IP + 该凭证组合的风控判定(实测: 同一份新鲜 cookie 在
+#      02:41 能带凭证拿到 20/20 全无损, 之后被判定 invalidq, 匿名却始终正常)。
+#      换 musickey **无效**(实测续期后立刻重试仍是 invalidq), 只能等风控解除。
+#   2. code=104009 但没有 invalidq 标记 —— 该凭证当次无 VIP 权益。
+# 熔断键用 **uin**(不是 musickey): 续期会换新 key 但换不掉风控, 用 musickey 作键会
+# 让熔断"刚生效就失效", 每次搜索又白跑 0.4s。到点自动重探, 风控解除/VIP 恢复后可自愈。
 _auth_suppress_lock = threading.Lock()
 _auth_suppress_until = 0.0
 _auth_suppress_key = ""
-AUTH_SUPPRESS_SECONDS = 180
+AUTH_SUPPRESS_SECONDS = 600
 
 
 def _state_fingerprint(state: dict[str, Any]) -> str:
-    """用 musickey 标明"这份凭证"; 换新 key(自动续期)后熔断自动失效。"""
-    return _string(state.get("musickey"))
+    """用 uin 标明"这个账号"; 续期换 key 不影响熔断(见上方注释)。"""
+    return _string(state.get("uin"))
 
 
 def _auth_pass_suppressed(state: dict[str, Any]) -> bool:
