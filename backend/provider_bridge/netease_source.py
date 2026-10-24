@@ -14,8 +14,12 @@ musicdl/modules/sources/netease.py:173-181 与 musicdl/modules/utils/neteaseutil
 只 import 不改动快照):
     POST https://interface3.music.163.com/eapi/song/enhance/player/url/v1
     data={'params': EapiCryptoUtils.encryptparams(url=..., payload={...})}
-实测(关键, 省掉快照那样的 8 档阶梯): 请求最高档 lossless 时, 接口直接返回**实际**
-给到的档位(如 level=exhigh + 320k mp3 + 真实 size), 所以每首歌只打一次地址请求。
+实测(关键, 省掉快照那样的 8 档阶梯): 请求某一档位时, 接口直接返回**实际**给到的档位
+(如请求 hires 却给 level=exhigh + 320k mp3 + 真实 size), 所以常规情况每首歌只打一次
+地址请求。档位由 MELODEX_NETEASE_REQUEST_LEVEL 配置(默认 hires); 只有返回 url 为空
+(账号等级不够 / 该曲没有这一档)才按 lossless → exhigh 回退, 每首最多 3 次 —— 快照那套
+jymaster/dolby/sky/jyeffect/hires/lossless/exhigh/standard 全阶梯逐档重试是 131.7s 的根因,
+见 musicdl/modules/utils/neteaseutils.py:22(只引用, 不修改快照)。
 
 付费曲(fee=1)匿名拿不到地址, 必须有管理员保存的网易 cookie —— 与快照行为一致:
 没取到地址的候选标记 is_invalid, 前端验活会自动隐藏它们。
@@ -81,10 +85,49 @@ SONG_DETAIL_URL = "https://music.163.com/api/song/detail"
 EAPI_URL = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1"
 NETEASE_HEADERS = {"Referer": "https://music.163.com/"}
 
-# 请求最高档即可: 实测接口返回的是实际给到的档位, 不需要逐档重试。
-REQUEST_LEVEL = "lossless"
+# 网易音质阶梯, 与快照 musicdl/modules/utils/neteaseutils.py:22 完全一致(仅引用, 不改动快照)。
+# 索引越大音质越低: jymaster > dolby > sky > jyeffect > hires > lossless > exhigh > standard。
+NETEASE_QUALITY_LADDER = (
+    "jymaster", "dolby", "sky", "jyeffect", "hires", "lossless", "exhigh", "standard",
+)
+# 默认请求档位。历史问题: 这里曾固定 "lossless"(只是第 6 档), 于是网易超级会员的 Hi-Res
+# FLAC 永远拿不到 —— 播放链路的上限被硬卡在 CD 无损。默认改成 hires, 实际档位由接口返回。
+DEFAULT_REQUEST_LEVEL = "hires"
+# 请求档位环境变量(空/非法值一律回退 DEFAULT_REQUEST_LEVEL)。
+REQUEST_LEVEL_ENV = "MELODEX_NETEASE_REQUEST_LEVEL"
+# 回退链: 配置档位拿不到 url 时才依次降级(任一拿到 url 立即停止), 每首歌最多 3 次请求。
+# 绝不像快照那样把 8 档全试一遍 —— 那是 limit=20 实测 131.7s 的根因。
+FALLBACK_REQUEST_LEVELS = ("lossless", "exhigh")
 # eapi 要求的固定设备 cookie(取自快照 netease.py:178)。
 EAPI_DEVICE_COOKIES = {"os": "pc", "appver": "", "osver": "", "deviceId": "pyncm!"}
+
+
+def request_level() -> str:
+    """当前请求档位: MELODEX_NETEASE_REQUEST_LEVEL, 默认 hires; 空值/非法值回退默认。"""
+    raw = os.environ.get(REQUEST_LEVEL_ENV, "").strip().lower()
+    if raw in NETEASE_QUALITY_LADDER:
+        return raw
+    return DEFAULT_REQUEST_LEVEL
+
+
+def request_levels() -> list[str]:
+    """实际请求序列: 配置档位 + 其下方的回退档位(高到低, 去重)。
+
+    配置 exhigh(第 7 档)时序列只有 ["exhigh"], 不会"回退"到更高的 lossless;
+    配置 hires 时是 ["hires", "lossless", "exhigh"], 最多 3 次。
+    """
+    primary = request_level()
+    primary_rank = NETEASE_QUALITY_LADDER.index(primary)
+    levels = [primary]
+    for level in FALLBACK_REQUEST_LEVELS:
+        if (
+            level in NETEASE_QUALITY_LADDER
+            and NETEASE_QUALITY_LADDER.index(level) > primary_rank
+            and level not in levels
+        ):
+            levels.append(level)
+    return levels
+
 
 PROVIDER_COMMIT = "b4cecd9d450ede6f5c8d4df08763668256dfee58"
 LOSSLESS_EXTENSIONS = {"flac", "wav", "alac", "ape", "wv", "tta", "dsf", "dff"}
@@ -103,13 +146,13 @@ def _integer(value: Any) -> int:
         return 0
 
 
-def _eapi_params(song_id: str) -> str:
+def _eapi_params(song_id: str, level: str | None = None) -> str:
     """用快照的 EapiCryptoUtils 加密参数(快照只被 import, 不修改)。"""
     from musicdl.modules.utils.neteaseutils import EapiCryptoUtils
 
     payload = {
         "ids": [song_id],
-        "level": REQUEST_LEVEL,
+        "level": level or request_level(),
         "encodeType": "flac",
         "header": json.dumps({
             "os": "pc",
@@ -238,26 +281,55 @@ def song_details(client: PlatformHTTP, song_ids: list[str]) -> dict[str, dict[st
     return out
 
 
-def resolve_play_url(song_id: str, cookie: str, session: Any | None = None) -> dict[str, Any]:
-    """取播放地址; 返回 {} 表示这个账号/凭证拿不到(付费曲匿名必然拿不到)。"""
-    try:
-        params = _eapi_params(song_id)
-    except Exception as error:  # 快照工具不可用(如未安装)时不能拖垮搜索
-        LOGGER.warning("[netease] eapi 参数加密失败: %s", error)
-        return {}
-    client = PlatformHTTP("", session)
-    try:
-        payload = client.post_form(
-            EAPI_URL, {"params": params}, headers={**NETEASE_HEADERS, "Cookie": _cookies_for(cookie)}
-        )
-    except Exception as error:
-        LOGGER.warning("[netease] 歌词搜索取地址失败 id=%s: %s", song_id, error)
-        return {}
+def _request_url(client: PlatformHTTP, params: str, cookie: str) -> dict[str, Any]:
+    """用已加密的 eapi params 请求一次地址; 无 url/空 data 一律返回 {}。"""
+    payload = client.post_form(
+        EAPI_URL, {"params": params}, headers={**NETEASE_HEADERS, "Cookie": _cookies_for(cookie)}
+    )
     data = payload.get("data") if isinstance(payload, dict) else None
     item = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else None
     if not item or not _string(item.get("url")):
         return {}
     return item
+
+
+def resolve_play_url(song_id: str, cookie: str, session: Any | None = None) -> dict[str, Any]:
+    """取播放地址; 返回 {} 表示这个账号/凭证拿不到(付费曲匿名必然拿不到)。
+
+    档位策略(修复"超会只有 CD 无损"的封顶):
+      1. 先用配置档位(MELODEX_NETEASE_REQUEST_LEVEL, 默认 hires)请求 —— 接口会返回
+         **实际**给到的档位, 超会账号一次就能拿到 Hi-Res FLAC, 常规路径仍旧只 1 次请求。
+      2. 只有 url 为空(账号等级不够/该曲没这档)才按 lossless → exhigh 依次回退,
+         任一拿到 url 立即停止, 每首最多 3 次 —— 不做快照那种 8 档全阶梯(131.7s 的根因)。
+      3. 回退成功打一条 INFO 日志(配置档位 → 最终档位), 便于巡检"到底封在哪一档"。
+         传输异常不触发回退(避免一次上游故障被放大成三次请求), 与改动前一样直接返回 {}。
+    """
+    song_id = _string(song_id)
+    if not song_id:
+        return {}
+    levels = request_levels()
+    client = PlatformHTTP("", session)
+    for index, level in enumerate(levels):
+        try:
+            params = _eapi_params(song_id, level)
+        except Exception as error:  # 加密失败(如未安装快照依赖)对所有档位相同, 直接放弃
+            LOGGER.warning("[netease] eapi 参数加密失败 id=%s level=%s: %s", song_id, level, error)
+            return {}
+        try:
+            item = _request_url(client, params, cookie)
+        except Exception as error:
+            # 传输/上游异常不是"这一档没货", 换档位重试只会把一次故障放大成三次请求+三条日志,
+            # 行为与改动前保持一致(直接返回 {}); 回退链只针对"接口正常返回但 url 为空"。
+            LOGGER.warning("[netease] 歌词搜索取地址失败 id=%s level=%s: %s", song_id, level, error)
+            return {}
+        if item:
+            if index:
+                LOGGER.info(
+                    "[netease] 音质回退 id=%s: %s 无地址 → 最终档位 %s(实际返回 %s)",
+                    song_id, levels[0], level, _string(item.get("level")) or level,
+                )
+            return item
+    return {}
 
 
 def _extension(url: str, level: dict[str, Any]) -> str:
@@ -391,8 +463,8 @@ def search_songs(
 
     为什么需要它: 快照的 netease 客户端每首歌都要跑 8 档音质阶梯 + 探测下载地址,
     实测 limit=20 要 **131.7s**(而 QQ 只要 1.7s) —— 超过 app 侧扇出预算就被整源丢掉,
-    用户既等得久又拿不到网易结果。本实现每首只打 **一次** eapi 地址请求(实测接口会
-    直接返回实际档位, 不需要逐档重试), 配上并发后整体 ~2s。
+    用户既等得久又拿不到网易结果。本实现常规路径每首只打 **一次** eapi 地址请求(实测接口
+    会直接返回实际档位, 不需要逐档重试; 仅 url 为空时最多再回退 2 档), 配上并发后整体 ~2s。
 
     限流(NeteaseRateLimited)必须向上抛而不是吞成空列表: 播放时按歌名回查走的是
     同一条路径, 吞掉之后 Go 侧只会看到 "no matching songs", 表现成"这首歌没货",
@@ -428,12 +500,18 @@ def search_songs(
 
 
 __all__ = [
+    "DEFAULT_REQUEST_LEVEL",
+    "FALLBACK_REQUEST_LEVELS",
+    "NETEASE_QUALITY_LADDER",
     "NeteaseRateLimited",
+    "REQUEST_LEVEL_ENV",
     "build_payload",
     "fetch_lyric",
     "lyric_matches",
     "native_search_enabled",
     "playable_ratio",
+    "request_level",
+    "request_levels",
     "resolve_play_url",
     "search_by_lyric",
     "search_songs",

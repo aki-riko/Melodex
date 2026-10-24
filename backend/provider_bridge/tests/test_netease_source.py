@@ -11,10 +11,13 @@
         + size); 付费曲(fee=1)匿名 url 为空。
 """
 
+import ast
 import json
 import os
+import re
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from provider_bridge import app as bridge_app
@@ -64,14 +67,34 @@ LYRIC_PAYLOAD = {
 }
 PAID_URL_PAYLOAD = {"code": 200, "data": [{"id": 1901371647, "url": None, "size": 0, "br": 0, "fee": 1}]}
 
+# 超会账号请求 hires 时接口给到的 Hi-Res FLAC(实测真值是 96kHz/24bit 的 flac, br~1607000)。
+HIRES_URL_PAYLOAD = {
+    "code": 200,
+    "data": [{"id": 569153583, "url": "https://m801.music.126.net/x/北京残阳-hires.flac",
+              "size": 41389442, "br": 1607000, "type": "flac", "level": "hires", "fee": 0}],
+}
+# 请求 hires 但该账号只有 CD 无损权限: 接口返回实际档位 lossless(带真地址)。
+LOSSLESS_URL_PAYLOAD = {
+    "code": 200,
+    "data": [{"id": 569153583, "url": "https://m801.music.126.net/x/北京残阳-lossless.flac",
+              "size": 32123456, "br": 999000, "type": "flac", "level": "lossless", "fee": 0}],
+}
+# 空 data(部分曲目/凭证异常时上游会这么回)。
+EMPTY_URL_PAYLOAD = {"code": 200, "data": []}
+
 
 class FakeSession:
-    """假的 requests.Session: 按 URL 返回预制响应, 并记录请求。"""
+    """假的 requests.Session: 按 URL 返回预制响应, 并记录请求。
 
-    def __init__(self, *, detail=..., urls=None, detail_error=False, url_error=False,
-                 lyric=None, search=None):
+    player/url 的响应可以按档位给(`level_urls`), 不传则退回按歌曲(`urls`)给 ——
+    后者是"无论请求哪一档都返回同一份"的历史写法, 用于不关心档位的用例。
+    """
+
+    def __init__(self, *, detail=..., urls=None, level_urls=None, detail_error=False,
+                 url_error=False, lyric=None, search=None):
         self.detail = DETAIL_PAYLOAD if detail is ... else detail
         self.urls = urls or {}
+        self.level_urls = level_urls or {}
         self.detail_error = detail_error
         self.url_error = url_error
         self.lyric = LYRIC_PAYLOAD if lyric is None else lyric
@@ -92,9 +115,19 @@ class FakeSession:
         if "player/url/v1" in url:
             if self.url_error:
                 raise RuntimeError("eapi boom")
-            song_id = _song_id_from_params(kwargs.get("data") or {})
+            song_id, level = _song_id_and_level_from_params(kwargs.get("data") or {})
+            if (song_id, level) in self.level_urls:
+                return _Response(self.level_urls[(song_id, level)])
             return _Response(self.urls.get(song_id, PAID_URL_PAYLOAD))
         raise AssertionError(f"unexpected url {url}")
+
+    def requested_levels(self):
+        """本次会话实际请求过的 (song_id, level) 序列, 按请求顺序。"""
+        return [
+            _song_id_and_level_from_params(call["data"])
+            for call in self.calls
+            if "player/url/v1" in call["url"]
+        ]
 
 
 class _Response:
@@ -105,14 +138,30 @@ class _Response:
         return None
 
 
-def _song_id_from_params(data):
-    """测试里把 _eapi_params 打桩成 'id=<数字>', 这里解析回来。"""
+def _song_id_and_level_from_params(data):
+    """测试里把 _eapi_params 打桩成 'id=<数字>|level=<档位>', 这里解析回来。"""
     raw = str((data or {}).get("params") or "")
-    return raw.split("=", 1)[1] if raw.startswith("id=") else ""
+    song_id, _, level = raw.partition("|level=")
+    song_id = song_id.split("=", 1)[1] if song_id.startswith("id=") else ""
+    return song_id, level
 
 
 def patch_eapi_params():
-    return mock.patch.object(netease_source, "_eapi_params", side_effect=lambda sid: f"id={sid}")
+    """打桩 eapi 加密(避免测试依赖快照的 AES 依赖)。"""
+    return mock.patch.object(
+        netease_source, "_eapi_params",
+        side_effect=lambda sid, level=None: f"id={sid}|level={level or netease_source.request_level()}",
+    )
+
+
+class DefaultLevelTestCase(unittest.TestCase):
+    """断言"默认档位"的用例: 清掉外部环境变量, 避免跑测试的机器上真配了这个 env。"""
+
+    def setUp(self):
+        patcher = mock.patch.dict("os.environ", {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop(netease_source.REQUEST_LEVEL_ENV, None)
 
 
 class LyricMatchTests(unittest.TestCase):
@@ -188,6 +237,154 @@ class ResolveUrlTests(unittest.TestCase):
         with mock.patch.object(netease_source, "_eapi_params", side_effect=RuntimeError("no musicdl")):
             with self.assertLogs("provider_bridge.netease_source", level="WARNING"):
                 self.assertEqual(netease_source.resolve_play_url("1", ""), {})
+
+
+class RequestLevelConfigTests(DefaultLevelTestCase):
+    """请求档位可配: 默认 hires(不再是封顶的 lossless), 非法/空值回退默认。"""
+
+    def test_default_level_is_hires(self):
+        self.assertEqual(netease_source.request_level(), "hires")
+        self.assertEqual(
+            netease_source.request_levels(), ["hires", "lossless", "exhigh"],
+            "默认回退链必须是 hires → lossless → exhigh(最多 3 次)",
+        )
+
+    def test_env_override_takes_effect(self):
+        for level in ("jymaster", "dolby", "sky", "jyeffect", "hires"):
+            with mock.patch.dict("os.environ", {netease_source.REQUEST_LEVEL_ENV: level}):
+                self.assertEqual(netease_source.request_level(), level)
+
+    def test_invalid_or_empty_env_falls_back_to_default(self):
+        for raw in ("", "   ", "not-a-level", "flac", "320k", "HIRES-NOT", "hires,lossless"):
+            with mock.patch.dict("os.environ", {netease_source.REQUEST_LEVEL_ENV: raw}):
+                self.assertEqual(
+                    netease_source.request_level(), "hires",
+                    f"非法值 {raw!r} 必须回退默认 hires, 不能把非法档位发给上游",
+                )
+
+    def test_env_value_is_case_and_space_insensitive(self):
+        with mock.patch.dict("os.environ", {netease_source.REQUEST_LEVEL_ENV: "  HiRes  "}):
+            self.assertEqual(netease_source.request_level(), "hires")
+
+    def test_lower_configured_level_never_steps_back_up(self):
+        """配置比 lossless 更低(如 exhigh)时不许"回退"到更高的档位。"""
+        with mock.patch.dict("os.environ", {netease_source.REQUEST_LEVEL_ENV: "exhigh"}):
+            self.assertEqual(netease_source.request_levels(), ["exhigh"])
+        with mock.patch.dict("os.environ", {netease_source.REQUEST_LEVEL_ENV: "standard"}):
+            self.assertEqual(netease_source.request_levels(), ["standard"])
+
+    def test_ladder_matches_pinned_snapshot(self):
+        """档位阶梯必须与固定快照 neteaseutils.py:22 一致(只读取快照, 不改动它)。
+
+        这里刻意不 import musicdl: 单测环境不必装齐快照的加密依赖(生产镜像里有),
+        直接读源文件里的 MUSIC_QUALITIES 常量即可锁定"阶梯没抄错/没漂移"。
+        """
+        snapshot = (
+            Path(__file__).resolve().parents[2]
+            / "third_party" / "charles-musicdl" / "musicdl" / "modules" / "utils" / "neteaseutils.py"
+        )
+        source = snapshot.read_text(encoding="utf-8")
+        match = re.search(r"^MUSIC_QUALITIES\s*=\s*(\[[^\]]*\])", source, re.MULTILINE)
+        self.assertIsNotNone(match, f"快照里找不到 MUSIC_QUALITIES: {snapshot}")
+        self.assertEqual(
+            list(netease_source.NETEASE_QUALITY_LADDER), ast.literal_eval(match.group(1))
+        )
+
+
+class RequestLevelFallbackTests(DefaultLevelTestCase):
+    """回退链: 首档无 url 才依次尝试 lossless → exhigh, 任一拿到地址立即停止。"""
+
+    def test_default_request_asks_for_hires(self):
+        session = FakeSession(level_urls={("569153583", "hires"): HIRES_URL_PAYLOAD})
+        with patch_eapi_params():
+            item = netease_source.resolve_play_url("569153583", "", session)
+        self.assertEqual(session.requested_levels(), [("569153583", "hires")],
+                         "超会账号首档就该拿到 Hi-Res, 只打一次请求")
+        self.assertEqual(item["level"], "hires")
+        self.assertEqual(item["br"], 1607000)
+        self.assertEqual(netease_source._extension(item["url"], item), "flac")
+
+    def test_hires_missing_falls_back_to_lossless(self):
+        session = FakeSession(level_urls={
+            ("569153583", "hires"): PAID_URL_PAYLOAD,
+            ("569153583", "lossless"): LOSSLESS_URL_PAYLOAD,
+        })
+        with patch_eapi_params():
+            with self.assertLogs("provider_bridge.netease_source", level="INFO") as captured:
+                item = netease_source.resolve_play_url("569153583", "", session)
+        self.assertEqual(
+            session.requested_levels(),
+            [("569153583", "hires"), ("569153583", "lossless")],
+            "lossless 拿到地址必须立即停止, 不能再打 exhigh",
+        )
+        self.assertEqual(item["level"], "lossless")
+        self.assertEqual(item["url"], LOSSLESS_URL_PAYLOAD["data"][0]["url"])
+        logged = "\n".join(captured.output)
+        self.assertIn("音质回退", logged, "回退必须留一条日志便于巡检")
+        self.assertIn("hires", logged)
+        self.assertIn("lossless", logged, "日志必须标明最终档位")
+
+    def test_hires_and_lossless_missing_falls_back_to_exhigh(self):
+        session = FakeSession(level_urls={
+            ("569153583", "hires"): EMPTY_URL_PAYLOAD,
+            ("569153583", "lossless"): PAID_URL_PAYLOAD,
+            ("569153583", "exhigh"): URL_PAYLOAD,
+        })
+        with patch_eapi_params():
+            with self.assertLogs("provider_bridge.netease_source", level="INFO"):
+                item = netease_source.resolve_play_url("569153583", "", session)
+        self.assertEqual(
+            [level for _sid, level in session.requested_levels()],
+            ["hires", "lossless", "exhigh"],
+            "最多 3 次请求, 不许退化成快照的 8 档阶梯",
+        )
+        self.assertEqual(item["level"], "exhigh")
+
+    def test_all_levels_missing_returns_empty(self):
+        session = FakeSession()
+        with patch_eapi_params():
+            self.assertEqual(netease_source.resolve_play_url("1901371647", "", session), {})
+        self.assertEqual(
+            [level for _sid, level in session.requested_levels()],
+            ["hires", "lossless", "exhigh"],
+            "全部档位都无 url 时也只试 3 档",
+        )
+
+    def test_all_levels_missing_marks_song_invalid(self):
+        """取不到地址照旧 is_invalid, 前端验活会隐藏 —— 失败语义不能变。"""
+        session = FakeSession()
+        with patch_eapi_params():
+            payloads = netease_source.search_songs("周杰伦 晴天", 6, cookie="", session=session)
+        self.assertEqual([p["id"] for p in payloads], ["1901371647", "569153583"])
+        self.assertTrue(all(p["is_invalid"] for p in payloads))
+        self.assertTrue(all(p["url"] == "" for p in payloads))
+
+    def test_env_override_changes_actual_requested_level(self):
+        session = FakeSession(level_urls={("569153583", "jymaster"): HIRES_URL_PAYLOAD})
+        with mock.patch.dict("os.environ", {netease_source.REQUEST_LEVEL_ENV: "jymaster"}):
+            with patch_eapi_params():
+                item = netease_source.resolve_play_url("569153583", "", session)
+        self.assertEqual(session.requested_levels()[0], ("569153583", "jymaster"),
+                         "env 覆盖必须真的改变发给上游的档位")
+        self.assertTrue(item)
+
+    def test_transport_error_does_not_multiply_requests(self):
+        """传输异常不是"这一档没货": 不许把一次上游故障放大成 3 次请求(与改动前一致)。"""
+        session = FakeSession(url_error=True)
+        with patch_eapi_params():
+            with self.assertLogs("provider_bridge.netease_source", level="WARNING") as captured:
+                self.assertEqual(netease_source.resolve_play_url("569153583", "", session), {})
+        self.assertEqual(
+            session.requested_levels(), [("569153583", "hires")],
+            "请求异常时直接放弃, 不回退",
+        )
+        self.assertEqual(len(captured.output), 1, "一次失败只该有一条日志, 不能刷三条")
+
+    def test_no_fallback_log_when_first_level_succeeds(self):
+        session = FakeSession(level_urls={("569153583", "hires"): HIRES_URL_PAYLOAD})
+        with patch_eapi_params():
+            with self.assertNoLogs("provider_bridge.netease_source", level="INFO"):
+                netease_source.resolve_play_url("569153583", "", session)
 
 
 class PayloadTests(unittest.TestCase):
@@ -335,18 +532,23 @@ class NeteaseLyricSearchWiringTests(unittest.TestCase):
         self.assertEqual(result["lyric"], "[00:01.00]行级")
 
 
-class NativeSongSearchTests(unittest.TestCase):
+class NativeSongSearchTests(DefaultLevelTestCase):
     """原生普通搜歌(type=1): 存在的理由就是快照实现太慢(limit=20 实测 131.7s)。"""
 
-    def test_uses_song_search_type_and_resolves_once_per_song(self):
+    def test_uses_song_search_type_and_one_request_per_playable_song(self):
         session = FakeSession(urls={"569153583": URL_PAYLOAD})
         with patch_eapi_params():
             payloads = netease_source.search_songs("周杰伦 晴天", 6, cookie="", session=session)
         search_calls = [c for c in session.calls if "api/cloudsearch/pc" in c["url"]]
         self.assertEqual(len(search_calls), 1)
         self.assertEqual(search_calls[0]["data"]["type"], 1, "普通搜歌必须用 type=1")
-        url_calls = [c for c in session.calls if "player/url/v1" in c["url"]]
-        self.assertEqual(len(url_calls), 2, "每首歌只打一次地址请求(不做音质阶梯)")
+        # 能拿到地址的歌只请求 1 次(首档); 拿不到地址的付费曲才会走满 3 档。
+        self.assertEqual(
+            session.requested_levels(),
+            [("1901371647", "hires"), ("1901371647", "lossless"), ("1901371647", "exhigh"),
+             ("569153583", "hires")],
+            "常规路径只 1 次请求, 无地址才按 lossless→exhigh 回退(每首最多 3 次)",
+        )
         self.assertEqual([p["id"] for p in payloads], ["1901371647", "569153583"])
 
     def test_playable_ratio_drives_snapshot_fallback(self):
