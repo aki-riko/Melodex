@@ -8,6 +8,15 @@ import { cn } from './cn';
 // 用法:
 //   <Segmented value={sort} onChange={setSort}
 //     options={[{value:'recommended',label:'推荐'}, ...]} />
+//
+// ⚠️ 选项的标识字段必须叫 `value`。
+// 曾经有一个调用方写成 `{ key: 'search', … }`,而这里只读 `opt.value`,结果是三重静默失效:
+//   · 选中态永远不亮(undefined 不等于任何 value)
+//   · key 全是 undefined(React 重复 key 警告)
+//   · 点击回传 undefined → 父组件 setTab(undefined) → 内容区直接空白
+// 构建、类型检查、门禁都抓不到。所以这里做两件事:兼容 `key` 作为兜底 + 开发期显式告警,
+// 让同样的误用下一次至少在控制台喊出来。
+const optionKeyOf = (opt) => opt.value ?? opt.key;
 
 const SIZES = {
   sm: 'h-8 px-2.5 text-xs',
@@ -22,6 +31,16 @@ export default function Segmented({
   className = '',
   label = '选项',
 }) {
+  if (process.env.NODE_ENV !== 'production') {
+    const missing = options.filter((opt) => optionKeyOf(opt) === undefined);
+    if (missing.length > 0) {
+      console.error(
+        '[Segmented] 选项缺少 value 字段，会导致选中态丢失且切换失效：',
+        missing,
+      );
+    }
+  }
+
   return (
     <div
       role="tablist"
@@ -32,16 +51,17 @@ export default function Segmented({
       )}
     >
       {options.map((opt) => {
-        const active = opt.value === value;
+        const optKey = optionKeyOf(opt);
+        const active = optKey === value;
         const Icon = opt.icon;
         return (
           <button
-            key={opt.value}
+            key={optKey ?? opt.label}
             type="button"
             role="tab"
             aria-selected={active}
             title={opt.hint || opt.label}
-            onClick={() => onChange?.(opt.value)}
+            onClick={() => onChange?.(optKey)}
             className={cn(
               'inline-flex items-center justify-center gap-1.5 rounded-full font-semibold',
               'transition-colors duration-base ease-standard',

@@ -44,9 +44,14 @@ import LoadingState from './LoadingState';
 import { cn } from '../ui/cn';
 
 // ===== 搜索/推荐双视图 =====
+// 字段名必须是 `value`:ui/Segmented 用 `opt.value` 判选中态、也在 onChange 里回传它。
+// 之前这里写成了 `key`,后果是静默的灾难 ——
+//   · opt.value 恒为 undefined → 两个选项永远不显示选中态(界面看着一坨灰、分不清当前在哪)
+//   · 点击时 onChange(undefined) → setTab(undefined) → 搜索/推荐两块都不渲染 = 内容区空白
+// 没有类型检查、没有运行时校验,构建和门禁都不会报错,只能靠肉眼发现。
 const TABS = [
-  { key: 'search', label: '搜索下载', icon: Search },
-  { key: 'discover', label: '推荐歌单', icon: Compass },
+  { value: 'search', label: '搜索下载', icon: Search },
+  { value: 'discover', label: '推荐歌单', icon: Compass },
 ];
 
 const COMBINED_SEARCH_RESULT_LIMIT = 80;
