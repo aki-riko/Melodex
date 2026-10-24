@@ -1,9 +1,11 @@
 """网易歌词片段搜索(原生实现)的测试。
 
 这里用到的响应形状都来自对真实接口的实测:
-    /api/search/get/web  type=1006  -> {"result":{"songs":[{"id","name","artists",
-        "album","duration","fee","alias","lyrics"}]}}
+    /api/cloudsearch/pc           -> {"result":{"songs":[{"id","name","duration",
+        "artists","album","dt","fee","alias","lyrics"}]}}
         实测搜「都 是勇敢的」第 1 名就是 孤勇者/陈奕迅原唱(而 type=1 全是同名垃圾)。
+        注意: 关键字搜索用的是 cloudsearch(pc), 不是旧的 /api/search/get/web ——
+        后者现已对几乎所有调用方限流(code=405 操作频繁), 见 SEARCH_URL 上的注释。
     /api/song/detail?ids=[...]      -> {"songs":[{"album":{"picUrl"},"duration"}]}
     eapi/song/enhance/player/url/v1 -> 请求最高档返回**实际**档位(level=exhigh + 320k mp3
         + size); 付费曲(fee=1)匿名 url 为空。
@@ -66,19 +68,21 @@ PAID_URL_PAYLOAD = {"code": 200, "data": [{"id": 1901371647, "url": None, "size"
 class FakeSession:
     """假的 requests.Session: 按 URL 返回预制响应, 并记录请求。"""
 
-    def __init__(self, *, detail=..., urls=None, detail_error=False, url_error=False, lyric=None):
+    def __init__(self, *, detail=..., urls=None, detail_error=False, url_error=False,
+                 lyric=None, search=None):
         self.detail = DETAIL_PAYLOAD if detail is ... else detail
         self.urls = urls or {}
         self.detail_error = detail_error
         self.url_error = url_error
         self.lyric = LYRIC_PAYLOAD if lyric is None else lyric
+        self.search = SEARCH_PAYLOAD if search is None else search
         self.calls = []
 
     def request(self, method, url, **kwargs):
         self.calls.append({"method": method, "url": url, "headers": kwargs.get("headers") or {},
                            "data": kwargs.get("data") or {}})
-        if "api/search/get/web" in url:
-            return _Response(SEARCH_PAYLOAD)
+        if "api/cloudsearch/pc" in url:
+            return _Response(self.search)
         if "api/song/detail" in url:
             if self.detail_error:
                 raise RuntimeError("detail boom")
@@ -127,7 +131,7 @@ class LyricMatchTests(unittest.TestCase):
         with patch_eapi_params():
             matches = netease_source.lyric_matches(netease_source.PlatformHTTP("", session), "都 是勇敢的", 6)
         call = session.calls[0]
-        self.assertIn("api/search/get/web", call["url"])
+        self.assertIn("api/cloudsearch/pc", call["url"])
         self.assertEqual(call["data"]["type"], 1006, "必须用歌词检索 type=1006, 不是歌名搜索")
         self.assertEqual(call["data"]["s"], "都 是勇敢的")
         self.assertEqual([m["id"] for m in matches], [1901371647, 569153583], "无 id / 非字典的条目必须丢弃")
@@ -319,7 +323,7 @@ class NativeSongSearchTests(unittest.TestCase):
         session = FakeSession(urls={"569153583": URL_PAYLOAD})
         with patch_eapi_params():
             payloads = netease_source.search_songs("周杰伦 晴天", 6, cookie="", session=session)
-        search_calls = [c for c in session.calls if "api/search/get/web" in c["url"]]
+        search_calls = [c for c in session.calls if "api/cloudsearch/pc" in c["url"]]
         self.assertEqual(len(search_calls), 1)
         self.assertEqual(search_calls[0]["data"]["type"], 1, "普通搜歌必须用 type=1")
         url_calls = [c for c in session.calls if "player/url/v1" in c["url"]]
@@ -344,6 +348,84 @@ class NativeSongSearchTests(unittest.TestCase):
             self.assertFalse(netease_source.native_search_enabled())
         with mock.patch.dict("os.environ", {}, clear=False):
             self.assertTrue(netease_source.native_search_enabled())
+
+
+# 实测旧端点 /api/search/get/web 被限流时的完整响应(没有 result 字段)。
+RATE_LIMIT_PAYLOAD = {"code": 405, "msg": "操作频繁，请稍候再试", "message": "操作频繁，请稍候再试"}
+
+# cloudsearch(pc) 的真实形状: 时长字段叫 dt(毫秒), 歌手/专辑在 ar/al 里。
+CLOUDSEARCH_PAYLOAD = {
+    "code": 200,
+    "result": {
+        "songCount": 2,
+        "songs": [
+            {
+                "id": 233888, "name": "爱情讯息", "dt": 280680, "fee": 1,
+                "ar": [{"id": 6452, "name": "郭静"}],
+                "al": {"id": 23492, "name": "下一个天亮", "picUrl": "https://p1.music.126.net/x/cover.jpg"},
+            },
+            {"id": 0, "name": "没有 id 的噪音"},
+        ],
+    },
+}
+
+
+class RateLimitTests(unittest.TestCase):
+    """限流必须显式抛出, 不能被吞成"没有这首歌"。
+
+    现场事故(2026-10): 旧搜索端点开始对 NAS 出口 IP 限流, search_songs 静默返回 [],
+    于是播放时按歌名回查 → Go 侧 "provider returned no matching songs" →
+    /music/playback_segment 502 → 前端 MSE 重试 6 次后提示「连续播放缓冲异常」。
+    真实原因(限流)在整个链路里完全不可见。
+    """
+
+    def test_search_raises_on_rate_limit_instead_of_returning_empty(self):
+        session = FakeSession(search=RATE_LIMIT_PAYLOAD)
+        with self.assertLogs("provider_bridge.netease_source", level="WARNING") as captured:
+            with self.assertRaises(netease_source.NeteaseRateLimited):
+                netease_source.search_songs("爱情讯息 郭静", 20, session=session)
+        self.assertIn("限流", "\n".join(captured.output))
+
+    def test_rate_limit_status_is_recorded_for_health(self):
+        session = FakeSession(search=RATE_LIMIT_PAYLOAD)
+        with self.assertRaises(netease_source.NeteaseRateLimited):
+            netease_source.search_songs("爱情讯息 郭静", 20, session=session)
+        snapshot = netease_source.status()
+        self.assertTrue(snapshot.get("rate_limited"))
+        self.assertEqual(snapshot.get("empty_reason"), "rate_limited")
+        self.assertEqual(snapshot.get("keyword"), "爱情讯息 郭静")
+
+    def test_genuine_no_match_is_not_reported_as_rate_limited(self):
+        session = FakeSession(search={"code": 200, "result": {"songs": []}})
+        self.assertEqual(netease_source.search_songs("不存在的歌", 20, session=session), [])
+        snapshot = netease_source.status()
+        self.assertFalse(snapshot.get("rate_limited", False))
+        self.assertEqual(snapshot.get("empty_reason"), "no_match")
+
+    def test_lyric_search_also_raises_on_rate_limit(self):
+        session = FakeSession(search=RATE_LIMIT_PAYLOAD)
+        with self.assertRaises(netease_source.NeteaseRateLimited):
+            netease_source.search_by_lyric("都 是勇敢的", 6, session=session)
+
+
+class CloudsearchPayloadShapeTests(unittest.TestCase):
+    """cloudsearch 用 dt/ar/al, 旧实现只认 duration/artists/album —— 换端点后必须都认。"""
+
+    def test_reads_dt_ar_al_shape(self):
+        raw = CLOUDSEARCH_PAYLOAD["result"]["songs"][0]
+        item = netease_source.build_payload(raw, {}, {}, 0)
+        self.assertEqual(item["id"], "233888")
+        self.assertEqual(item["name"], "爱情讯息")
+        self.assertEqual(item["artist"], "郭静", "cloudsearch 的歌手字段是 ar")
+        self.assertEqual(item["album"], "下一个天亮", "cloudsearch 的专辑字段是 al")
+        self.assertEqual(item["cover"], "https://p1.music.126.net/x/cover.jpg")
+        self.assertEqual(item["duration"], 280, "cloudsearch 的时长字段是 dt(毫秒), 必须换算成秒")
+
+    def test_matches_are_filtered_from_cloudsearch_shape(self):
+        session = FakeSession(search=CLOUDSEARCH_PAYLOAD)
+        with patch_eapi_params():
+            matches = netease_source.song_matches(netease_source.PlatformHTTP("", session), "爱情讯息 郭静", 20)
+        self.assertEqual([m["id"] for m in matches], [233888])
 
 
 class NativeSearchWiringTests(unittest.TestCase):
@@ -388,6 +470,20 @@ class NativeSearchWiringTests(unittest.TestCase):
                         )
         search.assert_not_called()
         self.assertEqual(result["songs"][0]["name"], "普通搜索的歌")
+
+    def test_rate_limit_surfaces_as_error_not_empty_result(self):
+        """限流必须在 app.search 层变成可上报的错误, 不能变成 songs: []。"""
+        with mock.patch.object(
+            netease_source, "search_songs",
+            side_effect=netease_source.NeteaseRateLimited("操作频繁"),
+        ):
+            with tempfile.TemporaryDirectory() as work_dir:
+                with self.assertRaises(ValueError) as caught:
+                    bridge_app.search(
+                        {"source": "netease", "keyword": "爱情讯息", "limit": 5, "cookie": ""},
+                        work_dir=work_dir,
+                    )
+        self.assertIn("rate limited", str(caught.exception))
 
 
 if __name__ == "__main__":

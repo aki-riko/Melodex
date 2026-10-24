@@ -63,6 +63,21 @@ export const shouldApplyBufferBackpressure = (aheadSeconds, maxAhead = MAX_BUFFE
   Number(aheadSeconds || 0) > Number(maxAhead || 0)
 );
 
+// 连续播放管线失败时该给用户什么提示。
+//
+// 关键区别是"还有没有已缓冲的音频可以继续放":
+//   - 有 → 让用户听已缓冲部分, 提示回到播放器重播(旧文案只覆盖这一种情况);
+//   - 没有 → 一秒钟都没放出来。旧文案在这里是错的: "将播完已缓冲部分"其实什么都没有,
+//     用户看到的是"提示播放, 但一直是静音", 以为播放器坏了却不知道该怎么办。
+//     此时必须明确说没拿到音频, 并引导重试(而不是暗示正在播放)。
+export const describePipelineFailureNotice = ({ song, bufferedSeconds = 0 } = {}) => {
+  const name = song?.name || '当前歌曲';
+  if (Number(bufferedSeconds) > 0.5) {
+    return `「${name}」连续播放缓冲异常，将播完已缓冲部分；请回到播放器重新播放。`;
+  }
+  return `「${name}」没能取到音频数据，播放已停止；请点一下播放重试。`;
+};
+
 const waitForPlaybackProgress = (audio, timeoutMs = 1000) => new Promise((resolve) => {
   let timer = null;
   const finish = () => {
@@ -497,8 +512,12 @@ export class ContinuousMediaSourcePlayback {
       event: 'mse_pipeline_error',
       song,
       reason: `${error?.name || 'Error'}:${error?.message || ''}`,
+      buffered_end: end,
+      current_time: Number(this.audio?.currentTime || 0),
     });
-    this.onError(error, song);
+    this.onError(error, song, {
+      bufferedSeconds: Math.max(0, end - Number(this.audio?.currentTime || 0)),
+    });
   }
 
   destroy() {
