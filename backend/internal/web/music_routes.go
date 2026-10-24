@@ -155,10 +155,27 @@ func downloadTrackRoute(c *gin.Context) {
 		serveLocalMusicDownload(c, request.track.ID, request.saveToServer)
 		return
 	}
-	if request.stream && serveOwnedServerCopy(c, request.track) {
+	settings := core.GetWebSettings()
+	if request.stream {
+		if copyRelPath, ok := resolveOwnedServerCopy(c, request.track); ok {
+			// 副本优先是既定设计,但当副本是有损、而在线源明确能拿到无损时
+			// 必须让位,否则"列表显示无损、实际播放有损"永远无法自愈。
+			if shouldStreamFromServerCopy(copyRelPath, request.track) {
+				serveOwnedServerCopyPath(c, copyRelPath)
+				return
+			}
+			// 只有在线地址确认可解析时才放弃副本;否则宁可播副本也不要播不了。
+			if onlineStreamResolvable(request.track) {
+				logStreamCopyBypass(request.track, copyRelPath)
+				serveOnlineStream(c, request, settings)
+				return
+			}
+			serveOwnedServerCopyPath(c, copyRelPath)
+			return
+		}
+		serveOnlineStream(c, request, settings)
 		return
 	}
-	settings := core.GetWebSettings()
 	switch {
 	case request.saveToServer:
 		saveTrackToServer(c, request.track, settings, request.embedMetadata)
@@ -169,6 +186,40 @@ func downloadTrackRoute(c *gin.Context) {
 	default:
 		serveProviderTrack(c, request, settings)
 	}
+}
+
+// serveOnlineStream 是在线播放的唯一入口(原内联 switch 的播放分支)。
+func serveOnlineStream(c *gin.Context, request mediaDownloadRequest, settings core.WebSettings) {
+	switch request.track.Source {
+	case "soda":
+		serveSodaTrack(c, request, settings)
+	default:
+		serveProviderTrack(c, request, settings)
+	}
+}
+
+// onlineStreamURLProvider 是可替换的在线源解析入口,便于测试在不打上游的
+// 前提下控制"在线源当前是否可解析"。生产默认走 core.GetDownloadFunc。
+var onlineStreamURLProvider = func(track *model.Track) (string, error) {
+	if track == nil {
+		return "", nil
+	}
+	if track.Source == "soda" {
+		media, err := core.ResolveProviderMedia(track)
+		return media.URL, err
+	}
+	resolve := core.GetDownloadFunc(track.Source)
+	if resolve == nil {
+		return "", nil
+	}
+	return resolve(track)
+}
+
+// onlineStreamResolvable 判断在线源当前是否能解析出非空播放地址。
+// 命中 provider 的 10 分钟歌曲缓存时几乎零成本,不会为这次判断额外打上游。
+func onlineStreamResolvable(track *model.Track) bool {
+	mediaURL, err := onlineStreamURLProvider(track)
+	return err == nil && strings.TrimSpace(mediaURL) != ""
 }
 
 func parseMediaDownloadRequest(c *gin.Context) (mediaDownloadRequest, error) {
@@ -198,21 +249,27 @@ func errorsNewMissingMediaParams() error {
 	return fmt.Errorf("Missing params")
 }
 
-func serveOwnedServerCopy(c *gin.Context, track *model.Track) bool {
+// resolveOwnedServerCopy 查找当前用户可见的服务器副本相对路径。
+// 返回 ok=false 表示没有副本(或查询失败,失败按"无副本"处理并回源)。
+func resolveOwnedServerCopy(c *gin.Context, track *model.Track) (string, bool) {
 	relativePath, err := existingDownloadRelPathForPlayback(
 		currentUserID(c), currentUserIsAdmin(c), localMusicDownloadDir(),
 		track.Source, track.ID, track.Name, track.Artist,
 	)
 	if err != nil {
 		log.Printf("[stream] query server copy user=%d: %v", currentUserID(c), err)
-		return false
+		return "", false
 	}
 	if relativePath == "" {
-		return false
+		return "", false
 	}
+	return relativePath, true
+}
+
+// serveOwnedServerCopyPath 把已解析出的副本按本地文件发流。
+func serveOwnedServerCopyPath(c *gin.Context, relativePath string) {
 	c.Header("X-Melodex-Playback-Source", "server")
 	serveLocalMusicDownload(c, encodeLocalMusicID(relativePath), false)
-	return true
 }
 
 func saveTrackToServer(c *gin.Context, track *model.Track, settings core.WebSettings, embed bool) {

@@ -186,6 +186,8 @@ func openPlaybackSegmentInput(c *gin.Context, song *model.Track) (*playbackSegme
 
 	// 与普通 Web 播放一致：当前用户有服务器副本时优先读 NAS，避免在线链接
 	// 已过期，并且保证连续播放与界面“服务器”状态指向同一份真实文件。
+	// 但副本为有损、在线源明确能拿无损时必须让位(见 stream_quality.go)，
+	// 否则连续播放会把旧的低码率文件永久钉死。
 	rel, err := existingDownloadRelPathForPlayback(
 		currentUserID(c),
 		currentUserIsAdmin(c),
@@ -197,6 +199,14 @@ func openPlaybackSegmentInput(c *gin.Context, song *model.Track) (*playbackSegme
 	)
 	if err != nil {
 		return nil, fmt.Errorf("resolve server copy: %w", err)
+	}
+	if rel != "" && !shouldStreamFromServerCopy(rel, song) {
+		// 只有在线源确实可解析时才放弃副本;解析不到就继续用副本,避免整首播不了。
+		if !onlineStreamResolvable(song) {
+			return openLocalPlaybackSegmentInput(c, encodeLocalMusicID(rel), "server")
+		}
+		logStreamCopyBypass(song, rel)
+		rel = ""
 	}
 	if rel != "" {
 		return openLocalPlaybackSegmentInput(c, encodeLocalMusicID(rel), "server")
