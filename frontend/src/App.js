@@ -13,7 +13,7 @@ import OfflineMusic from './components/OfflineMusic';
 import UserManagement from './components/UserManagement';
 import AuthGate from './components/AuthGate';
 import { onDownloadSearch } from './services/downloadBus';
-import { PlayerProvider, PlayerBar } from './contexts/PlayerContext';
+import { PlayerProvider, PlayerBar, usePlayer } from './contexts/PlayerContext';
 import { CollectionsProvider } from './contexts/CollectionsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ServerDownloadsProvider } from './contexts/ServerDownloadsContext';
@@ -46,6 +46,8 @@ const routeFromHash = () => {
 // AppShell:已登录后的主应用布局。
 function AppShell() {
   const { isAdmin, offline } = useAuth();
+  // 主滚动区底部留白取决于底栏实际占用(播放条/迷你条 + 提示行), 见 index.css 的 .app-main。
+  const { nowPlaying, notice } = usePlayer();
   const [route, setRoute] = useState(routeFromHash);
   const { section: currentSection, subPath: currentSubPath } = route;
   const [downloadRequest, setDownloadRequest] = useState(null);
@@ -84,7 +86,7 @@ function AppShell() {
   return (
     <>
       {/* app-shell:左侧固定栏 + 右侧(顶栏+滚动主区);底部播放条与移动 Tab 固定 */}
-      <div className="flex h-screen overflow-hidden bg-background text-foreground">
+      <div className="app-shell flex overflow-hidden bg-background text-foreground">
         <Sidebar currentSection={section} currentSubPath={activeSubPath} onNavigate={navigate} />
         <div className="flex-grow flex flex-col min-w-0">
           <TopBar currentSection={section} onNavigate={navigate} />
@@ -96,8 +98,9 @@ function AppShell() {
           )}
           <main
             id="app-main"
-            className="flex-grow overflow-y-auto app-scroll"
-            style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom))' }}
+            className={`flex-grow overflow-y-auto app-scroll app-main ${
+              nowPlaying ? 'app-main--playing' : ''
+            } ${notice ? 'app-main--notice' : ''}`}
           >
             <div className="container mx-auto px-4 md:px-6 py-6 max-w-6xl">
               {section === 'Home' && <HomeRecommendations />}

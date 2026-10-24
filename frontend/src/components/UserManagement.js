@@ -105,7 +105,7 @@ const UserManagement = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto pb-32">
+    <div className="max-w-4xl mx-auto">
       <h2 className="text-3xl font-semibold mb-2">用户管理</h2>
       <p className="text-muted-foreground mb-6 mt-3">管理账号、角色与开放注册开关。仅管理员可见。</p>
 

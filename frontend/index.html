@@ -4,7 +4,10 @@
     <meta charset="utf-8" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- viewport-fit=cover 是必须的: 全局多处用 env(safe-area-inset-*) 给刘海屏/底部
+         手势条留位(主滚动区、播放条、移动 Tab 栏)。没有 viewport-fit=cover 时, iOS 上
+         env(safe-area-inset-*) 恒为 0 —— 那些留白全部失效, 内容会被底部手势条压住。 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#181818" />
     <meta
       name="description"

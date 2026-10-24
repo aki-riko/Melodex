@@ -578,7 +578,7 @@ const Settings = () => {
   const tracks = localMusic.data?.tracks || [];
 
   return (
-    <div className="max-w-5xl mx-auto pb-32">
+    <div className="max-w-5xl mx-auto">
       <h2 className="text-3xl font-semibold mb-2 text-foreground">设置 · Settings</h2>
       <p className="text-muted-foreground mb-6 mt-3">
         {isAdmin

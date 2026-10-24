@@ -783,7 +783,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       {songs.length > 0 && (
         <>
           <SongListHeader />
-          <div className="space-y-0.5 pb-32">
+          <div className="space-y-0.5">
             {songs.map((song, idx) => (
               <SongRow
                 key={songIdentityKey(song)}
@@ -835,7 +835,7 @@ const DiscoverPane = ({ state, onOpen }) => {
   if (state.isError) return <p className="text-destructive font-bold">加载失败:{String(state.error?.message || state.error)}</p>;
   const tabs = state.data?.tabs || [];
   return (
-    <div className="space-y-8 pb-32">
+    <div className="space-y-8">
       <QueryRefreshProgress active={state.isFetching && tabs.length > 0 && !(state.data?.cached && state.data?.refreshing)} />
       <CacheRefreshNotice data={state.data} />
       {tabs.map((tab) => (
@@ -991,7 +991,7 @@ const RemoteCollectionDetailPane = ({ meta, kind = 'playlist', state, onBack, on
   const detailCover = detailCoverFailed ? '' : coverProxyUrl(meta);
 
   return (
-    <div className="pb-32">
+    <div>
       <button onClick={onBack} className="mb-4 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/80">← {isAlbum ? '返回搜索结果' : '返回推荐歌单'}</button>
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end">
         <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary">
