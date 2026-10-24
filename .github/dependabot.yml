@@ -20,3 +20,22 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # androidx.core 1.19.0 起要求 compileSdk >= 37,而本项目当前是 36
+      # (android/app/build.gradle.kts: compileSdk = 36 / targetSdk = 36)。
+      # 构建实测报错:checkDebugAarMetadata FAILED —
+      #   "Dependency 'androidx.core:core:1.19.0' requires ... compile against
+      #    version 37 or later of the Android APIs. :app is currently compiled
+      #    against android-36."
+      # 这是一次需要单独评估的 Android SDK 升级(要装 platforms;android-37,
+      # 并把 CI 里 "Install Android SDK 36" 同步改到 37,再验证 AGP/构建链),
+      # 不适合由 dependabot 顺手推进 —— 否则每周都会开一个必然失败的 PR。
+      #
+      # 正确升级顺序(届时一并移除下面两条 ignore):
+      #   1. android/app/build.gradle.kts: compileSdk / targetSdk → 37
+      #   2. .github/workflows/android-ci.yml: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+      #   3. 本地跑一次 assembleDebug 确认通过,再升级 androidx.core 依赖
+      - dependency-name: "androidx.core:core"
+        versions: ["[1.19.0,)"]
+      - dependency-name: "androidx.core:core-ktx"
+        versions: ["[1.19.0,)"]
