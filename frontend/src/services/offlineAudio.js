@@ -160,7 +160,7 @@ const fetchCoverBlob = async (song, signal) => {
 };
 
 export const cacheSong = async (song, { userId = 0, onProgress, signal } = {}) => {
-  if (!canCacheSong(song)) throw new Error('这首歌缺少来源或 ID,无法缓存到本机');
+  if (!canCacheSong(song)) throw new Error('这首歌缺少来源或 ID，无法缓存到本机');
 
   const normalized = normalizeOfflineSong(song);
   const key = offlineSongKey(song, userId);

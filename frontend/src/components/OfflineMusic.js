@@ -160,7 +160,7 @@ export default function OfflineMusic() {
       setEstimate(storage);
     } catch {
       setRecords([]);
-      feedback.error('离线缓存读取失败,请刷新后重试');
+      feedback.error('离线缓存读取失败，请刷新后重试');
     } finally {
       setLoading(false);
     }
@@ -185,15 +185,15 @@ export default function OfflineMusic() {
       if (deleted) setRecords((rows) => rows.filter((row) => row.key !== record.key));
       setEstimate(await getStorageEstimate());
     } catch {
-      feedback.error('删除本机缓存失败,请稍后重试');
+      feedback.error('删除本机缓存失败，请稍后重试');
     }
   };
 
   const handleClear = async () => {
     if (!records.length) return;
     const ok = await feedback.confirm({
-      title: '清空本机缓存?',
-      body: '只清空当前账号在此浏览器/PWA 的离线缓存,不会删除服务器的「已下载」文件。',
+      title: '清空本机缓存？',
+      body: '只清空当前账号在此浏览器/PWA 的离线缓存，不会删除服务器的「已下载」文件。',
       confirmLabel: '清空缓存',
       danger: true,
     });
@@ -204,7 +204,7 @@ export default function OfflineMusic() {
       setEstimate(await getStorageEstimate());
       feedback.success('本机缓存已清空');
     } catch {
-      feedback.error('清空本机缓存失败,请稍后重试');
+      feedback.error('清空本机缓存失败，请稍后重试');
     }
   };
 
@@ -213,9 +213,9 @@ export default function OfflineMusic() {
     try {
       const ok = await requestPersistentStorage();
       setEstimate(await getStorageEstimate());
-      if (!ok) feedback.warning('浏览器没有授予持久保存权限,缓存仍可使用,但空间紧张时可能被回收');
+      if (!ok) feedback.warning('浏览器没有授予持久保存权限，缓存仍可使用，但空间紧张时可能被回收');
     } catch {
-      feedback.error('请求持久保存失败,当前浏览器可能不支持');
+      feedback.error('请求持久保存失败，当前浏览器可能不支持');
     } finally {
       setPersisting(false);
     }
@@ -231,7 +231,7 @@ export default function OfflineMusic() {
     : formatBytes(estimate.usage);
   const persistText = estimate.persisted
     ? '浏览器已尽量保留本站缓存'
-    : '尚未获得持久保存权限,系统空间紧张时可能回收';
+    : '尚未获得持久保存权限，系统空间紧张时可能回收';
 
   return (
     <div>
@@ -303,7 +303,7 @@ export default function OfflineMusic() {
         <EmptyState
           icon={HardDriveDownload}
           title="还没有本机缓存"
-          description="在歌曲行的「更多操作」菜单里选「缓存到本机」,之后离线也能播放。"
+          description="在歌曲行的「更多操作」菜单里选「缓存到本机」，之后离线也能播放。"
         />
       )}
 

@@ -19,10 +19,10 @@ import LoadingState from './LoadingState';
 import DesktopLyricsSettings from './DesktopLyricsSettings';
 
 const SOURCE_NOTES = {
-  qq: 'QQ 音乐客户端强登录入口,用于换取 qm_keyst/qqmusic_key 等强凭证。',
-  qq_connect: '旧 QQ 入口可作为备用,但通常拿不到 QQ 音乐强凭证。',
-  qq_mobile: '客户端入口尝试换取 QQ 音乐强凭证;如果一直失败,请使用手填完整 Cookie。',
-  qq_wx: '微信入口共用 QQ 音乐凭证;登录成功后会更新 QQ 音乐 Cookie。退出或手填 Cookie 请使用 QQ音乐卡片。',
+  qq: 'QQ 音乐客户端强登录入口，用于换取 qm_keyst/qqmusic_key 等强凭证。',
+  qq_connect: '旧 QQ 入口可作为备用，但通常拿不到 QQ 音乐强凭证。',
+  qq_mobile: '客户端入口尝试换取 QQ 音乐强凭证；如果一直失败，请使用手填完整 Cookie。',
+  qq_wx: '微信入口共用 QQ 音乐凭证；登录成功后会更新 QQ 音乐 Cookie。退出或手填 Cookie 请使用 QQ音乐卡片。',
 };
 
 // 各源手填 Cookie 的获取指引:网址 + 关键字段
@@ -41,10 +41,10 @@ const COOKIE_HELP = {
 
 const STATUS_TEXT = {
   waiting: '等待扫码…',
-  scanned: '已扫码,请在手机上确认',
+  scanned: '已扫码，请在手机上确认',
   success: '登录成功 ✓',
-  expired: '二维码已过期,请重试',
-  failed: '登录失败,请重试',
+  expired: '二维码已过期，请重试',
+  failed: '登录失败，请重试',
 };
 
 const qrLoginNote = (source, result) => {
@@ -52,24 +52,24 @@ const qrLoginNote = (source, result) => {
   const extra = result.extra || {};
   if (source === 'qq' || source === 'qq_mobile' || source === 'qq_connect') {
     if (extra.credential_source === 'qq_connect_login' || extra.credential_source === 'qq_mobile_qr') {
-      return '已换取 QQ 音乐强凭证,可用于 VIP/无损链路。';
+      return '已换取 QQ 音乐强凭证，可用于 VIP/无损链路。';
     }
     if (extra.strong_login_error) {
-      return `扫码成功,但强凭证换取失败:${extra.strong_login_error}`;
+      return `扫码成功，但强凭证换取失败:${extra.strong_login_error}`;
     }
     if (extra.credential_source === 'redirect_cookie') {
-      return '扫码成功,但强凭证换取失败;这类 Cookie 可能只能拿普通音质。';
+      return '扫码成功，但强凭证换取失败；这类 Cookie 可能只能拿普通音质。';
     }
   }
   if (source === 'qq_wx') {
-    return '已保存 QQ 音乐微信登录凭证;能否拿无损以账号权限和 Cookie 实测为准。';
+    return '已保存 QQ 音乐微信登录凭证；能否拿无损以账号权限和 Cookie 实测为准。';
   }
   if (source === 'netease') {
     if (extra.credential_source === 'netease_qr_music_u') {
-      return '已换取网易云 MUSIC_U 强凭证,可用于会员/无损链路。';
+      return '已换取网易云 MUSIC_U 强凭证，可用于会员/无损链路。';
     }
     if (extra.strong_login_error) {
-      return `扫码成功,但网易云强凭证确认失败:${extra.strong_login_error}`;
+      return `扫码成功，但网易云强凭证确认失败:${extra.strong_login_error}`;
     }
   }
   return '';
@@ -82,9 +82,9 @@ const qrExtraFlag = (extra, key) => {
 
 const platformHint = (source, loggedIn, qrSupported) => {
   if (SOURCE_NOTES[source]) return SOURCE_NOTES[source];
-  if (!qrSupported) return '该平台暂不支持扫码,请粘贴网页版 Cookie。';
-  if (loggedIn) return '凭证已保存,会员链路会在验活与下载时自动使用。';
-  return '优先扫码登录;需要无损时可改用完整 Cookie。';
+  if (!qrSupported) return '该平台暂不支持扫码，请粘贴网页版 Cookie。';
+  if (loggedIn) return '凭证已保存，会员链路会在验活与下载时自动使用。';
+  return '优先扫码登录；需要无损时可改用完整 Cookie。';
 };
 
 const isQQCookieAlias = (source) => source === 'qq_wx' || source === 'qq_mobile' || source === 'qq_connect';
@@ -99,16 +99,16 @@ const missingQQStrongCredential = (source, detail) => (
 
 const credentialHint = (source, loggedIn, qrSupported, detail) => {
   if (!loggedIn) return platformHint(source, loggedIn, qrSupported);
-  if (detail?.error) return `已保存,但真实状态探测失败:${detail.error}`;
+  if (detail?.error) return `已保存，但真实状态探测失败:${detail.error}`;
   if (missingQQStrongCredential(source, detail)) {
-    return '已保存,但缺 QQ 音乐强凭证(qm_keyst/qqmusic_key),VIP/无损可能失效。';
+    return '已保存，但缺 QQ 音乐强凭证(qm_keyst/qqmusic_key),VIP/无损可能失效。';
   }
   if (detail?.vip_checked && detail.vip) return '真实探测:VIP 链路有效。';
   if (detail?.vip_checked && !detail.vip) {
     if ((source === 'qq' || isQQCookieAlias(source)) && detail?.hints?.has_music_key) {
-      return '真实探测未确认 VIP;下载时仍会先尝试 QQ 强凭证高音质,失败后再回退普通音质。';
+      return '真实探测未确认 VIP；下载时仍会先尝试 QQ 强凭证高音质，失败后再回退普通音质。';
     }
-    return '真实探测:会员链路不可用。平台 Cookie 是会过期的会话凭证,失效后只能重新扫码或手填新的 Cookie。';
+    return '真实探测:会员链路不可用。平台 Cookie 是会过期的会话凭证，失效后只能重新扫码或手填新的 Cookie。';
   }
   return platformHint(source, loggedIn, qrSupported);
 };
@@ -310,7 +310,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
           }
         } catch (e) {
           if (loginRunRef.current !== runID) return;
-          setStatusNote(e?.message || '登录状态检查失败,稍后会自动重试');
+          setStatusNote(e?.message || '登录状态检查失败，稍后会自动重试');
         }
       }, 2000);
       pollRef.current = timer;
@@ -376,7 +376,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             <button
               onClick={() => setShowManual(true)}
               className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="扫码拿不到无损时,可手动粘贴完整 Cookie"
+              title="扫码拿不到无损时，可手动粘贴完整 Cookie"
             >
               <KeyRound size={14} />
               <span className="truncate">手填</span>
@@ -401,7 +401,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
                 <p className="font-semibold">{sourceLabel(source)} 扫码登录</p>
-                <p className="text-xs text-muted-foreground">{STATUS_TEXT[status] || status || '正在生成二维码...'}</p>
+                <p className="text-xs text-muted-foreground">{STATUS_TEXT[status] || status || '正在生成二维码…'}</p>
               </div>
               <button onClick={closeQRSession} className="text-muted-foreground transition-colors hover:text-foreground" aria-label="关闭二维码">
                 <X size={20} />
@@ -436,19 +436,19 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                         disabled={sodaSMSBusy}
                         className="mt-3 rounded-md border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
                       >
-                        {sodaSMSBusy ? '确认中...' : '我已发送'}
+                        {sodaSMSBusy ? '确认中…' : '我已发送'}
                       </button>
                     </>
                   ) : (
                     <>
-                      <p>{sodaSMS.codeSent ? `验证码已发送${sodaSMS.mobile ? `至 ${sodaSMS.mobile}` : ''}` : `扫码成功${sodaSMS.mobile ? `,可发送验证码至 ${sodaSMS.mobile}` : ',需要短信验证'}`}</p>
+                      <p>{sodaSMS.codeSent ? `验证码已发送${sodaSMS.mobile ? `至 ${sodaSMS.mobile}` : ''}` : `扫码成功${sodaSMS.mobile ? `,可发送验证码至 ${sodaSMS.mobile}` : '，需要短信验证'}`}</p>
                       {!sodaSMS.codeSent && (
                         <button
                           onClick={sendSodaSMS}
                           disabled={sodaSMSBusy}
                           className="mt-3 rounded-md border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
                         >
-                          {sodaSMSBusy ? '发送中...' : '发送验证码'}
+                          {sodaSMSBusy ? '发送中…' : '发送验证码'}
                         </button>
                       )}
                       {sodaSMS.codeSent && (
@@ -464,7 +464,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                             disabled={sodaSMSBusy}
                             className="rounded-md border border-primary bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"
                           >
-                            {sodaSMSBusy ? '验证中...' : '确认'}
+                            {sodaSMSBusy ? '验证中…' : '确认'}
                           </button>
                         </div>
                       )}
@@ -582,7 +582,7 @@ const Settings = () => {
       <h2 className="text-3xl font-semibold mb-2 text-foreground">设置 · Settings</h2>
       <p className="text-muted-foreground mb-6 mt-3">
         {isAdmin
-          ? '扫码登录各平台以解锁会员/无损音质(全局共享),管理你的本地音乐。'
+          ? '扫码登录各平台以解锁会员/无损音质(全局共享)，管理你的本地音乐。'
           : '管理你的本地音乐。平台会员登录由管理员统一配置。'}
       </p>
 

@@ -37,7 +37,7 @@ export default function AddToPlaylistModal() {
       })
       .catch((err) => {
         console.warn('加入歌单后的自动保存失败', err);
-        feedback.warning('已加入歌单,但没能存到服务器,可稍后单独下载');
+        feedback.warning('已加入歌单，但没能存到服务器，可稍后单独下载');
       });
   };
 
@@ -69,7 +69,7 @@ export default function AddToPlaylistModal() {
         await addSong(c.id, addTarget);
         autoDownload(addTarget);
         setDone(c.id);
-        feedback.success('歌单已创建,歌曲已加入');
+        feedback.success('歌单已创建，歌曲已加入');
         window.setTimeout(close, 700);
       }
     } catch (err) {

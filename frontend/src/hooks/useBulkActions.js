@@ -48,14 +48,14 @@ export function useBulkActions({ taskKey, songs = [], scopePrefix = 'bulk' }) {
       });
       if (result.statusError) {
         // 读不到服务器已下载状态时不能盲目开下(会重复下载整张专辑)
-        feedback.error('读取服务器已下载状态失败,未开始下载,请重试');
+        feedback.error('读取服务器已下载状态失败，未开始下载，请重试');
         return;
       }
       const { done = 0, fail = 0, skipped = 0 } = result;
       if (fail > 0) {
-        feedback.error(`下载完成:成功 ${done} 首,失败 ${fail} 首${skipped ? `,跳过 ${skipped} 首` : ''}`);
+        feedback.error(`下载完成:成功 ${done} 首，失败 ${fail} 首${skipped ? `,跳过 ${skipped} 首` : ''}`);
       } else if (skipped > 0) {
-        feedback.info(`已全部在服务器上,跳过 ${skipped} 首`);
+        feedback.info(`已全部在服务器上，跳过 ${skipped} 首`);
       } else {
         feedback.success(`已下载 ${done} 首到服务器`);
       }
@@ -85,7 +85,7 @@ export function useBulkActions({ taskKey, songs = [], scopePrefix = 'bulk' }) {
       }
       update({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
       if (fail > 0) {
-        feedback.error(`缓存完成:新增 ${done} 首,失败 ${fail} 首`);
+        feedback.error(`缓存完成:新增 ${done} 首，失败 ${fail} 首`);
       } else if (done === 0) {
         feedback.info(`都已在本次缓存中${skipped ? `(共 ${skipped} 首)` : ''}`);
       } else {
@@ -115,11 +115,11 @@ export function useBulkActions({ taskKey, songs = [], scopePrefix = 'bulk' }) {
           update({ phase: 'running', done, fail, total, collectionId });
         }
         update({ phase: fail ? 'fail' : 'done', done, fail, total, collectionId });
-        if (fail) feedback.warning(`已创建歌单,但 ${fail} 首加入失败`);
+        if (fail) feedback.warning(`已创建歌单，但 ${fail} 首加入失败`);
         else feedback.success(`已加入我的歌单(${done} 首)`);
       } catch {
         update({ phase: 'fail', done, fail: total || 1, total, collectionId: null });
-        feedback.error('加入我的歌单失败,请稍后重试');
+        feedback.error('加入我的歌单失败，请稍后重试');
       }
     });
   }, [songs, offline, bulkCopy.phase, copyTasks, taskKey, feedback, create, addSong]);

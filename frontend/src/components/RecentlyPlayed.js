@@ -52,13 +52,13 @@ export default function RecentlyPlayed() {
     });
     if (!started) return;
     if (finalResult?.statusError) {
-      feedback.error('读取服务器已下载状态失败,未开始下载,请重试');
+      feedback.error('读取服务器已下载状态失败，未开始下载，请重试');
     } else if (finalResult?.authChanged || finalResult?.aborted) {
       feedback.error(serverDownloadBatchSummary(finalResult));
     } else if (finalResult?.fail) {
       feedback.error(`下载完成:${serverDownloadBatchSummary(finalResult)}`);
     } else if (!finalResult?.done && finalResult?.skipped) {
-      feedback.info(`无需重复下载,已跳过 ${finalResult.skipped} 首`);
+      feedback.info(`无需重复下载，已跳过 ${finalResult.skipped} 首`);
     } else {
       feedback.success(`下载完成:${serverDownloadBatchSummary(finalResult)}`);
     }
@@ -74,8 +74,8 @@ export default function RecentlyPlayed() {
   const handleClearAll = async () => {
     if (!songs.length) return;
     const ok = await feedback.confirm({
-      title: '清空最近播放?',
-      body: '只删除播放记录,不会删除歌曲文件或歌单。',
+      title: '清空最近播放？',
+      body: '只删除播放记录，不会删除歌曲文件或歌单。',
       confirmLabel: '清空',
       danger: true,
     });
@@ -85,7 +85,7 @@ export default function RecentlyPlayed() {
       qc.invalidateQueries(['play-history']);
       feedback.success('最近播放已清空');
     } catch {
-      feedback.error('清空最近播放失败,请稍后重试');
+      feedback.error('清空最近播放失败，请稍后重试');
     }
   };
 
@@ -160,7 +160,7 @@ export default function RecentlyPlayed() {
         <EmptyState
           icon={Clock}
           title="还没有播放记录"
-          description="在「找歌」或歌单里播放任意一首,这里就会留下记录。"
+          description="在「找歌」或歌单里播放任意一首，这里就会留下记录。"
         />
       )}
 

@@ -77,8 +77,8 @@ export default function LocalMusic() {
   // 删除是不可撤销的服务器文件操作:先确认,失败要看得见,并做乐观回滚。
   const handleDelete = async (song) => {
     const ok = await feedback.confirm({
-      title: '从服务器删除这首歌?',
-      body: `「${song.name || '这首歌'}」的文件会从下载目录移除,无法恢复。`,
+      title: '从服务器删除这首歌？',
+      body: `「${song.name || '这首歌'}」的文件会从下载目录移除，无法恢复。`,
       confirmLabel: '删除',
       danger: true,
     });
@@ -228,7 +228,7 @@ export default function LocalMusic() {
         <EmptyState
           icon={Download}
           title="服务器上还没有歌"
-          description="在「找歌」里把歌存到服务器,或在这里直接上传音频文件。"
+          description="在「找歌」里把歌存到服务器，或在这里直接上传音频文件。"
           action={(
             <Button variant="primary" onClick={() => { window.location.hash = 'download'; }}>
               去找歌

@@ -79,7 +79,7 @@ const DesktopLyricsSettings = () => {
     } catch (requestError) {
       console.warn('移除桌面歌词设备失败', requestError);
       setError(requestError?.response?.data?.error || requestError?.message || '移除设备失败');
-      feedback.error('移除设备失败,请稍后重试');
+      feedback.error('移除设备失败，请稍后重试');
     }
   };
 

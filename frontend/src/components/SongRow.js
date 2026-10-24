@@ -453,7 +453,7 @@ const SongRow = ({
               <Badge key={label} tone="ok">{label}</Badge>
             ))}
             {(cacheState === 'fail' || dlState === 'fail') && (
-              <Badge tone="bad" title="上次操作失败,点行内按钮或菜单可重试">失败</Badge>
+              <Badge tone="bad" title="上次操作失败，点行内按钮或菜单可重试">失败</Badge>
             )}
             <span className="type-micro text-muted-foreground/80">{sourceLabel(rowSong.source)}</span>
             {sizeLabel && <span className="type-micro nums">{sizeLabel}</span>}
@@ -538,7 +538,7 @@ const SongRow = ({
         <MenuItem
           icon={dlState === 'done' ? Check : dlState === 'fail' ? RotateCw : Download}
           label={dlState === 'done' ? '已存到服务器' : dlState === 'fail' ? '重试存到服务器' : '存到服务器'}
-          hint="长期保存进 NAS 曲库,任何设备可听"
+          hint="长期保存进 NAS 曲库，任何设备可听"
           onClick={runMenuAction(handleDownload)}
           disabled={offline || dlState === 'saving' || dlState === 'done'}
           busy={dlState === 'saving'}
@@ -548,7 +548,7 @@ const SongRow = ({
           <MenuItem
             icon={cacheState === 'done' ? Check : cacheState === 'fail' ? RotateCw : HardDriveDownload}
             label={cacheState === 'done' ? '已缓存到本机' : cacheState === 'fail' ? '重试缓存到本机' : '缓存到本机'}
-            hint="存进当前浏览器,可离线听"
+            hint="存进当前浏览器，可离线听"
             onClick={runMenuAction(handleCache)}
             disabled={offline || cacheState === 'saving' || cacheState === 'done'}
             busy={cacheState === 'saving'}

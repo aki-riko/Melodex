@@ -332,7 +332,7 @@ const WebPlayerProvider = ({ children }) => {
         })) {
           if (audio.paused) setIsPaused(true);
           if (err?.name === 'NotAllowedError') {
-            setNotice(`「${song.name}」未能自动续播,请在锁屏播放器点一次播放。`);
+            setNotice(`「${song.name}」未能自动续播，请在锁屏播放器点一次播放。`);
           }
           return;
         }
@@ -359,7 +359,7 @@ const WebPlayerProvider = ({ children }) => {
     if (!src) {
       resetAudioElement(audio);
       setIsPaused(true);
-      setNotice(`「${song.name}」还没有缓存到本机,离线模式无法播放。`);
+      setNotice(`「${song.name}」还没有缓存到本机，离线模式无法播放。`);
       return;
     }
     pauseReasonRef.current = 'source_change';
@@ -389,7 +389,7 @@ const WebPlayerProvider = ({ children }) => {
       } catch (err) {
         if (seq === playSeqRef.current) {
           setIsPaused(true);
-          setNotice(`「${song.name}」未能自动续播,请在锁屏播放器点一次播放。`);
+          setNotice(`「${song.name}」未能自动续播，请在锁屏播放器点一次播放。`);
         }
         reportPlaybackDiagnostic(buildPlayerDiagnostic({
           event: 'autoplay_rejected',
@@ -614,7 +614,7 @@ const WebPlayerProvider = ({ children }) => {
           const pendingTimer = { ...timer, pendingEndOfTrack: true };
           sleepTimerRef.current = pendingTimer;
           setSleepTimer(pendingTimer);
-          setNotice('睡眠定时已到点,播完当前歌曲后停止。');
+          setNotice('睡眠定时已到点，播完当前歌曲后停止。');
         }
         return;
       }
@@ -1160,7 +1160,7 @@ const WebPlayerProvider = ({ children }) => {
     }
 
     if (!offline && ['cache', 'cache_preload'].includes(audio?.dataset?.sourceKind)) {
-      setNotice(`「${cur.name}」本机音频无法播放,正在重新拉取当前源…`);
+      setNotice(`「${cur.name}」本机音频无法播放，正在重新拉取当前源…`);
       if (['cache', 'cache_preload'].includes(audio?.dataset?.sourceKind)) {
         try {
           await deleteCachedSong(cur, userId);
@@ -1187,7 +1187,7 @@ const WebPlayerProvider = ({ children }) => {
           audio.load();
         } catch { /* ignore */ }
         setIsPaused(true);
-        setNotice('登录状态已失效,请重新登录后再播放。');
+        setNotice('登录状态已失效，请重新登录后再播放。');
         return;
       }
     }
@@ -1196,7 +1196,7 @@ const WebPlayerProvider = ({ children }) => {
     const canSwitchSource = !offline && cur.source && cur.source !== 'local' && cur.name && !switchTriedRef.current.has(switchKey);
     if (canSwitchSource) {
       switchTriedRef.current.add(switchKey);
-      setNotice(`「${cur.name}」当前源无法播放,正在自动换源…`);
+      setNotice(`「${cur.name}」当前源无法播放，正在自动换源…`);
       try {
         const replacement = await switchSongSource(cur);
         const replacementKey = songIdentityKey(replacement);
@@ -1227,7 +1227,7 @@ const WebPlayerProvider = ({ children }) => {
     const idx = list.findIndex((s) => songIdentityKey(s) === curKey);
     const nxt = list.slice(idx + 1).find((s) => !triedRef.current.has(songIdentityKey(s)));
     if (nxt) {
-      setNotice(`「${cur.name}」该源无法播放,已自动切换…`);
+      setNotice(`「${cur.name}」该源无法播放，已自动切换…`);
       startPlay(nxt);
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
