@@ -86,8 +86,24 @@ function AppShell() {
 
   return (
     <>
-      {/* 键盘用户第一个 Tab 就能跳过侧栏直达主内容(全站此前无此能力) */}
-      <a href="#app-main" className="skip-link">跳到主内容</a>
+      {/* 键盘用户第一个 Tab 就能跳过侧栏直达主内容(全站此前无此能力)。
+          注意不能只靠 href="#app-main":本应用是哈希路由,改 hash 会触发
+          hashchange → routeFromHash() 不认识 app-main → 兜底回 Home,
+          用户按"跳到主内容"反而被弹回首页、还丢掉 #myplaylist/<id> 深链接。
+          所以这里 preventDefault,只做"聚焦 + 滚到顶"。 */}
+      <a
+        href="#app-main"
+        className="skip-link"
+        onClick={(event) => {
+          event.preventDefault();
+          const main = document.getElementById('app-main');
+          if (!main) return;
+          main.focus();
+          main.scrollTo({ top: 0, behavior: 'auto' });
+        }}
+      >
+        跳到主内容
+      </a>
       {/* app-shell:左侧固定栏 + 右侧(顶栏+滚动主区);底部播放条与移动 Tab 固定 */}
       <div className="app-shell flex overflow-hidden bg-background text-foreground">
         <Sidebar currentSection={section} currentSubPath={activeSubPath} onNavigate={navigate} />

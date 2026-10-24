@@ -386,7 +386,12 @@ const SongRow = ({
     if (!isCoarse) onPlay(rowSong);
   };
   const handleRowKeyDown = (event) => {
-    // 键盘用户此前无法触发播放(整行是 div + onClick)
+    // 键盘用户此前无法触发播放(整行是 div + onClick)。
+    //
+    // 必须排除事件来自行内按钮:整行是 onKeyDown 容器,而收藏/更多/封面按钮是它的
+    // 子元素。若不加这条判断,在「收藏」上按 Enter 会既切换收藏、又触发播放;
+    // 按空格则会被这里的 preventDefault 吃掉,导致按钮「按了没反应但开始播放」。
+    if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       onPlay(rowSong);
