@@ -186,6 +186,65 @@ func TestLyricSearchSourcesIncludeQQ(t *testing.T) {
 	}
 }
 
+// QQ 的 musickey 只有 3 天寿命; sidecar 会自动续期并把新 cookie 放在 refreshed_cookie
+// 里回传。这条测试锁死"续期结果必须落库", 否则下次请求又会拿过期 cookie 去打上游。
+func TestSearchPersistsRefreshedCookie(t *testing.T) {
+	resetProviderBridgeStateForTest()
+	defer resetProviderBridgeStateForTest()
+
+	const refreshed = "musickey=NEWKEY; keyExpiresIn=259200"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"songs":            []providermodel.Track{{ID: "song-1", Source: "qq", Name: "晴天"}},
+			"refreshed_cookie": refreshed,
+		})
+	}))
+	defer server.Close()
+	t.Setenv(providerBridgeURLEnv, server.URL)
+
+	previous := CM.Get("qq")
+	defer func() {
+		CM.SetAll(map[string]string{"qq": previous})
+		CM.Save()
+	}()
+	CM.SetAll(map[string]string{"qq": "musickey=OLD"})
+
+	if _, err := searchProviderSongsWithType("qq", "周杰伦 晴天", "musickey=OLD", providerSearchTypeSong); err != nil {
+		t.Fatal(err)
+	}
+	if got := CM.Get("qq"); got != refreshed {
+		t.Fatalf("续期后的 cookie 未落库: got %q, want %q", got, refreshed)
+	}
+}
+
+// 没有续期时不得写库(否则每次搜索都会开一次 DB 事务)。
+func TestSearchSkipsPersistenceWhenCookieUnchanged(t *testing.T) {
+	resetProviderBridgeStateForTest()
+	defer resetProviderBridgeStateForTest()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"songs": []providermodel.Track{{ID: "song-1", Source: "qq", Name: "晴天"}},
+		})
+	}))
+	defer server.Close()
+	t.Setenv(providerBridgeURLEnv, server.URL)
+
+	previous := CM.Get("qq")
+	defer func() {
+		CM.SetAll(map[string]string{"qq": previous})
+		CM.Save()
+	}()
+	CM.SetAll(map[string]string{"qq": "musickey=SAME"})
+
+	if _, err := searchProviderSongsWithType("qq", "周杰伦 晴天", "musickey=SAME", providerSearchTypeSong); err != nil {
+		t.Fatal(err)
+	}
+	if got := CM.Get("qq"); got != "musickey=SAME" {
+		t.Fatalf("未续期时不该改动 cookie: got %q", got)
+	}
+}
+
 func resetProviderBridgeStateForTest() {
 	providerBridgeClientMu.Lock()
 	providerBridgeClientURL = ""
