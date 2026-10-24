@@ -68,6 +68,16 @@ class NativeShellContractTests(unittest.TestCase):
         self.assertIn("model: Player.queue", drawer)
         self.assertIn("currentIndex: Player.queueIndex", drawer)
         self.assertIn("Player.playQueueIndex(index)", drawer)
+        for text_binding in (
+            'text: modelData.name || "未知歌曲"',
+            'text: modelData.artist || "未知歌手"',
+        ):
+            label_start = drawer.index(text_binding)
+            label_end = drawer.index("\n                                }", label_start)
+            label_contract = drawer[label_start:label_end]
+            self.assertIn("wrapMode: Text.NoWrap", label_contract)
+            self.assertIn("maximumLineCount: 1", label_contract)
+            self.assertIn("elide: Text.ElideRight", label_contract)
         self.assertIn("Q_PROPERTY(QVariantList queue", header)
         self.assertIn("Q_PROPERTY(int queueIndex", header)
         self.assertIn("Q_INVOKABLE void playQueueIndex(int index)", header)

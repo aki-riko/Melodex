@@ -105,6 +105,8 @@ Fluent.Drawer {
                                           ? Fluent.Enums.label.type_body_strong
                                           : Fluent.Enums.label.type_body
                                     text: modelData.name || "未知歌曲"
+                                    wrapMode: Text.NoWrap
+                                    maximumLineCount: 1
                                     elide: Text.ElideRight
                                 }
 
@@ -113,6 +115,8 @@ Fluent.Drawer {
                                     type: Fluent.Enums.label.type_caption
                                     text: modelData.artist || "未知歌手"
                                     color: Fluent.Enums.secondaryForeground
+                                    wrapMode: Text.NoWrap
+                                    maximumLineCount: 1
                                     elide: Text.ElideRight
                                 }
                             }
