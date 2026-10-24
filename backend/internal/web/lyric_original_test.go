@@ -206,3 +206,54 @@ func TestAugmentLyricSearchOriginalsDeduplicatesQueries(t *testing.T) {
 		t.Fatalf("补搜次数 = %d, 相同查询词应只搜 1 次", got)
 	}
 }
+func TestInferredOriginalFromQuotedTitleRejectsMultiPair(t *testing.T) {
+	cases := []struct {
+		name       string
+		wantOK     bool
+		wantArtist string
+		wantTitle  string
+	}{
+		// 正常单对: 歌手《歌名》
+		{"艾辰《错位时空》", true, "艾辰", "错位时空"},
+		// 双对(实测触发过): LastIndex 会抽出 "打上花火》和《病名为爱" 这种垃圾标题
+		// 然后拿它去搜 7 个源, 白耗 2.5s。
+		{"V.A. - 《打上花火》和《病名为爱》其实是一首歌", false, "", ""},
+		{"《A》《B》", false, "", ""},
+		{"无书名号", false, "", ""},
+		{"《只有书名号》", false, "", ""},
+	}
+	for _, c := range cases {
+		artist, title, ok := inferredOriginalFromQuotedTitle(c.name)
+		if ok != c.wantOK {
+			t.Fatalf("%q: ok=%v, want %v (artist=%q title=%q)", c.name, ok, c.wantOK, artist, title)
+		}
+		if ok {
+			if artist != c.wantArtist || title != c.wantTitle {
+				t.Fatalf("%q: artist=%q title=%q, want %q/%q", c.name, artist, title, c.wantArtist, c.wantTitle)
+			}
+		}
+	}
+}
+
+// 「推断原唱」补搜默认关闭。
+//
+// 它的启发式在真实数据上大量误判(年轮《0.8X》→ 搜 "0.8X 年轮";
+// 凉凉 (《三生三世十里桃花》电视剧片尾曲) → 搜 "三生三世十里桃花 凉凉 ("), 而补搜是
+// **串行**再等一次完整多源搜索, 实测让歌词检索从 1.5s 变成 2.5~3s。
+// 同时歌曲检索本来就会返回原唱(年轮→汪苏泷/张碧晨, 凉凉→张碧晨/杨宗纬), 价值有限。
+func TestLyricInferOriginalDisabledByDefault(t *testing.T) {
+	t.Setenv("MELODEX_LYRIC_INFER_ORIGINAL", "")
+	if lyricInferOriginalEnabled() {
+		t.Fatal("默认必须关闭 —— 否则每次歌词检索都要多等一次串行补搜")
+	}
+	for _, on := range []string{"1", "true", "yes", "on", "ON"} {
+		t.Setenv("MELODEX_LYRIC_INFER_ORIGINAL", on)
+		if !lyricInferOriginalEnabled() {
+			t.Fatalf("%q 应被识别为开启", on)
+		}
+	}
+	t.Setenv("MELODEX_LYRIC_INFER_ORIGINAL", "0")
+	if lyricInferOriginalEnabled() {
+		t.Fatal("0 应为关闭")
+	}
+}
