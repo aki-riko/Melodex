@@ -6,6 +6,7 @@ import {
   FileText,
   HardDriveDownload,
   Heart,
+  ListPlus,
   Music,
   Pause,
   Play,
@@ -26,6 +27,7 @@ import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useServerDownloads } from '../contexts/ServerDownloadsContext';
 import { useFeedback } from '../contexts/FeedbackContext';
+import { useInViewport } from '../hooks/useInViewport';
 import { sourceLabel } from '../utils/sourceLabels';
 import { normalizeSong } from '../utils/songFields';
 import { songIdentityKey } from '../utils/songIdentity';
@@ -206,6 +208,9 @@ const SongRow = ({
   const [manualLiveInfo, setManualLiveInfo] = useState(null);
   const [openMenu, setOpenMenu] = useState(false);
   const menuBtnRef = useRef(null);
+  // 行是否已进入(或即将进入)视口。收藏 / 本机缓存这两个状态查询都按它加门闩:
+  // 「已下载」页 600+ 首、最近播放 500 首,全量挂载时不该一次性打上千次查询。
+  const [rowRef, inView] = useInViewport();
 
   const cacheable = canCacheSong(rowSong);
   const effectiveLiveInfo = manualLiveInfo || liveInfo;
@@ -232,6 +237,9 @@ const SongRow = ({
 
   useEffect(() => {
     if (!cacheable) { setCacheState(''); return undefined; }
+    // 视口门闩:没进过视口的行不查 IndexedDB。滚进来的那一刻 inView 变 true,
+    // 本 effect 会重跑一次,徽章照旧能正确显示。
+    if (!inView) return undefined;
     let cancelled = false;
     const key = offlineSongKey(rowSong, userId);
     const refresh = () => {
@@ -250,12 +258,15 @@ const SongRow = ({
       cancelled = true;
       window.removeEventListener(OFFLINE_AUDIO_CHANGED, onChanged);
     };
-  }, [cacheable, rowSong, userId]);
+  }, [cacheable, inView, rowSong, userId]);
 
   useEffect(() => {
     if (offline || !rowSong.id || !rowSong.source) { setFavorited(false); return undefined; }
     const cached = favoriteStatusCache.get(favoriteCacheKey);
     if (cached != null) { setFavorited(cached); return undefined; }
+    // 视口门闩:合批接口 offer 到 /music/favorites/status_batch,进视口才问。
+    // 命中本地缓存的行(上面刚 return)不需要等 inView,收藏态本来就是对的。
+    if (!inView) return undefined;
     let cancelled = false;
     getFavoriteStatus(rowSong)
       .then((ok) => {
@@ -264,7 +275,7 @@ const SongRow = ({
       })
       .catch(() => { if (!cancelled) setFavorited(false); });
     return () => { cancelled = true; };
-  }, [favoriteCacheKey, offline, rowSong]);
+  }, [favoriteCacheKey, inView, offline, rowSong]);
 
   const closeMenu = () => setOpenMenu(false);
 
@@ -393,6 +404,7 @@ const SongRow = ({
 
   return (
     <div
+      ref={rowRef}
       onClick={handleRowClick}
       onDoubleClick={handleRowDouble}
       onKeyDown={handleRowKeyDown}

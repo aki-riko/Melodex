@@ -17,6 +17,14 @@ import { cn } from '../ui/cn';
 
 const UNKNOWN_ALBUM = '未知专辑';
 
+// 每页曲目数。旧实现用 `limit: 0` 一次拉全量(实测 632 首),首屏要等整库序列化完才出第一行;
+// 现在首屏只要 100 首,其余用「加载更多」按 offset 增量追加。
+const PAGE_SIZE = 100;
+
+// 跨页去重键:与 SongRow 的 key 取法一致。删除一页后 offset 会前移,
+// 极端情况下后端可能返回已加载过的行,靠它兜住重复渲染。
+const trackKey = (t) => songIdentityKey(t) || `${t?.source}-${t?.id}`;
+
 // 把曲目按「专辑 + 专辑艺人」聚合。
 // 旧实现只按 album 名分组,不同艺人的「未知专辑」会被合并成一张。
 function groupByAlbum(tracks) {
@@ -64,15 +72,60 @@ export default function LocalMusic() {
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState('songs');
   const [openAlbum, setOpenAlbum] = useState(null);
-  const localMusic = useQuery(['local-music-page'], () => getLocalMusic({ limit: 0 }), { staleTime: 0 });
+  // 第一页仍走原来的 ['local-music-page'] 查询,这样 useCachedRefresh(后台扫描跑完自动补拉)
+  // 与 qc.invalidateQueries(['local-music-page']) 的行为完全不变;
+  // 后续页只做增量追加,刷新时清空回到第一页(可接受)。
+  const localMusic = useQuery(['local-music-page'], () => getLocalMusic({ limit: PAGE_SIZE }), { staleTime: 0 });
   useCachedRefresh(localMusic);
   const { data, isLoading, isFetching } = localMusic;
   const primaryLoading = isLoading || (!data && isFetching);
+  const [extraTracks, setExtraTracks] = useState([]);
+  const [extraHasMore, setExtraHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const tracks = useMemo(() => data?.tracks || [], [data]);
+  const baseTracks = useMemo(() => data?.tracks || [], [data]);
+  // 合并第一页与增量页。服务端排序在两次请求之间可能变动(新文件落盘、删除),
+  // 所以按身份键去重,避免同一首因 offset 前移而重复渲染。
+  const tracks = useMemo(() => {
+    const seen = new Set();
+    const merged = [];
+    for (const t of [...baseTracks, ...extraTracks]) {
+      const key = trackKey(t);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(t);
+    }
+    return merged;
+  }, [baseTracks, extraTracks]);
   const albums = useMemo(() => groupByAlbum(tracks), [tracks]);
+  const totalCount = Number(data?.total) || tracks.length;
+  // 还没追加过增量页时,「是否还有」以第一页响应为准;追加过后以最后一页为准。
+  const hasMore = extraTracks.length > 0 ? extraHasMore : !!data?.has_more;
 
-  const refresh = () => { qc.invalidateQueries(['local-music-page']); setOpenAlbum(null); };
+  // 刷新:第一页重新拉,增量页清空(重新扫描后回到第一页是可接受的)。
+  const refresh = () => {
+    setExtraTracks([]);
+    setExtraHasMore(false);
+    setOpenAlbum(null);
+    qc.invalidateQueries(['local-music-page']);
+  };
+
+  const loadMore = async () => {
+    if (loadingMore) return;
+    // offset 用「已请求过的条数」而不是去重后的条数:后者会漏掉因去重被折叠的位置。
+    const offset = baseTracks.length + extraTracks.length;
+    setLoadingMore(true);
+    try {
+      const page = await getLocalMusic({ offset, limit: PAGE_SIZE });
+      const next = page?.tracks || [];
+      setExtraTracks((prev) => [...prev, ...next]);
+      setExtraHasMore(!!page?.has_more);
+    } catch (err) {
+      feedback.error(`加载更多失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // 删除是不可撤销的服务器文件操作:先确认,失败要看得见,并做乐观回滚。
   const handleDelete = async (song) => {
@@ -87,6 +140,8 @@ export default function LocalMusic() {
       await deleteLocalMusic(song.id);
       qc.setQueryData(['local-music-page'], (prev) =>
         prev ? { ...prev, tracks: (prev.tracks || []).filter((t) => t.id !== song.id) } : prev);
+      // 增量页也要同步移除,否则删掉第 2 页某首后它仍留在合并列表里。
+      setExtraTracks((prev) => prev.filter((t) => t.id !== song.id));
       setOpenAlbum((a) => (a ? { ...a, songs: a.songs.filter((t) => t.id !== song.id) } : a));
       feedback.success('已从服务器删除');
     } catch (err) {
@@ -168,7 +223,18 @@ export default function LocalMusic() {
           <p className="type-micro uppercase tracking-wider text-muted-foreground">服务器音乐</p>
           <h1 className="mt-0.5 type-hero text-foreground">已下载到服务器</h1>
           <p className="mt-1 type-caption text-muted-foreground">
-            <span className="nums">{tracks.length}</span> 首 · <span className="nums">{albums.length}</span> 张专辑
+            {/* 分页后列表里只有已加载的部分,所以明确写「已加载」;库里还有更多时把总数摆出来,
+                不能让用户把当前条数误当成曲库全量。 */}
+            {hasMore ? (
+              <>
+                已加载 <span className="nums">{tracks.length}</span> / <span className="nums">{totalCount}</span> 首 ·{' '}
+                <span className="nums">{albums.length}</span> 张专辑
+              </>
+            ) : (
+              <>
+                <span className="nums">{tracks.length}</span> 首 · <span className="nums">{albums.length}</span> 张专辑
+              </>
+            )}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button variant="primary" onClick={() => tracks.length && play(tracks[0], tracks)} disabled={!tracks.length}>
@@ -243,7 +309,7 @@ export default function LocalMusic() {
           <div className="space-y-0.5">
             {tracks.map((song, i) => (
               <SongRow
-                key={songIdentityKey(song) || `${song.source}-${song.id}`}
+                key={trackKey(song)}
                 song={song}
                 index={i}
                 isPlaying={isPlaying(song)}
@@ -258,6 +324,8 @@ export default function LocalMusic() {
           </div>
         </>
       )}
+
+      {/* 「加载更多」两个视图共用一个入口:专辑视图按已加载曲目聚合,补页后专辑会跟着变多。 */}
 
       {view === 'albums' && tracks.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
@@ -296,6 +364,18 @@ export default function LocalMusic() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 「加载更多」两个视图共用一个入口:专辑视图按已加载曲目聚合,补页后专辑会跟着变多。 */}
+      {tracks.length > 0 && hasMore && (
+        <div className="mt-4 flex flex-col items-center gap-1.5">
+          <Button variant="outline" onClick={loadMore} loading={loadingMore} disabled={loadingMore}>
+            加载更多
+          </Button>
+          <p className="type-micro text-muted-foreground">
+            已加载 <span className="nums">{tracks.length}</span> 首，还有 <span className="nums">{Math.max(0, totalCount - tracks.length)}</span> 首
+          </p>
         </div>
       )}
     </div>
