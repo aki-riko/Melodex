@@ -21,6 +21,7 @@ import { FeedbackProvider } from './contexts/FeedbackContext';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import HelpPage from './components/HelpPage';
 import LoadingState from './components/LoadingState';
+import ErrorBoundary from './ui/ErrorBoundary';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,20 +86,23 @@ function AppShell() {
 
   return (
     <>
+      {/* 键盘用户第一个 Tab 就能跳过侧栏直达主内容(全站此前无此能力) */}
+      <a href="#app-main" className="skip-link">跳到主内容</a>
       {/* app-shell:左侧固定栏 + 右侧(顶栏+滚动主区);底部播放条与移动 Tab 固定 */}
       <div className="app-shell flex overflow-hidden bg-background text-foreground">
         <Sidebar currentSection={section} currentSubPath={activeSubPath} onNavigate={navigate} />
         <div className="flex-grow flex flex-col min-w-0">
           <TopBar currentSection={section} onNavigate={navigate} />
           {offline && (
-            <div className="flex items-center gap-2 border-b border-primary/30 bg-primary/10 px-4 md:px-6 py-2 text-sm text-primary">
-              <WifiOff size={16} />
+            <div className="flex items-center gap-2 border-b border-primary/30 bg-primary/10 px-4 md:px-6 py-2 type-caption text-primary">
+              <WifiOff size={16} aria-hidden="true" />
               <span>离线模式:只播放本机缓存</span>
             </div>
           )}
           <main
             id="app-main"
-            className={`flex-grow overflow-y-auto app-scroll app-main ${
+            tabIndex={-1}
+            className={`flex-grow overflow-y-auto scroll-area app-main ${
               nowPlaying ? 'app-main--playing' : ''
             } ${notice ? 'app-main--notice' : ''}`}
           >
@@ -155,13 +159,17 @@ function AuthedApp() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <FeedbackProvider>
-          <AuthedApp />
-        </FeedbackProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    // ErrorBoundary 必须在最外层:任何 Provider 内部组件渲染抛错都要被兜住,
+    // 否则整棵树卸载 → 白屏(历史上真实发生过)。
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <FeedbackProvider>
+            <AuthedApp />
+          </FeedbackProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -18,28 +18,133 @@
     --secondary-foreground: 0 0% 100%;
     --muted: 0 0% 16%;
     --muted-foreground: 0 0% 67%;     /* #AAAAAA 次要文字 */
-    --accent: 141 73% 49%;            /* 强调=Spotify 绿 */
-    --accent-foreground: 0 0% 9%;
+    /* accent 不再等于主色:它是"中性的高亮/悬停面",避免绿色被用在所有东西上。
+       (绿色只保留给唯一主动作与正在播放状态,语义见 docs/ux-visual-spec.md) */
+    --accent: 0 0% 26%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --success: 141 73% 49%;
     --success-foreground: 0 0% 9%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 9%;
+    --info: 210 90% 60%;
+    --info-foreground: 0 0% 9%;
     --border: 0 0% 22%;               /* #383838 细边 */
     --input: 0 0% 26%;                /* #424242 输入框边 */
     --ring: 141 73% 49%;              /* 聚焦环 Spotify 绿 */
     --radius: 0.5rem;
-  }
-}
 
-@layer base {
+    /* 滚动条(供 .scroll-area / .scroll-x 使用) */
+    --scrollbar-thumb: 0 0% 28%;
+    --scrollbar-thumb-hover: 0 0% 44%;
+
+    /* 动效 token:所有过渡都应引用这里,不再散落字面量 */
+    --motion-fast: 120ms;
+    --motion-base: 180ms;
+    --motion-slow: 280ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+    /* 原生控件(select / range / 滚动条 / 日期选择器)按暗色渲染。
+       缺这一条时 Windows/Linux 上原生滚动条与下拉框会出现浅色白槽。 */
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: "Roboto", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    /* 不声明并不存在的 webfont(PWA/离线/国内网络下载字体是负收益)。
+       用系统栈 + 中文字体回退,层级靠字号/字重建立。 */
+    font-family: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
+      "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei UI",
+      "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 全局焦点可见策略:键盘用户必须看得见焦点。
+     鼠标点击不触发(:focus-visible 语义),不会给鼠标用户加噪音。 */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
+  }
+  /* 屏幕上不可见的跳过链接(键盘首个 Tab 可达) */
+  .skip-link {
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -120%);
+    z-index: 100;
+    border-radius: 0 0 0.5rem 0.5rem;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: transform var(--motion-fast) var(--ease-standard);
+  }
+  .skip-link:focus {
+    transform: translate(-50%, 0);
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.32);
+    color: hsl(var(--foreground));
   }
 }
 
-html {
-  scroll-behavior: smooth;
+/* ===== 字号 / 层级 =====
+   字面量字号曾散落 12 种(text-[11px] 出现 9 次)。这里固定 6 级,
+   新代码直接用 .type-*;Tailwind 的 text-xs/sm/base 仍可作局部微调。 */
+@layer components {
+  .type-hero {
+    font-size: 1.75rem;   /* 28px 页面主标题 */
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    font-weight: 800;
+  }
+  .type-title {
+    font-size: 1.25rem;   /* 20px 区块/详情标题 */
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+  }
+  .type-section {
+    font-size: 1rem;      /* 16px 分组标题 */
+    line-height: 1.4;
+    font-weight: 700;
+  }
+  .type-body {
+    font-size: 0.875rem;  /* 14px 正文/歌名 */
+    line-height: 1.5;
+  }
+  .type-caption {
+    font-size: 0.8125rem; /* 13px 次要信息 */
+    line-height: 1.4;
+  }
+  .type-micro {
+    font-size: 0.6875rem; /* 11px 徽章/标签 */
+    line-height: 1.3;
+    letter-spacing: 0.01em;
+  }
+  /* 数字统一等宽,避免时长/大小在列表里左右跳动 */
+  .nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
 }
 
 /* ===== Spotify 风 app-shell 布局(皮肤改编自 Adam Lowenthal CodePen, MIT) ===== */
@@ -82,26 +187,112 @@ html {
   }
 }
 
-/* 主内容区细滚动条(Spotify 风) */
-.app-scroll::-webkit-scrollbar { width: 10px; }
-.app-scroll::-webkit-scrollbar-track { background: transparent; }
-.app-scroll::-webkit-scrollbar-thumb {
-  background: hsl(0 0% 30%);
-  border-radius: 5px;
+/* ===== 统一滚动条系统 =====
+   历史问题: 只有主滚动区 .app-scroll 写了细滚动条, 其它可滚容器(专辑横滑条、弹窗、
+   抽屉、播放队列)全部落到浏览器默认样式 —— 界面上同时出现两三套滚动条外观。
+   现在只允许两个类:
+     · .scroll-area  纵向(或双向)可滚容器, 细滚动条 + 悬停变亮
+     · .scroll-x     横向轮播容器, 完全隐藏滚动槽, 由 ScrollRow 提供左右箭头 + 边缘渐隐
+   门禁脚本 scripts/uxGuards.test.mjs 会拒绝新出现的裸 overflow-* 可滚容器。 */
+.scroll-area {
+  scrollbar-width: thin;                                    /* Firefox */
+  scrollbar-color: hsl(var(--scrollbar-thumb)) transparent; /* Firefox */
+  overscroll-behavior: contain;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--scrollbar-thumb));
+  border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
-.app-scroll::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 45%); background-clip: content-box; }
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--scrollbar-thumb-hover));
+  background-clip: content-box;
+}
+.scroll-area::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 横向轮播:隐藏滚动槽(桌面鼠标靠箭头,移动端靠手势/惯性) */
+.scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 0.25rem;
+  overscroll-behavior-x: contain;
+}
+.scroll-x::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+/* 轮播两侧渐隐遮罩:内容到边缘时自然淡出,提示"还有内容" */
+.scroll-x-wrap {
+  position: relative;
+}
+.scroll-x-wrap::before,
+.scroll-x-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2rem;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+.scroll-x-wrap::before {
+  left: 0;
+  background: linear-gradient(to right, hsl(var(--background)), transparent);
+}
+.scroll-x-wrap::after {
+  right: 0;
+  background: linear-gradient(to left, hsl(var(--background)), transparent);
+}
+.scroll-x-wrap[data-can-left="true"]::before,
+.scroll-x-wrap[data-can-right="true"]::after {
+  opacity: 1;
+}
+
+/* 兼容:旧的 .app-scroll 保留为别名,避免漏改处样式回退成默认滚动条 */
+.app-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--scrollbar-thumb)) transparent;
+  overscroll-behavior: contain;
+}
+.app-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.app-scroll::-webkit-scrollbar-track { background: transparent; }
+.app-scroll::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--scrollbar-thumb));
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.app-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--scrollbar-thumb-hover));
+  background-clip: content-box;
+}
 
 /* media-card:封面卡片(hover 浮起 + 显示播放钮) */
 .media-card {
   background: hsl(var(--card));
   border-radius: 0.5rem;
   padding: 0.75rem;
-  transition: background 0.2s;
+  transition: background var(--motion-base) var(--ease-standard);
   cursor: pointer;
 }
-.media-card:hover { background: hsl(0 0% 22%); }
+.media-card:hover { background: hsl(var(--accent)); }
 .media-card__art {
   position: relative;
   width: 100%;
@@ -123,10 +314,13 @@ html {
   display: flex; align-items: center; justify-content: center;
   opacity: 0;
   transform: translateY(0.5rem);
-  transition: all 0.2s;
+  transition: opacity var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard),
+    background-color var(--motion-base) var(--ease-standard);
   box-shadow: 0 8px 16px rgba(0,0,0,0.4);
 }
-.media-card:hover .media-card__play { opacity: 1; transform: translateY(0); }
+.media-card:hover .media-card__play,
+.media-card:focus-within .media-card__play { opacity: 1; transform: translateY(0); }
 
 /* 统一加载态:低调骨架、等待点和不确定进度条。 */
 .loading-shimmer {
@@ -179,14 +373,6 @@ html {
   100% { left: 100%; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .loading-shimmer::after,
-  .loading-dots::after,
-  .loading-bar-indeterminate::after {
-    animation: none;
-  }
-}
-
 /* 底栏当前歌词:当前行切换时轻微淡入。 */
 .player-mini-lyric {
   max-width: 100%;
@@ -198,12 +384,6 @@ html {
 @keyframes player-mini-lyric-fade {
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .player-mini-lyric {
-    animation: none;
-  }
 }
 
 /* 歌曲行当前播放封面:封面上叠加循环音量柱。 */
@@ -247,12 +427,6 @@ html {
   40% { transform: scaleY(1); opacity: 1; }
   70% { transform: scaleY(0.55); opacity: 0.9; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .song-row-equalizer span {
-    animation: none;
-    transform: scaleY(0.7);
-  }
-}
 
 /* ===== 移动端全屏播放页动画 ===== */
 /* 展开页从底部滑入 */
@@ -260,7 +434,7 @@ html {
   from { transform: translateY(100%); }
   to   { transform: translateY(0); }
 }
-.player-sheet-enter { animation: player-slide-up 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+.player-sheet-enter { animation: player-slide-up var(--motion-slow) var(--ease-emphasized); }
 
 /* 黑胶唱片旋转(网易云式),暂停时停转 */
 @keyframes vinyl-spin {
@@ -295,7 +469,7 @@ html {
   from { transform: translateY(0); }
   to   { transform: translateY(100%); }
 }
-.player-sheet-exit { animation: player-slide-down 0.26s cubic-bezier(0.4, 0, 1, 1) forwards; }
+.player-sheet-exit { animation: player-slide-down 0.26s var(--ease-exit) forwards; }
 
 /* ===== 留声机:转盘 + 唱臂 ===== */
 .turntable { position: relative; }
@@ -343,7 +517,44 @@ html {
 /* ===== 迷你条歌名跑马灯(内容超宽才滚动) ===== */
 .marquee { overflow: hidden; white-space: nowrap; }
 .marquee__inner { display: inline-block; padding-left: 100%; animation: marquee-scroll 9s linear infinite; }
+.marquee:hover .marquee__inner { animation-play-state: paused; }
 @keyframes marquee-scroll {
   from { transform: translateX(0); }
   to   { transform: translateX(-100%); }
+}
+
+/* ===== 减少动效(系统偏好) =====
+   早先只覆盖了 3 个加载动画,黑胶 18s 无限旋转、跑马灯 9s 无限滚动、
+   全屏页滑入、平滑滚动、spin/pulse 全都没降级。这里一次覆盖全。 */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .loading-shimmer::after,
+  .loading-dots::after,
+  .loading-bar-indeterminate::after,
+  .song-row-equalizer span,
+  .vinyl-disc,
+  .marquee__inner,
+  .player-sheet-enter,
+  .player-sheet-exit,
+  .player-mini-lyric,
+  .fade-in {
+    animation: none !important;
+  }
+  .marquee__inner {
+    padding-left: 0;
+  }
+  .tonearm {
+    transition: none;
+  }
+  /* 只保留颜色过渡,干掉位移/缩放/旋转类动效 */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }
