@@ -115,7 +115,10 @@ cd frontend && npm install && npm run dev   # 读 .env.development.local 指向�
 ```
 
 - 本机 go run 后台跑有时进程被清理,验证时建议 `go build -o /tmp/melodex ./cmd/melodex` 跑二进制更稳。
-- 本机 curl 后端要加 `--noproxy "*"`(有 7890 代理干扰),vite dev 用 `localhost`(绑 IPv6,curl 127.0.0.1 连不上)。
+- 本机 curl 后端要加 `--noproxy "*"`:**开发机(Windows)的代理是 `127.0.0.1:7897`**(见 `HTTP_PROXY`/`HTTPS_PROXY` 环境变量),
+  curl 默认会走它连本机端口而失败;`NO_PROXY` 虽含 `127.0.0.1` 但不含 `localhost`,所以用 `localhost` 时反而要留意。
+  **注意 7890 是 NAS 上的代理端口,开发机不通**(曾误把两者当同一个,导致"本机端口打不通"的错误结论)。
+  vite dev 用 `localhost`(绑 IPv6,curl 127.0.0.1 连不上)。
 
 ## Subsonic API facade(2026-06 新增,音流/substreamer 等客户端直连)
 
@@ -168,7 +171,11 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **排序**:多级排序(相关/音质/大小可叠加,①②③优先级+↑↓+清除)。默认 relevance 降序。relevance=相关性评分(见能力边界);音质用验活真实 bitrateNum;同名同分隐式按音质降序。
 - **歌曲行**(SongRow):显示 音质标签(验活真实值,无损/高品/Nk)+ 源 + 时长 + 真实大小;按钮 验/词/播放/下载。"验"=手动 inspect;自动验活的结果经 `liveInfo` prop 直接显示(effectiveReal=手动验优先,否则用 liveInfo)。
 - **下载**:点「下载」= 下到 NAS(saveToServer,见关键设计点),状态 下载中/✓已下载/✗重试。服务器状态不是会话内临时值:`ServerDownloadsContext` 启动读取 `/music/downloads`,精确按 source+song_id、再以完整歌名+完整歌手等值回退；侧栏「已下载」(`#local`)列出服务器文件。下载响应只有 `saved:true,recorded:true` 才算可持久恢复成功；成功事件还必须校验后端返回的 `recorded_user_id` 与当前 user_id 一致,防慢请求在换账号后串状态。
-- **服务器副本播放优先**(2026-07):Web 播放仍请求原歌曲 `/music/download?...&stream=1`,但后端在访问在线源前先按当前用户可见的 DownloadRecord 解析 NAS 文件(先 source+song_id,再完整歌名+歌手等值回退),命中即用本地 `ServeContent`/Range 发流并返回 `X-Melodex-Playback-Source: server`；无命中才走在线源/自动换源。禁止直接复用 Subsonic 的全局目录匹配(不含 Web 用户归属)。`PlayerContext` 对已有“服务器”状态的歌曲跳过“播放时自动下载”,避免重复拉流并重写正在播放的同名文件；手动下载/音质升级不受影响。
+- **服务器副本播放优先**(2026-07):Web 播放仍请求原歌曲 `/music/download?...&stream=1`,但后端在访问在线源前先按当前用户可见的 DownloadRecord 解析 NAS 文件(先 source+song_id,再完整歌名+歌手等值回退),命中即用本地 `ServeContent`/Range 发流并返回 `X-Melodex-Playback-Source: server`；无命中才走在线源/自动换源。禁止直接复用 Subsonic 的全局目录匹配(不含 Web 用户归属)。`PlayerContext` 对已有“服务器”状态的歌曲跳过“播放时自动下载”,避免重复拉流并重写正在播放的同名文件。
+- **副本优先的音质门控**(2026-10 补,`internal/web/stream_quality.go`):上面的"副本优先"原先**不比较音质**,于是早年在没有会员/无损凭证时落盘的 128k mp3 会永久压过后来已能取到的 FLAC —— 列表标签来自对**在线源**的 inspect(显示"无损"),耳朵听到的是磁盘上有损副本。现在 `stream=1` 与 `/music/playback_segment` 两条路径都会先判:副本是**有损**扩展名 且 在线源 `extra.has_lossless=1` → 改走在线,并打日志 `[stream] 副本为有损(mp3),在线源声明无损,改走在线`。
+  **关键安全阀**:只有在线地址**确认能解析**时才让位(`onlineStreamResolvable`,命中 provider 10 分钟歌曲缓存时近乎零成本);解析不到就照旧播副本,绝不为了"修音质"把歌弄成放不出来。副本已是无损、或在线未声明无损时,保持原有副本优先语义、不额外回源。
+  配套(**升级判定**):`/music/downloads` 每项新增 `ext`/`size_bytes`(落盘刮削后的真实大小),前端 `serverCopyNeedsUpgrade` 据此只在有**正面证据**时重下(磁盘有损+源声明无损,或估算码率 < 0.7×在线且差距 ≥32kbps),其余一律不动。
+  **下载覆盖判定的历史 bug**(2026-10 修,`core/download_storage.go`):旧 `audioQualityRanks` 表达的其实是**编码格式序**(aac/m4a=3 > ogg=2 > mp3=1)而非音质序,曾把 320k mp3 判给 128k ogg 替换。现改为「无损 > 有损;同为有损按体积比 1.25×」。注意:`findSameNameAudioFiles` 会把 target 自身排除,所以**完全同名同格式重下仍无条件覆盖**(刻意保留,能修好截断的旧文件);只有"同 stem 不同扩展名"才走上述比较。
 - **登录**(Settings):每源卡片 扫码登录(QRLoginCard;二维码 image_url 直接 `<img>`,url 文本则 QRCodeCanvas 画)+ 退出 + **手动填 Cookie**(带各源网址+F12教程+关键字段,COOKIE_HELP 映射)。登录态让验活/下载走 VIP 链路拿高音质。
 - **播放**:全局常驻 PlayerContext,切页不停;播放失败自动跳下一首。
 - **歌词**:SongRow"词"按钮拉 LRC。
@@ -261,11 +268,23 @@ dispatch → `edge,sha-…`(extra_tag 空也回退 `edge`);owner 大写会被转
   不要写成 `sh -c "${{ matrix.smoke }}"`:多行命令里的引号会被外层 shell 吃掉(实测 `python -c "…"` 直接语法错误,
   由 `sh -n` 预检抓出)。
 - 用预构建镜像:compose 里两个服务都写成 `image: ${MELODEX_IMAGE:-melodex:latest}` /
-  `${MELODEX_PROVIDER_IMAGE:-melodex-provider:apache-2.0}`(默认值不变,NAS 现状零影响)。
+  `${MELODEX_PROVIDER_IMAGE:-melodex-provider:apache-2.0}`(默认值不变,纯本地构建部署零影响)。
   在 `.env` 设 `MELODEX_IMAGE=ghcr.io/aki-riko/melodex:edge` 后 `docker compose up -d --no-build` 即可切过去。
-  **注意 NAS 拉 GHCR 很慢**:实测经 daemon 的 `127.0.0.1:7890` 代理只有 ~90KB/s(12s 长 1.08MB),
-  131MB 的应用镜像要二十多分钟。registry 本身是通的(匿名 token 可取、manifest 与 blob 都能拿,
-  blob 主机 `pkg-containers.githubusercontent.com` 直连/代理都返回 400 = 可达),纯粹是吞吐问题。
+- **NAS 拉 GHCR 并不慢(2026-10-25 实测,已更正旧记录)**:经 `/etc/docker/daemon.json` 里配的
+  `proxies.http-proxy/https-proxy = http://127.0.0.1:7890` 拉取,`melodex-provider:edge` **22s**、
+  `melodex:edge` **9s**(本机 curl 直测 GHCR blob 经代理 ~9.6MB/s、直连 ~10MB/s)。
+  > 历史坑:这里原先写着「实测只有 ~90KB/s,131MB 要二十多分钟」——那是 2026-09 某一次的瞬时观测,
+  > **不是常态**,却被当成结论沿用,导致后来误判「切预构建镜像要等很久」。要判断网络问题请当场实测
+  > (`curl -o /dev/null -w '%{speed_download} B/s'` 打一个 blob),别引用这条旧数字。
+  注意区分两台机器的代理端口:**NAS 是 7890**,开发机(Windows)是 `7897`;
+  别拿本机端口去测 NAS,反之亦然。registry 匿名可取 token/manifest/blob(均为公开包)。
+- **生产已切预构建镜像(2026-10-25)**:NAS `.env` 第 7-8 行设为
+  `MELODEX_IMAGE=ghcr.io/aki-riko/melodex:edge` / `MELODEX_PROVIDER_IMAGE=ghcr.io/aki-riko/melodex-provider:edge`,
+  `docker compose up -d --no-build` 生效;当时对应提交 `d1b0203`,镜像 digest
+  `melodex@sha256:dcb1fd76…` / `melodex-provider@sha256:e05f74b4…`。
+  **回退**:`.env.bak_20261025_045314` 是切换前备份,注释掉那两行再 `up -d --no-build` 即回到
+  本地构建的 `melodex:latest` / `melodex-provider:apache-2.0`(旧镜像仍留在机器上)。
+  验证:`docker exec melodex wget -qO- http://127.0.0.1:8329/api/v1/healthz`。
 - 许可证标签:应用镜像 `AGPL-3.0`;provider 镜像 `AGPL-3.0 AND Apache-2.0 AND GPL-3.0-only`(内含固定快照与 QRC 解密实现)。
 
 ## Git
