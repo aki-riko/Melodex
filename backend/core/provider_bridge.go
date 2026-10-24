@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -113,19 +114,37 @@ func searchProviderSongsWithType(source, keyword, cookie string, searchType int)
 	if err != nil {
 		return nil, err
 	}
-	songs, err := client.Search(context.Background(), bridge.SearchRequest{
+	result, err := client.SearchWithRefresh(context.Background(), bridge.SearchRequest{
 		Source: source, Keyword: keyword, Limit: providerSearchLimit(), Cookie: cookie,
 		SearchType: searchType,
 	})
 	if err != nil {
 		return nil, err
 	}
+	songs := result.Songs
+	// sidecar 自动续期了该源 cookie(QQ musickey 3 天到期): 立刻落库, 否则下次请求又用旧的。
+	persistRefreshedCookie(source, cookie, result.RefreshedCookie)
 	publicSongs := make([]providermodel.Track, 0, len(songs))
 	for _, song := range songs {
 		cacheProviderSong(song, cookie)
 		publicSongs = append(publicSongs, publicProviderSong(song))
 	}
 	return publicSongs, nil
+}
+
+// persistRefreshedCookie 把 sidecar 自动续期后的 cookie 写回配置库。
+//
+// 只有确实变了才写(避免每次搜索都触发一次 DB 事务)。续期只在 musickey 过期时发生,
+// 所以正常情况下这里绝大多数调用都会因为 old == refreshed 直接返回。
+func persistRefreshedCookie(source, oldCookie, refreshedCookie string) {
+	refreshedCookie = strings.TrimSpace(refreshedCookie)
+	if refreshedCookie == "" || refreshedCookie == strings.TrimSpace(oldCookie) {
+		return
+	}
+	key := canonicalCookieSource(source)
+	CM.SetAll(map[string]string{key: refreshedCookie})
+	CM.Save()
+	log.Printf("[provider] %s 凭证已自动续期并持久化(用户无需重新扫码)", key)
 }
 
 func resolveProviderSong(source string, song *providermodel.Track, cookie string) (providermodel.Track, error) {

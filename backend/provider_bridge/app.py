@@ -231,9 +231,17 @@ def search(
     if source == "qq" and client_factory is None:
         work_root = Path(work_dir)
         work_root.mkdir(parents=True, exist_ok=True)
-        return {"songs": qq_source.search(
+        # QQ 的 musickey 只有 3 天寿命; 过期时 search 会自动用长期凭据换新 key,
+        # 并通过这个 sink 把新 cookie 交回来, 由 Go 侧持久化(用户不用重新扫码)。
+        refreshed: dict[str, str] = {}
+        songs = qq_source.search(
             keyword, limit, cookie, work_dir=work_dir, search_type=search_type,
-        )}
+            refreshed_cookie_sink=refreshed,
+        )
+        result: dict[str, Any] = {"songs": songs}
+        if refreshed.get("cookie"):
+            result["refreshed_cookie"] = refreshed["cookie"]
+        return result
     # 酷我走 Melodex 自有实现(见 kuwo_source 模块说明):快照对每首歌跑 22 档音质阶梯
     # + 逐档探活(实测 limit=20 要 83.7s), 而且把付费曲的 11 秒试听片段判定为"可播"。
     # 原生实现每首只打 1 次取址请求(实测 ~0.6s), 并按 fpay/PAY 掩码 + 时长比对

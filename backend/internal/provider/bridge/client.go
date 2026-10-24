@@ -76,6 +76,10 @@ type QRCheckRequest struct {
 type searchResponse struct {
 	Songs []model.Track `json:"songs"`
 	Error string        `json:"error,omitempty"`
+	// RefreshedCookie 是 sidecar 自动续期后产生的新 cookie。QQ 的 musickey 只有 3 天
+	// 寿命, 到期后 sidecar 用 cookie 里的长期凭据换出新 key 并把完整 cookie 回传, 这里
+	// 据此持久化, 用户不必每 3~4 天重新扫码。为空表示本次没有发生续期。
+	RefreshedCookie string `json:"refreshed_cookie,omitempty"`
 }
 
 type lyricResponse struct {
@@ -110,45 +114,59 @@ func NewClient(rawBaseURL string, httpClient *http.Client) (*Client, error) {
 	return &Client{baseURL: parsed, httpClient: httpClient}, nil
 }
 
+// SearchResult 是一次搜索的完整结果。
+type SearchResult struct {
+	Songs []model.Track
+	// RefreshedCookie 非空表示 sidecar 在本次请求中自动续期了该源的 cookie(目前只有 QQ
+	// 会这样: musickey 3 天到期后由长期凭据换新), 调用方应把它持久化。
+	RefreshedCookie string
+}
+
 func (c *Client) Search(ctx context.Context, request SearchRequest) ([]model.Track, error) {
+	result, err := c.SearchWithRefresh(ctx, request)
+	return result.Songs, err
+}
+
+// SearchWithRefresh 与 Search 相同, 但额外返回 sidecar 自动续期后的 cookie。
+func (c *Client) SearchWithRefresh(ctx context.Context, request SearchRequest) (SearchResult, error) {
 	request.Source = strings.TrimSpace(request.Source)
 	request.Keyword = strings.TrimSpace(request.Keyword)
 	if request.Source == "" || request.Keyword == "" {
-		return nil, errors.New("provider search requires source and keyword")
+		return SearchResult{}, errors.New("provider search requires source and keyword")
 	}
 	body, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("encode provider search: %w", err)
+		return SearchResult{}, fmt.Errorf("encode provider search: %w", err)
 	}
 	endpoint := c.baseURL.ResolveReference(&url.URL{Path: "/v1/search"})
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create provider search request: %w", err)
+		return SearchResult{}, fmt.Errorf("create provider search request: %w", err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("provider search request: %w", err)
+		return SearchResult{}, fmt.Errorf("provider search request: %w", err)
 	}
 	defer response.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 16<<20))
 	if err != nil {
-		return nil, fmt.Errorf("read provider search response: %w", err)
+		return SearchResult{}, fmt.Errorf("read provider search response: %w", err)
 	}
 	var payload searchResponse
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("decode provider search response: %w", err)
+		return SearchResult{}, fmt.Errorf("decode provider search response: %w", err)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		if payload.Error == "" {
 			payload.Error = response.Status
 		}
-		return nil, errors.New(payload.Error)
+		return SearchResult{}, errors.New(payload.Error)
 	}
 	if payload.Songs == nil {
 		payload.Songs = []model.Track{}
 	}
-	return payload.Songs, nil
+	return SearchResult{Songs: payload.Songs, RefreshedCookie: payload.RefreshedCookie}, nil
 }
 
 func (c *Client) Lyric(ctx context.Context, request LyricRequest) (string, error) {
