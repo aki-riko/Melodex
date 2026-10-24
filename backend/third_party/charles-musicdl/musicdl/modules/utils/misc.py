@@ -5,6 +5,16 @@ Author:
     Zhenchao Jin
 WeChat Official Account (微信公众号):
     Charles的皮卡丘
+
+Modified by Melodex (2026-09-17, commit dbc231a):
+    AudioLinkTester.probe/check probes now use `with` context managers instead of
+    an explicit resp.close(), so background search refresh releases probe
+    responses deterministically. Only response-lifetime handling changed; request
+    parameters, status/format classification, and return shapes are untouched.
+    See ../../../UPSTREAM.md and ../../../MELODEX-PATCH.md.
+
+    This file remains under the upstream Apache License 2.0; this notice is the
+    "prominent notice stating that You changed the files" required by §4(b).
 '''
 import re
 import os
