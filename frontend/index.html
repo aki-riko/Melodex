@@ -9,6 +9,8 @@
          env(safe-area-inset-*) 恒为 0 —— 那些留白全部失效, 内容会被底部手势条压住。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#181818" />
+    <!-- 原生控件(滚动条/select/日期选择器)按暗色渲染;缺这条时 Windows/Linux 会出现浅色白槽 -->
+    <meta name="color-scheme" content="dark" />
     <meta
       name="description"
       content="Melodex — 音乐发现与多源下载二合一"
@@ -23,7 +25,7 @@
     <title>Melodex</title>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>需要启用 JavaScript 才能运行 Melodex。</noscript>
     <div id="root"></div>
     <script type="module" src="/src/index.js"></script>
   </body>

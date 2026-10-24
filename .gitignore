@@ -30,6 +30,8 @@ docker-compose.override.yml
 # 调试产物:Playwright/浏览器 profile 缓存(含 Cookies/Login Data 等敏感文件,禁止提交)
 output/
 .playwright-cli/
+# 部署记录(每次上线/回滚的 digest 与 sha,本机运维用,不入库)
+.codex-deploy/
 .playwright-mcp/
 # Android 本地构建产物
 android/.gradle/
