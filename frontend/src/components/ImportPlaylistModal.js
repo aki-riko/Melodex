@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Check, Download, Music, RefreshCw, LogIn } from 'lucide-react';
+import { Check, Download, Music, RefreshCw, LogIn } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';

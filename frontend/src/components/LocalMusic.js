@@ -82,6 +82,9 @@ export default function LocalMusic() {
   const [extraTracks, setExtraTracks] = useState([]);
   const [extraHasMore, setExtraHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // 「下一页从哪开始」必须记请求游标,不能按下标数:删除一行会让列表变短,
+  // 用长度当 offset 会把后面的歌整段跳过。按「已请求过的条数」累加才是对的。
+  const extraOffsetRef = useRef(0);
 
   const baseTracks = useMemo(() => data?.tracks || [], [data]);
   // 合并第一页与增量页。服务端排序在两次请求之间可能变动(新文件落盘、删除),
@@ -100,10 +103,13 @@ export default function LocalMusic() {
   const albums = useMemo(() => groupByAlbum(tracks), [tracks]);
   const totalCount = Number(data?.total) || tracks.length;
   // 还没追加过增量页时,「是否还有」以第一页响应为准;追加过后以最后一页为准。
-  const hasMore = extraTracks.length > 0 ? extraHasMore : !!data?.has_more;
+  // 注意用游标判断"是否追加过",不用 extraTracks.length —— 用户把增量页的歌全删光后,
+  // 列表长度为 0 但仍应听最后一页的 has_more,否则会退回第一页的旧值。
+  const hasMore = extraOffsetRef.current > 0 ? extraHasMore : !!data?.has_more;
 
   // 刷新:第一页重新拉,增量页清空(重新扫描后回到第一页是可接受的)。
   const refresh = () => {
+    extraOffsetRef.current = 0;
     setExtraTracks([]);
     setExtraHasMore(false);
     setOpenAlbum(null);
@@ -112,12 +118,12 @@ export default function LocalMusic() {
 
   const loadMore = async () => {
     if (loadingMore) return;
-    // offset 用「已请求过的条数」而不是去重后的条数:后者会漏掉因去重被折叠的位置。
-    const offset = baseTracks.length + extraTracks.length;
+    const offset = baseTracks.length + extraOffsetRef.current;
     setLoadingMore(true);
     try {
       const page = await getLocalMusic({ offset, limit: PAGE_SIZE });
       const next = page?.tracks || [];
+      extraOffsetRef.current += next.length;
       setExtraTracks((prev) => [...prev, ...next]);
       setExtraHasMore(!!page?.has_more);
     } catch (err) {
@@ -237,9 +243,19 @@ export default function LocalMusic() {
             )}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button variant="primary" onClick={() => tracks.length && play(tracks[0], tracks)} disabled={!tracks.length}>
+            {/* 分页后「播放全部」只能播已加载的那一页 —— 必须让按钮文案如实说明,
+                不能让它看起来像"播整个已下载库"(否则用户以为 600 首在队列里,
+                实际只有 100 首,播到一半就停)。 */}
+            <Button
+              variant="primary"
+              onClick={() => tracks.length && play(tracks[0], tracks)}
+              disabled={!tracks.length}
+              title={hasMore
+                ? `先播放已加载的 ${tracks.length} 首，点「加载更多」可继续往后取`
+                : `播放全部 ${tracks.length} 首`}
+            >
               <Play size={16} fill="currentColor" aria-hidden="true" />
-              播放全部
+              {hasMore ? `播放已加载（${tracks.length} 首）` : '播放全部'}
             </Button>
             <Button
               variant="outline"

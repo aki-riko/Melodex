@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from './cn';
 
@@ -19,6 +19,34 @@ const FOCUSABLE = [
   'textarea:not([disabled])',
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
+
+// ---- 滚动锁引用计数 ----
+// 多个 Dialog 可能同时存在(嵌套弹窗、或 Dialog + feedback.confirm),
+// 各自保存/恢复 overflow 会互相踩:先关的把锁解掉、反序则永久锁死。
+// 用模块级计数,只有在最后一个弹窗关闭时才恢复原始值。
+let scrollLockCount = 0;
+let savedMainOverflow = null;
+let savedBodyOverflow = null;
+
+function acquireScrollLock() {
+  scrollLockCount += 1;
+  if (scrollLockCount > 1) return; // 已经锁住了,只记数
+  const main = document.getElementById('app-main');
+  savedMainOverflow = main ? main.style.overflow : null;
+  savedBodyOverflow = document.body.style.overflow;
+  if (main) main.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+}
+
+function releaseScrollLock() {
+  scrollLockCount = Math.max(0, scrollLockCount - 1);
+  if (scrollLockCount > 0) return; // 还有别的弹窗开着,保持锁定
+  const main = document.getElementById('app-main');
+  if (main && savedMainOverflow !== null) main.style.overflow = savedMainOverflow;
+  if (savedBodyOverflow !== null) document.body.style.overflow = savedBodyOverflow;
+  savedMainOverflow = null;
+  savedBodyOverflow = null;
+}
 
 /**
  * @param {object} props
@@ -62,17 +90,16 @@ export default function Dialog({
   }, [open]);
 
   // 背景滚动锁定。app-shell 的滚动容器是 #app-main,不是 body,两处都要处理。
+  //
+  // 必须用「引用计数」而不是各自保存/恢复旧值:两个弹窗同时打开时
+  // (例如歌词弹窗还开着、又打开"加入歌单",或歌词弹窗 + feedback.confirm),
+  // 先关的那个会把 overflow 恢复成 '' —— 于是仍有弹窗在,背景却能滚;
+  // 反过来的关闭顺序则会永久锁死成 'hidden'。
+  // 计数归零时才真正恢复,并存下最初的原始值。
   useEffect(() => {
     if (!open) return undefined;
-    const main = document.getElementById('app-main');
-    const prevMainOverflow = main ? main.style.overflow : '';
-    const prevBodyOverflow = document.body.style.overflow;
-    if (main) main.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    return () => {
-      if (main) main.style.overflow = prevMainOverflow;
-      document.body.style.overflow = prevBodyOverflow;
-    };
+    acquireScrollLock();
+    return () => releaseScrollLock();
   }, [open]);
 
   // Esc 关闭 + 焦点陷阱
