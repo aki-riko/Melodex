@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
@@ -175,7 +176,90 @@ def _enrich_verbatim_lyrics(songs: list[dict[str, Any]], source: str) -> None:
         LOGGER.info("[%s] 逐字歌词已应用 %d/%d 首", source, replaced, len(songs))
 
 
+class _SingleFlightSlot:
+    """一次进行中的搜索; 其余等价请求等它就绪后共享结果。"""
+
+    __slots__ = ("done", "done_condition", "result", "error")
+
+    def __init__(self) -> None:
+        self.done = False
+        self.done_condition = threading.Condition()
+        self.result: dict[str, Any] | None = None
+        self.error: BaseException | None = None
+
+
+_single_flight_lock = threading.Lock()
+_single_flight: dict[tuple, _SingleFlightSlot] = {}
+
+
+def _run_single_flight(key: tuple, factory: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """并发等价请求只真正执行一次, 其余等待并共享同一份结果。
+
+    这是很窄的用法: key 完全相同(source/keyword/limit/search_type/cookie)且在
+    **同一时刻重叠**的请求才会合并。一旦第一个请求完成, 键就立刻删除 —— 所以它不会
+    变成搜索缓存(下一次搜索仍会打到上游, 缓存语义仍由 Go 侧的 search_cache 负责)。
+    """
+    with _single_flight_lock:
+        existing = _single_flight.get(key)
+        if existing is not None:
+            owner = False
+            slot = existing
+        else:
+            slot = _SingleFlightSlot()
+            _single_flight[key] = slot
+            owner = True
+
+    if not owner:
+        with slot.done_condition:
+            while not slot.done:
+                slot.done_condition.wait()
+        if slot.error is not None:
+            raise slot.error
+        # 浅拷贝: 调用方可能改 payload, 不能让它们互相污染。
+        return dict(slot.result or {})
+
+    try:
+        slot.result = factory()
+        return slot.result
+    except BaseException as error:  # noqa: BLE001 - 原样传播给所有等待者
+        slot.error = error
+        raise
+    finally:
+        with slot.done_condition:
+            slot.done = True
+            slot.done_condition.notify_all()
+        with _single_flight_lock:
+            _single_flight.pop(key, None)
+
+
 def search(
+    payload: dict[str, Any],
+    *,
+    client_factory: Callable[..., Any] | None = None,
+    work_dir: str,
+) -> dict[str, Any]:
+    """合并并发的等价搜索, 再走真正的实现。
+
+    为什么要合并: 前端的「搜索」会**并发**发 type=song / lyric / album 三个请求, 而
+    song 和 lyric 的源集合高度重叠(qq/netease 两边都有)。三个请求各自独立扇出, 同一个
+    关键词的上游查询就被重复打了好几遍 —— 实测搜「亲爱的，热爱的」时 3 秒内 QQ 被查了
+    **3 次**(3.47s / 4.19s / 0.95s), 酷我、网易也各重复。合并后并发等价请求只真正打一次
+    上游, 其余直接共享结果。
+    """
+    if client_factory is not None:
+        # 测试注入的 factory 不参与合并(否则不同用例会互相串结果)。
+        return _search_impl(payload, client_factory=client_factory, work_dir=work_dir)
+    key = (
+        _string(payload.get("source")).lower(),
+        _string(payload.get("keyword")),
+        _integer(payload.get("limit")),
+        _integer(payload.get("search_type")),
+        _string(payload.get("cookie")),
+    )
+    return _run_single_flight(key, lambda: _search_impl(payload, client_factory=None, work_dir=work_dir))
+
+
+def _search_impl(
     payload: dict[str, Any],
     *,
     client_factory: Callable[..., Any] | None = None,

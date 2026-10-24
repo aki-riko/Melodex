@@ -1,7 +1,11 @@
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from provider_bridge import app
 from provider_bridge.app import search, song_to_payload
 
 
@@ -131,3 +135,118 @@ class ProviderBridgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SingleFlightTests(unittest.TestCase):
+    """并发等价搜索只打一次上游。
+
+    现场事故(2026-10): 前端搜索会并发发 type=song / lyric / album 三个请求, song 和
+    lyric 的源集合重叠(qq/netease), 于是同一关键词在上游被查了 3 遍 —— 搜「亲爱的，
+    热爱的」时 3 秒内 QQ 被搜 3 次(3.47s/4.19s/0.95s), 用户端到端 5s。
+    """
+
+    def test_concurrent_equivalent_searches_share_one_upstream_call(self):
+        calls = []
+        release = threading.Event()
+
+        def slow_impl(payload, *, client_factory=None, work_dir):
+            calls.append(payload["keyword"])
+            release.wait(timeout=5)
+            return {"songs": [{"id": "1", "name": "x"}]}
+
+        payload = {"source": "qq", "keyword": "亲爱的，热爱的", "limit": 20, "search_type": 0}
+        results = []
+
+        def worker():
+            results.append(app.search(dict(payload), work_dir="/tmp"))
+
+        with mock.patch.object(app, "_search_impl", side_effect=slow_impl):
+            threads = [threading.Thread(target=worker) for _ in range(3)]
+            for thread in threads:
+                thread.start()
+            deadline = time.time() + 3
+            while len(calls) < 1 and time.time() < deadline:
+                time.sleep(0.01)
+            time.sleep(0.15)
+            release.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
+        self.assertEqual(len(calls), 1, "3 个并发等价请求只应打一次上游")
+        self.assertEqual(len(results), 3, "所有等待者都必须拿到结果")
+        for result in results:
+            self.assertEqual(result["songs"][0]["id"], "1")
+
+    def test_sequential_searches_are_not_cached(self):
+        """合并只作用于"同一时刻重叠"的请求, 不能退化成搜索缓存。"""
+        calls = []
+
+        def impl(payload, *, client_factory=None, work_dir):
+            calls.append(1)
+            return {"songs": []}
+
+        payload = {"source": "qq", "keyword": "晴天", "limit": 20, "search_type": 0}
+        with mock.patch.object(app, "_search_impl", side_effect=impl):
+            app.search(dict(payload), work_dir="/tmp")
+            app.search(dict(payload), work_dir="/tmp")
+        self.assertEqual(len(calls), 2, "先后两次搜索必须各打一次上游")
+
+    def test_different_search_type_is_not_merged(self):
+        calls = []
+
+        def impl(payload, *, client_factory=None, work_dir):
+            calls.append(payload["search_type"])
+            return {"songs": []}
+
+        with mock.patch.object(app, "_search_impl", side_effect=impl):
+            app.search({"source": "qq", "keyword": "晴天", "limit": 20, "search_type": 0}, work_dir="/tmp")
+            app.search({"source": "qq", "keyword": "晴天", "limit": 20, "search_type": 7}, work_dir="/tmp")
+        self.assertEqual(sorted(calls), [0, 7], "不同 search_type 是不同请求, 不能合并")
+
+    def test_error_propagates_to_waiters(self):
+        release = threading.Event()
+        attempts = []
+
+        def failing(payload, *, client_factory=None, work_dir):
+            attempts.append(1)
+            release.wait(timeout=5)
+            raise ValueError("upstream boom")
+
+        errors = []
+
+        def worker():
+            try:
+                app.search({"source": "qq", "keyword": "晴天", "limit": 20, "search_type": 0},
+                           work_dir="/tmp")
+            except ValueError as error:
+                errors.append(str(error))
+
+        with mock.patch.object(app, "_search_impl", side_effect=failing):
+            threads = [threading.Thread(target=worker) for _ in range(3)]
+            for thread in threads:
+                thread.start()
+            time.sleep(0.2)
+            release.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
+        self.assertEqual(len(attempts), 1, "失败也只打一次上游")
+        self.assertEqual(errors, ["upstream boom"] * 3, "错误必须传播给所有等待者")
+
+    def test_injected_client_factory_bypasses_merge(self):
+        """测试注入 factory 时不合并, 否则不同用例会互相串结果。"""
+        calls = []
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def search(self, keyword):
+                calls.append(keyword)
+                return []
+
+        with tempfile.TemporaryDirectory() as work_dir:
+            for _ in range(2):
+                app.search({"source": "qq", "keyword": "晴天", "limit": 5, "cookie": ""},
+                           client_factory=FakeClient, work_dir=work_dir)
+        self.assertEqual(len(calls), 2, "带 client_factory 的调用不参与合并")

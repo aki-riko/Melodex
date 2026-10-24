@@ -828,6 +828,15 @@ func searchSourceBudget() time.Duration {
 
 const searchSourceDefaultBudget = 12 * time.Second
 
+// searchPrimarySoftDeadline 是"主力源软超时": 等到这个时间还没齐, 就先返回已有结果,
+// 没赶上的源交给后台补齐。
+//
+// 为什么需要它: 返回条件原本是"等齐 qq+netease"。但实测 QQ 单次搜索波动很大 ——
+// 平时 0.9~1.2s, 偶发 3.5~4.2s(用户实测搜「亲爱的，热爱的」时就是 4.19s), 而网易稳定
+// 在 1.0~1.6s。快源早已就绪却必须干等慢源, 用户端到端就被单个源的抖动拖到 4~5s。
+// 有了软超时, 正常情况仍是"等齐就返回"(不受影响), 只有某源拉长尾时才在 2.5s 先出结果。
+const searchPrimarySoftDeadline = 2500 * time.Millisecond
+
 // searchCompleteBudget 是后台补齐任务的上限: 慢源 kuwo/migu 需要 80~115s, provider 客户端
 // 另有 2 分钟硬超时, 给到 150s 就够, 再长也没意义。
 func searchCompleteBudget() time.Duration {
@@ -905,8 +914,22 @@ func concurrentKeywordSearchDetailed(
 		primaryPending = len(sources)
 	}
 	for range sources {
+		var softDeadline <-chan time.Time
+		var softTimer *time.Timer
+		if earlyReturnOnPrimary && primaryPending > 0 {
+			// 快源已就绪但慢的主力源迟迟不回时, 到点先返回, 避免被单源的抖动拖住。
+			remaining := searchPrimarySoftDeadline - time.Since(started)
+			if remaining <= 0 {
+				remaining = time.Millisecond
+			}
+			softTimer = time.NewTimer(remaining)
+			softDeadline = softTimer.C
+		}
 		select {
 		case result := <-results:
+			if softTimer != nil {
+				softTimer.Stop()
+			}
 			songs = append(songs, result.songs...)
 			collections = append(collections, result.collections...)
 			collected++
@@ -921,7 +944,21 @@ func concurrentKeywordSearchDetailed(
 				)
 				return songs, collections, pendingSources()
 			}
+		case <-softDeadline:
+			// 只在前台路径且还有主力源没回时才走到这里; 已收集的结果照常返回,
+			// 未到的源进 pending(前端/后台补齐会再拉一次)。
+			if collected == 0 {
+				continue
+			}
+			log.Printf(
+				"[search] %s %q: primary soft deadline %s reached with %d/%d sources (pending=%v); returning partial results",
+				searchType, keyword, searchPrimarySoftDeadline, collected, len(sources), pendingSources(),
+			)
+			return songs, collections, pendingSources()
 		case <-budget.C:
+			if softTimer != nil {
+				softTimer.Stop()
+			}
 			log.Printf(
 				"[search] %s %q: budget %s reached with %d/%d sources; returning partial results (pending=%v)",
 				searchType, keyword, budgetDuration, collected, len(sources), pendingSources(),
