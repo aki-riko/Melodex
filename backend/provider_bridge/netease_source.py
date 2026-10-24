@@ -27,6 +27,8 @@ import json
 import logging
 import os
 import random
+import threading
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -36,10 +38,45 @@ from provider_bridge.platform_http import PlatformHTTP
 
 LOGGER = logging.getLogger(__name__)
 
-LYRIC_SEARCH_URL = "https://music.163.com/api/search/get/web"
+
+class NeteaseRateLimited(RuntimeError):
+    """网易搜索接口限流(上游用 code=405 表达, 而非 HTTP 状态码)。"""
+
+
+# 最近一次网易搜索的观测快照, 供 /health 暴露。限流和"真的没有这首歌"在日志里
+# 长得完全不一样, 但都需要能在不进容器翻日志的情况下被巡检看到。
+_status_lock = threading.Lock()
+_status: dict[str, Any] = {}
+
+
+def _record_status(**fields: Any) -> None:
+    with _status_lock:
+        _status.update(fields)
+        _status["updated_at"] = int(time.time())
+
+
+def status() -> dict[str, Any]:
+    """返回最近一次网易搜索/取地址的观测快照(未发生过请求时为空字典)。"""
+    with _status_lock:
+        return dict(_status)
+
+
+# 搜索接口: 必须用 cloudsearch(pc)。旧的 /api/search/get/web 已对**几乎所有调用方**
+# 限流: 2026-10 实测连续请求无论带不带 cookie 都只回
+#     {"code":405,"msg":"操作频繁，请稍候再试"}
+# 上游不再返回 result.songs, 于是 search_songs 拿不到任何候选 → 播放时按歌名回查
+# 必然 "provider returned no matching songs" → /music/playback_segment 502 →
+# 前端 MSE 管线 6 次重试后报「连续播放缓冲异常」。cloudsearch 同一时刻 `code=200`
+# 且 20/20 可取到播放地址(带 cookie 时含付费曲), 是本源唯一还能用的搜索入口。
+#
+# 历史: 这里原先还带 type=1006 的歌词检索(旧端点同一路径只换 type)。cloudsearch
+# 也支持 type=1006 且返回形状一致(见 lyric_matches), 所以两个入口统一换过去。
+SEARCH_URL = "https://music.163.com/api/cloudsearch/pc"
 SONG_LYRIC_URL = "https://music.163.com/api/song/lyric/v1"
 LYRIC_SEARCH_TYPE = 1006
 SONG_SEARCH_TYPE = 1
+# 上游限流时返回的 code(405=操作频繁); 用来把"被限流"和"真的没这首歌"区分开。
+RATE_LIMIT_CODE = 405
 SONG_DETAIL_URL = "https://music.163.com/api/song/detail"
 EAPI_URL = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1"
 NETEASE_HEADERS = {"Referer": "https://music.163.com/"}
@@ -160,10 +197,16 @@ def fetch_lyric(song_id: str, *, cookie: str = "", session: Any | None = None) -
 
 def _search(client: PlatformHTTP, keyword: str, limit: int, search_type: int) -> list[dict[str, Any]]:
     payload = client.post_form(
-        LYRIC_SEARCH_URL,
+        SEARCH_URL,
         {"s": keyword, "type": search_type, "limit": limit, "offset": 0},
         headers=NETEASE_HEADERS,
     )
+    if isinstance(payload, dict) and _integer(payload.get("code")) == RATE_LIMIT_CODE:
+        # 上游把"限流"也塞进 200 响应里(旧端点尤其如此)。这里必须显式抛出去:
+        # 静默返回 [] 会和"真的没这首歌"混成一个日志, 让人误判成搜索/匹配逻辑坏了。
+        raise NeteaseRateLimited(
+            f"网易搜索被限流: {_string(payload.get('msg')) or '操作频繁'}"
+        )
     songs = (payload.get("result") or {}).get("songs") if isinstance(payload, dict) else None
     if not isinstance(songs, list):
         return []
@@ -249,13 +292,21 @@ def build_payload(
     }
     if ext in LOSSLESS_EXTENSIONS:
         extra["has_lossless"] = "1"
+    # 时长口径: 旧搜索接口用 `duration`, cloudsearch(pc) 用 `dt`, 详情接口又回到
+    # `duration` —— 三者都是毫秒。按序取第一个非零值, 否则详情请求失败时时长会丢。
+    duration_ms = (
+        _integer(raw.get("duration"))
+        or _integer(raw.get("dt"))
+        or _integer(detail.get("duration"))
+        or _integer(detail.get("dt"))
+    )
     return {
         "id": song_id,
         "name": _string(raw.get("name")),
         "artist": _artists(raw),
         "album": album_name,
         "album_id": "",
-        "duration": _integer(_integer(raw.get("duration") or detail.get("duration")) / 1000),
+        "duration": _integer(duration_ms / 1000),
         "size": _integer(resolution.get("size")),
         "bitrate": _integer(resolution.get("br")) // 1000,
         "source": "netease",
@@ -308,12 +359,17 @@ def search_by_lyric(
     matches = lyric_matches(client, keyword, limit)[:limit]
     if not matches:
         LOGGER.info("[netease] 歌词片段检索无命中 keyword=%r", keyword)
+        _record_status(keyword=keyword, mode="lyric", candidates=0, playable=0, empty_reason="no_match")
         return []
     payloads = _payloads_for(client, matches, cookie, session)
     playable = sum(1 for item in payloads if not item["is_invalid"])
     LOGGER.info(
         "[netease] 歌词片段检索命中 %d 首, 取到地址 %d 首 keyword=%r",
         len(payloads), playable, keyword,
+    )
+    _record_status(
+        keyword=keyword, mode="lyric", candidates=len(payloads),
+        playable=playable, empty_reason="",
     )
     return payloads
 
@@ -337,25 +393,42 @@ def search_songs(
     实测 limit=20 要 **131.7s**(而 QQ 只要 1.7s) —— 超过 app 侧扇出预算就被整源丢掉,
     用户既等得久又拿不到网易结果。本实现每首只打 **一次** eapi 地址请求(实测接口会
     直接返回实际档位, 不需要逐档重试), 配上并发后整体 ~2s。
+
+    限流(NeteaseRateLimited)必须向上抛而不是吞成空列表: 播放时按歌名回查走的是
+    同一条路径, 吞掉之后 Go 侧只会看到 "no matching songs", 表现成"这首歌没货",
+    真实原因(被上游限流)就彻底丢了。
     """
     keyword = _string(keyword)
     limit = min(max(_integer(limit) or 20, 1), 100)
     if not keyword:
         return []
     client = PlatformHTTP(cookie, session)
-    matches = song_matches(client, keyword, limit)[:limit]
+    try:
+        matches = song_matches(client, keyword, limit)[:limit]
+    except NeteaseRateLimited as error:
+        LOGGER.warning("[netease] 原生搜歌被限流 keyword=%r: %s", keyword, error)
+        _record_status(keyword=keyword, mode="song", candidates=0, playable=0,
+                       rate_limited=True, empty_reason="rate_limited")
+        raise
     if not matches:
         LOGGER.info("[netease] 原生搜歌无命中 keyword=%r", keyword)
+        _record_status(keyword=keyword, mode="song", candidates=0, playable=0, empty_reason="no_match")
         return []
     payloads = _payloads_for(client, matches, cookie, session)
+    playable = sum(1 for item in payloads if not item["is_invalid"])
     LOGGER.info(
         "[netease] 原生搜歌命中 %d 首, 取到地址 %d 首 keyword=%r",
-        len(payloads), sum(1 for item in payloads if not item["is_invalid"]), keyword,
+        len(payloads), playable, keyword,
+    )
+    _record_status(
+        keyword=keyword, mode="song", candidates=len(payloads), playable=playable,
+        rate_limited=False, empty_reason="",
     )
     return payloads
 
 
 __all__ = [
+    "NeteaseRateLimited",
     "build_payload",
     "fetch_lyric",
     "lyric_matches",
@@ -366,4 +439,5 @@ __all__ = [
     "search_songs",
     "song_details",
     "song_matches",
+    "status",
 ]

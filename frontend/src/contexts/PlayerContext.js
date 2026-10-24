@@ -38,6 +38,7 @@ import {
 } from './playerPauseRecovery.js';
 import {
   ContinuousMediaSourcePlayback,
+  describePipelineFailureNotice,
   supportsContinuousMediaSource,
 } from './playerMediaSource.js';
 import NativePlayerProvider from './NativePlayerProvider.js';
@@ -303,7 +304,7 @@ const WebPlayerProvider = ({ children }) => {
             queueLength: queueRef.current.length,
           }));
         },
-        onError: (error, failedSong) => continuousPlaybackErrorRef.current(error, failedSong),
+        onError: (error, failedSong, detail) => continuousPlaybackErrorRef.current(error, failedSong, detail),
       });
       continuousPlaybackRef.current = playback;
       try {
@@ -403,14 +404,20 @@ const WebPlayerProvider = ({ children }) => {
     }
   }, [buildPlayerDiagnostic, cancelPlaybackFade, destroyContinuousPlayback, muted, offline, resetAudioElement, revokeAudioObjectUrl, revokeCoverObjectUrl, userId]);
 
-  continuousPlaybackErrorRef.current = (error, failedSong) => {
+  continuousPlaybackErrorRef.current = (error, failedSong, detail = {}) => {
     const current = nowPlayingRef.current;
     if (!current || songIdentityKey(current) !== songIdentityKey(failedSong)) return;
     // 锁屏状态销毁 MediaSource、替换成普通 audio.src 会让 Android/Chromium
     // 重新申请媒体会话和音频焦点，真实日志已证明新流开始后会立刻被暂停。
     // 分块请求、浏览器解码和 SourceBuffer 配额错误都可能到达这里。失败时保留
     // 当前媒体会话和已缓冲音频，禁止再自动换 src；文案不得误报成网络或锁屏。
-    setNotice(`「${failedSong.name}」连续播放缓冲异常，将播完已缓冲部分；请回到播放器重新播放。`);
+    const bufferedSeconds = Number(detail?.bufferedSeconds || 0);
+    setNotice(describePipelineFailureNotice({ song: failedSong, bufferedSeconds }));
+    if (bufferedSeconds <= 0.5) {
+      // 一秒钟都没缓冲: 管线已 failed, 不会再自动续播。同步把"正在播放"的界面状态
+      // 收回来, 否则播放器仍显示播放中而实际全程静音, 用户只会反复点播放。
+      setIsPaused(true);
+    }
     console.warn('连续播放缓冲异常，保留当前媒体会话', error);
   };
 

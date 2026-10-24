@@ -113,7 +113,7 @@ def source_status() -> dict[str, Any]:
     QQ 之前整条失效时是完全静默的, 光靠日志需要人去翻; 放到 /health 里之后, 巡检和
     监控也能直接看到"这个源在被限流 / 凭证过期 / 一首都没取到地址"。
     """
-    return {"qq": qq_source.status()}
+    return {"qq": qq_source.status(), "netease": netease_source.status()}
 
 
 def _fetch_verbatim_lyric(source: str, song: dict[str, Any]) -> str:
@@ -191,7 +191,11 @@ def search(
     # 当歌名搜(搜歌词片段得到一堆同名垃圾), 所以这里换成网易自己的歌词检索接口(type=1006)。
     # 实测匿名可用(搜「都 是勇敢的」→ 孤勇者/陈奕迅原唱第 1 名)。
     if source == "netease" and search_type == LYRIC_SEARCH_TYPE and client_factory is None:
-        songs = netease_source.search_by_lyric(keyword, limit, cookie=cookie)
+        try:
+            songs = netease_source.search_by_lyric(keyword, limit, cookie=cookie)
+        except netease_source.NeteaseRateLimited as error:
+            LOGGER.warning("[netease] 歌词检索被上游限流 keyword=%r: %s", keyword, error)
+            raise ValueError(f"netease lyric search rate limited: {error}") from error
         _enrich_verbatim_lyrics(songs, source)
         return {"songs": songs}
     # 网易普通搜歌也走原生实现: 快照的 netease 客户端每首歌都要跑 8 档音质阶梯 + 探测下载
@@ -208,7 +212,14 @@ def search(
         and client_factory is None
         and netease_source.native_search_enabled()
     ):
-        native_songs = netease_source.search_songs(keyword, limit, cookie=cookie)
+        try:
+            native_songs = netease_source.search_songs(keyword, limit, cookie=cookie)
+        except netease_source.NeteaseRateLimited as error:
+            # 限流时**不能**返回空列表: 空列表会被上层解读成"这个关键词没货",
+            # 播放链路上又变成 "provider returned no matching songs", 真实原因丢失。
+            # 明确抛错让 sidecar 返回非 2xx, Go 侧就能把该源标成失败而不是静默空。
+            LOGGER.warning("[netease] 搜索被上游限流 keyword=%r: %s", keyword, error)
+            raise ValueError(f"netease search rate limited: {error}") from error
         _enrich_verbatim_lyrics(native_songs, source)
         return {"songs": native_songs}
     # QQ 走 Melodex 自有实现(见 qq_source 模块说明):快照的 QQ 取地址链路打的是 QQ 已

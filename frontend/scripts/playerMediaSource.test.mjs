@@ -4,6 +4,7 @@ import {
   bufferedAheadSeconds,
   CONTINUOUS_AUDIO_MIME,
   ContinuousMediaSourcePlayback,
+  describePipelineFailureNotice,
   fetchPlaybackChunkWithRetry,
   localProgressForSegment,
   MAX_BUFFER_AHEAD_SECONDS,
@@ -447,6 +448,72 @@ assert.equal(
 );
 assert.equal(quotaPlayback.segments[0].complete, true);
 assert.equal(quotaPlayback.segments[0].end, 120);
+
+// ===== 连续播放失败文案 =====
+// 现场事故(2026-10): 后端 /music/playback_segment 一直 502, 前端 MSE 重试 6 次后
+// 走到 onError。旧文案无论有没有缓冲都说"将播完已缓冲部分", 而实际上一秒都没缓冲,
+// 用户看到的是"提示在播, 但一直静音", 完全不知道该怎么办。
+assert.match(
+  describePipelineFailureNotice({ song: { name: '爱情讯息' }, bufferedSeconds: 0 }),
+  /没能取到音频数据.*播放已停止/,
+  '零缓冲时必须明确告知没拿到音频, 不能谎称"将播完已缓冲部分"',
+);
+assert.doesNotMatch(
+  describePipelineFailureNotice({ song: { name: '爱情讯息' }, bufferedSeconds: 0 }),
+  /将播完已缓冲部分/,
+  '零缓冲时禁止出现"将播完已缓冲部分"',
+);
+assert.match(
+  describePipelineFailureNotice({ song: { name: '爱情讯息' }, bufferedSeconds: 30 }),
+  /将播完已缓冲部分.*重新播放/,
+  '有缓冲时应保留原文案, 让用户听完已缓冲部分',
+);
+assert.match(
+  describePipelineFailureNotice({ bufferedSeconds: 0 }),
+  /当前歌曲/,
+  '缺少歌名时也要有可读文案',
+);
+
+// 生产故障复现: 每个短块都 502。管线必须在有限次重试后失败, 并把"已缓冲时长=0"
+// 传给 onError —— 这正是上面文案分支的依据。
+const failingAudio = new FakeEventTarget();
+Object.assign(failingAudio, {
+  src: '',
+  currentTime: 0,
+  load() {},
+  play: async () => {},
+});
+const pipelineErrors = [];
+const failingPlayback = new ContinuousMediaSourcePlayback({
+  audio: failingAudio,
+  MediaSourceCtor: FakeMediaSource,
+  createObjectURL: (mediaSource) => {
+    queueMicrotask(() => {
+      mediaSource.readyState = 'open';
+      mediaSource.emit('sourceopen');
+    });
+    return 'blob:failing-media-source';
+  },
+  revokeObjectURL: () => {},
+  getSegmentUrl: (_song, chunkIndex) => `/failing/${chunkIndex}`,
+  getNextSong: () => null,
+  onError: (error, song, detail) => pipelineErrors.push({ error, song, detail }),
+  fetchImpl: async () => ({ ok: false, status: 502, headers: { get: () => null } }),
+});
+await failingPlayback.start(songs[0]);
+await failingPlayback.appendPromise;
+assert.equal(failingPlayback.failed, true, '短块持续 502 时管线必须进入 failed 状态');
+assert.equal(pipelineErrors.length, 1, '管线失败只上报一次, 不能反复刷提示');
+assert.equal(
+  pipelineErrors[0].detail.bufferedSeconds,
+  0,
+  '一块都没追加成功时必须上报 0 秒缓冲 —— 上层据此选择"没取到音频"文案',
+);
+assert.match(
+  String(pipelineErrors[0].error?.message || ''),
+  /HTTP 502/,
+  '失败原因必须保留上游状态码, 便于定位是后端还是网络',
+);
 
 const diagnostic = buildPlaybackDiagnostic({
   event: 'media_session_action',
