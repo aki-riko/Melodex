@@ -4,8 +4,10 @@ import { getServerDownloads, SERVER_DOWNLOADS_CHANGED } from '../services/musicd
 import { useAuth } from './AuthContext';
 import { normalizeSong } from '../utils/songFields';
 import {
+  buildServerDownloadIndex,
   serverDownloadEventBelongsToUser,
   serverDownloadMatchesKnownKeys,
+  serverDownloadRecordForSong,
   serverDownloadStatusKey,
   serverDownloadTitleArtistKey,
 } from '../utils/serverDownloads';
@@ -104,16 +106,32 @@ export function ServerDownloadsProvider({ children }) {
     return keys;
   }, [downloadsQuery.data]);
 
+  // 「歌曲 → 下载记录」索引(含后端新增的 ext/size_bytes),供播放时判断是否需要音质升级。
+  const downloadIndex = useMemo(
+    () => buildServerDownloadIndex(downloadsQuery.data?.downloads),
+    [downloadsQuery.data],
+  );
+
   const isDownloaded = useCallback((song) => {
     const normalized = normalizeSong(song);
     return serverDownloadMatchesKnownKeys(normalized, downloadedKeys, downloadedTitleArtistKeys);
   }, [downloadedKeys, downloadedTitleArtistKeys]);
 
+  // 返回匹配到的下载记录(不只是布尔),未命中返回 null。
+  // 匹配语义与 isDownloaded 完全一致:先 source+song_id 精确,身份缺失才退回完整歌名+歌手。
+  const downloadedCopy = useCallback((song) => {
+    if (!song) return null;
+    const normalized = normalizeSong(song);
+    const record = serverDownloadRecordForSong(normalized, downloadIndex);
+    return record || null;
+  }, [downloadIndex]);
+
   const value = useMemo(() => ({
     isDownloaded,
+    downloadedCopy,
     loading: downloadsQuery.isLoading,
     refetch: downloadsQuery.refetch,
-  }), [downloadsQuery.isLoading, downloadsQuery.refetch, isDownloaded]);
+  }), [downloadedCopy, downloadsQuery.isLoading, downloadsQuery.refetch, isDownloaded]);
 
   return (
     <ServerDownloadsContext.Provider value={value}>

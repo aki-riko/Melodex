@@ -18,7 +18,7 @@ import {
   saveStopAfterTrackPreference,
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
-import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
+import { autoDownloadOnPlayPlan, retainAutoDownloadAttempt } from './playerAutoDownload.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
 import {
   beginPlaybackTransition,
@@ -113,7 +113,7 @@ const WebPlayerProvider = ({ children }) => {
   useEffect(() => { modeRef.current = mode; localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
   const { user, offline } = useAuth();
-  const { isDownloaded: isServerDownloaded } = useServerDownloads();
+  const { downloadedCopy } = useServerDownloads();
   const userId = user?.id || 0;
   const resumeRef = useRef(null);   // 待恢复的进度秒数(audio 加载完成后 seek 到这里)
   const restoredRef = useRef(false); // 防重复恢复
@@ -808,18 +808,22 @@ const WebPlayerProvider = ({ children }) => {
     seekRestartMarkerRef.current = '';
     recordedPlaySeqRef.current = marker;
     recordPlayHistory(song);
-    if (!shouldAutoDownloadOnPlay(song, isServerDownloaded)) return;
+    const plan = autoDownloadOnPlayPlan(song, downloadedCopy);
+    if (!plan.download) return;
     const dlKey = songIdentityKey(song);
     if (!dlKey || autoDownloadedRef.current.has(dlKey)) return;
     autoDownloadedRef.current.add(dlKey);
     saveToServer(song)
       .then((result) => {
-        if (!serverSaveSucceeded(result)) autoDownloadedRef.current.delete(dlKey);
+        if (serverSaveSucceeded(result)) return;
+        // 升级失败即放弃本次会话(保留 dlKey 不再重试);首次下载失败保留重试语义。
+        retainAutoDownloadAttempt(autoDownloadedRef.current, dlKey, plan.upgrade);
       })
       .catch(() => {
-        autoDownloadedRef.current.delete(dlKey);
+        // 音质升级失败必须放弃本次会话:否则每次播放都会把同一份文件重写一次。
+        retainAutoDownloadAttempt(autoDownloadedRef.current, dlKey, plan.upgrade);
       });
-  }, [isServerDownloaded, offline]);
+  }, [downloadedCopy, offline]);
 
   const activateContinuousTrack = useCallback(({ song, start = 0, end = 0, index = 0 }) => {
     const audio = audioRef.current;

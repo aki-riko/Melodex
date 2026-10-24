@@ -4,7 +4,7 @@ import { normalizeSong } from '../utils/songFields.js';
 import { songIdentityKey } from '../utils/songIdentity.js';
 import { useAuth } from './AuthContext.js';
 import { useServerDownloads } from './ServerDownloadsContext.js';
-import { shouldAutoDownloadOnPlay } from './playerAutoDownload.js';
+import { autoDownloadOnPlayPlan, retainAutoDownloadAttempt } from './playerAutoDownload.js';
 import { nextPlaybackMode } from './playerQueue.js';
 import {
   createSleepTimer,
@@ -58,7 +58,7 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
   const autoDownloadedRef = useRef(new Set());
   const lastSavedAtRef = useRef(0);
   const { user, offline } = useAuth();
-  const { isDownloaded: isServerDownloaded } = useServerDownloads();
+  const { downloadedCopy } = useServerDownloads();
   const userId = user?.id || 0;
 
   useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
@@ -98,17 +98,20 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
     if (!key || recordedSongRef.current === key) return;
     recordedSongRef.current = key;
     Promise.resolve(recordPlayHistory(song)).catch((error) => console.warn('记录播放历史失败', error));
-    if (!shouldAutoDownloadOnPlay(song, isServerDownloaded) || autoDownloadedRef.current.has(key)) return;
+    const plan = autoDownloadOnPlayPlan(song, downloadedCopy);
+    if (!plan.download || autoDownloadedRef.current.has(key)) return;
     autoDownloadedRef.current.add(key);
     saveToServer(song)
       .then((result) => {
-        if (!serverSaveSucceeded(result)) autoDownloadedRef.current.delete(key);
+        if (serverSaveSucceeded(result)) return;
+        // 升级失败即放弃本次会话(保留 key 不再重试);首次下载失败保留重试语义。
+        retainAutoDownloadAttempt(autoDownloadedRef.current, key, plan.upgrade);
       })
       .catch((error) => {
-        autoDownloadedRef.current.delete(key);
+        retainAutoDownloadAttempt(autoDownloadedRef.current, key, plan.upgrade);
         console.warn('原生播放自动下载失败', error);
       });
-  }, [isServerDownloaded, offline]);
+  }, [downloadedCopy, offline]);
 
   const applyNativeState = useCallback((rawState) => {
     const snapshot = nativePlaybackSnapshot(rawState, queueRef.current);

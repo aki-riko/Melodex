@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import {
+  buildServerDownloadIndex,
   planServerDownloadBatch,
   serverDownloadEventBelongsToUser,
   serverDownloadMatchesKnownKeys,
+  serverDownloadRecordExtension,
+  serverDownloadRecordForSong,
+  serverDownloadRecordSizeBytes,
   serverDownloadSongKey,
   serverDownloadStatusKey,
   serverDownloadTitleArtistKey,
@@ -14,7 +18,14 @@ import {
   serverDownloadBatchSummary,
   shouldAbortServerDownloadBatch,
 } from '../src/utils/serverDownloadBatch.js';
-import { shouldAutoDownloadOnPlay } from '../src/contexts/playerAutoDownload.js';
+import {
+  autoDownloadFailureIsRetryable,
+  autoDownloadOnPlayPlan,
+  estimateServerCopyBitrate,
+  retainAutoDownloadAttempt,
+  serverCopyNeedsUpgrade,
+  shouldAutoDownloadOnPlay,
+} from '../src/contexts/playerAutoDownload.js';
 
 assert.equal(serverDownloadStatusKey(' qq ', ' 002l8AAo4GpCaf '), 'qq\u0000002l8AAo4GpCaf');
 assert.equal(serverDownloadStatusKey('qq', ''), '');
@@ -74,6 +85,105 @@ assert.equal(shouldAutoDownloadOnPlay(localSong, () => false, enabledStorage), f
 assert.equal(shouldAutoDownloadOnPlay(legacyLocalSong, () => false, enabledStorage), false);
 assert.equal(shouldAutoDownloadOnPlay(localMusicSong, () => false, enabledStorage), false);
 assert.equal(shouldAutoDownloadOnPlay(pendingQQ, () => false, disabledStorage), false);
+// 兼容旧的布尔查询函数:已下载但拿不到记录 → 不升级、不重下(维持旧行为)。
+assert.equal(shouldAutoDownloadOnPlay(realSong, () => true, enabledStorage), false);
+
+// ---- 音质升级判定 serverCopyNeedsUpgrade ----
+// 新后端契约:GET /music/downloads 每项新增 ext(小写)与 size_bytes。
+const flacRecord = {
+  source: 'qq',
+  song_id: '002l8AAo4GpCaf',
+  name: '庭園にて。',
+  artist: 'acane_madder',
+  rel_path: '庭園にて。 - acane_madder [qq-002l8AAo4GpCaf].flac',
+  ext: 'flac',
+  size_bytes: 35_661_811,
+};
+assert.equal(serverDownloadRecordExtension({ ext: 'FLAC' }), 'flac');
+assert.equal(serverDownloadRecordExtension({ ext: '.Mp3' }), 'mp3');
+assert.equal(serverDownloadRecordExtension({ rel_path: 'dir\\song.FLAC' }), 'flac');
+assert.equal(serverDownloadRecordExtension({}), '');
+assert.equal(serverDownloadRecordSizeBytes({ size_bytes: 1234 }), 1234);
+assert.equal(serverDownloadRecordSizeBytes({ size_bytes: '1234' }), 1234);
+assert.equal(serverDownloadRecordSizeBytes({}), 0);
+assert.equal(serverDownloadRecordSizeBytes({ size_bytes: -5 }), 0);
+
+const losslessSong = { source: 'qq', id: '002l8AAo4GpCaf', name: '庭園にて。', artist: 'acane_madder', bitrate: 1411, duration: 269, extra: { has_lossless: '1' } };
+const lossyRecord = { ...flacRecord, ext: 'mp3', size_bytes: 4_300_000, rel_path: '庭園にて。 - acane_madder.mp3' };
+// 无 record → false(没下载过不算升级)
+assert.equal(serverCopyNeedsUpgrade(losslessSong, null), false);
+assert.equal(serverCopyNeedsUpgrade(losslessSong, undefined), false);
+// 本地源 → false
+assert.equal(serverCopyNeedsUpgrade({ ...losslessSong, source: 'local' }, lossyRecord), false);
+assert.equal(serverCopyNeedsUpgrade({ ...losslessSong, source: 'local_music' }, lossyRecord), false);
+// 磁盘有损 + 源声明 has_lossless='1' → true
+assert.equal(serverCopyNeedsUpgrade(losslessSong, lossyRecord), true);
+// 已是无损 → false(无损之间不比体积)
+assert.equal(serverCopyNeedsUpgrade(losslessSong, flacRecord), false);
+// 磁盘有损、源无 has_lossless,但估算码率明显偏低(mp3 128k vs 在线 320k) → true
+const lowRateRecord = { source: 'qq', song_id: 'lowrate', ext: 'mp3', size_bytes: 4_300_000, rel_path: 'a.mp3' };
+const highRateSong = { source: 'qq', id: 'lowrate', name: '高码率', artist: '歌手', bitrate: 320, duration: 269, extra: {} };
+assert.equal(estimateServerCopyBitrate(lowRateRecord, 269), 128);
+assert.equal(serverCopyNeedsUpgrade(highRateSong, lowRateRecord), true);
+// 码率接近(320k 文件 vs 在线 320k) → false,不无谓重下
+const nearRecord = { source: 'qq', song_id: 'near', ext: 'mp3', size_bytes: 10_800_000, rel_path: 'b.mp3' };
+const nearSong = { source: 'qq', id: 'near', name: '同码率', artist: '歌手', bitrate: 320, duration: 269, extra: {} };
+assert.equal(estimateServerCopyBitrate(nearRecord, 269), 321);
+assert.equal(serverCopyNeedsUpgrade(nearSong, nearRecord), false);
+// 缺 size_bytes/时长 → 无法估算 → false(保守)
+assert.equal(estimateServerCopyBitrate({ ext: 'mp3' }, 269), 0);
+assert.equal(estimateServerCopyBitrate(lowRateRecord, 0), 0);
+assert.equal(serverCopyNeedsUpgrade(highRateSong, { source: 'qq', song_id: 'lowrate', ext: 'mp3' }), false);
+assert.equal(serverCopyNeedsUpgrade({ ...highRateSong, duration: 0 }, lowRateRecord), false);
+// 在线无码率(0/非法) → 无正面证据 → false
+assert.equal(serverCopyNeedsUpgrade({ ...highRateSong, bitrate: 0 }, lowRateRecord), false);
+assert.equal(serverCopyNeedsUpgrade({ ...highRateSong, bitrate: 'unknown' }, lowRateRecord), false);
+// 扩展名未知(旧记录缺 ext 且 rel_path 无后缀) → 不靠扩展名猜,只认码率证据。
+assert.equal(serverCopyNeedsUpgrade(highRateSong, { source: 'qq', song_id: 'lowrate', size_bytes: 4_300_000 }), true);
+// 同一文件按更短时长估算 = 估算码率 573k > 320k,不是升级。
+assert.equal(serverCopyNeedsUpgrade({ ...highRateSong, duration: 60 }, { source: 'qq', song_id: 'lowrate', size_bytes: 4_300_000 }), false);
+// 时长过短(<30s)不足以可靠估算 → 不升级。
+assert.equal(serverCopyNeedsUpgrade({ ...highRateSong, duration: 10 }, { source: 'qq', song_id: 'lowrate', size_bytes: 4_300_000 }), false);
+
+// ---- 索引 + 记录查找 ----
+const downloadIndex = buildServerDownloadIndex([lossyRecord, flacRecord]);
+assert.equal(serverDownloadRecordForSong(realSong, downloadIndex)?.ext, 'mp3');
+assert.equal(serverDownloadRecordForSong({ source: 'qq', id: 'other-id', name: '庭園にて。', artist: 'acane_madder' }, downloadIndex), null);
+assert.equal(serverDownloadRecordForSong({ name: '庭園にて。', artist: 'acane_madder' }, downloadIndex)?.song_id, '002l8AAo4GpCaf');
+assert.equal(serverDownloadRecordForSong(localSong, downloadIndex), null);
+assert.equal(serverDownloadRecordForSong(realSong, null), null);
+// 后端已按 created_at DESC 返回:同一身份保留第一条,与实际播放的服务器副本一致。
+const sameKeyNewer = { ...flacRecord, ext: 'flac', size_bytes: 35_000_000 };
+const newerFirst = buildServerDownloadIndex([sameKeyNewer, lossyRecord]);
+assert.equal(serverDownloadRecordForSong(realSong, newerFirst)?.ext, 'flac');
+// 格式错误的条目必须被忽略,不能污染索引。
+const dirtyIndex = buildServerDownloadIndex([null, 'junk', 42, [lossyRecord]]);
+assert.equal(serverDownloadRecordForSong(realSong, dirtyIndex), null);
+assert.equal(buildServerDownloadIndex(undefined).exact.size, 0);
+
+// ---- shouldAutoDownloadOnPlay 的升级分支 ----
+const lookup = (record) => () => record;
+assert.equal(shouldAutoDownloadOnPlay(realSong, lookup(null), enabledStorage), true);
+assert.equal(shouldAutoDownloadOnPlay(realSong, lookup(flacRecord), enabledStorage), false);
+assert.equal(shouldAutoDownloadOnPlay(losslessSong, lookup(lossyRecord), enabledStorage), true);
+assert.equal(shouldAutoDownloadOnPlay(losslessSong, lookup(flacRecord), enabledStorage), false);
+assert.equal(shouldAutoDownloadOnPlay(losslessSong, lookup(lossyRecord), disabledStorage), false);
+assert.equal(shouldAutoDownloadOnPlay({ ...losslessSong, source: 'local' }, lookup(lossyRecord), enabledStorage), false);
+// 升级计划要能把「本次是升级」与「本次是首次下载」区分开,供失败后放弃会话用。
+assert.deepEqual(autoDownloadOnPlayPlan(losslessSong, lookup(lossyRecord), enabledStorage), { download: true, upgrade: true });
+assert.deepEqual(autoDownloadOnPlayPlan(realSong, lookup(null), enabledStorage), { download: true, upgrade: false });
+assert.deepEqual(autoDownloadOnPlayPlan(losslessSong, lookup(flacRecord), enabledStorage), { download: false, upgrade: false });
+// 升级失败放弃本次会话;首次下载失败保留重试。
+assert.equal(autoDownloadFailureIsRetryable(true), false);
+assert.equal(autoDownloadFailureIsRetryable(false), true);
+// 失败后如何更新去重集合:升级失败必须把 key 留在集合里,否则下次播放会再重写同一份文件。
+const upgradeAttempts = new Set(['qq:lossy-song:hash']);
+assert.equal(retainAutoDownloadAttempt(upgradeAttempts, 'qq:lossy-song:hash', true), true);
+assert.equal(upgradeAttempts.has('qq:lossy-song:hash'), true, '升级失败后必须保留去重 key,禁止本会话重试');
+// 首次下载失败应把 key 移出集合,保留旧的"下次播放可重试"语义。
+const firstAttempts = new Set(['qq:new-song:hash']);
+assert.equal(retainAutoDownloadAttempt(firstAttempts, 'qq:new-song:hash', false), false);
+assert.equal(firstAttempts.has('qq:new-song:hash'), false, '首次下载失败应允许重试');
 
 const plan = planServerDownloadBatch(batchSongs, [realDownloaded]);
 assert.deepEqual(plan.pending, [pendingQQ, pendingNetease, pendingKugou]);
