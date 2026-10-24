@@ -125,7 +125,7 @@ export default function MyPlaylist() {
     setMoreOpen(false);
     const ok = await feedback.confirm({
       title: `删除歌单「${currentName}」?`,
-      body: '只删除歌单记录,不会删除服务器「已下载」里的歌曲文件。',
+      body: '只删除歌单记录，不会删除服务器「已下载」里的歌曲文件。',
       confirmLabel: '删除歌单',
       danger: true,
     });
@@ -184,7 +184,7 @@ export default function MyPlaylist() {
               onClick={handleCacheAll}
               loading={bulkCache.phase === 'running'}
               disabled={!songs.length || offline || bulkCache.phase === 'running'}
-              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA,可离线听'}
+              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA，可离线听'}
             >
               <HardDriveDownload size={16} aria-hidden="true" />
               {cacheLabel}
@@ -237,7 +237,7 @@ export default function MyPlaylist() {
         <EmptyState
           icon={Download}
           title="这个歌单还没有歌"
-          description="去「找歌」搜索后,用行内「加入歌单」把歌存进来。"
+          description="去「找歌」搜索后，用行内「加入歌单」把歌存进来。"
           action={(
             <Button variant="primary" onClick={() => { window.location.hash = 'download'; }}>
               去找歌

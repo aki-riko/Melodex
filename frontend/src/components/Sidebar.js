@@ -173,7 +173,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
       const base = f.name.replace(/\.(m3u8?|M3U8?)$/, '');
       const r = await importM3U(base || '导入歌单', content);
       await refresh();
-      feedback.success(`导入「${r.name}」:共 ${r.total} 条,匹配 ${r.matched} 首${r.skipped ? `,${r.skipped} 首未匹配` : ''}`);
+      feedback.success(`导入「${r.name}」:共 ${r.total} 条，匹配 ${r.matched} 首${r.skipped ? `,${r.skipped} 首未匹配` : ''}`);
       openNew({ id: r.id }, r.name);
     } catch (err) {
       feedback.error(`导入失败:${err?.response?.data?.error || err.message || '未知错误'}`);
@@ -231,7 +231,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => { if (!name.trim()) setCreating(false); }}
-            placeholder="歌单名,回车创建"
+            placeholder="歌单名，回车创建"
             aria-label="新歌单名称"
             className="min-h-9 w-full rounded border border-border bg-secondary px-2 type-caption text-foreground outline-none focus:border-primary"
           />

@@ -62,7 +62,7 @@ const AuthGate = () => {
       else await login(username.trim(), password);
       // 成功后 AuthProvider.refresh 会切到主应用。
     } catch (err) {
-      const msg = err?.response?.data?.error || '操作失败,请重试';
+      const msg = err?.response?.data?.error || '操作失败，请重试';
       setError(msg);
       setBusy(false);
     }
@@ -88,7 +88,7 @@ const AuthGate = () => {
           <h1 className="type-title mb-1">{titles[effectiveMode]}</h1>
           <p className="mb-5 type-caption text-muted-foreground">
             {effectiveMode === 'setup'
-              ? '系统尚无账号,创建首个管理员(ROOT)。'
+              ? '系统尚无账号，创建首个管理员(ROOT)。'
               : '登录后即可使用你的歌单、收藏与本地库。'}
           </p>
 

@@ -84,7 +84,7 @@ const UserManagement = () => {
   const onDelete = async (u) => {
     const ok = await feedback.confirm({
       title: `删除用户 ${u.username}?`,
-      body: '其歌单与下载归属将一并删除,此操作不可恢复。',
+      body: '其歌单与下载归属将一并删除，此操作不可恢复。',
       confirmLabel: '删除用户',
       danger: true,
     });

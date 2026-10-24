@@ -26,12 +26,12 @@ const SleepTimerControl = ({
   const stateLabel = pendingEndOfTrack ? '播完停' : remainingText;
   const title = active
     ? pendingEndOfTrack
-      ? '定时已到点,播完本首后停止'
+      ? '定时已到点，播完本首后停止'
       : `睡眠定时剩余 ${remainingText}`
     : '睡眠定时';
   const isMobileMenu = variant === 'mobileMenu';
   const triggerTitle = isMobileMenu
-    ? active ? `播放器菜单,${title}` : '播放器菜单'
+    ? active ? `播放器菜单，${title}` : '播放器菜单'
     : title;
 
   const chooseMinutes = (minutes) => {
@@ -93,7 +93,7 @@ const SleepTimerControl = ({
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {active
                       ? pendingEndOfTrack
-                        ? '已到点,本首结束后停止'
+                        ? '已到点，本首结束后停止'
                         : `剩余 ${remainingText}`
                       : '选择停止播放时间'}
                   </p>

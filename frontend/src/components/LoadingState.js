@@ -20,7 +20,7 @@ export const LoadingRows = ({ rows = 5, compact = false }) => (
 
 const LoadingState = ({
   title = '加载中',
-  detail = '正在读取数据,请稍等',
+  detail = '正在读取数据，请稍等',
   rows = 4,
   compact = false,
   showRows = true,
