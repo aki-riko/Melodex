@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from provider_bridge import kugou_lyric, netease_lyric, netease_source, qq_source
+from provider_bridge import kugou_lyric, kuwo_source, netease_lyric, netease_source, qq_source
 
 
 LOGGER = logging.getLogger(__name__)
@@ -113,7 +113,11 @@ def source_status() -> dict[str, Any]:
     QQ 之前整条失效时是完全静默的, 光靠日志需要人去翻; 放到 /health 里之后, 巡检和
     监控也能直接看到"这个源在被限流 / 凭证过期 / 一首都没取到地址"。
     """
-    return {"qq": qq_source.status(), "netease": netease_source.status()}
+    return {
+        "qq": qq_source.status(),
+        "netease": netease_source.status(),
+        "kuwo": kuwo_source.status(),
+    }
 
 
 def _fetch_verbatim_lyric(source: str, song: dict[str, Any]) -> str:
@@ -230,6 +234,12 @@ def search(
         return {"songs": qq_source.search(
             keyword, limit, cookie, work_dir=work_dir, search_type=search_type,
         )}
+    # 酷我走 Melodex 自有实现(见 kuwo_source 模块说明):快照对每首歌跑 22 档音质阶梯
+    # + 逐档探活(实测 limit=20 要 83.7s), 而且把付费曲的 11 秒试听片段判定为"可播"。
+    # 原生实现每首只打 1 次取址请求(实测 ~0.6s), 并按 fpay/PAY 掩码 + 时长比对
+    # 把试听片段明确标为不可播, 让前端验活隐藏它们。
+    if source == "kuwo" and client_factory is None:
+        return {"songs": kuwo_source.search(keyword, limit, cookie=cookie)}
     if client_factory is None:
         client_factory = load_client_class(source)
     work_root = Path(work_dir)
@@ -277,4 +287,6 @@ def lyric(payload: dict[str, Any]) -> dict[str, str]:
         raise ValueError("source and id are required")
     if source == "netease":
         return {"lyric": netease_source.fetch_lyric(song_id, cookie=cookie)}
+    if source == "kuwo":
+        return {"lyric": kuwo_source.fetch_lyric(song_id, cookie=cookie)}
     raise ValueError(f"lyrics unsupported for source: {source}")
