@@ -451,52 +451,60 @@ class QQSourceTests(unittest.TestCase):
         self.assertIn("缺失", missing["summary"])
 
     # ---- 歌词 ----------------------------------------------------------
+    #
+    # 搜索**不再内联**歌词: 实测 5 个关键词带歌词 21.30s / 不带 7.84s(歌词占 63%),
+    # 改为播放时按 mid 惰性取(见 fetch_lyric)。下面同时锁死"搜索不发歌词请求"
+    # 和"惰性取词仍能拿到逐字 QRC"两端。
 
-    def test_lyrics_are_attached_to_returned_songs(self):
-        """QRC 拿不到时回退 base64 行级歌词: 先发一次带 qrc=1 的请求, 再发一次普通歌词请求。"""
-        items = [song_item("AAA")]
-        backend = FakeBackend(items, purl_by_quality={"quality": "M500"}, lyrics={"AAA": "[00:01.00]晴天"})
+    def test_search_does_not_fetch_lyrics_inline(self):
+        """搜索必须零歌词请求 —— 这是把 QQ 搜索从 4.26s 降到 1.57s 的关键。"""
+        items = [song_item("AAA"), song_item("BBB")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500"},
+                               lyrics={"AAA": "[00:01.00]晴天"})
         songs = self.run_search(backend, limit=5)
+        self.assertEqual(backend.lyric_calls, [], "搜索阶段不得请求歌词")
+        for song in songs:
+            self.assertNotIn("lyric", song["extra"], "搜索结果不应带内联歌词")
+
+    def test_inline_lyrics_still_available_via_opt_in(self):
+        """需要旧行为时可显式开启(排障/回归对照用)。"""
+        items = [song_item("AAA")]
+        backend = FakeBackend(items, purl_by_quality={"quality": "M500"},
+                               lyrics={"AAA": "[00:01.00]晴天"})
+        with mock.patch.dict(os.environ, {"MELODEX_QQ_SEARCH_LYRICS": "1"}):
+            songs = self.run_search(backend, limit=5)
         self.assertEqual(songs[0]["extra"]["lyric"], "[00:01.00]晴天")
         self.assertNotIn("lyric_verbatim", songs[0]["extra"], "行级歌词不能标成逐字")
-        self.assertEqual(len(backend.lyric_calls), 2)
-        self.assertEqual(backend.lyric_calls[0]["payload"]["req_1"]["param"]["qrc"], 1, "先试 QRC")
-        self.assertNotIn("qrc", backend.lyric_calls[1]["payload"]["req_1"]["param"], "回退请求不带 qrc")
 
-    def test_qrc_verbatim_lyric_takes_precedence(self):
-        """真实 QRC 密文(见 testdata 抓取说明)能被解密成逐字歌词, 且不再发第二次歌词请求。"""
+    def test_lazy_lyric_uses_cached_meta_for_verbatim_qrc(self):
+        """惰性取词: 搜索时缓存 mid->元数据, 播放时靠它走完整 QRC 逐字链路。
+
+        QRC 请求必须带 songName/albumName/singerName(只传 mid 上游不给 QRC),
+        这些字段只有搜索结果里有 —— 所以缓存元数据是逐字歌词不退化的前提。
+        """
         fixture = json.loads(
             (pathlib.Path(__file__).with_name("testdata") / "qq_qrc_fixture.json").read_text(encoding="utf-8")
         )
-        items = [song_item("AAA")]
+        items = [song_item("AAA", title="晴天", artists=("周杰伦",), album_mid="000M")]
         backend = FakeBackend(items, purl_by_quality={"quality": "M500"},
-                              lyrics={"AAA": "[00:01.00]不该被用到"},
                               qrc_payload=fixture["lyric_hex"])
-        songs = self.run_search(backend, limit=5)
-        extra = songs[0]["extra"]
-        self.assertEqual(extra["lyric_verbatim"], "1")
-        self.assertTrue(extra["lyric"].startswith("[00:00.000]晴"), extra["lyric"][:40])
-        self.assertNotIn("不该被用到", extra["lyric"])
-        self.assertEqual(len(backend.lyric_calls), 1, "QRC 成功就不该再打一次歌词请求")
-        self.assertEqual(backend.lyric_calls[0]["payload"]["req_1"]["param"]["qrc"], 1)
+        with mock.patch.object(qq_source, "_post", backend):
+            with mock.patch.object(qq_source, "_probe_media_url", return_value=(True, 206)):
+                qq_source.search("晴天", 5, "", work_dir=self.work_dir)
+                lyric = qq_source.fetch_lyric("AAA")
+        self.assertTrue(lyric.startswith("[00:00.000]晴"), lyric[:40])
 
-    def test_qrc_can_be_disabled(self):
-        items = [song_item("AAA")]
-        backend = FakeBackend(items, purl_by_quality={"quality": "M500"}, lyrics={"AAA": "[00:01.00]晴天"},
-                              qrc_payload="00" * 32)
-        with mock.patch.dict(os.environ, {"MELODEX_QQ_VERBATIM_LYRIC": "0"}):
-            songs = self.run_search(backend, limit=5)
-        self.assertEqual(songs[0]["extra"]["lyric"], "[00:01.00]晴天")
-        self.assertEqual(len(backend.lyric_calls), 1)
-        self.assertNotIn("qrc", backend.lyric_calls[0]["payload"]["req_1"]["param"])
+    def test_lazy_lyric_falls_back_to_line_level_without_cache(self):
+        """重启后直接播放历史歌单(无元数据缓存)时, 至少要拿到行级歌词。"""
+        backend = FakeBackend([], lyrics={"UNKNOWN": "[00:01.00]行级歌词"})
+        with mock.patch.object(qq_source, "_post", backend):
+            lyric = qq_source.fetch_lyric("UNKNOWN")
+        self.assertEqual(lyric, "[00:01.00]行级歌词")
 
-    def test_lyrics_can_be_disabled(self):
-        items = [song_item("AAA")]
-        backend = FakeBackend(items, purl_by_quality={"quality": "M500"}, lyrics={"AAA": "[00:01.00]晴天"})
-        with mock.patch.dict(os.environ, {"MELODEX_QQ_SEARCH_LYRICS": "0"}):
-            songs = self.run_search(backend, limit=5)
-        self.assertNotIn("lyric", songs[0]["extra"])
-        self.assertEqual(backend.lyric_calls, [])
+    def test_lazy_lyric_empty_for_unknown_mid(self):
+        backend = FakeBackend([])
+        with mock.patch.object(qq_source, "_post", backend):
+            self.assertEqual(qq_source.fetch_lyric(""), "")
 
     def test_lyric_failure_does_not_break_search(self):
         items = [song_item("AAA")]

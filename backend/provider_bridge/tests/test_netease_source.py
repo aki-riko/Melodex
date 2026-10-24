@@ -299,21 +299,40 @@ class NeteaseLyricSearchWiringTests(unittest.TestCase):
         search.assert_not_called()
         self.assertEqual(result["songs"][0]["name"], "普通搜索的歌")
 
-    def test_verbatim_lyric_enrichment_still_applies(self):
+    def test_search_does_not_prefetch_verbatim_lyrics(self):
+        """搜索不再为每首候选预取逐字歌词(实测 +0.5s/次), 改由 play 时按 id 懒取。"""
         native = [{"id": "1", "name": "孤勇者", "source": "netease", "extra": {}}]
         with mock.patch.object(netease_source, "search_by_lyric", return_value=native):
             with mock.patch.object(
-                bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value="[00:01.000]都[00:01.500]是"
-            ):
+                bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value="[00:01.000]都"
+            ) as fetch:
                 with tempfile.TemporaryDirectory() as work_dir:
                     result = bridge_app.search(
                         {"source": "netease", "keyword": "都 是勇敢的", "limit": 8,
                          "search_type": 7, "cookie": ""},
                         work_dir=work_dir,
                     )
-        extra = result["songs"][0]["extra"]
-        self.assertEqual(extra["lyric"], "[00:01.000]都[00:01.500]是")
-        self.assertEqual(extra["lyric_verbatim"], "1")
+        fetch.assert_not_called()
+        self.assertNotIn("lyric", result["songs"][0]["extra"])
+
+    def test_lyric_endpoint_prefers_verbatim_then_falls_back(self):
+        """懒加载必须保住逐字能力: 有 YRC 就给逐字, 没有才退回行级。"""
+        with mock.patch.object(
+            bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value="[00:01.000]都[00:01.500]是"
+        ) as verbatim:
+            with mock.patch.object(bridge_app.netease_source, "fetch_lyric") as line:
+                result = bridge_app.lyric({"source": "netease", "id": "1901371647", "cookie": ""})
+        self.assertEqual(result["lyric"], "[00:01.000]都[00:01.500]是")
+        verbatim.assert_called_once()
+        line.assert_not_called()
+
+    def test_lyric_endpoint_falls_back_to_line_level(self):
+        with mock.patch.object(bridge_app.netease_lyric, "fetch_verbatim_lyric", return_value=""):
+            with mock.patch.object(
+                bridge_app.netease_source, "fetch_lyric", return_value="[00:01.00]行级"
+            ):
+                result = bridge_app.lyric({"source": "netease", "id": "1", "cookie": ""})
+        self.assertEqual(result["lyric"], "[00:01.00]行级")
 
 
 class NativeSongSearchTests(unittest.TestCase):
