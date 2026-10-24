@@ -992,20 +992,86 @@ func markProviderTrackRanks(tracks []model.Track, source string) {
 	}
 }
 
+// 歌词检索的"原唱补充"搜索上限与并发度。
+//
+// 每补一个候选都是一次完整的**多源歌曲搜索**(实测单次 1~2s)。早先的实现在这里逐首
+// **串行**调用: 一次歌词检索(关键词「牛奶面包」)返回多首带《剧名》的歌, 就串行补了
+// 3 个变体, 把 type=lyric 这一路拖到 **5.22s**(同期 song 2.64s / album 0.43s),
+// 而前端是并发发 song+album+lyric 三个请求, 用户感知的就是最慢那个 5s。
+// 现在改为: 先本地挑出要补的查询词(去重 + 封顶), 再并行补搜, 最后按原顺序组装。
+const (
+	lyricAugmentMaxQueries  = 4
+	lyricAugmentConcurrency = 4
+)
+
 func augmentLyricSearchOriginals(source string, songs []model.Track, searchFn func(string) ([]model.Track, error)) []model.Track {
 	if len(songs) == 0 || searchFn == nil {
 		return songs
 	}
 
-	out := make([]model.Track, 0, len(songs)+4)
-	seen := make(map[string]struct{}, len(songs)+4)
-	for _, song := range songs {
-		for _, candidate := range findInferredLyricOriginals(source, song, searchFn) {
-			if !appendUniqueSearchSong(&out, seen, candidate) {
-				continue
+	// 阶段 1(纯本地): 判断哪些歌能推断出"原唱", 收集去重后的查询词。
+	type augmentTarget struct {
+		artist string
+		title  string
+		query  string
+	}
+	targets := make([]augmentTarget, len(songs))
+	needAugment := make([]bool, len(songs))
+	queryIndex := make(map[string]int, len(songs))
+	queries := make([]string, 0, len(songs))
+	for i, song := range songs {
+		artist, title, ok := inferredOriginalFromQuotedTitle(song.Name)
+		if !ok || artistMatches(song.Artist, artist) {
+			continue
+		}
+		if len(queries) >= lyricAugmentMaxQueries {
+			// 封顶后不再补: 宁可少几个推断原唱, 也不让歌词检索无限变慢。
+			break
+		}
+		query := title + " " + artist
+		index, exists := queryIndex[query]
+		if !exists {
+			index = len(queries)
+			queryIndex[query] = index
+			queries = append(queries, query)
+		}
+		targets[i] = augmentTarget{artist: artist, title: title, query: query}
+		needAugment[i] = true
+	}
+
+	// 阶段 2(网络): 并行补搜, 不再逐首串行叠加。
+	results := make([][]model.Track, len(queries))
+	if len(queries) > 0 {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, lyricAugmentConcurrency)
+		for i := range queries {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				found, err := searchFn(queries[index])
+				if err != nil {
+					return
+				}
+				results[index] = found
+			}(i)
+		}
+		wg.Wait()
+	}
+
+	// 阶段 3(纯本地): 按原有顺序与去重语义组装, 行为与串行版完全一致。
+	out := make([]model.Track, 0, len(songs)+len(queries))
+	seen := make(map[string]struct{}, len(songs)+len(queries))
+	for i, song := range songs {
+		if needAugment[i] {
+			target := targets[i]
+			for _, candidate := range originalsFromSearch(
+				source, song, target.artist, target.title, results[queryIndex[target.query]],
+			) {
+				appendUniqueSearchSong(&out, seen, candidate)
 			}
 		}
-
 		key := songResultKey(song)
 		if key != "" {
 			if _, exists := seen[key]; exists {
@@ -1036,14 +1102,15 @@ func searchInferredLyricOriginalCandidates(keyword string) ([]model.Track, error
 	return songs, nil
 }
 
-func findInferredLyricOriginals(source string, song model.Track, searchFn func(string) ([]model.Track, error)) []model.Track {
-	artist, title, ok := inferredOriginalFromQuotedTitle(song.Name)
-	if !ok || artistMatches(song.Artist, artist) {
-		return nil
-	}
-
-	results, err := searchFn(title + " " + artist)
-	if err != nil {
+// originalsFromSearch 从补搜结果里挑出真正的原唱候选(纯本地, 不发请求)。
+func originalsFromSearch(
+	source string,
+	song model.Track,
+	artist string,
+	title string,
+	results []model.Track,
+) []model.Track {
+	if len(results) == 0 {
 		return nil
 	}
 
