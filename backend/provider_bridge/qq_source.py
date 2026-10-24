@@ -80,6 +80,13 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 60
 SONGS_PER_VKEY_REQUEST = 12
 LYRIC_WORKERS = 6
+# 探活并发。实测 limit=20 时需要 17~26 次探活, 单次 P50 82ms / 最慢 145ms:
+# 并发 8 要跑 3~4 轮(≈0.4~0.6s), 并发 16 只需 2 轮 —— 这是"探活阶段 0.34~1.12s 波动"
+# 的主要来源之一。提到 16 后理论耗时减半。
+PROBE_CONCURRENCY = 16
+# 探活超时。只做 Range: bytes=0-1 的存在性判断, 2s 足够宽裕(实测最慢 145ms);
+# 早先的 8s 会让单个卡住的 CDN 节点拖住整层。
+PROBE_TIMEOUT_SECONDS = 2
 DEVICE_ID_FILE = "qq-device-id"
 DOWNLOAD_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -476,7 +483,13 @@ def _search_items(
 
 
 def _probe_media_url(url: str, cookie: str) -> tuple[bool, int]:
-    """确认 QQ vkey 返回的地址仍存在，再交给 Go 播放/下载链路。"""
+    """确认 QQ vkey 返回的地址仍存在，再交给 Go 播放/下载链路。
+
+    超时只给 2s: 这是 `Range: bytes=0-1` 的极小请求, 实测 P50 82ms / 最慢 145ms。
+    早先给 8s, 一旦某个 CDN 节点卡住, 分层探活会**整层等齐**才降档 —— 单个慢请求就能
+    把整次搜索拖长 0.5~1s(实测探活阶段在 0.34~1.12s 之间波动, 而网络侧 vkey 稳定在 0.2s)。
+    探活只用于判断"地址可用", 宁可 2s 判超时当作不可用, 也不要拖住整轮。
+    """
     headers = {
         "Referer": "https://y.qq.com/",
         "User-Agent": DOWNLOAD_USER_AGENT,
@@ -486,7 +499,7 @@ def _probe_media_url(url: str, cookie: str) -> tuple[bool, int]:
         headers["Cookie"] = cookie
     response = None
     try:
-        response = requests.get(url, headers=headers, timeout=8, stream=True)
+        response = requests.get(url, headers=headers, timeout=PROBE_TIMEOUT_SECONDS, stream=True)
         status = int(response.status_code)
         return status in (200, 206), status
     except requests.RequestException:
@@ -571,43 +584,57 @@ def _select_working_media(
         mid: sorted(values, key=lambda value: QUALITY_ORDER.get(value[0], 99))
         for mid, values in candidates.items()
     }
-    pending: dict[str, int] = {mid: 0 for mid in ordered_by_mid}
     collected: dict[str, tuple[str, str, str]] = {}
     failures: dict[str, list[str]] = {mid: [] for mid in ordered_by_mid}
-    max_tiers = max((len(values) for values in ordered_by_mid.values()), default=0)
 
-    for _tier in range(max_tiers):
-        tier_jobs = []
-        for mid, values in ordered_by_mid.items():
-            if mid in collected:
-                continue
-            index = pending[mid]
-            if index >= len(values):
-                continue
-            quality, ext, url = values[index]
-            tier_jobs.append((mid, quality, ext, url))
-        if not tier_jobs:
-            break
-        results: dict[str, tuple[bool, int]] = {}
-        with ThreadPoolExecutor(max_workers=min(8, len(tier_jobs))) as pool:
-            futures = {
-                pool.submit(_probe_media_url, url, cookie): mid
-                for mid, _quality, _ext, url in tier_jobs
-            }
-            for future in as_completed(futures):
-                mid = futures[future]
+    # 流水线调度: 单一任务队列 + 固定并发池, 探活完成就立刻为"该歌的下一档"排新任务。
+    #
+    # 早先是"分层 + 每层等齐": 第 N 层所有探活都完成后才进入第 N+1 层。实测大量歌曲
+    # 会逐档降级(日志里 14~16/20 首需要回退), 于是同步点很多 —— 探活阶段因此在
+    # 0.34~1.29s 之间抖动。改成流水线后没有层间同步点, 总耗时≈总次数×单次延迟/并发。
+    # 选择结果与分层版完全等价: 每首歌仍然是"从最高档往下找第一个可用地址"。
+    next_index: dict[str, int] = {mid: 0 for mid in ordered_by_mid}
+
+    with ThreadPoolExecutor(max_workers=PROBE_CONCURRENCY) as pool:
+        inflight: dict[Any, str] = {}
+        dispatch_queue = list(ordered_by_mid)
+
+        def dispatch() -> None:
+            """尽量把队列里的歌排满, 直到达到并发上限。"""
+            while dispatch_queue and len(inflight) < PROBE_CONCURRENCY:
+                mid = dispatch_queue.pop()
+                index = next_index[mid]
+                values = ordered_by_mid[mid]
+                if mid in collected or index >= len(values):
+                    continue
+                inflight[pool.submit(_probe_media_url, values[index][2], cookie)] = mid
+
+        dispatch()
+        while inflight:
+            # 收集"此刻已经完成"的全部任务(不阻塞在单个 future 上), 逐批处理, 逐批补位。
+            done = [future for future in inflight if future.done()]
+            if not done:
+                # 没有已完成的任务时才阻塞等一个, 避免忙等。
+                done = [next(as_completed(inflight))]
+            for future in done:
+                mid = inflight.pop(future)
+                values = ordered_by_mid[mid]
+                index = next_index[mid]
+                quality, ext, url = values[index]
                 try:
-                    results[mid] = future.result()
+                    ok, status = future.result()
                 except Exception as error:
                     LOGGER.warning("[qq] 媒体地址探测异常 mid=%s: %s", mid, error)
-                    results[mid] = (False, 0)
-        for mid, quality, ext, url in tier_jobs:
-            ok, status = results.get(mid, (False, 0))
-            if ok:
-                collected[mid] = (quality, ext, url)
-            else:
+                    ok, status = False, 0
+                if ok:
+                    collected[mid] = (quality, ext, url)
+                    continue
                 failures[mid].append(f"{quality}:{status}")
-                pending[mid] += 1
+                next_index[mid] = index + 1
+                if next_index[mid] < len(values):
+                    # 该歌还有更低的档位可试: 重新入队, 由 dispatch 按并发余量继续排。
+                    dispatch_queue.append(mid)
+            dispatch()
 
     for mid in ordered_by_mid:
         if mid not in collected:
