@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertCircle, Check, Download, Ellipsis, HardDriveDownload, Play, RotateCw, Trash2 } from 'lucide-react';
+import { Download, Ellipsis, HardDriveDownload, Play, Trash2 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -7,32 +7,27 @@ import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
-import {
-  runServerDownloadBatch,
-  SERVER_DOWNLOAD_BULK_IDLE,
-  serverDownloadBatchSummary,
-} from '../services/serverDownloadBatch';
-import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
 import { songIdentityKey } from '../utils/songIdentity';
-import { useScopedBulkState } from '../hooks/useScopedBulkState';
+import { useBulkActions } from '../hooks/useBulkActions';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
 import { getLyric } from '../services/musicdl';
-
-const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
+import Button from '../ui/Button';
+import StatusLine from '../ui/StatusLine';
+import EmptyState from '../ui/EmptyState';
+import Dialog from '../ui/Dialog';
+import { MenuPopover, MenuItem } from '../ui/Menu';
 
 // 自建歌单详情页:侧栏点歌单 → 派发 {collectionId,name} → 这里加载歌曲并播放/移除。
+// 批量下载/缓存改用共享 hooks/useBulkActions(原先这里有一份与 Download 页重复的实现)。
 export default function MyPlaylist() {
   const [meta, setMeta] = useState(null); // {collectionId, name}
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState('');
   const [lyric, setLyric] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
   const loadSeqRef = useRef(0);
-  const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'collection-download');
-  const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'collection-cache');
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const { user, offline } = useAuth();
   const feedback = useFeedback();
@@ -45,44 +40,45 @@ export default function MyPlaylist() {
   const taskKey = userId > 0 && meta?.collectionId != null
     ? `user:${userId}:collection:${meta.collectionId}`
     : '';
-  const bulkDownload = downloadTasks.getState(taskKey);
-  const bulkCache = cacheTasks.getState(taskKey);
+
+  const {
+    bulkDownload, bulkCache, handleDownloadAll, handleCacheAll, hasAnyState,
+  } = useBulkActions({ taskKey, songs, scopePrefix: 'collection' });
 
   const load = useCallback(async (collectionId) => {
     const seq = loadSeqRef.current + 1;
     loadSeqRef.current = seq;
     setLoading(true);
-    setNotice('');
     if (offline) {
-      if (loadSeqRef.current === seq) {
-        setSongs([]);
-        setLoading(false);
-      }
+      if (loadSeqRef.current === seq) { setSongs([]); setLoading(false); }
       return;
     }
     try {
       const data = await getCollectionSongs(collectionId);
       const list = Array.isArray(data) ? data : (data?.songs || []);
       if (loadSeqRef.current === seq) setSongs(list);
-    } catch {
+    } catch (err) {
       if (loadSeqRef.current === seq) setSongs([]);
+      feedback.error(`加载歌单失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
     } finally {
       if (loadSeqRef.current === seq) setLoading(false);
     }
-  }, [offline]);
+  }, [offline, feedback]);
 
   useEffect(() => onOpenPlaylist((m) => {
     if (m && m.collectionId != null) { setMeta(m); load(m.collectionId); }
   }), [load]);
 
   // 哈希路由:刷新/直达/分享 #myplaylist/<id> 时,从 hash 恢复要打开的歌单。
-  // 名称未知(hash 只带 id),载入后用占位名,详情接口/歌单数据足以渲染。
   useEffect(() => {
     const fromHash = () => {
       const parts = (window.location.hash || '').replace(/^#/, '').split('/');
       if (parts[0].toLowerCase() === 'myplaylist' && parts[1]) {
         const id = parseInt(parts[1], 10);
-        if (!isNaN(id)) { setMeta((m) => (m && m.collectionId === id ? m : { collectionId: id, name: '' })); load(id); }
+        if (!isNaN(id)) {
+          setMeta((m) => (m && m.collectionId === id ? m : { collectionId: id, name: '' }));
+          load(id);
+        }
       }
     };
     fromHash();
@@ -90,35 +86,27 @@ export default function MyPlaylist() {
     return () => window.removeEventListener('hashchange', fromHash);
   }, [load]);
 
-  useEffect(() => {
-    if (!moreOpen) return undefined;
-    const onPointerDown = (event) => {
-      if (moreRef.current && !moreRef.current.contains(event.target)) setMoreOpen(false);
-    };
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') setMoreOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [moreOpen]);
-
   if (!meta) {
-    return <p className="text-muted-foreground py-10 text-center">从左侧选择一个歌单</p>;
+    return (
+      <EmptyState
+        icon={Play}
+        title="从左侧选择一个歌单"
+        description="自建歌单、「我喜欢」和导入的平台歌单都在侧栏「我的歌单」里。"
+      />
+    );
   }
 
   const handleRemove = async (song) => {
     if (offline) return;
-    setNotice('');
+    const targetKey = songIdentityKey(song);
+    const prev = songs;
+    setSongs((s) => s.filter((x) => songIdentityKey(x) !== targetKey));
     try {
       await removeSongFromCollection(meta.collectionId, song);
-      const targetKey = songIdentityKey(song);
-      setSongs((s) => s.filter((x) => songIdentityKey(x) !== targetKey));
-    } catch {
-      setNotice('移除失败,请稍后重试');
+      feedback.success(collectionKind === 'favorite' ? '已取消喜欢' : '已从歌单移除');
+    } catch (err) {
+      setSongs(prev);
+      feedback.error(`移除失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
     }
   };
 
@@ -127,8 +115,7 @@ export default function MyPlaylist() {
     try {
       const text = await getLyric(song);
       setLyric({ song, text: text || '无歌词' });
-    } catch (error) {
-      console.error('[playlist] 加载歌词失败', { song, error });
+    } catch {
       setLyric({ song, text: '歌词加载失败' });
     }
   };
@@ -143,226 +130,158 @@ export default function MyPlaylist() {
       danger: true,
     });
     if (!ok) return;
-    setNotice('');
     try {
       await remove(meta.collectionId);
-      setMeta(null); setSongs([]);
+      setMeta(null);
+      setSongs([]);
       feedback.success('歌单已删除');
-    } catch {
-      setNotice('删除歌单失败,请稍后重试');
-      feedback.error('删除歌单失败,请稍后重试');
+    } catch (err) {
+      feedback.error(`删除歌单失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
     }
   };
 
-  const handleDownloadAll = async () => {
-    if (!songs.length || offline || bulkDownload.phase === 'running') return;
-
-    setNotice('');
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    await downloadTasks.runForKey(taskKey, {
-      ...SERVER_DOWNLOAD_BULK_IDLE,
-      phase: 'running',
-      total,
-    }, async (update) => {
-      const result = await runServerDownloadBatch(playlistSongs, {
-        expectedUserId: userId,
-        onProgress: update,
-      });
-      if (result.statusError) setNotice('读取服务器已下载状态失败，未开始下载，请重试');
-    });
-  };
-
-  const handleCacheAll = async () => {
-    if (!songs.length || offline || bulkCache.phase === 'running') return;
-
-    setNotice('');
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    let skipped = 0;
-    await cacheTasks.runForKey(taskKey, { phase: 'running', done, fail, skipped, total }, async (update) => {
-      for (const song of playlistSongs) {
-        try {
-          if (!canCacheSong(song) || (await isSongCached(song, userId))) {
-            skipped += 1;
-          } else {
-            await cacheSong(song, { userId });
-            done += 1;
-          }
-        } catch {
-          fail += 1;
-        }
-        update({ phase: 'running', done, fail, skipped, total });
-      }
-
-      update({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
-    });
-  };
-
-  const bulkDownloadLabel = (() => {
-    if (bulkDownload.phase === 'running') return '下载到服务器';
-    if (bulkDownload.phase === 'done') return '已下载到服务器';
-    if (bulkDownload.phase === 'fail') return '重试下载到服务器';
-    return '全部下载到服务器';
-  })();
-  const BulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
-  const bulkCacheLabel = (() => {
-    if (bulkCache.phase === 'running') return '缓存到本机';
-    if (bulkCache.phase === 'done') return '已缓存到本机';
-    if (bulkCache.phase === 'fail') return '重试缓存到本机';
-    return '全部缓存到本机';
-  })();
-  const BulkCacheIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
-  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle';
+  const downloadLabel = bulkDownload.phase === 'done' ? '已下载'
+    : bulkDownload.phase === 'fail' ? '重试下载'
+      : bulkDownload.phase === 'running' ? `下载中 ${bulkDownload.done || 0}/${bulkDownload.total || songs.length}`
+        : '下载到服务器';
+  const cacheLabel = bulkCache.phase === 'done' ? '已缓存'
+    : bulkCache.phase === 'fail' ? '重试缓存'
+      : bulkCache.phase === 'running' ? `缓存中 ${bulkCache.done || 0}/${bulkCache.total || songs.length}`
+        : '缓存到本机';
   const collectionLabel = collectionKind === 'favorite' ? '我喜欢' : '歌单';
   const rowRemoveTitle = collectionKind === 'favorite' ? '取消喜欢' : '从歌单移除';
   const rowRemoveHint = collectionKind === 'favorite' ? '只从我喜欢里移除' : '只从当前歌单移除';
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
-        <CoverMosaic items={songs} icon={Play} iconSize={40} />
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">{collectionLabel}</p>
-          <h1 className="text-3xl font-black truncate">{currentName}</h1>
-          <p className="text-sm text-muted-foreground mt-1">{songs.length} 首</p>
-          <div className="flex flex-wrap items-center gap-2 mt-3">
-            <button onClick={() => songs.length && play(songs[0], songs)}
+      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
+        <CoverMosaic items={songs} icon={Play} iconSize={36} />
+        <div className="min-w-0 flex-1">
+          <p className="type-micro uppercase tracking-wider text-muted-foreground">{collectionLabel}</p>
+          <h1 className="mt-0.5 line-clamp-2 type-hero text-foreground">{currentName}</h1>
+          <p className="mt-1 type-caption text-muted-foreground nums">{songs.length} 首</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={() => songs.length && play(songs[0], songs)}
               disabled={!songs.length}
-              className="flex items-center gap-2 px-5 py-2 rounded-full bg-primary text-primary-foreground font-semibold disabled:opacity-50">
-              <Play size={18} fill="currentColor" />播放全部
-            </button>
-            <button onClick={handleDownloadAll}
+            >
+              <Play size={16} fill="currentColor" aria-hidden="true" />
+              播放全部
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleDownloadAll}
+              loading={bulkDownload.phase === 'running'}
               disabled={!songs.length || offline || bulkDownload.phase === 'running'}
-              className={`flex items-center gap-2 min-h-10 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
-                bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法下载到服务器' : '把当前歌单全部下载到服务器'}>
-              <BulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
-              {bulkDownloadLabel}
-            </button>
-            <button onClick={handleCacheAll}
+              title={offline ? '离线状态无法下载到服务器' : '把这张歌单全部存到服务器曲库'}
+            >
+              <Download size={16} aria-hidden="true" />
+              {downloadLabel}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleCacheAll}
+              loading={bulkCache.phase === 'running'}
               disabled={!songs.length || offline || bulkCache.phase === 'running'}
-              className={`flex items-center gap-2 min-h-10 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
-                bulkCache.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkCache.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法缓存新歌曲' : '把当前歌单全部缓存到当前浏览器/PWA'}>
-              <BulkCacheIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
-              {bulkCacheLabel}
-            </button>
+              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA,可离线听'}
+            >
+              <HardDriveDownload size={16} aria-hidden="true" />
+              {cacheLabel}
+            </Button>
             {canDeleteCollection && (
-              <div ref={moreRef} className="relative">
-                <button onClick={() => setMoreOpen((open) => !open)}
-                  className="flex min-h-10 items-center gap-2 rounded-full px-4 py-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              <>
+                <Button
+                  ref={moreRef}
+                  variant="ghost"
+                  onClick={() => setMoreOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={moreOpen}
                   title="更多操作"
-                  aria-label="更多操作"
-                  aria-expanded={moreOpen}>
-                  <Ellipsis size={18} />更多
-                </button>
-                {moreOpen && (
-                  <div className="absolute right-0 top-full z-40 mt-2 w-48 overflow-hidden rounded-md border border-border bg-card shadow-xl">
-                    <button
-                      onClick={handleDeleteCollection}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
-                    >
-                      <Trash2 size={16} className="flex-shrink-0" />
-                      <span className="min-w-0">
-                        <span className="block font-medium">删除歌单</span>
-                        <span className="block truncate text-xs text-muted-foreground">不会删除服务器文件</span>
-                      </span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                >
+                  <Ellipsis size={16} aria-hidden="true" />
+                  更多
+                </Button>
+                <MenuPopover anchorRef={moreRef} open={moreOpen} onClose={() => setMoreOpen(false)} width="w-52">
+                  <MenuItem
+                    icon={Trash2}
+                    label="删除歌单"
+                    hint="不会删除服务器文件"
+                    onClick={handleDeleteCollection}
+                    danger
+                  />
+                </MenuPopover>
+              </>
             )}
           </div>
         </div>
-      </div>
-      {notice && (
-        <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle size={16} />
-          <span>{notice}</span>
-        </div>
+      </header>
+
+      {hasAnyState && (
+        <StatusLine
+          tone={[bulkDownload.phase, bulkCache.phase].includes('fail') ? 'error' : 'neutral'}
+          loading={[bulkDownload.phase, bulkCache.phase].includes('running')}
+          className="mb-3"
+        >
+          服务器 {bulkDownload.phase === 'idle' ? '—' : `${bulkDownload.done || 0}/${bulkDownload.total || 0}${bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}`}
+          <span className="mx-2 text-border">|</span>
+          本机 {bulkCache.phase === 'idle' ? '—' : `${bulkCache.done || 0}/${bulkCache.total || 0}${bulkCache.fail ? ` · 失败 ${bulkCache.fail}` : ''}`}
+        </StatusLine>
       )}
-      {hasBulkStatus && (
-        <div className="mb-4 grid gap-2 sm:grid-cols-2">
-          {bulkDownload.phase !== 'idle' && (
-            <div className={`rounded-md border px-3 py-2 text-sm ${
-              bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
-            }`}>
-              <p className="font-medium text-foreground">服务器下载</p>
-              <p>{serverDownloadBatchSummary(bulkDownload)}</p>
-            </div>
-          )}
-          {bulkCache.phase !== 'idle' && (
-            <div className={`rounded-md border px-3 py-2 text-sm ${
-              bulkCache.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
-            }`}>
-              <p className="font-medium text-foreground">本机缓存</p>
-              <p>
-                新增 {bulkCache.done}
-                {bulkCache.skipped ? ` · 已有 ${bulkCache.skipped}` : ''}
-                {bulkCache.total ? ` · 共 ${bulkCache.total}` : ''}
-                {bulkCache.fail ? ` · 失败 ${bulkCache.fail}` : ''}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+
       {loading && (
-        <LoadingState
-          title="加载歌单"
-          detail="正在读取歌曲、专辑和封面信息"
-          rows={6}
-          className="mb-4"
+        <LoadingState title="加载歌单" detail="正在读取歌曲、专辑和封面信息" rows={5} />
+      )}
+
+      {!loading && songs.length === 0 && (
+        <EmptyState
+          icon={Download}
+          title="这个歌单还没有歌"
+          description="去「找歌」搜索后,用行内「加入歌单」把歌存进来。"
+          action={(
+            <Button variant="primary" onClick={() => { window.location.hash = 'download'; }}>
+              去找歌
+            </Button>
+          )}
         />
       )}
-      {!loading && songs.length === 0 && (
-        <div className="rounded-md border border-border bg-card/70 px-4 py-5 text-muted-foreground">
-          <p>这个歌单还没有歌。</p>
-          <button
-            onClick={() => { window.location.hash = 'download'; }}
-            className="mt-3 rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary/80 transition-colors"
-          >
-            去找歌
-          </button>
-        </div>
-      )}
-      {!loading && (
+
+      {!loading && songs.length > 0 && (
         <>
           <SongListHeader />
           <div className="space-y-0.5">
             {songs.map((song, i) => (
-              <SongRow key={songIdentityKey(song)} song={song} index={i}
-                isPlaying={isPlaying(song)} onPlay={(s) => play(s, songs)}
+              <SongRow
+                key={songIdentityKey(song)}
+                song={song}
+                index={i}
+                isPlaying={isPlaying(song)}
+                onPlay={(s) => play(s, songs)}
                 isPaused={isPaused}
                 onTogglePlayback={togglePlay}
                 onShowLyric={handleShowLyric}
-                onRemove={handleRemove} removeTitle={rowRemoveTitle} removeHint={rowRemoveHint} />
+                onRemove={handleRemove}
+                removeTitle={rowRemoveTitle}
+                removeHint={rowRemoveHint}
+              />
             ))}
           </div>
         </>
       )}
-      {lyric && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setLyric(null)}>
-          <div className="max-h-[70vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3 className="text-xl font-bold">{lyric.song.name}</h3>
-                <p className="text-sm text-muted-foreground">{lyric.song.artist}</p>
-              </div>
-              <button onClick={() => setLyric(null)} className="text-2xl font-bold leading-none hover:text-primary" aria-label="关闭歌词">×</button>
-            </div>
-            <pre className="whitespace-pre-wrap font-sans text-sm text-foreground">{lyric.text}</pre>
-          </div>
-        </div>
-      )}
+
+      <Dialog
+        open={!!lyric}
+        onClose={() => setLyric(null)}
+        title={lyric ? lyric.song.name : ''}
+        size="lg"
+      >
+        {lyric && (
+          <>
+            <p className="mb-3 type-caption text-muted-foreground">{lyric.song.artist}</p>
+            <pre className="whitespace-pre-wrap font-sans type-body text-foreground">{lyric.text}</pre>
+          </>
+        )}
+      </Dialog>
     </div>
   );
 }

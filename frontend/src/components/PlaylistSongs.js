@@ -1,37 +1,29 @@
 import React, { useState } from 'react';
 import { useQuery } from 'react-query';
-import { Check, Download, HardDriveDownload, ListPlus, Music, Play, RotateCw } from 'lucide-react';
+import { Download, HardDriveDownload, ListPlus, Music, Play } from 'lucide-react';
 import { getPlaylistDetail, getLyric } from '../services/musicdl';
-import {
-  runServerDownloadBatch,
-  SERVER_DOWNLOAD_BULK_IDLE,
-  serverDownloadBatchSummary,
-} from '../services/serverDownloadBatch';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useCollections } from '../contexts/CollectionsContext';
-import { useFeedback } from '../contexts/FeedbackContext';
-import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
+import { useBulkActions } from '../hooks/useBulkActions';
+import { songIdentityKey } from '../utils/songIdentity';
 import LoadingState from './LoadingState';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
-import { useScopedBulkState } from '../hooks/useScopedBulkState';
+import Button from '../ui/Button';
+import StatusLine from '../ui/StatusLine';
+import EmptyState from '../ui/EmptyState';
+import Dialog from '../ui/Dialog';
 
-const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
-const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
-
-// 歌单歌曲列表(点开某歌单后)
+// 歌单歌曲列表(点开某歌单后)。
+// 批量三件套已抽到 hooks/useBulkActions,与 Download 页的远端歌单详情共用同一份实现
+// (此前是两份逐行重复的 handleDownloadAll / handleCacheAll / handleCopyToMine)。
 const PlaylistSongs = ({ meta, onBack }) => {
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const { user, offline } = useAuth();
-  const { create, addSong } = useCollections();
-  const feedback = useFeedback();
   const [lyric, setLyric] = useState(null);
-  const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'recommended-playlist-download');
-  const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'recommended-playlist-cache');
-  const copyTasks = useScopedBulkState(IDLE_BULK_COPY, 'recommended-playlist-copy');
   const userId = user?.id || 0;
   const taskKey = `user:${userId}:${meta.source}:${meta.id}`;
+
   const state = useQuery(
     ['pl-detail', meta.id, meta.source],
     () => getPlaylistDetail(meta.id, meta.source),
@@ -50,218 +42,107 @@ const PlaylistSongs = ({ meta, onBack }) => {
   };
 
   const songs = state.data?.songs || [];
-  const bulkDownload = downloadTasks.getState(taskKey);
-  const bulkCache = cacheTasks.getState(taskKey);
-  const bulkCopy = copyTasks.getState(taskKey);
+  const {
+    bulkDownload, bulkCache, bulkCopy,
+    handleDownloadAll, handleCacheAll, handleCopyToMine, hasAnyState,
+  } = useBulkActions({ taskKey, songs, scopePrefix: 'recommended-playlist' });
 
-  const handleDownloadAll = async () => {
-    if (!songs.length || offline || bulkDownload.phase === 'running') return;
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    await downloadTasks.runForKey(taskKey, {
-      ...SERVER_DOWNLOAD_BULK_IDLE,
-      phase: 'running',
-      total,
-    }, async (update) => {
-      const result = await runServerDownloadBatch(playlistSongs, {
-        expectedUserId: userId,
-        onProgress: update,
-      });
-      if (result.statusError) feedback.error('读取服务器已下载状态失败，未开始下载，请重试');
-    });
-  };
-
-  const handleCacheAll = async () => {
-    if (!songs.length || offline || bulkCache.phase === 'running') return;
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    let skipped = 0;
-    await cacheTasks.runForKey(taskKey, { phase: 'running', done, fail, skipped, total }, async (update) => {
-      for (const song of playlistSongs) {
-        try {
-          if (!canCacheSong(song) || (await isSongCached(song, userId))) {
-            skipped += 1;
-          } else {
-            await cacheSong(song, { userId });
-            done += 1;
-          }
-        } catch {
-          fail += 1;
-        }
-        update({ phase: 'running', done, fail, skipped, total });
-      }
-      update({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
-    });
-  };
-
-  const handleCopyToMine = async () => {
-    if (!songs.length || offline || bulkCopy.phase === 'running') return;
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    await copyTasks.runForKey(taskKey, { phase: 'running', done, fail, total, collectionId: null }, async (update) => {
-      try {
-        const collection = await create(meta.name || '推荐歌单');
-        const collectionId = collection?.id;
-        if (collectionId == null) throw new Error('collection id missing');
-        for (const song of playlistSongs) {
-          try {
-            await addSong(collectionId, song);
-            done += 1;
-          } catch {
-            fail += 1;
-          }
-          update({ phase: 'running', done, fail, total, collectionId });
-        }
-        update({ phase: fail ? 'fail' : 'done', done, fail, total, collectionId });
-        if (fail) feedback.error(`已创建歌单,但 ${fail} 首加入失败`);
-        else feedback.success('已加入我的歌单');
-      } catch {
-        update({ phase: 'fail', done, fail: total || 1, total, collectionId: null });
-        feedback.error('加入我的歌单失败,请稍后重试');
-      }
-    });
-  };
-
-  const downloadLabel = bulkDownload.phase === 'done'
-    ? '已下载到服务器'
-    : bulkDownload.phase === 'fail'
-      ? '重试下载到服务器'
-      : '下载到服务器';
-  const cacheLabel = bulkCache.phase === 'done'
-    ? '已缓存到本机'
-    : bulkCache.phase === 'fail'
-      ? '重试缓存到本机'
-      : '缓存到本机';
-  const copyLabel = bulkCopy.phase === 'done'
-    ? '已加入我的歌单'
-    : bulkCopy.phase === 'fail'
-      ? '重试加入歌单'
+  const downloadLabel = bulkDownload.phase === 'done' ? '已下载'
+    : bulkDownload.phase === 'fail' ? '重试下载'
+      : bulkDownload.phase === 'running' ? `下载中 ${bulkDownload.done || 0}/${bulkDownload.total || songs.length}`
+        : '下载到服务器';
+  const cacheLabel = bulkCache.phase === 'done' ? '已缓存'
+    : bulkCache.phase === 'fail' ? '重试缓存'
+      : bulkCache.phase === 'running' ? `缓存中 ${bulkCache.done || 0}/${bulkCache.total || songs.length}`
+        : '缓存到本机';
+  const copyLabel = bulkCopy.phase === 'done' ? '已加入'
+    : bulkCopy.phase === 'fail' ? '重试加入'
       : '加入我的歌单';
-  const DownloadIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : Download;
-  const CacheIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
-  const CopyIcon = bulkCopy.phase === 'done' ? Check : bulkCopy.phase === 'fail' ? RotateCw : ListPlus;
-  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle' || bulkCopy.phase !== 'idle';
 
   return (
     <div>
-      <button
-        onClick={onBack}
-        className="mb-4 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/80"
-      >
-        ← 返回
-      </button>
-      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center rounded-lg bg-secondary">
-          <Music size={42} className="text-muted-foreground" />
+      <Button variant="ghost" size="sm" onClick={onBack} className="mb-4 -ml-2">← 返回</Button>
+
+      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
+        <div className="flex h-28 w-28 flex-shrink-0 items-center justify-center rounded-lg bg-secondary sm:h-32 sm:w-32">
+          <Music size={36} className="text-muted-foreground" />
         </div>
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">推荐歌单</p>
-          <h3 className="truncate text-3xl font-black">{meta.name}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{songs.length} 首</p>
+        <div className="min-w-0 flex-1">
+          <p className="type-micro uppercase tracking-wider text-muted-foreground">推荐歌单</p>
+          <h1 className="mt-0.5 line-clamp-2 type-hero text-foreground">{meta.name}</h1>
+          <p className="mt-1 type-caption text-muted-foreground nums">{songs.length} 首</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button onClick={() => songs.length && play(songs[0], songs)}
+            <Button
+              variant="primary"
+              onClick={() => songs.length && play(songs[0], songs)}
               disabled={!songs.length}
-              className="flex min-h-10 items-center gap-2 rounded-full bg-primary px-5 py-2 font-semibold text-primary-foreground disabled:opacity-50">
-              <Play size={18} fill="currentColor" />播放全部
-            </button>
-            <button onClick={handleDownloadAll}
+            >
+              <Play size={16} fill="currentColor" aria-hidden="true" />
+              播放全部
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleDownloadAll}
+              loading={bulkDownload.phase === 'running'}
               disabled={!songs.length || offline || bulkDownload.phase === 'running'}
-              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
-                bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法下载到服务器' : '把这张推荐歌单下载到服务器的「已下载」列表'}>
-              <DownloadIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
+              title={offline ? '离线状态无法下载到服务器' : '把这张歌单存到服务器曲库'}
+            >
+              <Download size={16} aria-hidden="true" />
               {downloadLabel}
-            </button>
-            <button onClick={handleCacheAll}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleCacheAll}
+              loading={bulkCache.phase === 'running'}
               disabled={!songs.length || offline || bulkCache.phase === 'running'}
-              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
-                bulkCache.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkCache.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法缓存新歌曲' : '把这张推荐歌单缓存到当前浏览器/PWA'}>
-              <CacheIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
+              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA,可离线听'}
+            >
+              <HardDriveDownload size={16} aria-hidden="true" />
               {cacheLabel}
-            </button>
-            <button onClick={handleCopyToMine}
-              disabled={!songs.length || offline || bulkCopy.phase === 'running' || bulkCopy.phase === 'done'}
-              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
-                bulkCopy.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkCopy.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法修改歌单' : '复制为我的自建歌单'}>
-              <CopyIcon size={18} className={bulkCopy.phase === 'running' ? 'animate-pulse' : ''} />
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => handleCopyToMine(meta.name)}
+              loading={bulkCopy.phase === 'running'}
+              disabled={!songs.length || offline || bulkCopy.phase === 'done'}
+              title="复制成我自己的歌单"
+            >
+              <ListPlus size={16} aria-hidden="true" />
               {copyLabel}
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
-      {state.isLoading && (
-        <LoadingState
-          title="加载歌单"
-          detail="正在读取歌单歌曲和封面信息"
-          rows={6}
-          className="mb-4"
-        />
+      </header>
+
+      {hasAnyState && (
+        <StatusLine
+          tone={[bulkDownload.phase, bulkCache.phase, bulkCopy.phase].includes('fail') ? 'error' : 'neutral'}
+          loading={[bulkDownload.phase, bulkCache.phase, bulkCopy.phase].includes('running')}
+          className="mb-3"
+        >
+          服务器 {bulkDownload.phase === 'idle' ? '—' : `${bulkDownload.done || 0}/${bulkDownload.total || 0}`}
+          <span className="mx-2 text-border">|</span>
+          本机 {bulkCache.phase === 'idle' ? '—' : `${bulkCache.done || 0}/${bulkCache.total || 0}`}
+          <span className="mx-2 text-border">|</span>
+          加入歌单 {bulkCopy.phase === 'idle' ? '—' : `${bulkCopy.done || 0}/${bulkCopy.total || 0}`}
+        </StatusLine>
       )}
-      {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
-      {state.data?.cached && state.data?.refreshing && (
-        <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
-          <RotateCw size={15} className="animate-spin text-primary" />
-          <span>正在后台更新缓存，当前先显示上次结果</span>
-        </div>
+
+      {state.isLoading && <LoadingState title="加载歌单" detail="正在读取曲目与封面" rows={5} />}
+      {state.data?.error && (
+        <StatusLine tone="error" layout="banner" className="mb-3">{state.data.error}</StatusLine>
       )}
-      {hasBulkStatus && (
-        <div className="mb-4 grid gap-2 sm:grid-cols-2">
-          {bulkDownload.phase !== 'idle' && (
-            <div className={`rounded-md border px-3 py-2 text-sm ${
-              bulkDownload.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
-            }`}>
-              <p className="font-medium text-foreground">服务器下载</p>
-              <p>{serverDownloadBatchSummary(bulkDownload)}</p>
-            </div>
-          )}
-          {bulkCache.phase !== 'idle' && (
-            <div className={`rounded-md border px-3 py-2 text-sm ${
-              bulkCache.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
-            }`}>
-              <p className="font-medium text-foreground">本机缓存</p>
-              <p>
-                新增 {bulkCache.done}
-                {bulkCache.skipped ? ` · 已有 ${bulkCache.skipped}` : ''}
-                {bulkCache.total ? ` · 共 ${bulkCache.total}` : ''}
-                {bulkCache.fail ? ` · 失败 ${bulkCache.fail}` : ''}
-              </p>
-            </div>
-          )}
-          {bulkCopy.phase !== 'idle' && (
-            <div className={`rounded-md border px-3 py-2 text-sm ${
-              bulkCopy.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
-            }`}>
-              <p className="font-medium text-foreground">加入我的歌单</p>
-              <p>
-                已加入 {bulkCopy.done}/{bulkCopy.total}
-                {bulkCopy.fail ? ` · 失败 ${bulkCopy.fail}` : ''}
-              </p>
-            </div>
-          )}
-        </div>
+      {!state.isLoading && songs.length === 0 && !state.data?.error && (
+        <EmptyState compact icon={Music} title="这张歌单没有可显示的曲目" />
       )}
-      {!state.isLoading && (
+
+      {songs.length > 0 && (
         <>
           <SongListHeader />
           <div className="space-y-0.5">
             {songs.map((song, idx) => (
               <SongRow
-                key={`${song.source}-${song.id}-${idx}`}
+                key={songIdentityKey(song) || `${song.source}-${song.id}-${idx}`}
                 song={song}
                 index={idx}
                 isPlaying={isPlaying(song)}
@@ -274,20 +155,20 @@ const PlaylistSongs = ({ meta, onBack }) => {
           </div>
         </>
       )}
-      {lyric && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setLyric(null)}>
-          <div className="bg-card border border-border rounded-lg shadow-xl max-w-lg w-full max-h-[70vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-xl font-bold">{lyric.song.name}</h3>
-                <p className="text-muted-foreground text-sm">{lyric.song.artist}</p>
-              </div>
-              <button onClick={() => setLyric(null)} className="font-bold text-2xl leading-none hover:text-primary">×</button>
-            </div>
-            <pre className="whitespace-pre-wrap text-foreground text-sm font-sans">{lyric.text}</pre>
-          </div>
-        </div>
-      )}
+
+      <Dialog
+        open={!!lyric}
+        onClose={() => setLyric(null)}
+        title={lyric ? lyric.song.name : ''}
+        size="lg"
+      >
+        {lyric && (
+          <>
+            <p className="mb-3 type-caption text-muted-foreground">{lyric.song.artist}</p>
+            <pre className="whitespace-pre-wrap font-sans type-body text-foreground">{lyric.text}</pre>
+          </>
+        )}
+      </Dialog>
     </div>
   );
 };

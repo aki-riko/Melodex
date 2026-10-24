@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Check, HardDriveDownload, Music, Play, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, HardDriveDownload, Music, Play, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 import {
   deleteAllCachedSongs,
@@ -12,22 +12,14 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { formatDuration } from '../utils/mediaFormat';
+import { formatDuration, formatBytes } from '../utils/displayFormat';
 import { sourceLabel } from '../utils/sourceLabels';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
-
-const fmtBytes = (bytes) => {
-  if (!bytes) return '0B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${unit === 0 ? value.toFixed(0) : value.toFixed(1)}${units[unit]}`;
-};
+import Button from '../ui/Button';
+import StatusLine from '../ui/StatusLine';
+import EmptyState from '../ui/EmptyState';
+import { cn } from '../ui/cn';
 
 const toSong = (record) => ({
   id: record.id,
@@ -46,26 +38,21 @@ function OfflineCover({ record, offline }) {
   const song = toSong(record);
 
   useEffect(() => {
-    if (!record.coverBlob) {
-      setBlobUrl('');
-      return undefined;
-    }
+    if (!record.coverBlob) { setBlobUrl(''); return undefined; }
     const url = URL.createObjectURL(record.coverBlob);
     setBlobUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [record.coverBlob]);
 
-  useEffect(() => {
-    setFailed(false);
-  }, [blobUrl, record.cover]);
+  useEffect(() => { setFailed(false); }, [blobUrl, record.cover]);
 
   const url = blobUrl || (!offline ? coverProxyUrl(song) : '');
   return (
-    <div className="w-11 h-11 rounded bg-muted overflow-hidden flex items-center justify-center flex-shrink-0">
+    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
       {url && !failed ? (
-        <img src={url} alt="" loading="lazy" className="w-full h-full object-cover" onError={() => setFailed(true)} />
+        <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : (
-        <Music size={18} className="text-muted-foreground" />
+        <Music size={18} className="text-muted-foreground" aria-hidden="true" />
       )}
     </div>
   );
@@ -77,64 +64,76 @@ function OfflineHeaderCover({ records, offline }) {
   useEffect(() => {
     const objectUrls = [];
     const next = [];
-
     for (const record of records || []) {
       const song = toSong(record);
       let coverUrl = '';
-
       if (record.coverBlob && typeof URL !== 'undefined' && URL.createObjectURL) {
         coverUrl = URL.createObjectURL(record.coverBlob);
         objectUrls.push(coverUrl);
       }
-      if (!coverUrl && !offline && song.cover) {
-        coverUrl = coverProxyUrl(song);
-      }
-      if (coverUrl) {
-        next.push({ ...song, coverUrl });
-      }
+      if (!coverUrl && !offline && song.cover) coverUrl = coverProxyUrl(song);
+      if (coverUrl) next.push({ ...song, coverUrl });
       if (next.length >= 4) break;
     }
-
     setItems(next);
     return () => objectUrls.forEach((url) => URL.revokeObjectURL(url));
   }, [records, offline]);
 
-  return <CoverMosaic items={items} icon={HardDriveDownload} getUrl={(item) => item.coverUrl} />;
+  return <CoverMosaic items={items} icon={HardDriveDownload} iconSize={36} getUrl={(item) => item.coverUrl} />;
 }
 
+const ROW_GRID =
+  'grid grid-cols-[2rem_minmax(0,1fr)_2.5rem_2.5rem] items-center gap-3 px-3 sm:grid-cols-[2rem_minmax(0,1fr)_5rem_4rem_4rem_2.5rem_2.5rem]';
+
 function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
-  const song = toSong(record);
   return (
-    <div className={`group flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-      active ? 'bg-secondary' : 'hover:bg-secondary/60'
-    }`}>
-      <span className={`w-6 text-right text-sm tabular-nums ${active ? 'text-primary' : 'text-muted-foreground'}`}>
+    <div
+      className={cn(
+        'group rounded-md py-1.5 transition-colors duration-base',
+        ROW_GRID,
+        active ? 'bg-secondary' : 'hover:bg-secondary/60',
+      )}
+    >
+      <span className={cn('text-right type-caption nums', active ? 'text-primary' : 'text-muted-foreground')}>
         {index + 1}
       </span>
-      <OfflineCover record={record} offline={offline} />
-      <button onClick={() => onPlay(record)} className="min-w-0 flex-grow text-left">
-        <p className={`font-medium truncate ${active ? 'text-primary' : ''}`}>{record.name || '未知歌曲'}</p>
-        <p className="text-sm text-muted-foreground truncate">
-          {record.artist || '未知歌手'}
-          {record.album ? ` · ${record.album}` : ''}
-        </p>
+
+      <div className="flex min-w-0 items-center gap-3">
+        <OfflineCover record={record} offline={offline} />
+        <div className="min-w-0">
+          <p className={cn('truncate type-body font-medium', active ? 'text-primary' : 'text-foreground')}>
+            {record.name || '未知歌曲'}
+          </p>
+          <p className="truncate type-caption text-muted-foreground">
+            {record.artist || '未知歌手'}
+            {record.album ? ` · ${record.album}` : ''}
+          </p>
+        </div>
+      </div>
+
+      <span className="hidden truncate type-micro text-muted-foreground sm:block">{sourceLabel(record.source)}</span>
+      <span className="hidden type-micro text-muted-foreground sm:block nums">
+        {record.duration ? formatDuration(record.duration) : '—'}
+      </span>
+      <span className="hidden type-micro text-muted-foreground sm:block nums">{formatBytes(record.size)}</span>
+
+      <button
+        type="button"
+        onClick={() => onPlay(record)}
+        aria-label={`播放 ${record.name || '这首歌'}`}
+        title="播放"
+        className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[filter] duration-base hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]"
+      >
+        <Play size={16} fill="currentColor" aria-hidden="true" />
       </button>
-      <span className="text-[11px] text-muted-foreground whitespace-nowrap hidden sm:inline">{sourceLabel(record.source)}</span>
-      {record.duration ? (
-        <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums hidden sm:inline">
-          {formatDuration(record.duration * 1000)}
-        </span>
-      ) : null}
-      <span className="text-xs text-muted-foreground whitespace-nowrap hidden md:inline">{fmtBytes(record.size)}</span>
-      <button onClick={() => onPlay(record)}
-        className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
-        title="播放" aria-label="播放">
-        <Play size={16} fill="currentColor" />
-      </button>
-      <button onClick={() => onDelete(record)}
-        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-        title="删除本机缓存" aria-label="删除本机缓存">
-        <Trash2 size={16} />
+      <button
+        type="button"
+        onClick={() => onDelete(record)}
+        aria-label={`删除本机缓存 ${record.name || '这首歌'}`}
+        title="删除本机缓存"
+        className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive"
+      >
+        <Trash2 size={16} aria-hidden="true" />
       </button>
     </div>
   );
@@ -149,28 +148,23 @@ export default function OfflineMusic() {
   const [estimate, setEstimate] = useState({ usage: 0, quota: 0, persisted: false });
   const [loading, setLoading] = useState(true);
   const [persisting, setPersisting] = useState(false);
-  const [notice, setNotice] = useState('');
 
   const songs = useMemo(() => records.map(toSong), [records]);
   const totalSize = useMemo(() => records.reduce((sum, row) => sum + (row.size || 0), 0), [records]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setNotice('');
     try {
-      const [rows, storage] = await Promise.all([
-        listCachedSongs(userId),
-        getStorageEstimate(),
-      ]);
+      const [rows, storage] = await Promise.all([listCachedSongs(userId), getStorageEstimate()]);
       setRecords(rows);
       setEstimate(storage);
     } catch {
       setRecords([]);
-      setNotice('离线缓存读取失败,请刷新后重试');
+      feedback.error('离线缓存读取失败,请刷新后重试');
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, feedback]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -183,18 +177,15 @@ export default function OfflineMusic() {
     return () => window.removeEventListener(OFFLINE_AUDIO_CHANGED, onChanged);
   }, [load, userId]);
 
-  const handlePlay = (record) => {
-    play(toSong(record), songs);
-  };
+  const handlePlay = (record) => { play(toSong(record), songs); };
 
   const handleDelete = async (record) => {
-    setNotice('');
     try {
       const deleted = await deleteCachedRecord(record.key, userId);
       if (deleted) setRecords((rows) => rows.filter((row) => row.key !== record.key));
       setEstimate(await getStorageEstimate());
     } catch {
-      setNotice('删除本机缓存失败,请稍后重试');
+      feedback.error('删除本机缓存失败,请稍后重试');
     }
   };
 
@@ -207,153 +198,129 @@ export default function OfflineMusic() {
       danger: true,
     });
     if (!ok) return;
-    setNotice('');
     try {
       await deleteAllCachedSongs(userId);
       setRecords([]);
       setEstimate(await getStorageEstimate());
       feedback.success('本机缓存已清空');
     } catch {
-      setNotice('清空本机缓存失败,请稍后重试');
       feedback.error('清空本机缓存失败,请稍后重试');
     }
   };
 
   const handlePersist = async () => {
     setPersisting(true);
-    setNotice('');
     try {
       const ok = await requestPersistentStorage();
       setEstimate(await getStorageEstimate());
-      if (!ok) setNotice('浏览器没有授予持久保存权限,缓存仍可使用,但空间紧张时可能被回收');
+      if (!ok) feedback.warning('浏览器没有授予持久保存权限,缓存仍可使用,但空间紧张时可能被回收');
     } catch {
-      setNotice('请求持久保存失败,当前浏览器可能不支持');
+      feedback.error('请求持久保存失败,当前浏览器可能不支持');
     } finally {
       setPersisting(false);
     }
   };
 
   const primaryLoading = loading && records.length === 0;
-
   if (primaryLoading) {
-    return (
-      <div>
-        <LoadingState
-          title="读取离线音乐"
-          detail="正在从当前浏览器/PWA 缓存读取已保存的音频"
-          rows={7}
-        />
-      </div>
-    );
+    return <LoadingState title="读取离线音乐" detail="正在从当前浏览器/PWA 缓存读取已保存的音频" rows={7} />;
   }
 
   const usageLabel = estimate.quota
-    ? `${fmtBytes(estimate.usage)} / ${fmtBytes(estimate.quota)}`
-    : fmtBytes(estimate.usage);
+    ? `${formatBytes(estimate.usage)} / ${formatBytes(estimate.quota)}`
+    : formatBytes(estimate.usage);
   const persistText = estimate.persisted
     ? '浏览器已尽量保留本站缓存'
     : '尚未获得持久保存权限,系统空间紧张时可能回收';
 
   return (
     <div>
-      <div className="flex items-end gap-4 mb-6">
+      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
         <OfflineHeaderCover records={records} offline={offline} />
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">本机缓存</p>
-          <h1 className="text-3xl font-black truncate">离线音乐</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {records.length} 首 · 音频 {fmtBytes(totalSize)} · 站点 {usageLabel}
+        <div className="min-w-0 flex-1">
+          <p className="type-micro uppercase tracking-wider text-muted-foreground">本机缓存</p>
+          <h1 className="mt-0.5 type-hero text-foreground">离线音乐</h1>
+          <p className="mt-1 type-caption text-muted-foreground">
+            <span className="nums">{records.length}</span> 首 · 音频 <span className="nums">{formatBytes(totalSize) || '0 B'}</span>
+            {' · '}站点 <span className="nums">{usageLabel || '0 B'}</span>
           </p>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <button onClick={() => records.length && play(songs[0], songs)}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={() => records.length && play(songs[0], songs)}
               disabled={!records.length}
-              className="flex items-center gap-2 px-5 py-2 rounded-full bg-primary text-primary-foreground font-semibold disabled:opacity-50">
-              <Play size={18} fill="currentColor" />播放全部
-            </button>
-            <button onClick={handlePersist}
+            >
+              <Play size={16} fill="currentColor" aria-hidden="true" />
+              播放全部
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handlePersist}
+              loading={persisting}
               disabled={persisting || estimate.persisted}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 ${
-                estimate.persisted ? 'bg-primary/10 text-primary' : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={estimate.persisted ? '浏览器已尽量持久保留本站缓存' : '请求浏览器尽量持久保留本站缓存'}>
-              {estimate.persisted ? <Check size={18} /> : <ShieldCheck size={18} className={persisting ? 'animate-pulse' : ''} />}
+              title={estimate.persisted ? '浏览器已尽量持久保留本站缓存' : '请求浏览器尽量持久保留本站缓存'}
+            >
+              {estimate.persisted
+                ? <Check size={16} aria-hidden="true" />
+                : <ShieldCheck size={16} aria-hidden="true" />}
               {estimate.persisted ? '已持久保存' : '持久保存'}
-            </button>
-            <button onClick={load}
-              className="flex items-center gap-2 px-4 py-2 rounded-full text-muted-foreground hover:text-foreground transition-colors"
-              title="刷新">
-              <RotateCw size={18} className={loading ? 'animate-spin' : ''} />
-            </button>
-            <button onClick={handleClear}
+            </Button>
+            <Button variant="ghost" iconOnly onClick={load} disabled={loading} aria-label="刷新" title="刷新">
+              <RotateCw size={16} className={loading ? 'animate-spin' : ''} />
+            </Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              onClick={handleClear}
               disabled={!records.length}
-              className="flex items-center gap-2 px-4 py-2 rounded-full text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
-              title="清空当前账号缓存">
-              <Trash2 size={18} />
-            </button>
+              aria-label="清空当前账号的本机缓存"
+              title="清空当前账号缓存"
+            >
+              <Trash2 size={16} />
+            </Button>
           </div>
         </div>
-      </div>
+      </header>
 
       {offline && (
-        <div className="mb-4 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
+        <StatusLine tone="info" layout="banner" className="mb-3">
           离线模式:只显示本机已缓存歌曲,不会请求服务器或音乐源。
-        </div>
+        </StatusLine>
       )}
 
-      <div className="mb-4 grid gap-2 md:grid-cols-3">
-        <div className="rounded-md border border-border bg-card/70 px-3 py-2">
-          <p className="text-sm font-medium text-foreground">本机缓存</p>
-          <p className="mt-1 text-xs text-muted-foreground">只保存在当前浏览器/PWA,不会进入服务器的「已下载」列表。</p>
-        </div>
-        <div className="rounded-md border border-border bg-card/70 px-3 py-2">
-          <p className="text-sm font-medium text-foreground">占用空间</p>
-          <p className="mt-1 text-xs text-muted-foreground">{records.length} 首音频 {fmtBytes(totalSize)},站点共 {usageLabel}。</p>
-        </div>
-        <div className={`rounded-md border px-3 py-2 ${estimate.persisted ? 'border-primary/30 bg-primary/10' : 'border-border bg-card/70'}`}>
-          <p className="text-sm font-medium text-foreground">保存状态</p>
-          <p className="mt-1 text-xs text-muted-foreground">{persistText}</p>
-        </div>
+      {/* 三块说明合并成一行内联事实,不再占用三张等宽卡片 */}
+      <div className="mb-4 rounded-md border border-border/70 bg-card/40 px-3 py-2">
+        <StatusLine tone={estimate.persisted ? 'success' : 'warning'}>
+          本机缓存只存在当前浏览器/PWA,不进服务器曲库 · 音频 {formatBytes(totalSize) || '0 B'},站点共 {usageLabel || '0 B'} · {persistText}
+        </StatusLine>
       </div>
 
-      {notice && (
-        <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle size={16} />
-          <span>{notice}</span>
-        </div>
+      {loading && records.length > 0 && (
+        <StatusLine tone="neutral" loading className="mb-2">正在刷新本机缓存</StatusLine>
       )}
 
-      {loading && (
-        <LoadingState
-          title="读取本机缓存"
-          detail="正在从当前浏览器/PWA 读取已缓存的音频"
-          rows={6}
-          className="mb-4"
+      {records.length === 0 && (
+        <EmptyState
+          icon={HardDriveDownload}
+          title="还没有本机缓存"
+          description="在歌曲行的「更多操作」菜单里选「缓存到本机」,之后离线也能播放。"
         />
       )}
-      {!loading && records.length === 0 && (
-        <div className="rounded-md border border-border bg-card/70 px-4 py-5 text-muted-foreground">
-          <p>还没有本机缓存。</p>
-          <p className="mt-1 text-sm">在歌曲行的「保存」菜单里选择「缓存到本机」后,离线也能播放。</p>
-        </div>
-      )}
 
-      {!loading && (
-      <div className="space-y-0.5">
-        {records.map((record, i) => {
-          const song = toSong(record);
-          return (
+      {records.length > 0 && (
+        <div className="space-y-0.5">
+          {records.map((record, i) => (
             <OfflineRow
               key={record.key}
               record={record}
               index={i}
-              active={!!isPlaying(song)}
+              active={!!isPlaying(toSong(record))}
               offline={offline}
               onPlay={handlePlay}
               onDelete={handleDelete}
             />
-          );
-        })}
-      </div>
+          ))}
+        </div>
       )}
     </div>
   );

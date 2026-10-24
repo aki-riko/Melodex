@@ -60,6 +60,13 @@ jobs:
           changed="$(git diff --name-only "$base" "$GITHUB_SHA")"
           echo "本次改动文件:"
           echo "$changed"
+          if echo "$changed" | grep -qE '^frontend/|^docs/|^AGENTS\.md$'; then
+            echo "命中前端/文档相关路径, 跑前端构建与 UX 门禁。"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "没有前端改动, 跳过前端构建。"
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
           if echo "$changed" | grep -qE '^android/|^package\.json$|^package-lock\.json$|^capacitor\.config\.json$|^\.github/workflows/android-[^/]*\.yml$'; then
             echo "命中 Android 相关路径, 跑完整校验。"
             echo "android=true" >> "$GITHUB_OUTPUT"
@@ -69,6 +76,50 @@ jobs:
           fi
 
       - name: Setup Node.js
+        if: steps.scope.outputs.android == 'true' || steps.scope.outputs.frontend == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ---- 前端构建 + UX 门禁 ----
+      # 此前前端产物只经由 Docker 构建进入生产,CI 对 React 完全不设防:
+      # build 挂了、token 用错了、又冒出 z-[999] 之类,都没有任何自动检查。
+      - name: Install frontend dependencies
+        if: steps.scope.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        if: steps.scope.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm run build
+
+      - name: UX guards (token / z-index / scrollbar / a11y)
+        if: steps.scope.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm run test:ux
+
+      - name: Frontend contract tests
+        if: steps.scope.outputs.frontend == 'true'
+        working-directory: frontend
+        run: |
+          npm run test:source-boundary
+          npm run test:song-url
+          npm run test:wake
+          npm run test:downloads
+          npm run test:player
+
+      # ---- Android(需要 Android 改动才跑) ----
+      - name: Setup JDK 21
+        if: steps.scope.outputs.android == 'true'
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: microsoft
+          java-version: "21"
+
+      - name: Setup Node.js (root, for Capacitor)
         if: steps.scope.outputs.android == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -122,6 +173,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: No Android changes
-        if: steps.scope.outputs.android != 'true'
-        run: echo "本次改动不含 android/** 与相关根文件, verify 无需构建、直接通过。"
+      - name: Summary
+        if: always()
+        run: |
+          echo "android=${{ steps.scope.outputs.android }} frontend=${{ steps.scope.outputs.frontend }}"

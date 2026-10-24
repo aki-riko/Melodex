@@ -6,6 +6,7 @@ import {
   getDesktopLyricsDevices,
   revokeDesktopLyricsDevice,
 } from '../services/musicdl';
+import { useFeedback } from '../contexts/FeedbackContext';
 
 const fmtDeviceTime = (value) => {
   if (!value) return '尚未连接';
@@ -14,6 +15,7 @@ const fmtDeviceTime = (value) => {
 };
 
 const DesktopLyricsSettings = () => {
+  const feedback = useFeedback();
   const devices = useQuery(['desktop-lyrics-devices'], getDesktopLyricsDevices);
   const [pairing, setPairing] = useState(null);
   const [remaining, setRemaining] = useState(0);
@@ -62,13 +64,22 @@ const DesktopLyricsSettings = () => {
   };
 
   const revoke = async (device) => {
-    if (!window.confirm(`确定移除“${device.name}”吗？移除后该助手必须重新配对。`)) return;
+    // 原生 window.confirm 会阻塞浏览器、无法 Esc、样式与全站无关,改用统一确认框。
+    const ok = await feedback.confirm({
+      title: `移除「${device.name}」?`,
+      body: '移除后该桌面歌词助手必须重新配对才能连接。',
+      confirmLabel: '移除',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await revokeDesktopLyricsDevice(device.id);
       await devices.refetch();
+      feedback.success('已移除该设备');
     } catch (requestError) {
       console.warn('移除桌面歌词设备失败', requestError);
       setError(requestError?.response?.data?.error || requestError?.message || '移除设备失败');
+      feedback.error('移除设备失败,请稍后重试');
     }
   };
 
