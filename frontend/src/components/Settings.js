@@ -396,7 +396,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
       </div>
 
       {session && (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 p-4" onClick={closeQRSession}>
+        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4" onClick={closeQRSession}>
           <div className="w-full max-w-sm rounded-lg border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
@@ -495,7 +495,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
       )}
 
       {showManual && manualSupported && (
-        <div className="fixed inset-0 z-[76] flex items-center justify-center bg-black/60 p-4" onClick={() => setShowManual(false)}>
+        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4" onClick={() => setShowManual(false)}>
           <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-lg border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">

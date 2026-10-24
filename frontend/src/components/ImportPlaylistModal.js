@@ -12,6 +12,7 @@ import {
   serverDownloadBatchSummary,
 } from '../services/serverDownloadBatch';
 import { importPlaylist, getCollectionSongs } from '../services/collections';
+import Dialog from '../ui/Dialog';
 
 // 自动下载进度状态挂在模块级全局 store(useScopedBulkState),
 // 不随弹窗关闭丢失,且 runForKey 自带同 key 去重锁(防同歌单重复下载并发)。
@@ -105,8 +106,11 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
           onProgress: (progress) => update({ ...progress, text: '' }),
         });
       } catch (err) {
+        // 导入本身成功了,只是"整单自动下载"这一步失败 —— 要给用户可见提示,
+        // 否则会以为歌已经存进服务器了(实际只有歌单记录)。
         console.warn('导入歌单自动下载失败', err);
         update({ ...DL_IDLE, phase: 'fail', text: '自动下载失败,可在歌单页手动下载' });
+        feedback.warning('歌单已导入,但自动下载失败,可在歌单页手动下载');
       }
     });
   };
@@ -150,24 +154,34 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
   const goLogin = () => { close(); onNavigate?.('Settings'); };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={close}>
-      <div className="bg-card rounded-lg w-full max-w-lg max-h-[82vh] flex flex-col shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div className="min-w-0">
-            <p className="font-semibold">从平台导入歌单</p>
-            <p className="text-xs text-muted-foreground">导入你在已登录平台创建/收藏的歌单,导入后自动把曲目下载到服务器,也可在线播放。</p>
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <button onClick={load} disabled={loading} className="text-muted-foreground hover:text-foreground p-1 disabled:opacity-50" aria-label="刷新" title="刷新">
-              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-            </button>
-            <button onClick={close} className="text-muted-foreground hover:text-foreground p-1" aria-label="关闭"><X size={20} /></button>
-          </div>
+    <Dialog
+      open={open}
+      onClose={close}
+      size="lg"
+      panelClassName="flex max-h-[82dvh] flex-col"
+      className="overflow-hidden"
+    >
+      <div className="-mt-2 mb-3 flex items-start justify-between gap-2">
+        <p className="type-micro text-muted-foreground">
+          导入你在已登录平台创建/收藏的歌单,导入后自动把曲目下载到服务器,也可在线播放。
+        </p>
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            aria-label="刷新歌单列表"
+            title="刷新"
+          >
+            <RefreshCw size={17} className={loading ? 'animate-spin' : ''} />
+          </button>
         </div>
+      </div>
 
         {/* 源分栏 */}
         {tabs.length > 0 && (
-          <div className="flex gap-1 px-4 pt-3 flex-wrap">
+          <div className="mb-3 flex flex-wrap gap-1">
             {tabs.map((t) => (
               <button key={t.source} onClick={() => setActive(t.source)}
                 className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
@@ -276,7 +290,6 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
             );
           })}
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

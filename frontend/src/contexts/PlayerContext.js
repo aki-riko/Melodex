@@ -1589,7 +1589,7 @@ export const PlayerBar = () => {
   return (
     <>
       {/* ===== 桌面端:完整播放条(原样) ===== */}
-      <div className="hidden md:block fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-40"
+      <div className="hidden md:block fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-bar"
         style={{ display: nowPlaying ? undefined : 'none' }}>
         <div className="max-w-6xl mx-auto">
           {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
@@ -1678,8 +1678,8 @@ export const PlayerBar = () => {
               </button>
               {queueOpen && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setQueueOpen(false)} />
-                  <div className="absolute bottom-full right-0 mb-3 w-80 max-h-96 overflow-y-auto app-scroll bg-card border border-border rounded-lg shadow-xl z-50">
+                  <div className="fixed inset-0 z-bar" onClick={() => setQueueOpen(false)} />
+                  <div className="absolute bottom-full right-0 mb-3 w-80 max-h-96 overflow-y-auto app-scroll bg-card border border-border rounded-lg shadow-popover z-popover animate-pop-in">
                     <div className="sticky top-0 bg-card border-b border-border px-3 py-2 flex items-center justify-between">
                       <span className="font-semibold text-sm">播放队列</span>
                       <span className="text-xs text-muted-foreground">{queue.length} 首</span>
@@ -1716,7 +1716,7 @@ export const PlayerBar = () => {
 
       {/* ===== 移动端:迷你条(封面+名+播放),点击展开全屏播放页 ===== */}
       {nowPlaying && (
-      <div className="md:hidden fixed left-0 right-0 bg-card border-t border-border z-40"
+      <div className="md:hidden fixed left-0 right-0 bg-card border-t border-border z-bar"
         style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
         {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
         {/* 顶部细进度条 */}
@@ -1754,7 +1754,7 @@ export const PlayerBar = () => {
 
       {/* ===== 移动端:全屏展开播放页(QQ音乐式) ===== */}
       {expanded && nowPlaying && (
-        <div className={`md:hidden fixed inset-0 z-[70] bg-background flex flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
+        <div className={`md:hidden fixed inset-0 z-sheet bg-background flex flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
           {/* 顶部:收起 */}
           <div className="flex items-center justify-between px-4 py-3">
@@ -1767,7 +1767,7 @@ export const PlayerBar = () => {
 
           {/* 移动端队列覆盖层(展开页内) */}
           {queueOpen && (
-            <div className="absolute inset-0 z-[71] bg-background flex flex-col"
+            <div className="absolute inset-0 z-sheet bg-background flex flex-col"
               style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="font-semibold">播放队列 · {queue.length} 首</span>
@@ -1891,7 +1891,7 @@ export const PlayerBar = () => {
 
       {/* ===== 桌面端:全屏展开播放页(网易云式:左唱片 / 右歌词) ===== */}
       {expanded && nowPlaying && (
-        <div className={`hidden md:flex fixed inset-0 z-[70] flex-col player-cover-bg ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}>
+        <div className={`hidden md:flex fixed inset-0 z-sheet flex-col player-cover-bg ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}>
           {/* 背景:封面大图模糊铺底 + 暗色遮罩 */}
           {coverUrl && (
             <div className="absolute inset-0 -z-10 bg-cover bg-center"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import {
   searchMusic,
@@ -14,17 +14,7 @@ import {
   getRecognitionStatus,
 } from '../services/musicdl';
 import {
-  runServerDownloadBatch,
-  SERVER_DOWNLOAD_BULK_IDLE,
-  serverDownloadBatchSummary,
-} from '../services/serverDownloadBatch';
-import {
-  AlertCircle,
-  Check,
-  Download as DownloadIcon,
-  HardDriveDownload,
-  Loader2,
-  ListPlus,
+  Compass,
   Mic,
   Music,
   Play,
@@ -34,25 +24,31 @@ import {
   X,
 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
+import SearchAlbumRow from './SearchAlbumRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useCollections } from '../contexts/CollectionsContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
-import { useScopedBulkState } from '../hooks/useScopedBulkState';
-import { cacheSong, canCacheSong, isSongCached } from '../services/offlineAudio';
+import { useBulkActions } from '../hooks/useBulkActions';
 import { songIdentityKey } from '../utils/songIdentity';
 import { sourceLabel } from '../utils/sourceLabels';
+import Button from '../ui/Button';
+import { Input } from '../ui/Input';
+import { PageHeader, SectionHeader } from '../ui/Card';
+import Segmented from '../ui/Segmented';
+import StatusLine from '../ui/StatusLine';
+import ScrollRow from '../ui/ScrollRow';
+import EmptyState from '../ui/EmptyState';
+import Dialog from '../ui/Dialog';
 import LoadingState from './LoadingState';
-import SearchAlbumRow from './SearchAlbumRow';
+import { cn } from '../ui/cn';
 
+// ===== 搜索/推荐双视图 =====
 const TABS = [
-  { key: 'search', label: '搜索下载' },
-  { key: 'discover', label: '推荐歌单' },
+  { key: 'search', label: '搜索下载', icon: Search },
+  { key: 'discover', label: '推荐歌单', icon: Compass },
 ];
 
-const IDLE_BULK_CACHE = { phase: 'idle', done: 0, fail: 0, skipped: 0, total: 0 };
-const IDLE_BULK_COPY = { phase: 'idle', done: 0, fail: 0, total: 0, collectionId: null };
 const COMBINED_SEARCH_RESULT_LIMIT = 80;
 const SEARCH_LINK_RE = /^(https?:\/\/|www\.)/i;
 const RECOGNITION_RECORD_MS = 10000;
@@ -63,9 +59,6 @@ const RECOGNITION_MIME_TYPES = [
   'audio/ogg',
   'audio/mp4',
 ];
-
-// 搜索结果相关性排序已下沉到后端(/api/v1/search 综合排序:上游名次+翻唱降权+
-// 原唱信号),前端默认信任后端返回序,不再本地重算相关性。
 
 const searchQueryKey = (keyword) => ['musicdl-search', 'combined', keyword];
 
@@ -88,29 +81,26 @@ const numberOr = (primary, fallback) => {
   return value > 0 ? value : (Number(fallback || 0) || 0);
 };
 
-const mergeSongData = (base, incoming) => {
-  const merged = {
-    ...incoming,
-    ...base,
-    name: textOr(base?.name, incoming?.name),
-    artist: textOr(base?.artist, incoming?.artist),
-    album: textOr(base?.album, incoming?.album),
-    album_id: textOr(base?.album_id, incoming?.album_id),
-    cover: textOr(base?.cover, incoming?.cover),
-    link: textOr(base?.link, incoming?.link),
-    ext: textOr(base?.ext, incoming?.ext),
-    duration: numberOr(base?.duration, incoming?.duration),
-    size: numberOr(base?.size, incoming?.size),
-    bitrate: numberOr(base?.bitrate, incoming?.bitrate),
-    is_vip: Boolean(base?.is_vip || incoming?.is_vip),
-    extra: {
-      ...(incoming?.extra || {}),
-      ...(base?.extra || {}),
-      lyric_match: (base?.extra?.lyric_match || incoming?.extra?.lyric_match || ''),
-    },
-  };
-  return merged;
-};
+const mergeSongData = (base, incoming) => ({
+  ...incoming,
+  ...base,
+  name: textOr(base?.name, incoming?.name),
+  artist: textOr(base?.artist, incoming?.artist),
+  album: textOr(base?.album, incoming?.album),
+  album_id: textOr(base?.album_id, incoming?.album_id),
+  cover: textOr(base?.cover, incoming?.cover),
+  link: textOr(base?.link, incoming?.link),
+  ext: textOr(base?.ext, incoming?.ext),
+  duration: numberOr(base?.duration, incoming?.duration),
+  size: numberOr(base?.size, incoming?.size),
+  bitrate: numberOr(base?.bitrate, incoming?.bitrate),
+  is_vip: Boolean(base?.is_vip || incoming?.is_vip),
+  extra: {
+    ...(incoming?.extra || {}),
+    ...(base?.extra || {}),
+    lyric_match: (base?.extra?.lyric_match || incoming?.extra?.lyric_match || ''),
+  },
+});
 
 const artistParts = (artist) => String(artist || '')
   .split(/[、,，/&\s-]+/)
@@ -218,10 +208,8 @@ const searchSongsLyricsAndAlbums = async (keyword) => {
   const hasResults = songs.length > 0 || albums.length > 0;
 
   // 歌曲链路的失败必须单独记账,不能被专辑的成功掩盖。
-  // 专辑只查 5 个较快的源、歌曲要查 7 个(多出 qianqian/soda;apple 已摘除),两条链路
-  // 快慢差一个量级;歌曲超时而专辑成功是常见组合。此前 error 只看
-  // `hasResults`(歌曲或专辑任一有结果),于是歌曲整条失败时错误被清空,
-  // 界面照旧报"已找到搜索结果",真实故障完全不可见。
+  // 专辑只查 5 个较快的源、歌曲要查 7 个;两条链路快慢差一个量级,
+  // 歌曲超时而专辑成功是常见组合 —— 此前错误被 hasResults 清空,界面照旧报成功。
   const songRequestsFailed = !songData && !lyricData;
   const songsError = songData?.error
     || lyricData?.error
@@ -237,91 +225,299 @@ const searchSongsLyricsAndAlbums = async (keyword) => {
     cached: !!(songData?.cached || lyricData?.cached || albumData?.cached),
     refreshing: !!(songData?.refreshing || lyricData?.refreshing || albumData?.refreshing),
     cached_at: songData?.cached_at || lyricData?.cached_at || albumData?.cached_at,
-    // 后端只等主力源(qq/网易)就返回, 这里列出"还没等到"的慢源(kuwo 84s / migu 115s /
-    // kugou 25s / qianqian 19s); 它们在后台跑完会写进搜索缓存, 界面据此自动补拉一次。
     pending_sources: [...new Set([...(songData?.pending_sources || []), ...(lyricData?.pending_sources || [])])],
     error: hasResults ? '' : (songData?.error || lyricData?.error || albumData?.error || failures[0] || ''),
     songsError: songs.length === 0 ? songsError : '',
   };
 };
 
-const SearchStatusPanel = ({ stage, progress, available, total }) => {
-  if (!stage) return null;
-  const pct = progress?.total ? Math.round((progress.done / progress.total) * 100) : 0;
-  const Icon = stage.icon;
-  const loading = !!stage.loading;
+const SORT_OPTIONS = [
+  { value: 'recommended', label: '推荐', hint: '优先匹配原唱与来源顺序' },
+  { value: 'quality', label: '高音质', hint: '按搜索返回音质预估' },
+  { value: 'compact', label: '小文件', hint: '适合省空间和流量' },
+];
+
+const SORT_PRESETS = {
+  recommended: { field: 'relevance', order: 'desc' },
+  quality: { field: 'quality', order: 'desc' },
+  compact: { field: 'size', order: 'asc' },
+};
+
+// ===== 最近搜索 =====
+const RecentSearches = ({ items, onPick, onDelete, onClearAll }) => {
+  if (!items.length) return null;
   return (
-    <div className={`mb-4 rounded-md border px-4 py-3 ${
-      stage.tone === 'error'
-        ? 'border-destructive/40 bg-destructive/10 text-destructive'
-        : stage.tone === 'success'
-          ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-border bg-card/70 text-muted-foreground'
-    }`}>
-      <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
-          loading ? 'bg-primary/10 text-primary' : ''
-        }`}>
-          <Icon size={18} className={loading ? 'animate-spin' : ''} />
-        </div>
-        <div className="min-w-0 flex-grow">
-          <p className="font-medium text-foreground">
-            {stage.title}
-            {loading ? <span className="loading-dots" aria-hidden="true" /> : null}
-          </p>
-          <p className="mt-0.5 text-sm">{stage.detail}</p>
-          {(loading || progress?.total > 0) && (
-            <div className="mt-3">
-              <div className={`h-1.5 overflow-hidden rounded-full bg-secondary ${
-                progress?.total > 0 ? '' : 'loading-bar-indeterminate'
-              }`}>
-                {progress?.total > 0 && (
-                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
-                )}
-              </div>
-              {progress?.total > 0 ? (
-                <p className="mt-1 text-xs">
-                  已检查 {progress.done}/{progress.total}
-                  {available != null ? ` · 当前可播放 ${available}` : ''}
-                  {total != null ? ` · 原始结果 ${total}` : ''}
-                </p>
-              ) : (
-                <p className="mt-1 text-xs">连接音乐源中,页面仍在工作</p>
-              )}
-            </div>
+    <section className="mb-5">
+      <SectionHeader
+        title="最近搜索"
+        actions={(
+          <Button variant="link" size="sm" onClick={onClearAll}>清空</Button>
+        )}
+      />
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((h) => (
+          <span key={h.keyword} className="group inline-flex items-center overflow-hidden rounded-full border border-border bg-card">
+            <button
+              type="button"
+              onClick={() => onPick(h.keyword)}
+              title={`搜索「${h.keyword}」`}
+              className="min-h-touch pl-3 pr-1 type-caption text-foreground transition-colors duration-base hover:text-primary"
+            >
+              {h.keyword}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => onDelete(h.keyword, e)}
+              aria-label={`删除搜索记录「${h.keyword}」`}
+              className="flex min-h-touch w-8 items-center justify-center text-muted-foreground transition-colors duration-base hover:text-destructive"
+            >
+              <X size={13} />
+            </button>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+// ===== 推荐歌单 =====
+const PlaylistCard = ({ playlist, onOpen }) => {
+  const [failed, setFailed] = useState(false);
+  const cover = failed ? '' : coverProxyUrl(playlist);
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen({ id: playlist.id, source: playlist.source, name: playlist.name })}
+      className="group w-[8.5rem] rounded-lg border border-transparent p-1.5 text-left transition-colors duration-base hover:border-border hover:bg-secondary/60 focus-visible:border-border focus-visible:bg-secondary/60"
+      title={`打开歌单「${playlist.name}」`}
+    >
+      <div className="aspect-square overflow-hidden rounded-md bg-secondary">
+        {cover ? (
+          <img
+            src={cover}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-slow ease-standard group-hover:scale-[1.03]"
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+            <Music size={28} />
+          </div>
+        )}
+      </div>
+      <p className="mt-1.5 line-clamp-2 type-caption font-semibold leading-snug text-foreground">
+        {playlist.name}
+      </p>
+    </button>
+  );
+};
+
+const DiscoverPane = ({ state, onOpen, onRetry }) => {
+  if (state.isLoading && !state.data) {
+    return <LoadingState title="加载推荐歌单" detail="正在从网易云和 QQ 拉取推荐内容" rows={3} />;
+  }
+  if (state.isError) {
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4">
+        <StatusLine tone="error" layout="banner">
+          加载推荐歌单失败:{String(state.error?.message || state.error)}
+        </StatusLine>
+        <Button variant="secondary" size="sm" className="mt-3" onClick={onRetry} loading={state.isFetching}>
+          重试
+        </Button>
+      </div>
+    );
+  }
+
+  const tabs = state.data?.tabs || [];
+  const visibleTabs = tabs.filter((tab) => (tab.playlists || []).length > 0 || tab.error);
+
+  if (!visibleTabs.length) {
+    return (
+      <EmptyState
+        icon={Compass}
+        title="暂时没有推荐歌单"
+        description="上游源可能繁忙或需要登录。稍后重试,或先去「搜索下载」找歌。"
+        action={<Button variant="secondary" onClick={onRetry} loading={state.isFetching}>重新加载</Button>}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {state.data?.cached && state.data?.refreshing && (
+        <StatusLine tone="neutral" loading>
+          正在后台更新缓存,先显示上次结果
+        </StatusLine>
+      )}
+      {visibleTabs.map((tab) => (
+        <section key={tab.source} aria-labelledby={`discover-${tab.source}`}>
+          <SectionHeader
+            id={`discover-${tab.source}`}
+            title={tab.source_name || tab.source}
+            count={(tab.playlists || []).length ? `${(tab.playlists || []).length} 张` : undefined}
+          />
+          {tab.error ? (
+            <StatusLine tone="warning">{tab.error}</StatusLine>
+          ) : (
+            <ScrollRow label={`${tab.source_name || tab.source} 推荐歌单`}>
+              {(tab.playlists || []).map((pl) => (
+                <PlaylistCard key={`${pl.source}-${pl.id}`} playlist={pl} onOpen={onOpen} />
+              ))}
+            </ScrollRow>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+};
+
+// ===== 远端歌单/专辑详情 =====
+const RemoteCollectionDetail = ({
+  meta, kind = 'playlist', state, onBack, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused,
+}) => {
+  const songs = state.data?.songs || [];
+  const { user, offline } = useAuth();
+  const userId = user?.id || 0;
+  const isAlbum = kind === 'album';
+  const contentLabel = isAlbum ? '专辑' : '推荐歌单';
+  const taskKey = `user:${userId}:${kind}:${meta.source}:${meta.id}`;
+  const {
+    bulkDownload, bulkCache, handleDownloadAll, handleCacheAll, handleCopyToMine, hasAnyState,
+  } = useBulkActions({ taskKey, songs, scopePrefix: `remote-${kind}` });
+  const [coverFailed, setCoverFailed] = useState(false);
+  useEffect(() => setCoverFailed(false), [meta.cover, meta.id, meta.source]);
+  const cover = coverFailed ? '' : coverProxyUrl(meta);
+
+  const downloadLabel = bulkDownload.phase === 'done' ? '已下载'
+    : bulkDownload.phase === 'fail' ? '重试下载'
+      : bulkDownload.phase === 'running' ? `下载中 ${bulkDownload.done || 0}/${bulkDownload.total || songs.length}`
+        : '下载到服务器';
+  const cacheLabel = bulkCache.phase === 'done' ? '已缓存'
+    : bulkCache.phase === 'fail' ? '重试缓存'
+      : bulkCache.phase === 'running' ? `缓存中 ${bulkCache.done || 0}/${bulkCache.total || songs.length}`
+        : '缓存到本机';
+
+  return (
+    <div>
+      <Button variant="ghost" size="sm" onClick={onBack} className="mb-4 -ml-2">
+        ← {isAlbum ? '返回搜索结果' : '返回推荐歌单'}
+      </Button>
+
+      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
+        <div className="flex h-28 w-28 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary shadow-subtle sm:h-32 sm:w-32">
+          {cover ? (
+            <img src={cover} alt="" className="h-full w-full object-cover" onError={() => setCoverFailed(true)} />
+          ) : (
+            <Music size={36} className="text-muted-foreground" />
           )}
         </div>
-      </div>
+        <div className="min-w-0 flex-1">
+          <p className="type-micro uppercase tracking-wider text-muted-foreground">{contentLabel}</p>
+          <h1 className="mt-0.5 line-clamp-2 type-hero text-foreground">{meta.name}</h1>
+          <p className="mt-1 type-caption text-muted-foreground">
+            {meta.creator ? `${meta.creator} · ` : ''}
+            <span className="nums">{songs.length}</span> 首
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={() => songs.length && onPlay(songs[0], songs)}
+              disabled={!songs.length}
+            >
+              <Play size={16} fill="currentColor" aria-hidden="true" />
+              播放全部
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleDownloadAll}
+              loading={bulkDownload.phase === 'running'}
+              disabled={!songs.length || offline || bulkDownload.phase === 'running'}
+              title={offline ? '离线状态无法下载到服务器' : `把这张${contentLabel}存到服务器曲库`}
+            >
+              {downloadLabel}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleCacheAll}
+              loading={bulkCache.phase === 'running'}
+              disabled={!songs.length || offline || bulkCache.phase === 'running'}
+              title={offline ? '离线状态无法缓存新歌曲' : '存到当前浏览器/PWA,可离线听'}
+            >
+              {cacheLabel}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => handleCopyToMine(meta.name || contentLabel)}
+              disabled={!songs.length || offline}
+              title="复制成我自己的歌单"
+            >
+              加入我的歌单
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {hasAnyState && (
+        <div className="mb-4 space-y-1.5 rounded-md border border-border bg-card/50 px-3 py-2">
+          {(bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle') && (
+            <StatusLine
+              tone={bulkDownload.phase === 'fail' || bulkCache.phase === 'fail' ? 'error' : 'neutral'}
+              loading={bulkDownload.phase === 'running' || bulkCache.phase === 'running'}
+            >
+              服务器下载 {bulkDownload.phase === 'idle' ? '—' : `${bulkDownload.done || 0}/${bulkDownload.total || 0}${bulkDownload.fail ? ` · 失败 ${bulkDownload.fail}` : ''}`}
+              <span className="mx-2 text-border">|</span>
+              本机缓存 {bulkCache.phase === 'idle' ? '—' : `${bulkCache.done || 0}/${bulkCache.total || 0}${bulkCache.fail ? ` · 失败 ${bulkCache.fail}` : ''}`}
+            </StatusLine>
+          )}
+        </div>
+      )}
+
+      {state.isLoading && songs.length === 0 && (
+        <LoadingState title={`加载${contentLabel}`} detail="正在读取曲目与封面" rows={5} />
+      )}
+      {state.isError && (
+        <StatusLine tone="error" layout="banner" className="mb-3">
+          加载{contentLabel}失败:{String(state.error?.message || state.error)}
+        </StatusLine>
+      )}
+      {state.data?.error && (
+        <StatusLine tone="error" layout="banner" className="mb-3">{state.data.error}</StatusLine>
+      )}
+      {!state.isLoading && state.data && songs.length === 0 && (
+        <EmptyState compact icon={Music} title={`这张${contentLabel}没有可显示的曲目`} />
+      )}
+
+      {songs.length > 0 && (
+        <>
+          <SongListHeader />
+          <div className="space-y-0.5">
+            {songs.map((song, idx) => (
+              <SongRow
+                key={songIdentityKey(song) || `${song.source}-${song.id}`}
+                song={song}
+                index={idx}
+                isPlaying={isPlaying(song)}
+                isPaused={isPaused}
+                onTogglePlayback={onTogglePlayback}
+                onPlay={(s) => onPlay(s, songs)}
+                onShowLyric={onShowLyric}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };
 
-const CacheRefreshNotice = ({ data, className = '' }) => {
-  if (!data?.cached || !data?.refreshing) return null;
-  return (
-    <div className={`mb-3 ${className}`} role="status" aria-live="polite" title="正在后台更新缓存，当前先显示上次结果">
-      <span className="sr-only">正在后台更新缓存，当前先显示上次结果</span>
-      <div className="h-1 overflow-hidden rounded-full bg-secondary loading-bar-indeterminate" />
-    </div>
-  );
-};
-
-const QueryRefreshProgress = ({ active, className = '' }) => {
-  if (!active) return null;
-  return (
-    <div className={`mb-3 ${className}`} role="status" aria-live="polite" title="正在刷新内容">
-      <span className="sr-only">正在刷新内容</span>
-      <div className="h-1 overflow-hidden rounded-full bg-secondary loading-bar-indeterminate" />
-    </div>
-  );
-};
-
-// 搜索面板
-const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCache, query, state, onOpenAlbum, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
+// ===== 搜索面板 =====
+const SearchPane = ({
+  keyword, setKeyword, onSubmit, runSearch, onClearSearchCache, query, state,
+  onOpenAlbum, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused,
+}) => {
   const allSongs = state.data?.songs || [];
-  // 后端只等主力源就返回, pending_sources 列出还没等到的慢源(跑完会写进搜索缓存)。
-  // 注意: 它必须在本组件里从 state 取 —— 早先放到父组件定义、这里直接用, 结果是
-  // ReferenceError 把整棵 React 树卸掉, 搜索后页面全白。
   const pendingSources = state.data?.pending_sources || [];
   const albums = state.data?.albums || [];
   const feedback = useFeedback();
@@ -339,12 +535,8 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
 
   const cleanupRecognitionResources = useCallback(() => {
     const current = recognitionRef.current;
-    if (current.timer) {
-      window.clearTimeout(current.timer);
-    }
-    if (current.stream) {
-      current.stream.getTracks().forEach((track) => track.stop());
-    }
+    if (current.timer) window.clearTimeout(current.timer);
+    if (current.stream) current.stream.getTracks().forEach((track) => track.stop());
     recognitionRef.current = { recorder: null, stream: null, chunks: [], timer: null, failed: false };
   }, []);
 
@@ -363,10 +555,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
   }, [cleanupRecognitionResources]);
 
   const handleRecognitionClick = async () => {
-    if (recognition.phase === 'recording') {
-      stopRecognition();
-      return;
-    }
+    if (recognition.phase === 'recording') { stopRecognition(); return; }
     if (recognition.phase === 'uploading') return;
     if (recognitionStatus.isLoading && !recognitionStatus.data) {
       setRecognition({ phase: 'checking', message: '正在确认识曲服务状态' });
@@ -384,27 +573,20 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
 
     const mediaDevices = navigator.mediaDevices;
     if (!mediaDevices?.getUserMedia || typeof window.MediaRecorder === 'undefined') {
-      setRecognition({ phase: 'error', message: '当前浏览器不支持录音识曲' });
       feedback.error('当前浏览器不支持录音识曲');
       return;
     }
 
     try {
       const stream = await mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       const mimeType = pickRecognitionMimeType();
       const recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recognitionRef.current = { recorder, stream, chunks: [], timer: null, failed: false };
 
       recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recognitionRef.current.chunks.push(event.data);
-        }
+        if (event.data && event.data.size > 0) recognitionRef.current.chunks.push(event.data);
       };
       recorder.onerror = () => {
         recognitionRef.current.failed = true;
@@ -422,16 +604,13 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
         if (failed || !mountedRef.current) return;
         const blob = new Blob(chunks, { type: blobType });
         if (!blob.size) {
-          setRecognition({ phase: 'error', message: '没有录到声音,请再试一次' });
           feedback.error('没有录到声音,请再试一次');
           return;
         }
         const maxBytes = Number(recognitionStatus.data?.max_bytes || 0);
         if (maxBytes > 0 && blob.size > maxBytes) {
           const limitText = formatRecognitionBytes(maxBytes);
-          const msg = limitText ? `录音过大,单次上限 ${limitText}` : '录音过大,请缩短后再试';
-          setRecognition({ phase: 'error', message: msg });
-          feedback.error(msg);
+          feedback.error(limitText ? `录音过大,单次上限 ${limitText}` : '录音过大,请缩短后再试');
           return;
         }
         setRecognition({ phase: 'uploading', message: '正在识别这段声音' });
@@ -447,7 +626,6 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
           const result = data.result || {};
           const nextQuery = (data.query || [result.title, result.artist].filter(Boolean).join(' ')).trim();
           if (!nextQuery) {
-            setRecognition({ phase: 'error', message: '识别到了结果,但没有可搜索的歌名' });
             feedback.error('识别到了结果,但没有可搜索的歌名');
             return;
           }
@@ -456,12 +634,10 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
           if (runSearch) runSearch(nextQuery);
           const foundText = result.artist ? `${result.title || nextQuery} · ${result.artist}` : (result.title || nextQuery);
           setRecognition({ phase: 'success', message: `识别到 ${foundText}` });
-          feedback.success('识别成功,正在搜索可播放版本');
+          feedback.success('识别成功,正在搜索');
         } catch (err) {
           if (!mountedRef.current) return;
-          const msg = recognitionErrorMessage(err);
-          setRecognition({ phase: 'error', message: msg });
-          feedback.error(msg);
+          feedback.error(recognitionErrorMessage(err));
         }
       };
 
@@ -470,18 +646,10 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       setRecognition({ phase: 'recording', message: '正在录音识曲' });
     } catch (err) {
       cleanupRecognitionResources();
-      const msg = err?.name === 'NotAllowedError' ? '麦克风权限被拒绝' : recognitionErrorMessage(err);
-      setRecognition({ phase: 'error', message: msg });
-      feedback.error(msg);
+      feedback.error(err?.name === 'NotAllowedError' ? '麦克风权限被拒绝' : recognitionErrorMessage(err));
     }
   };
 
-  const handleFormSubmit = (event) => {
-    setAutoPlayQuery('');
-    onSubmit(event);
-  };
-
-  // 搜索历史(仅登录用户有;未登录返回空)。搜索成功后刷新。
   const history = useQuery(['search-history'], getSearchHistory, {
     refetchOnWindowFocus: false,
     staleTime: 60 * 1000,
@@ -490,29 +658,23 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
     if (query) history.refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
-  const [historyNotice, setHistoryNotice] = useState('');
+
   const [clearingSearchCache, setClearingSearchCache] = useState(false);
 
-  const onChipSearch = (kw) => {
-    setAutoPlayQuery('');
-    if (runSearch) runSearch(kw);
-  };
+  const onChipSearch = (kw) => { setAutoPlayQuery(''); if (runSearch) runSearch(kw); };
   const onChipDelete = async (kw, e) => {
     e.stopPropagation();
-    setHistoryNotice('');
     try {
       await clearSearchHistory(kw);
       history.refetch();
     } catch {
-      setHistoryNotice('搜索历史删除失败,稍后再试');
-      feedback.error('搜索历史删除失败,稍后再试');
+      feedback.error('删除搜索记录失败,请稍后重试');
     }
   };
   const onClearAll = async () => {
-    setHistoryNotice('');
     const ok = await feedback.confirm({
       title: '清空最近搜索?',
-      body: '只清空当前账号的搜索记录,不会影响歌单或曲库。',
+      body: '只清空当前账号的搜索记录,不影响歌单或曲库。',
       confirmLabel: '清空',
       danger: true,
     });
@@ -522,8 +684,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       history.refetch();
       feedback.success('最近搜索已清空');
     } catch {
-      setHistoryNotice('搜索历史清空失败,稍后再试');
-      feedback.error('搜索历史清空失败,稍后再试');
+      feedback.error('清空搜索记录失败,请稍后重试');
     }
   };
   const handleClearSearchCache = async () => {
@@ -534,8 +695,7 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
       await onClearSearchCache?.(k);
       feedback.success('搜索缓存已清理,正在重新搜索');
     } catch (err) {
-      const msg = err?.response?.data?.error || err?.message || '搜索缓存清理失败';
-      feedback.error(msg);
+      feedback.error(err?.response?.data?.error || err?.message || '搜索缓存清理失败');
     } finally {
       setClearingSearchCache(false);
     }
@@ -543,33 +703,23 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
 
   const historyItems = history.data || [];
   const [sortMode, setSortMode] = useState('recommended');
-  const SORT_PRESETS = {
-    recommended: { field: 'relevance', order: 'desc', label: '推荐排序', hint: '优先匹配原唱和来源顺序' },
-    quality: { field: 'quality', order: 'desc', label: '高音质优先', hint: '按搜索返回音质预估' },
-    compact: { field: 'size', order: 'asc', label: '文件更小', hint: '适合省空间和流量' },
-  };
 
   const originalIndex = new Map(allSongs.map((s, i) => [songIdentityKey(s), i]));
 
-  // 各排序维度的取值
   const fieldValue = (s, field) => {
     if (field === 'size') return s.size || 0;
     if (field === 'quality') return Number(s.bitrate || 0) || 0;
-    // 相关性:信任后端综合排序(上游名次+翻唱降权+原唱信号,前端看不到这些),
-    // 用返回序的相反数(origIdx 越小越靠前)。不再前端重算 relevanceScore。
     if (field === 'relevance') return -(originalIndex.get(songIdentityKey(s)) ?? 0);
     return originalIndex.get(songIdentityKey(s)) ?? 0;
   };
 
-  // 搜索页不再自动验活:先展示候选,用户点“验”/播放/下载时再解析单首。
+  // 搜索页不自动验活:先展示候选,用户点「验」/播放/下载时再解析单首。
   const songs = allSongs
     .map((s, i) => ({ s, i }))
     .sort((a, b) => {
       const preset = SORT_PRESETS[sortMode] || SORT_PRESETS.recommended;
       const cmp = fieldValue(a.s, preset.field) - fieldValue(b.s, preset.field);
       if (cmp !== 0) return preset.order === 'asc' ? cmp : -cmp;
-      // 排序键全相等(如同名"炽心"相关性同分)时,隐式按真实音质降序——
-      // 未手动验活前只能使用搜索返回的预估码率;音质相同再回退原序。
       if (preset.field !== 'quality') {
         const qa = Number(a.s.bitrate || 0) || 0;
         const qb = Number(b.s.bitrate || 0) || 0;
@@ -583,525 +733,220 @@ const SearchPane = ({ keyword, setKeyword, onSubmit, runSearch, onClearSearchCac
 
   useEffect(() => {
     if (!autoPlayQuery || query !== autoPlayQuery || !hasCurrentSearchResult) return;
-
     if (songs.length > 0) {
       onPlay(songs[0], songs);
       setAutoPlayQuery('');
       return;
     }
-
     const searchFinishedWithoutSongs = !state.isLoading && allSongs.length === 0;
-    if (state.isError || state.data?.error || searchFinishedWithoutSongs) {
-      setAutoPlayQuery('');
-    }
+    if (state.isError || state.data?.error || searchFinishedWithoutSongs) setAutoPlayQuery('');
   }, [
-    allSongs.length,
-    autoPlayQuery,
-    hasCurrentSearchResult,
-    onPlay,
-    query,
-    songs,
-    state.data?.error,
-    state.isError,
-    state.isLoading,
+    allSongs.length, autoPlayQuery, hasCurrentSearchResult, onPlay, query, songs,
+    state.data?.error, state.isError, state.isLoading,
   ]);
 
-  const sortBtnCls = (mode) =>
-    `rounded-md border px-3 py-2 text-left transition-colors ${
-      sortMode === mode ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
-    }`;
-
-  const searchStage = (() => {
-    if (!query && !state.isLoading) return null;
-    if (state.isLoading) {
-      return {
-        title: `正在搜索「${query}」`,
-        detail: '正在同时匹配歌名、歌手和歌词片段。',
-        icon: Loader2,
-        loading: true,
-      };
-    }
+  // ===== 状态表达:只有阻断性错误用 banner,其余一律内联一行 =====
+  const banner = (() => {
     if (state.isError) {
-      return {
-        title: '搜索失败',
-        detail: String(state.error?.message || state.error || '请稍后再试'),
-        icon: AlertCircle,
-        tone: 'error',
-      };
+      return { tone: 'error', text: `搜索失败:${String(state.error?.message || state.error || '请稍后重试')}` };
     }
     if (state.data?.error) {
-      return {
-        title: '搜索返回错误',
-        detail: state.data.error,
-        icon: AlertCircle,
-        tone: 'error',
-      };
+      return { tone: 'error', text: state.data.error };
     }
-    // 专辑有结果但歌曲一首都没有,且歌曲链路确实报错 —— 如实说明,不要伪装成成功。
     if (hasCurrentSearchResult && songs.length === 0 && state.data?.songsError) {
       return {
-        title: '歌曲搜索失败',
-        detail: `${state.data.songsError}${albums.length ? `（专辑仍有 ${albums.length} 张结果,见下方）` : ''}可点「清缓存重搜」重试。`,
-        icon: AlertCircle,
         tone: 'error',
-      };
-    }
-    if (hasCurrentSearchResult && (songs.length > 0 || albums.length > 0)) {
-      return {
-        title: '已找到搜索结果',
-        detail: `${albums.length ? `${albums.length} 张专辑 · ` : ''}${songs.length} 首候选歌曲。歌曲不会自动验活,需要时点单首“验”。`,
-        icon: Check,
-        tone: 'success',
-      };
-    }
-    if (query && hasCurrentSearchResult && songs.length === 0) {
-      return {
-        title: '没有找到结果',
-        detail: '可以换成“歌手 歌名”,或粘贴歌曲/歌单链接再试。',
-        icon: Search,
+        text: `歌曲搜索失败:${state.data.songsError}${albums.length ? `(专辑仍有 ${albums.length} 张,见下方)` : ''}`,
       };
     }
     return null;
   })();
 
+  const inlineStatus = (() => {
+    if (state.isLoading) return { loading: true, text: `正在搜索「${query}」…` };
+    if (hasCurrentSearchResult) {
+      const parts = [];
+      if (albums.length) parts.push(`${albums.length} 张专辑`);
+      parts.push(`${songs.length} 首歌曲`);
+      return { text: `找到 ${parts.join(' · ')}。点单首「验」可测真实音质。` };
+    }
+    return null;
+  })();
+
+  const isStale = state.isFetching && !hasCurrentSearchResult && allSongs.length > 0;
+
   return (
     <div>
-      <form onSubmit={handleFormSubmit} className="mb-3 flex gap-2">
-        <div className="relative min-w-0 flex-grow">
-          <input
-            type="text"
-            value={keyword}
-            onChange={(e) => {
-              setAutoPlayQuery('');
-              setKeyword(e.target.value);
-            }}
-            placeholder="输入歌名 / 歌手 / 歌词，或粘贴链接…"
-            className="w-full rounded-md border border-border bg-card px-4 py-3 font-medium outline-none transition-colors focus:border-primary"
-          />
+      {/* 搜索表单:输入框 + 识曲 + 搜索,一行完成 */}
+      <form onSubmit={(e) => { setAutoPlayQuery(''); onSubmit(e); }} className="mb-3" role="search">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[12rem] flex-1">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
+              type="search"
+              value={keyword}
+              onChange={(e) => { setAutoPlayQuery(''); setKeyword(e.target.value); }}
+              onKeyDown={(e) => {
+                // 中文输入法上屏回车不应触发搜索
+                if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault();
+              }}
+              placeholder="输入歌名 / 歌手 / 歌词,或粘贴链接"
+              aria-label="搜索歌名、歌手或歌词"
+              enterKeyHint="search"
+              className="pl-9"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="lg"
+            iconOnly
+            onClick={handleRecognitionClick}
+            disabled={recognition.phase === 'uploading'}
+            aria-label={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
+            title={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
+            className={recognition.phase === 'recording' ? 'border-destructive text-destructive' : ''}
+          >
+            {recognition.phase === 'recording' ? <Square size={16} fill="currentColor" /> : <Mic size={17} />}
+          </Button>
+          <Button type="submit" variant="primary" size="lg">搜索</Button>
+          <Button
+            variant="ghost"
+            size="lg"
+            iconOnly
+            onClick={handleClearSearchCache}
+            disabled={!clearCacheKeyword || clearingSearchCache || state.isLoading}
+            aria-label="清理搜索缓存并重新搜索"
+            title={clearCacheKeyword ? `清理「${clearCacheKeyword}」的缓存并重搜` : '输入关键词后可清理缓存'}
+          >
+            <RotateCw size={16} className={clearingSearchCache ? 'animate-spin' : ''} />
+          </Button>
         </div>
-        <button
-          type="button"
-          onClick={handleRecognitionClick}
-          disabled={recognition.phase === 'uploading'}
-          className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${
-            recognition.phase === 'recording'
-              ? 'border-destructive bg-destructive/15 text-destructive hover:bg-destructive/20'
-              : recognitionDisabled
-                ? 'border-border bg-card text-muted-foreground hover:border-primary hover:text-primary'
-                : 'border-border bg-card text-foreground hover:border-primary hover:text-primary'
-          }`}
-          title={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
-          aria-label={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
-        >
-          {recognition.phase === 'recording' ? <Square size={18} fill="currentColor" /> : <Mic size={19} />}
-        </button>
-        <button type="submit" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:brightness-110">
-          搜索
-        </button>
-        <button
-          type="button"
-          onClick={handleClearSearchCache}
-          disabled={!clearCacheKeyword || clearingSearchCache || state.isLoading}
-          className="flex h-12 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-          title={clearCacheKeyword ? `清理「${clearCacheKeyword}」的搜索缓存并重新搜索` : '输入关键词后清理搜索缓存'}
-        >
-          <RotateCw size={15} className={clearingSearchCache ? 'animate-spin' : ''} />
-          <span className="hidden sm:inline">清缓存重搜</span>
-        </button>
       </form>
+
+      {/* 识曲进行中的状态:内联一行,不再占一条彩色横幅 */}
       {recognition.phase !== 'idle' && (
-        <div className={`mb-5 rounded-md border px-3 py-2 text-sm ${
-          recognition.phase === 'error'
-            ? 'border-destructive/40 bg-destructive/10 text-destructive'
-            : recognition.phase === 'success'
-              ? 'border-primary/30 bg-primary/10 text-primary'
-              : 'border-border bg-card/70 text-muted-foreground'
-          }`}>
-          <div className="flex items-center gap-2">
-            {(recognition.phase === 'checking' || recognition.phase === 'recording' || recognition.phase === 'uploading') && <Loader2 size={15} className="animate-spin text-primary" />}
-            <span>{recognition.message}</span>
-            {recognition.phase === 'recording' && <span className="loading-dots" aria-hidden="true" />}
-          </div>
-          {(recognition.phase === 'checking' || recognition.phase === 'recording' || recognition.phase === 'uploading') && (
-            <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary loading-bar-indeterminate" />
-          )}
-        </div>
+        <StatusLine
+          tone={recognition.phase === 'error' ? 'error' : recognition.phase === 'success' ? 'success' : 'neutral'}
+          loading={['checking', 'recording', 'uploading'].includes(recognition.phase)}
+          className="mb-2"
+        >
+          {recognition.message}
+        </StatusLine>
       )}
-      {/* 最近搜索:仅在未发起搜索时显示(登录用户专属,匿名为空不显示) */}
-      {!query && historyItems.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm text-muted-foreground">最近搜索</span>
-            <button onClick={onClearAll} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
-              清空
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {historyItems.map((h) => (
-              <span
-                key={h.keyword}
-                onClick={() => onChipSearch(h.keyword)}
-                className="group inline-flex items-center gap-1 pl-3 pr-1.5 py-1.5 border border-border rounded-full bg-card text-sm cursor-pointer hover:bg-secondary transition-colors"
-                title={`搜索「${h.keyword}」`}
-              >
-                {h.keyword}
-                <button
-                  onClick={(e) => onChipDelete(h.keyword, e)}
-                  className="p-0.5 rounded-full text-muted-foreground hover:text-destructive hover:bg-background transition-colors"
-                  title="删除"
-                  aria-label="删除"
-                >
-                  <X size={13} />
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {historyNotice && (
-        <p className="mb-4 text-sm text-destructive">{historyNotice}</p>
-      )}
-      <CacheRefreshNotice data={state.data} />
-      <QueryRefreshProgress active={state.isFetching && !!state.data && !state.isLoading && !searchStage?.loading && !(state.data?.cached && state.data?.refreshing)} />
-      <SearchStatusPanel stage={searchStage} available={songs.length} total={allSongs.length} />
-      {pendingSources.length > 0 && (
-        <div className="mb-4 rounded-md border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
-          还有 {pendingSources.length} 个源在后台补齐({pendingSources.map(sourceLabel).join('、')}),结果会自动刷新。
-        </div>
-      )}
-      <SearchAlbumRow albums={albums} onOpen={onOpenAlbum} />
-      {songs.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-stretch gap-2">
-          {Object.entries(SORT_PRESETS).map(([mode, preset]) => (
-            <button key={mode} onClick={() => setSortMode(mode)} className={sortBtnCls(mode)}>
-              <span className="block text-sm font-semibold">{preset.label}</span>
-              <span className={`block text-xs ${sortMode === mode ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{preset.hint}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {songs.length > 0 && (
-        <>
-          <SongListHeader />
-          <div className="space-y-0.5">
-            {songs.map((song, idx) => (
-              <SongRow
-                key={songIdentityKey(song)}
-                song={song}
-                index={idx}
-                isPlaying={isPlaying(song)}
-                isPaused={isPaused}
-                onTogglePlayback={onTogglePlayback}
-                onPlay={(s) => onPlay(s, songs)}
-                onShowLyric={onShowLyric}
-                lyricQuery={query}
-              />
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
 
-// 歌词弹窗
-const LyricModal = ({ lyric, onClose }) => (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-    <div className="bg-card border border-border rounded-lg shadow-xl max-w-lg w-full max-h-[70vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <h3 className="text-xl font-semibold">{lyric.song.name}</h3>
-          <p className="text-muted-foreground text-sm">{lyric.song.artist}</p>
-        </div>
-        <button onClick={onClose} className="font-bold text-2xl leading-none hover:text-primary transition-colors">×</button>
-      </div>
-      <pre className="whitespace-pre-wrap text-foreground text-sm font-sans">{lyric.text}</pre>
-    </div>
-  </div>
-);
-
-// 推荐歌单面板(按源分栏的网格)
-const DiscoverPane = ({ state, onOpen }) => {
-  if (state.isLoading && !state.data) {
-    return (
-      <LoadingState
-        title="加载推荐歌单"
-        detail="正在从网易云和 QQ 拉取推荐内容"
-        rows={6}
-        className="mb-6"
-      />
-    );
-  }
-  if (state.isError) return <p className="text-destructive font-bold">加载失败:{String(state.error?.message || state.error)}</p>;
-  const tabs = state.data?.tabs || [];
-  return (
-    <div className="space-y-8">
-      <QueryRefreshProgress active={state.isFetching && tabs.length > 0 && !(state.data?.cached && state.data?.refreshing)} />
-      <CacheRefreshNotice data={state.data} />
-      {tabs.map((tab) => (
-        <div key={tab.source}>
-          <h3 className="text-lg font-semibold mb-3 pl-2 border-l-4 border-primary text-foreground">{tab.source_name || tab.source}</h3>
-          {tab.error && <p className="text-destructive font-bold text-sm mb-2">{tab.error}</p>}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mt-3">
-            {(tab.playlists || []).map((pl) => (
-              <div
-                key={`${pl.source}-${pl.id}`}
-                className="cursor-pointer group rounded-md border border-border bg-card p-2 transition-colors hover:bg-secondary"
-                onClick={() => onOpen({ id: pl.id, source: pl.source, name: pl.name })}
-              >
-                <div className="aspect-square overflow-hidden rounded bg-muted">
-                  {pl.cover && (
-                    <img src={pl.cover} alt={pl.name} loading="lazy" className="w-full h-full object-cover" />
-                  )}
-                </div>
-                <p className="text-sm font-bold mt-2 line-clamp-2">{pl.name}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const playlistBulkLabel = (state, idleLabel, runningLabel, doneLabel, retryLabel) => {
-  if (state.phase === 'running') return runningLabel;
-  if (state.phase === 'done') return doneLabel;
-  if (state.phase === 'fail') return retryLabel;
-  return idleLabel;
-};
-
-const BulkStatusCard = ({ title, state, cache, serverDownload }) => {
-  if (state.phase === 'idle') return null;
-  return (
-    <div className={`rounded-md border px-3 py-2 text-sm ${
-      state.phase === 'fail' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card/70 text-muted-foreground'
-    }`}>
-      <p className="font-medium text-foreground">{title}</p>
-      {serverDownload ? <p>{serverDownloadBatchSummary(state)}</p> : (
-        <p>
-          {cache ? `新增 ${state.done}` : `已完成 ${state.done}/${state.total}`}
-          {cache && state.skipped ? ` · 已有 ${state.skipped}` : ''}
-          {cache && state.total ? ` · 共 ${state.total}` : ''}
-          {state.fail ? ` · 失败 ${state.fail}` : ''}
-        </p>
-      )}
-    </div>
-  );
-};
-
-// 远端歌单/专辑详情面板
-const RemoteCollectionDetailPane = ({ meta, kind = 'playlist', state, onBack, onPlay, onTogglePlayback, onShowLyric, isPlaying, isPaused }) => {
-  const songs = state.data?.songs || [];
-  const { user, offline } = useAuth();
-  const { create, addSong } = useCollections();
-  const feedback = useFeedback();
-  const userId = user?.id || 0;
-  const isAlbum = kind === 'album';
-  const contentLabel = isAlbum ? '专辑' : '推荐歌单';
-  const taskKey = `user:${userId}:${kind}:${meta.source}:${meta.id}`;
-  const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'recommended-playlist-download');
-  const cacheTasks = useScopedBulkState(IDLE_BULK_CACHE, 'recommended-playlist-cache');
-  const copyTasks = useScopedBulkState(IDLE_BULK_COPY, 'recommended-playlist-copy');
-  const bulkDownload = downloadTasks.getState(taskKey);
-  const bulkCache = cacheTasks.getState(taskKey);
-  const bulkCopy = copyTasks.getState(taskKey);
-
-  const handleDownloadAll = async () => {
-    if (!songs.length || offline || bulkDownload.phase === 'running') return;
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    await downloadTasks.runForKey(taskKey, {
-      ...SERVER_DOWNLOAD_BULK_IDLE,
-      phase: 'running',
-      total,
-    }, async (update) => {
-      const result = await runServerDownloadBatch(playlistSongs, {
-        expectedUserId: userId,
-        onProgress: update,
-      });
-      if (result.statusError) feedback.error('读取服务器已下载状态失败，未开始下载，请重试');
-    });
-  };
-
-  const handleCacheAll = async () => {
-    if (!songs.length || offline || bulkCache.phase === 'running') return;
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    let skipped = 0;
-    await cacheTasks.runForKey(taskKey, { phase: 'running', done, fail, skipped, total }, async (update) => {
-      for (const song of playlistSongs) {
-        try {
-          if (!canCacheSong(song) || (await isSongCached(song, userId))) {
-            skipped += 1;
-          } else {
-            await cacheSong(song, { userId });
-            done += 1;
-          }
-        } catch {
-          fail += 1;
-        }
-        update({ phase: 'running', done, fail, skipped, total });
-      }
-      update({ phase: fail ? 'fail' : 'done', done, fail, skipped, total });
-    });
-  };
-
-  const handleCopyToMine = async () => {
-    if (!songs.length || offline || bulkCopy.phase === 'running') return;
-    const playlistSongs = songs.slice();
-    const total = playlistSongs.length;
-    let done = 0;
-    let fail = 0;
-    await copyTasks.runForKey(taskKey, { phase: 'running', done, fail, total, collectionId: null }, async (update) => {
-      try {
-        const collection = await create(meta.name || contentLabel);
-        const collectionId = collection?.id;
-        if (collectionId == null) throw new Error('collection id missing');
-        for (const song of playlistSongs) {
-          try {
-            await addSong(collectionId, song);
-            done += 1;
-          } catch {
-            fail += 1;
-          }
-          update({ phase: 'running', done, fail, total, collectionId });
-        }
-        update({ phase: fail ? 'fail' : 'done', done, fail, total, collectionId });
-        if (fail) feedback.error(`已创建歌单,但 ${fail} 首加入失败`);
-        else feedback.success('已加入我的歌单');
-      } catch {
-        update({ phase: 'fail', done, fail: total || 1, total, collectionId: null });
-        feedback.error('加入我的歌单失败,请稍后重试');
-      }
-    });
-  };
-
-  const downloadLabel = playlistBulkLabel(bulkDownload, '下载到服务器', '下载到服务器', '已下载到服务器', '重试下载到服务器');
-  const cacheLabel = playlistBulkLabel(bulkCache, '缓存到本机', '缓存到本机', '已缓存到本机', '重试缓存到本机');
-  const copyLabel = playlistBulkLabel(bulkCopy, '加入我的歌单', '加入我的歌单', '已加入我的歌单', '重试加入歌单');
-  const DownloadBulkIcon = bulkDownload.phase === 'done' ? Check : bulkDownload.phase === 'fail' ? RotateCw : DownloadIcon;
-  const CacheBulkIcon = bulkCache.phase === 'done' ? Check : bulkCache.phase === 'fail' ? RotateCw : HardDriveDownload;
-  const CopyBulkIcon = bulkCopy.phase === 'done' ? Check : bulkCopy.phase === 'fail' ? RotateCw : ListPlus;
-  const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle' || bulkCopy.phase !== 'idle';
-  const [detailCoverFailed, setDetailCoverFailed] = useState(false);
-  useEffect(() => setDetailCoverFailed(false), [meta.cover, meta.id, meta.source]);
-  const detailCover = detailCoverFailed ? '' : coverProxyUrl(meta);
-
-  return (
-    <div>
-      <button onClick={onBack} className="mb-4 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/80">← {isAlbum ? '返回搜索结果' : '返回推荐歌单'}</button>
-      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary">
-          {detailCover ? (
-            <img src={detailCover} alt="" className="h-full w-full object-cover" onError={() => setDetailCoverFailed(true)} />
-          ) : (
-            <Music size={42} className="text-muted-foreground" />
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">{contentLabel}</p>
-          <h3 className="truncate text-3xl font-black">{meta.name}</h3>
-          {meta.creator && <p className="mt-1 truncate text-sm text-muted-foreground">{meta.creator}</p>}
-          <p className="mt-1 text-sm text-muted-foreground">{songs.length} 首</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button onClick={() => songs.length && onPlay(songs[0], songs)}
-              disabled={!songs.length}
-              className="flex min-h-10 items-center gap-2 rounded-full bg-primary px-5 py-2 font-semibold text-primary-foreground disabled:opacity-50">
-              <Play size={18} fill="currentColor" />播放全部
-            </button>
-            <button onClick={handleDownloadAll}
-              disabled={!songs.length || offline || bulkDownload.phase === 'running'}
-              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
-                bulkDownload.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkDownload.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法下载到服务器' : `把这张${contentLabel}下载到服务器的「已下载」列表`}>
-              <DownloadBulkIcon size={18} className={bulkDownload.phase === 'running' ? 'animate-pulse' : ''} />
-              {downloadLabel}
-            </button>
-            <button onClick={handleCacheAll}
-              disabled={!songs.length || offline || bulkCache.phase === 'running'}
-              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
-                bulkCache.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkCache.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法缓存新歌曲' : `把这张${contentLabel}缓存到当前浏览器/PWA`}>
-              <CacheBulkIcon size={18} className={bulkCache.phase === 'running' ? 'animate-pulse' : ''} />
-              {cacheLabel}
-            </button>
-            <button onClick={handleCopyToMine}
-              disabled={!songs.length || offline || bulkCopy.phase === 'running' || bulkCopy.phase === 'done'}
-              className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors disabled:opacity-50 ${
-                bulkCopy.phase === 'done' ? 'bg-primary/10 text-primary'
-                : bulkCopy.phase === 'fail' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-              }`}
-              title={offline ? '离线状态无法修改歌单' : '复制为我的自建歌单'}>
-              <CopyBulkIcon size={18} className={bulkCopy.phase === 'running' ? 'animate-pulse' : ''} />
-              {copyLabel}
-            </button>
-          </div>
-        </div>
-      </div>
-      <QueryRefreshProgress active={state.isFetching && songs.length > 0 && !(state.data?.cached && state.data?.refreshing)} />
-      {state.isLoading && songs.length === 0 && (
-        <LoadingState
-          title={`加载${contentLabel}`}
-          detail={`正在读取${contentLabel}歌曲和封面信息`}
-          rows={6}
-          className="mb-4"
+      {!query && (
+        <RecentSearches
+          items={historyItems}
+          onPick={onChipSearch}
+          onDelete={onChipDelete}
+          onClearAll={onClearAll}
         />
       )}
-      {state.isError && <p className="text-destructive font-bold mb-4">加载{contentLabel}失败:{String(state.error?.message || state.error)}</p>}
-      {state.data?.error && <p className="text-destructive font-bold mb-4">{state.data.error}</p>}
-      <CacheRefreshNotice data={state.data} />
-      {hasBulkStatus && (
-        <div className="mb-4 grid gap-2 sm:grid-cols-2">
-          <BulkStatusCard title="服务器下载" state={bulkDownload} serverDownload />
-          <BulkStatusCard title="本机缓存" state={bulkCache} cache />
-          <BulkStatusCard title="加入我的歌单" state={bulkCopy} />
+
+      {/* 状态区:最多两行,错误才带边框 */}
+      {banner && (
+        <StatusLine tone={banner.tone} layout="banner" className="mb-3">{banner.text}</StatusLine>
+      )}
+      {!banner && inlineStatus && (
+        <StatusLine loading={inlineStatus.loading} className="mb-1">{inlineStatus.text}</StatusLine>
+      )}
+      {pendingSources.length > 0 && (
+        <StatusLine tone="neutral" className="mb-3">
+          还有 {pendingSources.length} 个源在后台补齐({pendingSources.map(sourceLabel).join('、')}),结果会自动刷新
+        </StatusLine>
+      )}
+
+      {albums.length > 0 && (
+        <div className="mb-5">
+          <SearchAlbumRow albums={albums} onOpen={onOpenAlbum} ScrollRow={ScrollRow} />
         </div>
       )}
-      {!state.isLoading && (
-        <>
-          <SongListHeader />
-          <div className="space-y-0.5">
-            {songs.map((song, idx) => (
-              <SongRow
-                key={`${song.source}-${song.id}-${idx}`}
-                song={song}
-                index={idx}
-                isPlaying={isPlaying(song)}
-                isPaused={isPaused}
-                onTogglePlayback={onTogglePlayback}
-                onPlay={(s) => onPlay(s, songs)}
-                onShowLyric={onShowLyric}
+
+      {/* 歌曲区:标题行内放排序分段控件,不再用三张大卡片 */}
+      {(songs.length > 0 || (hasCurrentSearchResult && !state.isLoading)) && (
+        <section
+          aria-labelledby="search-songs-title"
+          className={cn('transition-opacity duration-base', isStale && 'pointer-events-none opacity-50')}
+          aria-busy={isStale || undefined}
+        >
+          <SectionHeader
+            id="search-songs-title"
+            title="歌曲"
+            count={songs.length ? `${songs.length} 首` : undefined}
+            actions={songs.length > 1 ? (
+              <Segmented
+                value={sortMode}
+                onChange={setSortMode}
+                options={SORT_OPTIONS}
+                size="sm"
+                label="排序方式"
               />
-            ))}
-          </div>
-        </>
+            ) : null}
+          />
+          {songs.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="没有找到结果"
+              description="可以换成「歌手 歌名」再试,或粘贴歌曲/歌单链接。"
+            />
+          ) : (
+            <>
+              <SongListHeader />
+              <div className="space-y-0.5">
+                {songs.map((song, idx) => (
+                  <SongRow
+                    key={songIdentityKey(song)}
+                    song={song}
+                    index={idx}
+                    isPlaying={isPlaying(song)}
+                    isPaused={isPaused}
+                    onTogglePlayback={onTogglePlayback}
+                    onPlay={(s) => onPlay(s, songs)}
+                    onShowLyric={onShowLyric}
+                    lyricQuery={query}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* 还没搜过:给一个明确的起点,而不是空白页 */}
+      {!query && historyItems.length === 0 && (
+        <EmptyState
+          icon={Search}
+          title="搜全网,存到你的曲库"
+          description="支持歌名、歌手、歌词片段,也能直接粘贴网易云/QQ 的歌曲或歌单链接。"
+        />
       )}
     </div>
   );
 };
 
+// ===== 歌词弹窗 =====
+const LyricDialog = ({ lyric, onClose }) => (
+  <Dialog open={!!lyric} onClose={onClose} title={lyric ? lyric.song.name : ''} size="lg">
+    {lyric && (
+      <>
+        <p className="mb-3 type-caption text-muted-foreground">{lyric.song.artist}</p>
+        <pre className="whitespace-pre-wrap font-sans type-body text-foreground">{lyric.text}</pre>
+      </>
+    )}
+  </Dialog>
+);
+
+// ===== 页面 =====
 const Download = ({ downloadRequest }) => {
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('search');
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
-  const [openPlaylist, setOpenPlaylist] = useState(null); // {id, source, name}
-  const [openAlbum, setOpenAlbum] = useState(null); // {id, source, name, cover, creator}
-  const [lyric, setLyric] = useState(null); // {song, text}
+  const [openPlaylist, setOpenPlaylist] = useState(null);
+  const [openAlbum, setOpenAlbum] = useState(null);
+  const [lyric, setLyric] = useState(null);
 
-  // 来自发现页「在国内源下载」的预填搜索词:切到搜索 Tab 并自动搜索。
-  // 依赖 ts,保证重复点同一首歌也能再次触发。
   useEffect(() => {
     const kw = downloadRequest?.keyword;
     if (kw) {
@@ -1114,14 +959,12 @@ const Download = ({ downloadRequest }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadRequest?.ts]);
 
-  // 歌名 + 歌词 + 专辑合并搜索
   const search = useQuery(
     searchQueryKey(query),
     () => searchSongsLyricsAndAlbums(query),
     {
       enabled: tab === 'search' && !!query,
       keepPreviousData: true,
-      // 失焦/重新聚焦不自动重搜(否则切窗口回来会重新搜索+重新验活)
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       staleTime: 5 * 60 * 1000,
@@ -1129,17 +972,12 @@ const Download = ({ downloadRequest }) => {
   );
   useCachedRefresh(search, tab === 'search' && !!query);
 
-  // 慢源补齐: 后端返回 pending_sources(kuwo/migu/kugou/qianqian 这些实测 19~115s 的源)时,
-  // 说明它们还在后台跑, 跑完会写进 24h 搜索缓存 —— 这里每隔一会儿自动补拉一次, 直到补全为止。
-  // 最多补 6 次(约 2.5 分钟), 免得后台任务一直失败时无限重试。
+  // 慢源补齐:后端返回 pending_sources 时说明它们还在后台跑,跑完写进 24h 缓存。
   const pendingSources = search.data?.pending_sources || [];
   const pendingSourcesKey = pendingSources.join(',');
   const pendingRefetchCountRef = useRef(0);
   useEffect(() => {
-    if (!pendingSourcesKey) {
-      pendingRefetchCountRef.current = 0;
-      return undefined;
-    }
+    if (!pendingSourcesKey) { pendingRefetchCountRef.current = 0; return undefined; }
     if (pendingRefetchCountRef.current >= PENDING_REFETCH_MAX) return undefined;
     const timer = window.setTimeout(() => {
       pendingRefetchCountRef.current += 1;
@@ -1149,7 +987,6 @@ const Download = ({ downloadRequest }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSourcesKey]);
 
-  // 推荐歌单(默认网易云 + QQ)
   const recommend = useQuery(
     ['musicdl-recommend'],
     () => getRecommend(['netease', 'qq']),
@@ -1157,7 +994,6 @@ const Download = ({ downloadRequest }) => {
   );
   useCachedRefresh(recommend, tab === 'discover');
 
-  // 歌单详情
   const playlistDetail = useQuery(
     ['musicdl-playlist', openPlaylist?.id, openPlaylist?.source],
     () => getPlaylistDetail(openPlaylist.id, openPlaylist.source),
@@ -1165,7 +1001,6 @@ const Download = ({ downloadRequest }) => {
   );
   useCachedRefresh(playlistDetail, !!openPlaylist);
 
-  // 搜索结果中的专辑详情
   const albumDetail = useQuery(
     ['musicdl-album', openAlbum?.id, openAlbum?.source],
     () => getAlbumDetail(openAlbum.id, openAlbum.source),
@@ -1179,7 +1014,6 @@ const Download = ({ downloadRequest }) => {
     if (k) setQuery(k);
   };
 
-  // 供搜索历史 chips 点击:同时回填输入框并触发搜索。
   const runSearch = (kw) => {
     const k = (kw || '').trim();
     if (!k) return;
@@ -1210,36 +1044,33 @@ const Download = ({ downloadRequest }) => {
     try {
       const text = await getLyric(song);
       setLyric({ song, text: text || '无歌词' });
-    } catch (e) {
+    } catch {
       setLyric({ song, text: '歌词加载失败' });
     }
   };
 
-  return (
-    <div className="max-w-5xl mx-auto">
-      <h2 className="text-3xl font-semibold mb-2 text-foreground">下载 <span className="text-primary">· Download</span></h2>
-      <p className="text-muted-foreground mb-4 mt-3">
-        从国内多源(网易云 / QQ / 酷狗 / 酷我 / 咪咕 / 汽水 等)搜索并下载,支持粘贴歌曲/歌单链接。
-      </p>
+  const switchTab = (next) => {
+    setTab(next);
+    setOpenPlaylist(null);
+    setOpenAlbum(null);
+  };
 
-      <div className="flex gap-2 mb-6">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => {
-              setTab(t.key);
-              setOpenPlaylist(null);
-              setOpenAlbum(null);
-            }}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-              tab === t.key
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+  return (
+    <div>
+      <PageHeader
+        title="找歌"
+        subtitle="搜全网多源,存到你的服务器曲库或本机,随时离线听"
+      />
+
+      {/* 视图切换:紧凑分段,替代两个药丸大按钮 */}
+      <div className="mb-5">
+        <Segmented
+          value={tab}
+          onChange={switchTab}
+          options={TABS}
+          size="md"
+          label="搜索或推荐"
+        />
       </div>
 
       {tab === 'search' && !openAlbum && (
@@ -1261,7 +1092,7 @@ const Download = ({ downloadRequest }) => {
       )}
 
       {tab === 'search' && openAlbum && (
-        <RemoteCollectionDetailPane
+        <RemoteCollectionDetail
           meta={openAlbum}
           kind="album"
           state={albumDetail}
@@ -1275,11 +1106,11 @@ const Download = ({ downloadRequest }) => {
       )}
 
       {tab === 'discover' && !openPlaylist && (
-        <DiscoverPane state={recommend} onOpen={setOpenPlaylist} />
+        <DiscoverPane state={recommend} onOpen={setOpenPlaylist} onRetry={() => recommend.refetch()} />
       )}
 
       {tab === 'discover' && openPlaylist && (
-        <RemoteCollectionDetailPane
+        <RemoteCollectionDetail
           meta={openPlaylist}
           state={playlistDetail}
           onBack={() => setOpenPlaylist(null)}
@@ -1291,7 +1122,7 @@ const Download = ({ downloadRequest }) => {
         />
       )}
 
-      {lyric && <LyricModal lyric={lyric} onClose={() => setLyric(null)} />}
+      <LyricDialog lyric={lyric} onClose={() => setLyric(null)} />
     </div>
   );
 };
