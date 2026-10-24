@@ -802,9 +802,15 @@ class AuthPassBreakerTests(unittest.TestCase):
             qq_source._resolve_urls(["AAA"], state, "c", session=None)
             self.assertEqual(calls, [False], "熔断后应直接匿名, 不再白跑带凭证那轮")
 
-    def test_new_musickey_invalidates_suppression(self):
+    def test_refreshing_musickey_does_not_clear_suppression(self):
+        """续期换新 key **不该**解除熔断。
+
+        实测: invalidq 是上游对"本机 IP + 该账号"的风控判定, 续期换 musickey 后立刻重试
+        仍然 invalidq。所以熔断键必须用 uin —— 若用 musickey, 熔断会"刚生效就失效",
+        每次搜索又白跑一趟带凭证(~0.4s)。
+        """
         old = {"has_key": True, "expired": False, "musickey": "KEY1", "uin": "1", "summary": "有效"}
-        new = {"has_key": True, "expired": False, "musickey": "KEY2", "uin": "1", "summary": "有效"}
+        refreshed = {"has_key": True, "expired": False, "musickey": "KEY2", "uin": "1", "summary": "有效"}
         calls = []
 
         def vkey_pass(mids, state, cookie, *, use_auth, session):
@@ -815,8 +821,25 @@ class AuthPassBreakerTests(unittest.TestCase):
             qq_source._resolve_urls(["AAA"], old, "c", session=None)
             qq_source._resolve_urls(["AAA"], old, "c", session=None)
             calls.clear()
-            # 自动续期换出新 key 后必须重新试探带凭证(可能恢复 VIP 高音质)。
-            qq_source._resolve_urls(["AAA"], new, "c", session=None)
+            # 续期后同账号: 仍然熔断, 不该再去试探带凭证。
+            qq_source._resolve_urls(["AAA"], refreshed, "c", session=None)
+            self.assertEqual(calls, [False], "换 key 后仍应保持熔断(风控按账号/IP, 不按 key)")
+
+    def test_different_account_is_not_suppressed(self):
+        first = {"has_key": True, "expired": False, "musickey": "K1", "uin": "111", "summary": "有效"}
+        other = {"has_key": True, "expired": False, "musickey": "K2", "uin": "222", "summary": "有效"}
+        calls = []
+
+        def vkey_pass(mids, state, cookie, *, use_auth, session):
+            calls.append(use_auth)
+            return {} if use_auth else {"AAA": ("M500", "mp3", "https://m/128")}
+
+        with mock.patch.object(qq_source, "_vkey_pass", side_effect=vkey_pass):
+            qq_source._resolve_urls(["AAA"], first, "c", session=None)
+            qq_source._resolve_urls(["AAA"], first, "c", session=None)
+            calls.clear()
+            # 换账号(不同 uin)必须重新试探带凭证, 不能被上一个账号的熔断连累。
+            qq_source._resolve_urls(["AAA"], other, "c", session=None)
             self.assertEqual(calls, [True, False])
 
     def test_successful_auth_clears_suppression(self):
