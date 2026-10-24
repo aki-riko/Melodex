@@ -505,8 +505,13 @@ def _vkey_pass(
     session: Any | None,
 ) -> dict[str, tuple[str, str, str]]:
     """分片批量取地址。返回 {mid: (音质档位, 扩展名, 完整播放地址)}。"""
-    candidates: dict[str, list[tuple[str, str, str]]] = {}
-    for chunk in _chunks(mids, SONGS_PER_VKEY_REQUEST):
+    chunks = list(_chunks(mids, SONGS_PER_VKEY_REQUEST))
+    if not chunks:
+        return {}
+    # 同一轮的多个分片共用同一个 client(只读会话, 并发发请求是安全的)。
+    client = PlatformHTTP(cookie if use_auth else "", session)
+
+    def fetch_chunk(chunk: list[str]) -> tuple[list[tuple[str, str, str, str]], int]:
         sent: dict[str, tuple[str, str, str]] = {}
         filenames: list[str] = []
         songmids: list[str] = []
@@ -516,13 +521,11 @@ def _vkey_pass(
                 sent[name] = (mid, quality, ext)
                 filenames.append(name)
                 songmids.append(mid)
-        client = PlatformHTTP(cookie if use_auth else "", session)
         response = _post(client, _vkey_request(filenames, songmids, state, use_auth, _random_guid()))
         node = response.get("req_1") or {}
         code = _integer(node.get("code"))
         entries = ((node.get("data") or {}).get("midurlinfo") or [])
-        if code:
-            LOGGER.warning("[qq] vkey 返回非 0 code=%s(本片 %d 首)", code, len(chunk))
+        resolved: list[tuple[str, str, str, str]] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -533,53 +536,120 @@ def _vkey_pass(
             if target is None:
                 continue
             mid, quality, ext = target
-            candidates.setdefault(mid, []).append((quality, ext, MEDIA_BASE + purl))
+            resolved.append((mid, quality, ext, MEDIA_BASE + purl))
+        return resolved, code
 
-    probe_jobs = [
-        (mid, quality, ext, url)
-        for mid, values in candidates.items()
-        for quality, ext, url in sorted(values, key=lambda value: QUALITY_ORDER.get(value[0], 99))
-    ]
-    if not probe_jobs:
+    candidates: dict[str, list[tuple[str, str, str]]] = {}
+    # 分片并行: SONGS_PER_VKEY_REQUEST=12, 20 首候选会切成 12+8 两片。串行要等两个往返,
+    # 并行只要一个 —— 实测能省掉约一次 RTT(100~200ms)。
+    with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as pool:
+        unit_results = list(pool.map(fetch_chunk, chunks))
+    for (resolved, code), chunk in zip(unit_results, chunks):
+        if code:
+            LOGGER.warning("[qq] vkey 返回非 0 code=%s(本片 %d 首)", code, len(chunk))
+        for mid, quality, ext, url in resolved:
+            candidates.setdefault(mid, []).append((quality, ext, url))
+
+    if not candidates:
         return {}
+    return _select_working_media(candidates, cookie)
 
-    probe_results: dict[tuple[str, str, str], tuple[bool, int]] = {}
-    with ThreadPoolExecutor(max_workers=min(8, len(probe_jobs))) as pool:
-        futures = {
-            pool.submit(_probe_media_url, url, cookie): (mid, quality, url)
-            for mid, quality, _ext, url in probe_jobs
-        }
-        for future in as_completed(futures):
-            mid, quality, url = futures[future]
-            try:
-                probe_results[(mid, quality, url)] = future.result()
-            except Exception as error:
-                LOGGER.warning("[qq] 媒体地址探测异常 mid=%s quality=%s: %s", mid, quality, error)
-                probe_results[(mid, quality, url)] = (False, 0)
 
+def _select_working_media(
+    candidates: dict[str, list[tuple[str, str, str]]],
+    cookie: str,
+) -> dict[str, tuple[str, str, str]]:
+    """为每首歌挑出**第一个真正可下载**的档位。
+
+    为什么分层而不是一次全探: 早先的实现把每首歌 7 个档位的地址**全部**探一遍(20 首
+    ≈140 次 HTTP), 即使最高档 flac 已经成功也要等其余档位探完才返回。实测这一步占了
+    QQ 搜索 1.0~1.8s 中的大头。改成按音质从高到低分层: 每层只探"还没成功"的歌,
+    一旦某首歌在当前层拿到可用地址就再也不会被探 —— 正常情况下只探 1 层(≈20 次请求),
+    只有某首最高档真的不可用时才降到下一档, 与原来的选择结果完全等价。
+    """
+    ordered_by_mid: dict[str, list[tuple[str, str, str]]] = {
+        mid: sorted(values, key=lambda value: QUALITY_ORDER.get(value[0], 99))
+        for mid, values in candidates.items()
+    }
+    pending: dict[str, int] = {mid: 0 for mid in ordered_by_mid}
     collected: dict[str, tuple[str, str, str]] = {}
-    for mid, values in candidates.items():
-        ordered = sorted(values, key=lambda value: QUALITY_ORDER.get(value[0], 99))
-        selected = None
-        statuses = []
-        for quality, ext, url in ordered:
-            ok, status = probe_results.get((mid, quality, url), (False, 0))
-            statuses.append(f"{quality}:{status}")
+    failures: dict[str, list[str]] = {mid: [] for mid in ordered_by_mid}
+    max_tiers = max((len(values) for values in ordered_by_mid.values()), default=0)
+
+    for _tier in range(max_tiers):
+        tier_jobs = []
+        for mid, values in ordered_by_mid.items():
+            if mid in collected:
+                continue
+            index = pending[mid]
+            if index >= len(values):
+                continue
+            quality, ext, url = values[index]
+            tier_jobs.append((mid, quality, ext, url))
+        if not tier_jobs:
+            break
+        results: dict[str, tuple[bool, int]] = {}
+        with ThreadPoolExecutor(max_workers=min(8, len(tier_jobs))) as pool:
+            futures = {
+                pool.submit(_probe_media_url, url, cookie): mid
+                for mid, _quality, _ext, url in tier_jobs
+            }
+            for future in as_completed(futures):
+                mid = futures[future]
+                try:
+                    results[mid] = future.result()
+                except Exception as error:
+                    LOGGER.warning("[qq] 媒体地址探测异常 mid=%s: %s", mid, error)
+                    results[mid] = (False, 0)
+        for mid, quality, ext, url in tier_jobs:
+            ok, status = results.get(mid, (False, 0))
             if ok:
-                selected = (quality, ext, url)
-                break
-        if selected is None:
-            LOGGER.warning("[qq] 所有媒体地址不可用 mid=%s probes=%s", mid, ",".join(statuses))
-            continue
-        collected[mid] = selected
-        if selected[0] != ordered[0][0]:
-            LOGGER.warning(
-                "[qq] 媒体档位回退 mid=%s probes=%s selected=%s",
-                mid,
-                ",".join(statuses),
-                selected[0],
-            )
+                collected[mid] = (quality, ext, url)
+            else:
+                failures[mid].append(f"{quality}:{status}")
+                pending[mid] += 1
+
+    for mid in ordered_by_mid:
+        if mid not in collected:
+            LOGGER.warning("[qq] 所有媒体地址不可用 mid=%s probes=%s", mid, ",".join(failures[mid]))
     return collected
+
+
+# 带凭证取址的短期熔断状态。
+# 实测现象: 凭证本身有效(musickey 剩 70 小时), 但 vkey 对整轮候选一律回 code=104009
+# 且一个 purl 都不发(常见于该账号当次没有 VIP 权益/上游临时降级)。这时"带凭证"这一轮
+# 纯属白跑(~0.39s), 而匿名模式反而能拿到地址。熔断后短期直接走匿名, 到点再探一次,
+# 这样 VIP 恢复时能自动切回来, 不会永久降级。
+_auth_suppress_lock = threading.Lock()
+_auth_suppress_until = 0.0
+_auth_suppress_key = ""
+AUTH_SUPPRESS_SECONDS = 180
+
+
+def _state_fingerprint(state: dict[str, Any]) -> str:
+    """用 musickey 标明"这份凭证"; 换新 key(自动续期)后熔断自动失效。"""
+    return _string(state.get("musickey"))
+
+
+def _auth_pass_suppressed(state: dict[str, Any]) -> bool:
+    with _auth_suppress_lock:
+        if not _auth_suppress_key or _auth_suppress_key != _state_fingerprint(state):
+            return False
+        return time.monotonic() < _auth_suppress_until
+
+
+def _suppress_auth_pass(state: dict[str, Any]) -> None:
+    global _auth_suppress_until, _auth_suppress_key
+    with _auth_suppress_lock:
+        _auth_suppress_key = _state_fingerprint(state)
+        _auth_suppress_until = time.monotonic() + AUTH_SUPPRESS_SECONDS
+
+
+def _clear_auth_suppression() -> None:
+    global _auth_suppress_until, _auth_suppress_key
+    with _auth_suppress_lock:
+        _auth_suppress_until = 0.0
+        _auth_suppress_key = ""
 
 
 def _resolve_urls(
@@ -597,12 +667,20 @@ def _resolve_urls(
         attempts = [False, True]
     else:
         attempts = [False]
+    if attempts[0] and _auth_pass_suppressed(state):
+        # 带凭证模式刚被上游整轮拒绝过(实测 code=104009 且一个 purl 都不发)。再用同一个
+        # key 重试几乎必然还是空, 却要白付一次往返 —— 短期直接跳过, 到点自动恢复探测。
+        attempts = [attempt for attempt in attempts if not attempt]
     last_mode = "匿名"
     for index, use_auth in enumerate(attempts):
         last_mode = "带凭证" if use_auth else "匿名"
         collected = _vkey_pass(mids, state, cookie, use_auth=use_auth, session=session)
         if collected:
+            if use_auth:
+                _clear_auth_suppression()
             return collected, last_mode
+        if use_auth:
+            _suppress_auth_pass(state)
         # 只有确实还有下一次尝试时才说"切换", 否则会留下误导性的日志。
         if index + 1 < len(attempts):
             LOGGER.warning(

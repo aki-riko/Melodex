@@ -711,5 +711,121 @@ class QQRefreshWiringTests(unittest.TestCase):
         self.assertEqual(result, {"songs": sentinel})
 
 
+class LayeredProbeTests(unittest.TestCase):
+    """探活必须分层: 最高档成功就不再探其余档位。
+
+    早先的实现把每首歌 7 个档位**全部**探一遍(20 首 ≈140 次 HTTP), 即使 flac 已经可用
+    也要等所有档位探完; 实测这一步占 QQ 搜索耗时的大头。分层后正常只探 1 档。
+    """
+
+    def test_probes_only_best_quality_when_it_works(self):
+        candidates = {
+            "AAA": [("F000", "flac", "https://m/flac"), ("M800", "mp3", "https://m/320"),
+                    ("M500", "mp3", "https://m/128")],
+            "BBB": [("F000", "flac", "https://m2/flac"), ("M500", "mp3", "https://m2/128")],
+        }
+        probed = []
+
+        def probe(url, _cookie):
+            probed.append(url)
+            return (True, 206)
+
+        with mock.patch.object(qq_source, "_probe_media_url", side_effect=probe):
+            selected = qq_source._select_working_media(candidates, "")
+        self.assertEqual(len(probed), 2, "最高档都成功时每首只探 1 次, 共 2 次")
+        self.assertEqual(selected["AAA"][0], "F000")
+        self.assertEqual(selected["BBB"][0], "F000")
+
+    def test_falls_back_to_lower_quality_only_for_failing_songs(self):
+        candidates = {
+            "AAA": [("F000", "flac", "https://a/flac"), ("M800", "mp3", "https://a/320")],
+            "BBB": [("F000", "flac", "https://b/flac"), ("M800", "mp3", "https://b/320")],
+        }
+        probed = []
+
+        def probe(url, _cookie):
+            probed.append(url)
+            return (True, 206) if "320" in url else (False, 404)
+
+        with mock.patch.object(qq_source, "_probe_media_url", side_effect=probe):
+            selected = qq_source._select_working_media(candidates, "")
+        self.assertEqual(selected["AAA"][0], "M800")
+        self.assertEqual(selected["BBB"][0], "M800")
+        self.assertEqual(len(probed), 4, "每首只探 2 次(降一档), 不探第三档")
+
+    def test_unusable_song_is_dropped(self):
+        candidates = {"AAA": [("F000", "flac", "https://a/flac")]}
+        with mock.patch.object(qq_source, "_probe_media_url", return_value=(False, 403)):
+            selected = qq_source._select_working_media(candidates, "")
+        self.assertEqual(selected, {})
+
+    def test_probe_exception_is_treated_as_failure(self):
+        candidates = {"AAA": [("F000", "flac", "https://a/flac"), ("M500", "mp3", "https://a/128")]}
+
+        def probe(url, _cookie):
+            if "flac" in url:
+                raise RuntimeError("probe boom")
+            return (True, 206)
+
+        with mock.patch.object(qq_source, "_probe_media_url", side_effect=probe):
+            selected = qq_source._select_working_media(candidates, "")
+        self.assertEqual(selected["AAA"][0], "M500")
+
+
+class AuthPassBreakerTests(unittest.TestCase):
+    """带凭证模式整轮被拒时短期跳过它, 避免每次搜索白付一次往返。
+
+    实测: 凭证有效(musickey 剩 70 小时)但 vkey 一律回 code=104009 且不发 purl,
+    带凭证那轮耗时 ~0.39s 却什么都拿不到, 匿名模式反而可用。
+    """
+
+    def setUp(self):
+        qq_source._clear_auth_suppression()
+
+    def tearDown(self):
+        qq_source._clear_auth_suppression()
+
+    def test_auth_pass_is_skipped_after_suppression(self):
+        state = {"has_key": True, "expired": False, "musickey": "KEY1", "uin": "1",
+                 "summary": "有效"}
+        calls = []
+
+        def vkey_pass(mids, state, cookie, *, use_auth, session):
+            calls.append(use_auth)
+            return {} if use_auth else {"AAA": ("M500", "mp3", "https://m/128")}
+
+        with mock.patch.object(qq_source, "_vkey_pass", side_effect=vkey_pass):
+            qq_source._resolve_urls(["AAA"], state, "c", session=None)
+            self.assertEqual(calls, [True, False], "首次应带凭证再匿名")
+
+            calls.clear()
+            qq_source._resolve_urls(["AAA"], state, "c", session=None)
+            self.assertEqual(calls, [False], "熔断后应直接匿名, 不再白跑带凭证那轮")
+
+    def test_new_musickey_invalidates_suppression(self):
+        old = {"has_key": True, "expired": False, "musickey": "KEY1", "uin": "1", "summary": "有效"}
+        new = {"has_key": True, "expired": False, "musickey": "KEY2", "uin": "1", "summary": "有效"}
+        calls = []
+
+        def vkey_pass(mids, state, cookie, *, use_auth, session):
+            calls.append(use_auth)
+            return {} if use_auth else {"AAA": ("M500", "mp3", "https://m/128")}
+
+        with mock.patch.object(qq_source, "_vkey_pass", side_effect=vkey_pass):
+            qq_source._resolve_urls(["AAA"], old, "c", session=None)
+            qq_source._resolve_urls(["AAA"], old, "c", session=None)
+            calls.clear()
+            # 自动续期换出新 key 后必须重新试探带凭证(可能恢复 VIP 高音质)。
+            qq_source._resolve_urls(["AAA"], new, "c", session=None)
+            self.assertEqual(calls, [True, False])
+
+    def test_successful_auth_clears_suppression(self):
+        state = {"has_key": True, "expired": False, "musickey": "KEY1", "uin": "1", "summary": "有效"}
+        qq_source._suppress_auth_pass(state)
+        self.assertTrue(qq_source._auth_pass_suppressed(state))
+        qq_source._clear_auth_suppression()
+        self.assertFalse(qq_source._auth_pass_suppressed(state))
+
+
 if __name__ == "__main__":
     unittest.main()
