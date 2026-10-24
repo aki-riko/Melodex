@@ -132,9 +132,17 @@ const MenuItem = ({ icon: Icon, label, hint, onClick, disabled, danger, busy }) 
   </button>
 );
 
-const MenuPanel = ({ children }) => (
+// 行内「更多」菜单。
+// 两个定位问题: ① 原本固定 `top-full` 只向下展开, 靠近滚动区底部时会被裁掉;
+// ② 原本 z-40 与固定播放条同层, 而播放条在 DOM 里更靠后 → 菜单被它盖住。
+// 现在按可用空间上下翻转(z-50 高于播放条的 z-40)。
+const MENU_ESTIMATED_HEIGHT = 14 * 16; // 6 项菜单的保守估算, 用于决定向上还是向下
+
+const MenuPanel = ({ children, placement = 'down' }) => (
   <div
-    className="absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-md border border-border bg-card shadow-xl"
+    className={`absolute right-0 z-50 w-60 overflow-hidden rounded-md border border-border bg-card shadow-xl ${
+      placement === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'
+    }`}
     onClick={(e) => e.stopPropagation()}
   >
     {children}
@@ -142,7 +150,7 @@ const MenuPanel = ({ children }) => (
 );
 
 export const SongListHeader = ({ className = '' }) => (
-  <div className={`hidden md:grid grid-cols-[2rem_minmax(0,1.55fr)_8.75rem_minmax(8rem,0.85fr)_4.5rem_2.25rem] items-center gap-3 px-3 pb-2 text-xs font-semibold text-muted-foreground ${className}`}>
+  <div className={`hidden lg:grid grid-cols-[2rem_minmax(0,1.55fr)_8.75rem_minmax(8rem,0.85fr)_4.5rem_2.25rem] items-center gap-3 px-3 pb-2 text-xs font-semibold text-muted-foreground ${className}`}>
     <span className="text-right">#</span>
     <span>歌名 / 歌手</span>
     <span />
@@ -179,6 +187,7 @@ const SongRow = ({
   const [inspectState, setInspectState] = useState('');
   const [manualLiveInfo, setManualLiveInfo] = useState(null);
   const [openMenu, setOpenMenu] = useState(false);
+  const [menuPlacement, setMenuPlacement] = useState('down');
   const menuRef = useRef(null);
   const cacheable = canCacheSong(rowSong);
   const effectiveLiveInfo = manualLiveInfo || liveInfo;
@@ -389,11 +398,11 @@ const SongRow = ({
     <div
       onClick={handleRowClick}
       onDoubleClick={handleRowDouble}
-      className={`group grid grid-cols-[minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_minmax(0,1.55fr)_8.75rem_minmax(8rem,0.85fr)_4.5rem_2.25rem] items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer select-none ${
+      className={`group grid grid-cols-[minmax(0,1fr)_2.5rem] lg:grid-cols-[2rem_minmax(0,1.55fr)_8.75rem_minmax(8rem,0.85fr)_4.5rem_2.25rem] items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer select-none ${
         isPlaying ? 'bg-secondary' : 'hover:bg-secondary/60'
       }`}
     >
-      <div className={`hidden md:flex h-8 items-center justify-end text-sm tabular-nums ${isPlaying ? 'text-primary' : 'text-muted-foreground'}`}>
+      <div className={`hidden lg:flex h-8 items-center justify-end text-sm tabular-nums ${isPlaying ? 'text-primary' : 'text-muted-foreground'}`}>
         {index + 1}
       </div>
 
@@ -445,7 +454,7 @@ const SongRow = ({
         </div>
       </div>
 
-      <div className="hidden md:flex items-center gap-1">
+      <div className="hidden lg:flex items-center gap-1">
         <ActionButton
           icon={Heart}
           title={offline ? '离线状态无法同步收藏' : (favorited ? '取消收藏' : '收藏')}
@@ -480,11 +489,11 @@ const SongRow = ({
         />
       </div>
 
-      <div className="hidden md:block min-w-0 text-sm text-muted-foreground truncate">
+      <div className="hidden lg:block min-w-0 text-sm text-muted-foreground truncate">
         {albumTitle}
       </div>
 
-      <div className="hidden md:block text-right text-sm tabular-nums text-muted-foreground">
+      <div className="hidden lg:block text-right text-sm tabular-nums text-muted-foreground">
         {fmtSec(rowSong.duration)}
       </div>
 
@@ -498,10 +507,21 @@ const SongRow = ({
         <CoverActionIcon size={18} fill="currentColor" />
       </button>
 
-      <div ref={menuRef} className="relative hidden md:flex items-center justify-end">
+      <div ref={menuRef} className="relative hidden lg:flex items-center justify-end">
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); setOpenMenu((v) => !v); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (openMenu) { setOpenMenu(false); return; }
+            // 下方空间不够就向上展开: 以主滚动区(而不是视口)为界, 因为菜单是被它裁切的。
+            const rect = e.currentTarget.getBoundingClientRect();
+            const scroller = document.getElementById('app-main');
+            const boundaryBottom = scroller
+              ? scroller.getBoundingClientRect().bottom
+              : window.innerHeight;
+            setMenuPlacement(rect.bottom + MENU_ESTIMATED_HEIGHT > boundaryBottom ? 'up' : 'down');
+            setOpenMenu(true);
+          }}
           className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
             openMenu ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
           }`}
@@ -512,7 +532,7 @@ const SongRow = ({
           <Ellipsis size={18} />
         </button>
         {openMenu && (
-          <MenuPanel>
+          <MenuPanel placement={menuPlacement}>
             <MenuItem icon={Play} label="播放" hint="立即播放这首歌" onClick={playFromMenu} />
             <MenuItem
               icon={inspectState === 'ok' ? Check : RotateCw}

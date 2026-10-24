@@ -76,8 +76,10 @@ export const FeedbackProvider = ({ children }) => {
   );
 };
 
+// 提示条位置: 桌面在右上角; 移动端要避开顶栏(顶栏常驻在最上方, 高约 3.9rem),
+// 否则提示会盖住全局搜索框。移动端满宽(左右各留 1rem), 桌面固定 22rem。
 const ToastStack = ({ items, onClose }) => (
-  <div className="fixed right-4 top-4 z-[90] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2">
+  <div className="fixed inset-x-4 top-[4.5rem] z-[90] flex flex-col gap-2 md:inset-x-auto md:right-4 md:top-4 md:w-[min(22rem,calc(100vw-2rem))]">
     {items.map((item) => {
       const Icon = TOAST_ICON[item.type] || Info;
       const tone = item.type === 'error'

@@ -44,6 +44,44 @@ html {
 
 /* ===== Spotify 风 app-shell 布局(皮肤改编自 Adam Lowenthal CodePen, MIT) ===== */
 
+/* app-shell 高度用 dvh 而非 vh: 移动端浏览器地址栏收放时 100vh 恒等于"最大可视高度",
+   会把底部固定栏算进不可见区域, 导致内容被遮挡。100vh 作为旧浏览器回退。 */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* 主滚动区底部留白 = 固定底栏占用的高度。
+   底栏有三层: 桌面播放条(md+)、移动迷你播放条、移动 Tab 栏; 主区必须预留它们的总高,
+   否则最后一屏内容会被盖住。早先写死 `paddingBottom: 7rem`, 三处都不合适:
+     · 桌面播放条实际只有 ~4rem —— 每页底部白留约 3rem;
+     · 不播放时播放条 display:none —— 整块 7rem 全是空白;
+     · 移动端 Tab(3.25rem)+迷你条(3.875rem) 已是 7.125rem, 再出提示条就盖住内容。
+   现在按"是否在播放 / 是否显示提示"切类名, 各断点给各自需要的值。 */
+.app-main {
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+}
+.app-main--playing {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+.app-main--playing.app-main--notice {
+  padding-bottom: calc(6.25rem + env(safe-area-inset-bottom));
+}
+@media (max-width: 767px) {
+  /* 移动端: 常驻 Tab 栏 */
+  .app-main {
+    padding-bottom: calc(3.25rem + 1.5rem + env(safe-area-inset-bottom));
+  }
+  /* + 迷你播放条(44px 内容 + 8px*2 内边距 + 2px 进度条 ≈ 3.875rem) */
+  .app-main--playing {
+    padding-bottom: calc(3.25rem + 3.875rem + 1rem + env(safe-area-inset-bottom));
+  }
+  /* + 提示条一行(≈1.25rem) */
+  .app-main--playing.app-main--notice {
+    padding-bottom: calc(3.25rem + 5.125rem + 1rem + env(safe-area-inset-bottom));
+  }
+}
+
 /* 主内容区细滚动条(Spotify 风) */
 .app-scroll::-webkit-scrollbar { width: 10px; }
 .app-scroll::-webkit-scrollbar-track { background: transparent; }

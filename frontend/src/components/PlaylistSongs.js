@@ -147,7 +147,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
   const hasBulkStatus = bulkDownload.phase !== 'idle' || bulkCache.phase !== 'idle' || bulkCopy.phase !== 'idle';
 
   return (
-    <div className="pb-32">
+    <div>
       <button
         onClick={onBack}
         className="mb-4 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/80"

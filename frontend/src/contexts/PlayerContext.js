@@ -1590,9 +1590,12 @@ export const PlayerBar = () => {
         <div className="max-w-6xl mx-auto">
           {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
           <div className="flex items-center gap-3">
-            {/* 左:封面 + 标题/歌手(点击展开全屏播放页) */}
+            {/* 左:封面 + 标题/歌手(点击展开全屏播放页)
+                宽度在 md 档用 26%, lg 再放宽: 768~1024px 之间若固定 26%,
+                右侧 7 个控件(上/下一首、播放、模式、睡眠、桌面歌词、进度、音量、队列)
+                放不下会被压缩换行。 */}
             <button onClick={openExpanded}
-              className="flex items-center gap-3 min-w-0 text-left group" style={{ width: '26%' }}
+              className="flex items-center gap-3 min-w-0 text-left group md:w-[22%] lg:w-[26%] flex-shrink-0"
               title="展开播放页" aria-label="展开播放页">
               {coverUrl
                 ? <img src={coverUrl} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow transition-transform group-hover:scale-105" />
@@ -1649,8 +1652,8 @@ export const PlayerBar = () => {
               />
               <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
             </div>
-            {/* 音量:仅桌面。点击图标静音/恢复,拖动调音量 */}
-            <div className="flex items-center gap-1.5 flex-shrink-0" style={{ width: 120 }}>
+            {/* 音量: 仅桌面。窄屏(md)隐藏 —— 那里空间不够, 且大多用系统音量。 */}
+            <div className="hidden lg:flex items-center gap-1.5 flex-shrink-0" style={{ width: 120 }}>
               <button onClick={toggleMute}
                 className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
                 title={muted ? '取消静音' : '静音'} aria-label="静音">
@@ -1726,8 +1729,9 @@ export const PlayerBar = () => {
               <p className="text-muted-foreground text-xs truncate">{nowPlaying?.artist}</p>
             </div>
           </button>
-          {/* 收藏 */}
-          <button onClick={onToggleFavorite} disabled={offline} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="收藏">
+          {/* 收藏: 窄屏(<=380px)隐藏收藏按钮 —— 封面 + 3 个 44px 按钮在该宽度下会挤到
+              歌名只剩两三个字。收藏仍可在展开的全屏播放页里点。 */}
+          <button onClick={onToggleFavorite} disabled={offline} className="hidden min-[381px]:flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="收藏">
             <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
           </button>
           {/* 播放/暂停 */}
