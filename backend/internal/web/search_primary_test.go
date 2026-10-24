@@ -113,3 +113,85 @@ func TestConcurrentKeywordSearchWaitsForAllSourcesWithoutPrimarySources(t *testi
 		t.Fatalf("songs = %d, want 2 (两个源都必须等到)", len(songs))
 	}
 }
+
+// TestConcurrentKeywordSearchReturnsAtPrimarySoftDeadline 锁住"单源抖动不该拖住整次搜索"。
+//
+// 现场事故(2026-10): 用户搜「亲爱的，热爱的」等了 5s。日志显示网易 1.6s 就回来了, 而 QQ
+// 那次抖到 4.19s —— 因为返回条件是"等齐 qq+netease", 快源早已就绪也必须干等慢源。
+// 软超时(2.5s)保证: 慢源拉长尾时先返回已有结果, 未到的源进 pending 由后台补齐。
+func TestConcurrentKeywordSearchReturnsAtPrimarySoftDeadline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Source string `json:"source"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Source == "qq" {
+			// 模拟 QQ 偶发长尾(实测 3.5~4.2s), 但必须比预算(12s)短很多。
+			time.Sleep(4 * time.Second)
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		tracks := []map[string]any{{
+			"id": body.Source + "-1", "name": "晴天", "artist": "周杰伦", "source": body.Source,
+			"url": "https://example.invalid/a.mp3", "ext": "mp3", "duration": 269, "size": 1024,
+		}}
+		_ = json.NewEncoder(w).Encode(map[string]any{"songs": tracks})
+	}))
+	defer server.Close()
+	t.Setenv("MUSIC_DL_PROVIDER_URL", server.URL)
+
+	start := time.Now()
+	songs, _, pending := concurrentKeywordSearchDetailed(
+		"亲爱的，热爱的", "song", []string{"qq", "netease"}, 12*time.Second, true,
+	)
+	elapsed := time.Since(start)
+
+	if elapsed >= 3500*time.Millisecond {
+		t.Fatalf("软超时未生效: 等了 %s(应该 ~2.5s 返回, 而不是等满 QQ 的 4s)", elapsed)
+	}
+	if elapsed < searchPrimarySoftDeadline-time.Second {
+		t.Fatalf("过早返回(%s): 正常情况应等齐主力源", elapsed)
+	}
+	if len(songs) != 1 || songs[0].Source != "netease" {
+		t.Fatalf("songs = %+v, want 只有已就绪的 netease", songs)
+	}
+	if len(pending) != 1 || pending[0] != "qq" {
+		t.Fatalf("pending = %v, want [qq] —— 没等到的源必须能被后台补齐", pending)
+	}
+}
+
+// 慢源在软超时之前就回来时, 仍应"等齐就返回", 不受软超时影响。
+func TestConcurrentKeywordSearchStillWaitsWithinSoftDeadline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Source string `json:"source"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Source == "qq" {
+			time.Sleep(600 * time.Millisecond)
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		tracks := []map[string]any{{
+			"id": body.Source + "-1", "name": "晴天", "artist": "周杰伦", "source": body.Source,
+			"url": "https://example.invalid/a.mp3", "ext": "mp3", "duration": 269, "size": 1024,
+		}}
+		_ = json.NewEncoder(w).Encode(map[string]any{"songs": tracks})
+	}))
+	defer server.Close()
+	t.Setenv("MUSIC_DL_PROVIDER_URL", server.URL)
+
+	start := time.Now()
+	songs, _, pending := concurrentKeywordSearchDetailed(
+		"晴天", "song", []string{"qq", "netease"}, 12*time.Second, true,
+	)
+	elapsed := time.Since(start)
+
+	if len(songs) != 2 {
+		t.Fatalf("songs = %d, want 2(两个主力源都应等到)", len(songs))
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending = %v, want 空", pending)
+	}
+	if elapsed >= searchPrimarySoftDeadline {
+		t.Fatalf("耗时 %s 不该碰到软超时", elapsed)
+	}
+}
