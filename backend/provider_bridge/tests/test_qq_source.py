@@ -564,5 +564,144 @@ class QQSourceRoutingTests(unittest.TestCase):
         self.assertEqual(result["songs"][0]["source"], "qq")
 
 
+class QQRefreshTests(unittest.TestCase):
+    """musickey 只有 3 天寿命, 但长期凭据可换新 key —— 用户不必每 3~4 天重新扫码。
+
+    实测(2026-10): 过期后 VIP/无损曲全部拿不到地址(可播率 10/10 → 2/10);
+    用 pt_oauth_token/p_skey 走 QQConnectLogin.LoginServer/QQLogin 换新 key 后,
+    立刻恢复 10/10 可播且 flac 1647kbps。
+    """
+
+    def test_returns_empty_without_uin(self):
+        self.assertEqual(qq_source.refresh_musickey("musickey=abc"), {})
+
+    def test_returns_empty_without_any_long_lived_token(self):
+        cookie = cookie_string(uin="3058261811", musickey="abc")
+        self.assertEqual(qq_source.refresh_musickey(cookie), {})
+
+    def test_exchanges_long_lived_token_for_new_musickey(self):
+        cookie = cookie_string(uin="3058261811", musickey="OLD")
+        cookie += "; pt_oauth_token=TOKEN; openid=OPENID; access_token=AT"
+        calls = []
+
+        def fake_post(url, payload, **kwargs):
+            calls.append(payload)
+            req = payload["req"]
+            self.assertEqual(req["module"], qq_source.LOGIN_SERVER_MODULE)
+            self.assertEqual(req["method"], qq_source.LOGIN_SERVER_METHOD)
+            self.assertEqual(req["param"]["token"], "TOKEN")
+            return {"req": {"code": 0, "data": {
+                "musickey": "NEWKEY", "musickeyCreateTime": 1792856360,
+                "keyExpiresIn": 259200, "musicid": 3058261811,
+            }}}
+
+        with mock.patch.object(qq_source.PlatformHTTP, "post_json", side_effect=fake_post):
+            result = qq_source.refresh_musickey(cookie)
+        self.assertTrue(result)
+        self.assertEqual(result["expires_in"], 259200)
+        self.assertEqual(result["expires_at"], 1792856360 + 259200)
+        # 三个别名都要写全, 取地址链路读任意一个。
+        for name in ("musickey=NEWKEY", "qqmusic_key=NEWKEY", "qm_keyst=NEWKEY"):
+            self.assertIn(name, result["cookie"])
+        self.assertIn("keyExpiresIn=259200", result["cookie"])
+        self.assertEqual(len(calls), 1)
+
+    def test_falls_back_through_token_candidates(self):
+        """QQ 不同登录态可用的 token 不同, 必须逐个试(当年扫码登录修过 5 次)。"""
+        cookie = cookie_string(uin="3058261811", musickey="OLD")
+        cookie += "; p_skey=PSKEY; superkey=SUPERKEY"
+        tried = []
+
+        def fake_post(url, payload, **kwargs):
+            tried.append(payload["req"]["param"]["token"])
+            if payload["req"]["param"]["token"] == "SUPERKEY":
+                return {"req": {"code": 0, "data": {
+                    "musickey": "KEY_FROM_SUPER", "musickeyCreateTime": 1792856360,
+                    "keyExpiresIn": 259200,
+                }}}
+            return {"req": {"code": 40000}}
+
+        with mock.patch.object(qq_source.PlatformHTTP, "post_json", side_effect=fake_post):
+            result = qq_source.refresh_musickey(cookie)
+        self.assertIn("PSKEY", tried)
+        self.assertIn("SUPERKEY", tried)
+        self.assertIn("musickey=KEY_FROM_SUPER", result["cookie"])
+
+    def test_returns_empty_when_all_tokens_rejected(self):
+        cookie = cookie_string(uin="3058261811", musickey="OLD") + "; p_skey=PSKEY"
+        with mock.patch.object(qq_source.PlatformHTTP, "post_json",
+                               return_value={"req": {"code": 40000}}):
+            self.assertEqual(qq_source.refresh_musickey(cookie), {})
+
+    def test_survives_last_session(self):
+        """服务端切换(hk/tw 名单)时不应整个失败。"""
+        cookie = cookie_string(uin="3058261811", musickey="OLD") + "; p_skey=PSKEY"
+        attempted = []
+
+        def fake_post(url, payload, **kwargs):
+            attempted.append(1)
+            if len(attempted) == 1:
+                raise RuntimeError("primary down")
+            return {"req": {"code": 0, "data": {
+                "musickey": "NEWKEY", "musickeyCreateTime": 1, "keyExpiresIn": 259200,
+            }}}
+
+        with mock.patch.object(qq_source.PlatformHTTP, "post_json", side_effect=fake_post):
+            result = qq_source.refresh_musickey(cookie)
+        self.assertIn("musickey=NEWKEY", result.get("cookie", ""))
+
+
+class QQRefreshWiringTests(unittest.TestCase):
+    """续期必须真的生效并可被上层持久化。"""
+
+    def setUp(self):
+        self.work_dir = tempfile.mkdtemp(prefix="qq-refresh-")
+
+    def test_search_refreshes_expired_credential_and_reports_cookie(self):
+        expired = cookie_string(uin="3058261811", musickey="OLD",
+                                created_at=1700000000, lifetime=259200)
+        expired += "; pt_oauth_token=TOKEN"
+        new_cookie = expired.replace("musickey=OLD", "musickey=NEW")
+        refreshed = {}
+
+        def fake_refresh(cookie, session=None):
+            return {"cookie": new_cookie, "expires_at": 1, "expires_in": 259200}
+
+        # 用真实 cookie 让 credential_state 自然判定"过期", 只打桩网络层与搜索。
+        with mock.patch.object(qq_source, "refresh_musickey", side_effect=fake_refresh) as refresh:
+            with mock.patch.object(qq_source, "_search_items", return_value=([], 0)):
+                result = qq_source.search(
+                    "晴天", 5, expired, work_dir=self.work_dir,
+                    refreshed_cookie_sink=refreshed,
+                )
+        refresh.assert_called_once()
+        self.assertEqual(refreshed.get("cookie"), new_cookie)
+        self.assertEqual(result, [])
+
+    def test_app_propagates_refreshed_cookie(self):
+        sentinel = [{"id": "AAA", "source": "qq"}]
+
+        def fake_search(*args, **kwargs):
+            kwargs["refreshed_cookie_sink"]["cookie"] = "musickey=NEW"
+            return sentinel
+
+        with mock.patch.object(bridge_app.qq_source, "search", side_effect=fake_search):
+            result = bridge_app.search(
+                {"source": "qq", "keyword": "晴天", "limit": 5, "cookie": "uin=1"},
+                work_dir=self.work_dir,
+            )
+        self.assertEqual(result["songs"], sentinel)
+        self.assertEqual(result["refreshed_cookie"], "musickey=NEW")
+
+    def test_app_omits_refreshed_cookie_when_not_refreshed(self):
+        sentinel = [{"id": "AAA", "source": "qq"}]
+        with mock.patch.object(bridge_app.qq_source, "search", return_value=sentinel):
+            result = bridge_app.search(
+                {"source": "qq", "keyword": "晴天", "limit": 5, "cookie": "uin=1"},
+                work_dir=self.work_dir,
+            )
+        self.assertEqual(result, {"songs": sentinel})
+
+
 if __name__ == "__main__":
     unittest.main()

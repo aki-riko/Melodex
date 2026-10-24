@@ -41,6 +41,14 @@ import requests
 
 from provider_bridge import qq_qrc
 from provider_bridge.platform_http import PlatformHTTP
+# 续期复用扫码登录那套"强登录"常量与 token 回退顺序(同一个上游接口)。
+from provider_bridge.qq_login import (
+    LOGIN_SERVER_METHOD,
+    LOGIN_SERVER_MODULE,
+    LOGIN_SERVER_URLS,
+    MUSIC_REFERER,
+    TOKEN_KEYS,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -227,6 +235,92 @@ def credential_state(cookie: str) -> dict[str, Any]:
         "has_key": bool(musickey),
         "summary": summary,
     }
+
+
+def refresh_musickey(cookie: str, *, session: Any | None = None) -> dict[str, Any]:
+    """用商品里的长期凭据换取新的 musickey, 返回可以直接替换的完整 cookie 串。
+
+    背景: QQ 音乐的 **musickey 只有 3 天寿命**(`keyExpiresIn=259200`), 过期后所有
+    VIP/无损曲目都拿不到地址(实测可播率从 10/10 掉到 2/10, 且全是试听档)。但同一份
+    cookie 里的 `pt_oauth_token` / `p_skey` / `superkey` 寿命长得多(实测 access_token
+    还有 37 天), 可以用它们重新走一遍扫码登录第 5 步的 `QQConnectLogin.LoginServer`/
+    `QQLogin`, 换出全新的 musickey —— 用户不用每 3~4 天重新扫码。
+
+    返回:
+        成功时 `{"cookie": <新 cookie 串>, "expires_at": <秒级时间戳>, "expires_in": 259200}`;
+        无可用凭据或上游拒绝时 `{}`(调用方保持原 cookie 不变)。
+
+    token 回退顺序与 qq_login.TOKEN_KEYS 一致, 逐个试到出 key 为止 —— QQ 在不同登录态下
+    可用的 token 不一样(当年扫码登录修过 5 次, 就是这个原因)。
+    """
+    cookies = cookie_map(cookie)
+    uin = _first_present(
+        cookies.get("str_musicid"), cookies.get("qqmusic_uin"),
+        cookies.get("musicid"), cookies.get("uin"),
+    )
+    if not uin:
+        return {}
+    candidates = [cookies.get(name, "") for name in TOKEN_KEYS if cookies.get(name)]
+    if not candidates:
+        return {}
+    access_token = _first_present(
+        cookies.get("access_token"), cookies.get("psrf_qqaccess_token"),
+    )
+    openid = _first_present(
+        cookies.get("openid"), cookies.get("wxopenid"), cookies.get("psrf_qqopenid"),
+    )
+    login_type = _first_present(cookies.get("loginType"), cookies.get("tmeLoginType")) or "2"
+    client = PlatformHTTP("", session)
+    for token in candidates:
+        body = {
+            "comm": {
+                "ct": "11", "cv": str(APP_VERSION_CODE), "v": str(APP_VERSION_CODE),
+                "os_ver": "15", "uin": uin, "tmeLoginType": login_type,
+            },
+            "req": {
+                "module": LOGIN_SERVER_MODULE, "method": LOGIN_SERVER_METHOD,
+                "param": {"token": token, "openid": openid, "access_token": access_token},
+            },
+        }
+        for url in LOGIN_SERVER_URLS:
+            try:
+                payload = client.post_json(url, body, headers={"Referer": MUSIC_REFERER})
+            except Exception as error:
+                LOGGER.debug("[qq] 续期请求失败 url=%s: %s", url, error)
+                continue
+            data = (payload.get("req") or {}).get("data") if isinstance(payload, dict) else None
+            if not isinstance(data, dict):
+                continue
+            musickey = _string(data.get("musickey"))
+            created_at = _integer(data.get("musickeyCreateTime"))
+            expires_in = _integer(data.get("keyExpiresIn"))
+            if not musickey:
+                continue
+            refreshed = dict(cookies)
+            # 三个别名都要写: 取地址链路读 musickey/qqmusic_key/qm_keyst 的任意一个。
+            for name in ("musickey", "qqmusic_key", "qm_keyst"):
+                refreshed[name] = musickey
+            for name in ("musickeyCreateTime", "psrf_musickey_createtime"):
+                if created_at:
+                    refreshed[name] = str(created_at)
+            if expires_in:
+                refreshed["keyExpiresIn"] = str(expires_in)
+            for key, name in (
+                ("access_token", "access_token"), ("refresh_token", "refresh_token"),
+                ("openid", "openid"), ("unionid", "unionid"),
+            ):
+                value = _string(data.get(key))
+                if value:
+                    refreshed[name] = value
+            new_cookie = "; ".join(f"{key}={value}" for key, value in refreshed.items() if value)
+            expires_at = created_at + expires_in if created_at and expires_in else 0
+            LOGGER.info(
+                "[qq] musickey 已自动续期(用 %s 换取), 新有效期至 %s",
+                "长期凭据", time.strftime("%Y-%m-%d %H:%M", time.localtime(expires_at)) if expires_at else "未知",
+            )
+            return {"cookie": new_cookie, "expires_at": expires_at, "expires_in": expires_in}
+    LOGGER.warning("[qq] musickey 自动续期失败: 所有长期凭据都被拒绝, 需要重新扫码")
+    return {}
 
 
 def _device_id(work_dir: str) -> str:
@@ -693,12 +787,24 @@ def search(
     work_dir: str,
     session: Any | None = None,
     search_type: int = SEARCH_TYPE_SONG,
+    refreshed_cookie_sink: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     keyword = _string(keyword)
     if not keyword:
         return []
     limit = min(max(_integer(limit) or DEFAULT_LIMIT, 1), MAX_LIMIT)
     state = credential_state(cookie)
+    # musickey 只有 3 天寿命, 过期后 VIP/无损曲全部拿不到地址(实测可播率 10/10 → 2/10)。
+    # 但 cookie 里的 pt_oauth_token/p_skey 寿命长得多, 可以自动换出新 key, 用户不必
+    # 每 3~4 天重新扫码。续期成功时把新 cookie 通过 sink 交给上层持久化。
+    if state["has_key"] and state["expired"] and cookie.strip():
+        refreshed = refresh_musickey(cookie, session=session)
+        if refreshed.get("cookie"):
+            cookie = refreshed["cookie"]
+            state = credential_state(cookie)
+            if refreshed_cookie_sink is not None:
+                refreshed_cookie_sink["cookie"] = cookie
+            LOGGER.info("[qq] 搜索前已自动续期凭证, 当前状态=%s", state["summary"])
     device_id = _device_id(work_dir)
     started = time.monotonic()
     # 搜索这一步按实测形状走匿名请求(不需要也不发送凭证);凭证只在取地址时使用。
