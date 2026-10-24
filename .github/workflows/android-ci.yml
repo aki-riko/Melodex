@@ -127,13 +127,6 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Setup JDK 21
-        if: steps.scope.outputs.android == 'true'
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: microsoft
-          java-version: "21"
-
       - name: Setup Gradle cache
         if: steps.scope.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
@@ -141,6 +134,13 @@ jobs:
       - name: Setup Android SDK
         if: steps.scope.outputs.android == 'true'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          # 只装 platform-tools。
+          # action 默认是 'tools platform-tools',但新版 cmdline-tools(20.0)已经把
+          # 'tools' 这个包移除了,sdkmanager 会报 "Failed to find package 'tools'"
+          # 并以 exit 1 结束 —— verify 因此假失败。真正需要的 platforms/build-tools
+          # 由下面 "Install Android SDK 36" 显式安装。
+          packages: 'platform-tools'
 
       - name: Install Android SDK 36
         if: steps.scope.outputs.android == 'true'
