@@ -32,12 +32,18 @@ type DownloadRecord struct {
 // downloadStatusItem 是给前端恢复“已下载到服务器”状态的最小视图。
 // 不暴露 user_id:普通用户只能查询自己的记录,管理员虽可见全部服务器曲库,
 // 也不需要知道每条记录具体属于哪个用户。
+//
+// Ext/SizeBytes 是「播放时自动下载允许音质升级」的判定依据:前端只有知道磁盘上
+// 那份文件到底是什么格式、多大,才能判断它是否明显劣于当前在线源,从而触发升级。
+// 旧客户端不认这两个字段,属纯增量契约。
 type downloadStatusItem struct {
 	Source       string    `json:"source"`
 	SongID       string    `json:"song_id"`
 	Name         string    `json:"name"`
 	Artist       string    `json:"artist"`
 	RelPath      string    `json:"rel_path"`
+	Ext          string    `json:"ext"`
+	SizeBytes    int64     `json:"size_bytes"`
 	DownloadedAt time.Time `json:"downloaded_at"`
 }
 
@@ -119,16 +125,43 @@ func existingDownloadStatusForUser(userID uint, admin bool, downloadDir string) 
 		}
 		seen[statusKey] = struct{}{}
 
+		ext, size := downloadRecordAudioFileFacts(downloadDir, rel)
 		items = append(items, downloadStatusItem{
 			Source:       recordSource,
 			SongID:       recordSongID,
 			Name:         strings.TrimSpace(record.Name),
 			Artist:       strings.TrimSpace(record.Artist),
 			RelPath:      rel,
+			Ext:          ext,
+			SizeBytes:    size,
 			DownloadedAt: record.CreatedAt,
 		})
 	}
 	return items, nil
+}
+
+// downloadRecordAudioFileFacts 返回磁盘文件的小写扩展名与字节数。
+// 只对已经通过 downloadRecordFileExists 校验的路径调用;这里再走一遍相同
+// 的 containment 校验后 Lstat 取大小,失败时返回零值(前端据此退化为"无法判定",
+// 不会因为读不到元数据就误触发升级)。
+func downloadRecordAudioFileFacts(downloadDir, relPath string) (string, int64) {
+	relPath = normalizeRelPath(relPath)
+	if relPath == "" {
+		return "", 0
+	}
+	rootAbs, err := filepath.Abs(strings.TrimSpace(downloadDir))
+	if err != nil {
+		return "", 0
+	}
+	targetAbs, err := filepath.Abs(filepath.Join(rootAbs, filepath.FromSlash(relPath)))
+	if err != nil || !isPathInside(rootAbs, targetAbs) {
+		return "", 0
+	}
+	info, err := os.Lstat(targetAbs)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", 0
+	}
+	return strings.ToLower(strings.TrimPrefix(filepath.Ext(targetAbs), ".")), info.Size()
 }
 
 // existingDownloadRelPathForPlayback 为 Web 播放器解析当前用户可见的服务器副本。
