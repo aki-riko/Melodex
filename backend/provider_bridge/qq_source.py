@@ -675,9 +675,60 @@ def _lyric(item: dict[str, Any], cookie: str) -> tuple[str, bool]:
         return "", False
 
 
+# 搜索时记下 mid -> 原始 item。惰性取歌词(QRC 逐字)需要 songName/albumName/singerName
+# 才能让上游返回 QRC 载荷, 只凭 mid 拿不到 —— 这些元数据在搜索结果里本来就全有, 顺手存一份
+# 就能在播放时按 mid 精确取回逐字歌词, 不必让搜索为每首歌都多打两次请求。
+_song_meta_lock = threading.Lock()
+_song_meta: dict[str, dict[str, Any]] = {}
+SONG_META_LIMIT = 2000
+
+
+def _remember_song_meta(items: list[dict[str, Any]]) -> None:
+    if not items:
+        return
+    with _song_meta_lock:
+        for item in items:
+            mid = _string(item.get("mid")) if isinstance(item, dict) else ""
+            if mid:
+                _song_meta[mid] = item
+        while len(_song_meta) > SONG_META_LIMIT:
+            _song_meta.pop(next(iter(_song_meta)))
+
+
+def fetch_lyric(song_id: str, *, cookie: str = "") -> str:
+    """按 songmid 取歌词(惰性路径, 供 /v1/lyric 调用)。
+
+    优先用搜索时缓存的元数据走完整 QRC 逐字链路; 缓存未命中(比如重启后直接播放历史歌单)
+    时退回只凭 mid 的行级 LRC —— 拿不到逐字, 但不会没有歌词。
+    """
+    mid = _string(song_id)
+    if not mid:
+        return ""
+    with _song_meta_lock:
+        item = _song_meta.get(mid)
+    if item is not None:
+        text, _verbatim = _lyric(item, cookie)
+        if text:
+            return text
+    try:
+        client = PlatformHTTP(cookie)
+        response = _post(client, _lyric_request(mid))
+        raw = _string(((response.get("req_1") or {}).get("data") or {}).get("lyric"))
+        if not raw:
+            return ""
+        return base64.b64decode(raw).decode("utf-8", "ignore").strip()
+    except Exception as error:
+        LOGGER.debug("[qq] 按 mid 取歌词失败 mid=%s: %s", mid, error)
+        return ""
+
+
 def _lyrics_for(items: list[dict[str, Any]], cookie: str) -> dict[str, tuple[str, bool]]:
     mids = [_string(item.get("mid")) for item in items]
-    if not mids or not _bool_env("MELODEX_QQ_SEARCH_LYRICS", True):
+    # 默认**不**在搜索里内联歌词: 实测 5 个关键词带歌词 21.30s / 不带 7.84s, 歌词占了
+    # 63% 的搜索耗时(每首一次 QRC + 一次行级请求)。而用户很少会读搜索列表里的每一首歌词,
+    # 真正播放时前端会按需调 /music/lyric 再取 —— 与网易原生实现的懒加载口径一致。
+    # 需要旧行为可设 MELODEX_QQ_SEARCH_LYRICS=1。
+    if not mids or not _bool_env("MELODEX_QQ_SEARCH_LYRICS", False):
         return {}
     lyrics: dict[str, tuple[str, bool]] = {}
     try:
@@ -826,6 +877,8 @@ def search(
 
     mids = [_string(item.get("mid")) for item in items]
     mids = [mid for mid in mids if mid]
+    # 记下元数据, 供播放时按 mid 惰性取逐字歌词(见 fetch_lyric)。
+    _remember_song_meta([item for item in items if isinstance(item, dict)])
     resolved, mode = _resolve_urls(mids, state, cookie, session=session)
 
     playable = [mid for mid in mids if mid in resolved]
@@ -876,6 +929,7 @@ __all__ = [
     "credential_state",
     "credential_summary",
     "cookie_map",
+    "fetch_lyric",
     "search",
     "status",
 ]

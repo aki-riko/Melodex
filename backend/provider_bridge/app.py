@@ -200,7 +200,7 @@ def search(
         except netease_source.NeteaseRateLimited as error:
             LOGGER.warning("[netease] 歌词检索被上游限流 keyword=%r: %s", keyword, error)
             raise ValueError(f"netease lyric search rate limited: {error}") from error
-        _enrich_verbatim_lyrics(songs, source)
+        # 歌词改懒加载(见 lyric()): 这里不再为每首候选预取逐字歌词。
         return {"songs": songs}
     # 网易普通搜歌也走原生实现: 快照的 netease 客户端每首歌都要跑 8 档音质阶梯 + 探测下载
     # 地址, 实测 limit=20 要 131.7s(QQ 只要 1.7s), 超过 app 侧扇出预算就被整源丢掉 ——
@@ -224,7 +224,7 @@ def search(
             # 明确抛错让 sidecar 返回非 2xx, Go 侧就能把该源标成失败而不是静默空。
             LOGGER.warning("[netease] 搜索被上游限流 keyword=%r: %s", keyword, error)
             raise ValueError(f"netease search rate limited: {error}") from error
-        _enrich_verbatim_lyrics(native_songs, source)
+        # 歌词改懒加载(见 lyric()): 不再为每首候选预取逐字歌词(实测 +0.5s/次搜索)。
         return {"songs": native_songs}
     # QQ 走 Melodex 自有实现(见 qq_source 模块说明):快照的 QQ 取地址链路打的是 QQ 已
     # 停用的 u.y.qq.com,拿不到 purl 就会把所有 QQ 歌曲当作不可播丢弃,导致 QQ 源恒为空。
@@ -287,14 +287,25 @@ def search(
 
 
 def lyric(payload: dict[str, Any]) -> dict[str, str]:
-    """按歌曲标识按需取歌词，避免原生快速搜索为每首候选额外请求。"""
+    """按歌曲标识按需取歌词。
+
+    搜索不再内联歌词(QQ 实测占 63% 搜索耗时, 网易 ~0.5s), 改由播放/歌词面板按需调用;
+    这里要保证懒加载拿到的歌词**不比内联时差**, 所以网易先试逐字(YRC)再回退行级。
+    """
     source = _string(payload.get("source")).lower()
     song_id = _string(payload.get("id"))
     cookie = _string(payload.get("cookie"))
     if not source or not song_id:
         raise ValueError("source and id are required")
     if source == "netease":
+        # 逐字(YRC)优先: 内联时代 enricht 拿的就是它, 懒加载不能退化成只有行级。
+        if netease_lyric.verbatim_lyric_enabled():
+            verbatim = netease_lyric.fetch_verbatim_lyric(song_id)
+            if verbatim:
+                return {"lyric": verbatim}
         return {"lyric": netease_source.fetch_lyric(song_id, cookie=cookie)}
+    if source == "qq":
+        return {"lyric": qq_source.fetch_lyric(song_id, cookie=cookie)}
     if source == "kuwo":
         return {"lyric": kuwo_source.fetch_lyric(song_id, cookie=cookie)}
     raise ValueError(f"lyrics unsupported for source: {source}")
