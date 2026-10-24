@@ -1,7 +1,11 @@
 package web
 
 import (
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
@@ -117,5 +121,88 @@ func TestAugmentLyricSearchOriginalsSkipsWhenQuotedArtistMatchesSinger(t *testin
 	}
 	if len(got) != 1 || got[0].ID != "original-mid" {
 		t.Fatalf("got = %+v, want original hit unchanged", got)
+	}
+}
+
+// 歌词检索的"原唱补充"必须并行, 不能逐首串行。
+//
+// 现场事故(2026-10): 搜「牛奶面包」时 type=lyric 这一路花了 **5.22s**(同期 song 2.64s /
+// album 0.43s), 前端并发发三个请求, 用户感知的就是最慢的 5s。原因是 augment 对每首带
+// 《剧名》的候选都串行补一次完整多源搜索(每次 1~2s), 多个变体叠加。
+func TestAugmentLyricSearchOriginalsRunsQueriesInParallel(t *testing.T) {
+	hits := make([]model.Track, 0, 4)
+	for i, title := range []string{"错位时空", "光年之外", "孤勇者", "晴天"} {
+		hits = append(hits, model.Track{
+			Source: "qq",
+			ID:     fmt.Sprintf("cover-%d", i),
+			Name:   fmt.Sprintf("艾辰《%s》", title),
+			Artist: "谷梁小璇",
+		})
+	}
+
+	const perQueryDelay = 60 * time.Millisecond
+	var inflight, peak int32
+	var mu sync.Mutex
+
+	started := time.Now()
+	augmentLyricSearchOriginals("qq", hits, func(keyword string) ([]model.Track, error) {
+		current := atomic.AddInt32(&inflight, 1)
+		mu.Lock()
+		if current > peak {
+			peak = current
+		}
+		mu.Unlock()
+		time.Sleep(perQueryDelay)
+		atomic.AddInt32(&inflight, -1)
+		return nil, nil
+	})
+	elapsed := time.Since(started)
+
+	mu.Lock()
+	peakSeen := peak
+	mu.Unlock()
+	if peakSeen < 2 {
+		t.Fatalf("并发峰值 = %d, 期望 >= 2 —— augment 搜索必须并行", peakSeen)
+	}
+	// 4 个查询串行至少要 240ms; 并行应接近一个 perQueryDelay。
+	if elapsed > 2*perQueryDelay {
+		t.Fatalf("耗时 %v, 期望接近单个查询延迟 %v(说明仍在串行)", elapsed, perQueryDelay)
+	}
+}
+
+// 补搜数量必须封顶: 每多补一个就是一次完整多源搜索, 若不封顶歌词检索会被无限拖慢。
+func TestAugmentLyricSearchOriginalsCapsQueryCount(t *testing.T) {
+	hits := make([]model.Track, 0, 8)
+	for i := 0; i < 8; i++ {
+		hits = append(hits, model.Track{
+			Source: "qq",
+			ID:     fmt.Sprintf("cover-%d", i),
+			Name:   fmt.Sprintf("艾辰《歌%d》", i),
+			Artist: "谷梁小璇",
+		})
+	}
+	var calls int32
+	augmentLyricSearchOriginals("qq", hits, func(keyword string) ([]model.Track, error) {
+		atomic.AddInt32(&calls, 1)
+		return nil, nil
+	})
+	if got := atomic.LoadInt32(&calls); got > lyricAugmentMaxQueries {
+		t.Fatalf("补搜次数 = %d, 超过上限 %d", got, lyricAugmentMaxQueries)
+	}
+}
+
+// 同一个查询词在多首歌里重复出现时只搜一次(去重), 避免无谓的重复请求。
+func TestAugmentLyricSearchOriginalsDeduplicatesQueries(t *testing.T) {
+	hits := []model.Track{
+		{Source: "qq", ID: "a", Name: "艾辰《错位时空》", Artist: "谷梁小璇"},
+		{Source: "qq", ID: "b", Name: "艾辰《错位时空》", Artist: "谷梁小璇"},
+	}
+	var calls int32
+	augmentLyricSearchOriginals("qq", hits, func(keyword string) ([]model.Track, error) {
+		atomic.AddInt32(&calls, 1)
+		return nil, nil
+	})
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("补搜次数 = %d, 相同查询词应只搜 1 次", got)
 	}
 }
