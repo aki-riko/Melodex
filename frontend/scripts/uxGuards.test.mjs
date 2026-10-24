@@ -404,10 +404,63 @@ for (const file of sourceFiles) {
   checkUndefinedIdentifiers(file, stripComments(readFileSync(file, 'utf8')));
 }
 
+// ---- 13. 组件契约:<Segmented options> 的每项必须有 value ----
+//
+// 来自一次真实踩坑:Download 页的视图切换把一个数组写成
+//   { key: 'search', label: '搜索下载' }
+// 而 ui/Segmented 只读 opt.value。后果是三重静默失效:
+//   · 选中态永远不亮(undefined 不等于任何 value)→ 界面看着"一坨灰"
+//   · key 全是 undefined(React 重复 key)
+//   · 点击回传 undefined → setTab(undefined) → 内容区直接空白
+// 构建不报错、没有类型检查,肉眼都容易漏(用户只说了句"这个有点问题")。
+// 这里只校验"同文件字面量定义"的 options;从别处 import 的跳过,避免误报。
+function checkSegmentedOptions(file, code) {
+  const usageRe = /<Segmented\b[\s\S]{0,800}?options=\{\s*([A-Za-z_$][\w$]*)\s*\}/g;
+  let m;
+  while ((m = usageRe.exec(code)) !== null) {
+    const ident = m[1];
+    const decl = new RegExp(`(?:const|let|var)\\s+${ident}\\s*=\\s*\\[`).exec(code);
+    if (!decl) continue; // 非本文件定义(import 进来的),不检查
+
+    // 从声明处的 '[' 开始做括号配对,取出数组字面量主体
+    let i = decl.index + decl[0].length - 1;
+    let depth = 0;
+    let end = -1;
+    for (; i < code.length; i += 1) {
+      const ch = code[i];
+      if (ch === '[') depth += 1;
+      else if (ch === ']') {
+        depth -= 1;
+        if (depth === 0) { end = i; break; }
+      }
+    }
+    if (end < 0) continue;
+
+    const body = code.slice(decl.index + decl[0].length, end);
+    const labelCount = (body.match(/\blabel\s*:/g) || []).length;
+    const valueCount = (body.match(/\bvalue\s*:/g) || []).length;
+
+    if (labelCount > valueCount) {
+      const lineNo = code.slice(0, decl.index).split('\n').length;
+      fail(
+        file,
+        lineNo,
+        'segmented-options',
+        `${ident} 有 ${labelCount} 个 label 但只有 ${valueCount} 个 value —— ` +
+        'Segmented 靠 value 判选中态并回传给 onChange,缺了会静默失效(选中态不亮、点击后内容区空白)',
+      );
+    }
+  }
+}
+
+for (const file of sourceFiles) {
+  checkSegmentedOptions(file, stripComments(readFileSync(file, 'utf8')));
+}
+
 if (failures.length > 0) {
   console.error(`UX 门禁未通过,共 ${failures.length} 项:\n`);
   console.error(failures.join('\n'));
   process.exitCode = 1;
 } else {
-  console.log('UX 门禁通过:未定义标识符 / token / z-index / 滚动条 / 原生弹窗 / 静默失败 / 可访问名称 / ErrorBoundary / toast aria-live 均合规。');
+  console.log('UX 门禁通过:未定义标识符 / 组件契约 / token / z-index / 滚动条 / 原生弹窗 / 静默失败 / 可访问名称 / ErrorBoundary / toast aria-live 均合规。');
 }
