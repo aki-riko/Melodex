@@ -485,10 +485,10 @@ assert.match(
   const irreversible = describePipelineFailureNotice({
     song: { name: '天龙八部之宿敌' },
     bufferedSeconds: 0,
-    reason: '这首歌在当前音乐源上已不可用(可能已下架)',
+    reason: '这首歌在当前音乐源需要付费或会员才能播放',
     retryable: false,
   });
-  assert.match(irreversible, /已不可用/, '不可重试时要说明歌曲不可用');
+  assert.match(irreversible, /付费|会员|无法播放|不可用/, '不可重试时要说明为什么放不出来');
   assert.match(irreversible, /换一个源或换一首/, '不可重试时要引导换源/换歌');
   assert.doesNotMatch(
     irreversible,
@@ -500,7 +500,7 @@ assert.match(
   const noReason = describePipelineFailureNotice({
     song: { name: '某某' }, bufferedSeconds: 0, retryable: false,
   });
-  assert.match(noReason, /已不可用/, '缺原因时不可重试也要有兜底文案');
+  assert.match(noReason, /无法播放|不可用/, '缺原因时不可重试也要有兜底文案');
   assert.doesNotMatch(noReason, /点一下播放重试/);
 
   // 可重试时保留"重试"引导, 并带上后端给的原因

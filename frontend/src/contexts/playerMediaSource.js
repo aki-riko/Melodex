@@ -87,7 +87,7 @@ export const describePipelineFailureNotice = ({ song, bufferedSeconds = 0, reaso
   const detail = String(reason || '').trim();
   if (!retryable) {
     // 后端已给出中文原因时直接用,不要把技术错误码丢给用户
-    const hint = detail || '这首歌在当前音乐源上已不可用';
+    const hint = detail || '这首歌在当前音乐源上暂时无法播放';
     return `「${name}」${joinReason(hint)}换一个源或换一首试试。`;
   }
   if (detail) {
@@ -138,7 +138,7 @@ const playbackChunkError = (message, retryable = true) => {
 
 // 读取后端 502 的中文原因。
 // 后端在 playback_segment 打开音频失败时会把原因放在响应体里
-// (例如"这首歌在当前音乐源上已不可用(可能已下架)…")。
+// (例如"这首歌在当前音乐源需要付费或会员才能播放…")。
 // 取不到就返回空串,由调用方回退到通用文案 —— 绝不能因为读响应体抛错而掩盖原始失败。
 const readPlaybackErrorText = async (response) => {
   try {

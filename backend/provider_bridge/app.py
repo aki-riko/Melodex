@@ -323,6 +323,24 @@ def _search_impl(
             refreshed_cookie_sink=refreshed,
         )
         result: dict[str, Any] = {"songs": songs}
+        # 把"这次为空到底是为什么"明确带给 Go 侧。
+        #
+        # 背景(2026-10 真实事故)：「天龙八部之宿敌」是 QQ 付费曲(pay_down=1),
+        # 取址拿不到 purl 被丢弃, Go 侧只看到"候选里没有这个 mid", 就一律报
+        # no matching song identity 并告诉用户"已下架, 换一首"。但 code=2001
+        # (QQ 限流)同样会让搜索直接返回空 —— 那种情况等一分钟重试就能播。
+        # 两种混在一起时, 用户既不知道等也不知道换, 只能反复点播放。
+        #
+        # 这里按 qq_source 自己记录的最近一次搜索快照, 给出机器可读的原因,
+        # Go 侧据此决定提示"稍后重试"还是"需要会员/换源"。
+        if not songs:
+            snapshot = qq_source.status()
+            if snapshot.get("rate_limited"):
+                result["empty_reason"] = "rate_limited"
+            elif snapshot.get("candidates"):
+                result["empty_reason"] = "paid_or_unavailable"
+            else:
+                result["empty_reason"] = "no_candidates"
         if refreshed.get("cookie"):
             result["refreshed_cookie"] = refreshed["cookie"]
         return result
