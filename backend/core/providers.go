@@ -28,7 +28,11 @@ var (
 	// 混入"验活能过、实际只有试听"的假候选。仍保留在 allProviderNames/bridge 白名单里,
 	// 需要时(如拿到 Apple 会员登录态)可显式指定 sources=apple 重新启用。
 	defaultProviderNames    = []string{"netease", "qq", "kugou", "kuwo", "migu", "qianqian", "soda"}
-	recommendProviderNames  = []string{"netease", "qq", "kugou", "kuwo"}
+	// recommendProviderNames:能返回"推荐歌单"的源。
+	// migu 于 2026-08-15 的 b681335(歌单流程迁移到 sidecar)时被漏掉,
+	// 但 provider_bridge/platforms/migu.py 其实有 recommend()(走 search_playlist("华语")),
+	// 2026-10-25 生产实测可稳定返回 20 张。推荐内容本来就偏少,补回来。
+	recommendProviderNames  = []string{"netease", "qq", "kugou", "kuwo", "migu"}
 	userLibrarySourceNames  = []string{"netease", "qq"}
 	cookieSourceNames       = []string{"netease", "qq", "qq_wx", "kugou", "kuwo", "migu", "bilibili", "soda"}
 	providerDescriptions    = map[string]string{
