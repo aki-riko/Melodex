@@ -70,10 +70,28 @@ export const shouldApplyBufferBackpressure = (aheadSeconds, maxAhead = MAX_BUFFE
 //   - 没有 → 一秒钟都没放出来。旧文案在这里是错的: "将播完已缓冲部分"其实什么都没有,
 //     用户看到的是"提示播放, 但一直是静音", 以为播放器坏了却不知道该怎么办。
 //     此时必须明确说没拿到音频, 并引导重试(而不是暗示正在播放)。
-export const describePipelineFailureNotice = ({ song, bufferedSeconds = 0 } = {}) => {
+//
+// 第三层(2026-10 补充):光说"请点一下播放重试"也不够。
+// 真实案例:「天龙八部之宿敌」QQ 原唱下架后,后端报 no matching song identity,
+// 这种情况重试永远不会成功。所以再区分 retryable:
+//   - 不可重试 → 直接说"这首歌在源上已不可用",引导换源/换歌,而不是让人白点;
+//   - 可重试 → 保留"重试"的说法。
+// 让"原因 + 后续建议"拼接读起来顺口:原因已自带句末标点时不重复加。
+const joinReason = (text) => (/[。！？;；]$/.test(text) ? text : `${text}；`);
+
+export const describePipelineFailureNotice = ({ song, bufferedSeconds = 0, reason = '', retryable = true } = {}) => {
   const name = song?.name || '当前歌曲';
   if (Number(bufferedSeconds) > 0.5) {
     return `「${name}」连续播放缓冲异常，将播完已缓冲部分；请回到播放器重新播放。`;
+  }
+  const detail = String(reason || '').trim();
+  if (!retryable) {
+    // 后端已给出中文原因时直接用,不要把技术错误码丢给用户
+    const hint = detail || '这首歌在当前音乐源上已不可用';
+    return `「${name}」${joinReason(hint)}换一个源或换一首试试。`;
+  }
+  if (detail) {
+    return `「${name}」播放失败：${joinReason(detail)}请点一下播放重试。`;
   }
   return `「${name}」没能取到音频数据，播放已停止；请点一下播放重试。`;
 };
@@ -118,6 +136,24 @@ const playbackChunkError = (message, retryable = true) => {
   return error;
 };
 
+// 读取后端 502 的中文原因。
+// 后端在 playback_segment 打开音频失败时会把原因放在响应体里
+// (例如"这首歌在当前音乐源上已不可用(可能已下架)…")。
+// 取不到就返回空串,由调用方回退到通用文案 —— 绝不能因为读响应体抛错而掩盖原始失败。
+const readPlaybackErrorText = async (response) => {
+  try {
+    const text = await response.text?.();
+    if (!text) return '';
+    const trimmed = String(text).trim();
+    if (!trimmed) return '';
+    // 太长的是 HTML 错误页/堆栈,不适合直接给用户看
+    if (trimmed.length > 120 || trimmed.startsWith('<')) return '';
+    return trimmed;
+  } catch {
+    return '';
+  }
+};
+
 const fetchPlaybackChunkOnce = async ({
   url,
   chunkIndex,
@@ -137,8 +173,21 @@ const fetchPlaybackChunkOnce = async ({
       signal: controller.signal,
     });
     if (!response.ok) {
-      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
-      throw playbackChunkError(`媒体分块请求失败: HTTP ${response.status || 0}`, retryable);
+      // 5xx 不一定是"网络抖了"。后端现在会带 X-Melodex-Playback-Retryable:
+      //   · 0 → 这首歌在源上已不可用(下架/版权),重试永远不会好
+      //   · 1/缺失 → 临时故障,可重试
+      // 以及一段中文原因(响应体)。据此决定重试与否,并把真实原因带到提示里,
+      // 否则用户只会看到"请点一下播放重试"却永远播不出来。
+      const retryableHeader = response.headers?.get?.('x-melodex-playback-retryable');
+      const backendReason = await readPlaybackErrorText(response);
+      let retryable;
+      if (retryableHeader === '0') retryable = false;
+      else if (retryableHeader === '1') retryable = true;
+      else retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      throw playbackChunkError(
+        backendReason || `媒体分块请求失败: HTTP ${response.status || 0}`,
+        retryable,
+      );
     }
     const contentType = response.headers?.get?.('content-type') || '';
     if (!contentType.toLowerCase().includes('audio/mp4')) {
@@ -517,6 +566,10 @@ export class ContinuousMediaSourcePlayback {
     });
     this.onError(error, song, {
       bufferedSeconds: Math.max(0, end - Number(this.audio?.currentTime || 0)),
+      // 把后端给出的中文原因与"是否值得重试"带给提示层。
+      // error.message 来自 readPlaybackErrorText / playbackChunkError。
+      reason: String(error?.message || ''),
+      retryable: error?.retryable !== false,
     });
   }
 

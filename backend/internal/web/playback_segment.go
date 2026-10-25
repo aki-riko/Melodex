@@ -77,7 +77,16 @@ func playbackSegmentHandler(c *gin.Context) {
 	input, err := openPlaybackSegmentInput(c, song)
 	if err != nil {
 		log.Printf("[playback-segment] 打开音频失败 source=%q id=%q: %v", source, id, err)
-		c.String(http.StatusBadGateway, "Failed to open playback source")
+		// 把"能不能靠重试解决"这个关键区别带给前端。
+		//
+		// 真实场景(2026-10):「天龙八部之宿敌」的 QQ 原唱已下架,旧 songmid 在重新
+		// 搜索时查不到,Go 侧回退按"歌名+歌手"相似度兜底,而结果里只剩翻唱/DJ版,
+		// 相似度不足 → "no matching song identity"。用户看到的却只是
+		// "没能取到音频数据,请点一下播放重试" —— 重试多少次都不会好,
+		// 因为问题在上游曲库,不在网络。
+		reason, retryable := classifyPlaybackOpenError(err)
+		c.Header("X-Melodex-Playback-Retryable", boolFlag(retryable))
+		c.String(http.StatusBadGateway, reason)
 		return
 	}
 	defer input.reader.Close()
