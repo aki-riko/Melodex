@@ -412,7 +412,12 @@ const WebPlayerProvider = ({ children }) => {
     // 分块请求、浏览器解码和 SourceBuffer 配额错误都可能到达这里。失败时保留
     // 当前媒体会话和已缓冲音频，禁止再自动换 src；文案不得误报成网络或锁屏。
     const bufferedSeconds = Number(detail?.bufferedSeconds || 0);
-    setNotice(describePipelineFailureNotice({ song: failedSong, bufferedSeconds }));
+    setNotice(describePipelineFailureNotice({
+      song: failedSong,
+      bufferedSeconds,
+      reason: detail?.reason || '',
+      retryable: detail?.retryable !== false,
+    }));
     if (bufferedSeconds <= 0.5) {
       // 一秒钟都没缓冲: 管线已 failed, 不会再自动续播。同步把"正在播放"的界面状态
       // 收回来, 否则播放器仍显示播放中而实际全程静音, 用户只会反复点播放。

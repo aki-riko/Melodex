@@ -474,6 +474,52 @@ assert.match(
   '缺少歌名时也要有可读文案',
 );
 
+// ---- 不可重试的失败必须引导"换源/换歌", 而不是让人反复点播放 ----
+//
+// 真实案例(2026-10-25)：「天龙八部之宿敌」QQ 原唱下架,后端
+//   provider returned no matching song identity
+// 用户看到的却只是"请点一下播放重试",点几十次也不会好。
+// 后端现在会在 502 响应体给出中文原因 + X-Melodex-Playback-Retryable: 0,
+// 前端据此走这个分支。
+{
+  const irreversible = describePipelineFailureNotice({
+    song: { name: '天龙八部之宿敌' },
+    bufferedSeconds: 0,
+    reason: '这首歌在当前音乐源上已不可用(可能已下架)',
+    retryable: false,
+  });
+  assert.match(irreversible, /已不可用/, '不可重试时要说明歌曲不可用');
+  assert.match(irreversible, /换一个源或换一首/, '不可重试时要引导换源/换歌');
+  assert.doesNotMatch(
+    irreversible,
+    /点一下播放重试/,
+    '不可重试时绝不能建议重试 —— 那是无效引导',
+  );
+
+  // 后端没给原因时也要有可读兜底
+  const noReason = describePipelineFailureNotice({
+    song: { name: '某某' }, bufferedSeconds: 0, retryable: false,
+  });
+  assert.match(noReason, /已不可用/, '缺原因时不可重试也要有兜底文案');
+  assert.doesNotMatch(noReason, /点一下播放重试/);
+
+  // 可重试时保留"重试"引导, 并带上后端给的原因
+  const retryableNotice = describePipelineFailureNotice({
+    song: { name: '某某' },
+    bufferedSeconds: 0,
+    reason: '音频源暂时不可用,请稍后重试',
+    retryable: true,
+  });
+  assert.match(retryableNotice, /音频源暂时不可用/, '可重试时应展示后端原因');
+  assert.match(retryableNotice, /点一下播放重试/, '可重试时应保留重试引导');
+
+  // 有缓冲时永远优先"播完已缓冲部分"(不能让用户以为立刻断了)
+  const withBuffer = describePipelineFailureNotice({
+    song: { name: '某某' }, bufferedSeconds: 30, reason: '任意', retryable: false,
+  });
+  assert.match(withBuffer, /将播完已缓冲部分/, '有缓冲时仍应优先告知会播完已缓冲部分');
+}
+
 // 生产故障复现: 每个短块都 502。管线必须在有限次重试后失败, 并把"已缓冲时长=0"
 // 传给 onError —— 这正是上面文案分支的依据。
 const failingAudio = new FakeEventTarget();
