@@ -22,7 +22,7 @@ const Arrow = ({ direction, onClick, disabled }) => {
       disabled={disabled}
       aria-label={direction === 'left' ? '向左滚动' : '向右滚动'}
       className={cn(
-        'absolute top-1/2 z-popover hidden h-9 w-9 -translate-y-1/2 items-center justify-center md:flex',
+        'absolute top-1/2 z-popover hidden h-9 w-9 -translate-y-1/2 items-center justify-center lg:flex',
         'rounded-full border border-border bg-popover text-foreground shadow-popover',
         'transition-opacity duration-base ease-standard',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]',

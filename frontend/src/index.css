@@ -172,7 +172,7 @@
 .app-main--playing.app-main--notice {
   padding-bottom: calc(6.25rem + env(safe-area-inset-bottom));
 }
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   /* 移动端: 常驻 Tab 栏 */
   .app-main {
     padding-bottom: calc(3.25rem + 1.5rem + env(safe-area-inset-bottom));

@@ -45,7 +45,7 @@ const MOBILE_TABS = GROUPS.flatMap((g) => g.items).filter((i) => i.primary);
 export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
   const { user, isAdmin, logout, desktop } = useAuth();
   return (
-    <aside className="hidden h-full w-60 flex-shrink-0 flex-col overflow-y-auto scroll-area border-r border-border bg-black/40 md:flex">
+    <aside className="hidden h-full w-60 flex-shrink-0 flex-col overflow-y-auto scroll-area border-r border-border bg-black/40 lg:flex">
       <a
         href="#home"
         onClick={(e) => { e.preventDefault(); onNavigate('Home'); }}
@@ -302,7 +302,7 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
       {moreOpen && (
         <>
           <div
-            className="fixed inset-0 z-drawer bg-black/50 md:hidden"
+            className="fixed inset-0 z-drawer bg-black/50 lg:hidden"
             onClick={() => setMoreOpen(false)}
             aria-hidden="true"
           />
@@ -310,7 +310,7 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
             role="dialog"
             aria-modal="true"
             aria-label="更多入口"
-            className="fixed inset-x-0 bottom-0 z-drawer max-h-[75vh] overflow-y-auto scroll-area rounded-t-2xl border-t border-border bg-popover md:hidden"
+            className="fixed inset-x-0 bottom-0 z-drawer max-h-[75vh] overflow-y-auto scroll-area rounded-t-2xl border-t border-border bg-popover lg:hidden"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
           >
             <div className="sticky top-0 flex items-center justify-between border-b border-border bg-popover/95 px-4 py-3 backdrop-blur">
@@ -407,7 +407,7 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
       )}
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-tabbar flex items-stretch border-t border-border bg-card md:hidden"
+        className="fixed inset-x-0 bottom-0 z-tabbar flex items-stretch border-t border-border bg-card lg:hidden"
         style={{
           height: 'calc(3.25rem + env(safe-area-inset-bottom))',
           paddingBottom: 'env(safe-area-inset-bottom)',
