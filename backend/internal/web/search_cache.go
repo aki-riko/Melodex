@@ -26,6 +26,7 @@ const searchCacheBackgroundRefreshRows = 20
 // rank-v6: provider 开始在 extra.lyric 里放逐字歌词(网易 YRC / 酷狗 KRC), payload 变了;
 // 不 bump 的话旧行(TTL 24h)会在部署后继续返回行级歌词, 让人以为逐字歌词没生效。
 const searchRankingCacheVersion = "rank-v7"
+
 // native-v4: 网易接上了原生歌词片段检索(netease_source.py, type=1006), 歌词搜索结果
 // 的形状/来源都变了; 同理不 bump 的话旧行会在 24h 内继续返回"只有 QQ 命中 + 其余源歌名
 // 兜底"的旧结果, 看起来像新实现没生效。
@@ -118,10 +119,16 @@ func putCachedSearch(key string, resp jsonSearchResponse) {
 	if err != nil {
 		return
 	}
-	db.Clauses(clause.OnConflict{
+	if tx := db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"payload", "created_at"}),
-	}).Create(&searchCacheRow{Key: key, Payload: string(data), CreatedAt: time.Now()})
+	}).Create(&searchCacheRow{Key: key, Payload: string(data), CreatedAt: time.Now()}); tx.Error != nil {
+		// 写库失败就不并入索引:索引必须反映库里真实存在的内容,
+		// 否则会出现"缓存写失败但索引说查得到"的不一致。
+		return
+	}
+	// 新写入的搜索结果增量并入「搜索结果专辑索引」,避免为了看到新元数据而整体重扫全表。
+	mergeSearchAlbumIndexFromResponse(resp)
 	maybeGCSearchCache()
 }
 
@@ -134,6 +141,9 @@ func deleteCachedSearchKey(key string) (int64, error) {
 		return 0, tx.Error
 	}
 	searchCacheRefreshInFlight.Delete(key)
+	// 无法从删除的行反推它贡献了哪些 (source,song_id),所以整体失效专辑索引;
+	// 下一次 hydration 会重建(一次流式 SELECT)。
+	invalidateSearchAlbumIndex()
 	return tx.RowsAffected, nil
 }
 
@@ -151,15 +161,25 @@ func maybeGCSearchCache() {
 		return
 	}
 	searchCacheLastGC = time.Now()
+	deleted := int64(0)
 	// 删过期
-	db.Where("created_at < ?", time.Now().Add(-searchCacheMaxAge)).Delete(&searchCacheRow{})
+	if tx := db.Where("created_at < ?", time.Now().Add(-searchCacheMaxAge)).Delete(&searchCacheRow{}); tx.Error == nil {
+		deleted += tx.RowsAffected
+	}
 	// 超量则删最旧
 	var n int64
 	if db.Model(&searchCacheRow{}).Count(&n).Error == nil && n > searchCacheMaxRows {
 		var threshold searchCacheRow
 		if err := db.Order("created_at DESC").Offset(searchCacheMaxRows - 1).Limit(1).Find(&threshold).Error; err == nil && threshold.Key != "" {
-			db.Where("created_at < ?", threshold.CreatedAt).Delete(&searchCacheRow{})
+			if tx := db.Where("created_at < ?", threshold.CreatedAt).Delete(&searchCacheRow{}); tx.Error == nil {
+				deleted += tx.RowsAffected
+			}
 		}
+	}
+	if deleted > 0 {
+		// 行被删掉后索引可能还留着已消失的行贡献的元数据。专辑元数据本身是静态信息,
+		// 残留旧值不会造成错误展示;但为了与"删缓存键即失效"的语义一致,这里也整体失效。
+		invalidateSearchAlbumIndex()
 	}
 }
 

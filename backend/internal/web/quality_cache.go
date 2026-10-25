@@ -249,6 +249,16 @@ func markQualityCacheInvalid(song model.Track) {
 	putQualityCache(song, result)
 }
 
+// warmQualityCache 预热一批歌曲的音质缓存。
+//
+// 关键点:「哪些已经缓存过」的判断必须在**请求路径外**完成,而且不能逐首点查。
+// 改造前这里是 for 循环里对每首歌调一次 getCachedQuality(单行点查)——
+// 163 首的歌单就是 163 次 SQL 之后才把 goroutine 起起来,这段时间完全计入用户请求延迟。
+// 现在改成一次 IN 批量查询(按 500 分块,远低于 sqlite 999 / postgres 65535 的绑定参数上限),
+// 查询数从 O(歌曲数) 降到 O(1)。
+//
+// 真实探测(打上游取 size/bitrate)仍然只在后台 goroutine 里做,6 并发上限与
+// qualityWarmInFlight 的 in-flight 去重语义保持不变。
 func warmQualityCache(songs []model.Track, concurrency int) {
 	currentDB := db
 	if currentDB == nil || len(songs) == 0 {
@@ -260,7 +270,8 @@ func warmQualityCache(songs []model.Track, concurrency int) {
 	if concurrency > 6 {
 		concurrency = 6
 	}
-	list := make([]model.Track, 0, len(songs))
+	candidates := make([]warmQualityCandidate, 0, len(songs))
+	keys := make([]string, 0, len(songs))
 	seen := make(map[string]bool)
 	for _, song := range songs {
 		if isLocalMusicSource(song.Source) {
@@ -271,10 +282,20 @@ func warmQualityCache(songs []model.Track, concurrency int) {
 			continue
 		}
 		seen[key] = true
-		if _, ok := getCachedQuality(song, song.Duration); ok {
+		candidates = append(candidates, warmQualityCandidate{song: song, key: key})
+		keys = append(keys, key)
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	// 一次(分块)批量判断已缓存,替代逐首点查。
+	cachedKeys := cachedQualityKeys(currentDB, keys)
+	list := make([]model.Track, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, ok := cachedKeys[candidate.key]; ok {
 			continue
 		}
-		list = append(list, song)
+		list = append(list, candidate.song)
 	}
 	if len(list) == 0 {
 		return
@@ -306,6 +327,50 @@ func warmQualityCache(songs []model.Track, concurrency int) {
 		close(jobs)
 		wg.Wait()
 	}()
+}
+
+type warmQualityCandidate struct {
+	song model.Track
+	key  string
+}
+
+// warmQualityCacheChunkSize 是 IN 查询的每块 key 数。500 对 sqlite(999 绑定参数上限)
+// 与 postgres(65535)都安全。
+const warmQualityCacheChunkSize = 500
+
+// cachedQualityKeys 批量返回仍然有效的音质缓存 key(有效期内)。
+// 与 getCachedQuality 的 TTL 判定保持一致(valid 7 天 / invalid 1 小时),
+// 但只读不写:过期行的清理仍由 getCachedQuality / maybeGCQualityCache 负责。
+func cachedQualityKeys(currentDB *gorm.DB, keys []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(keys))
+	now := time.Now()
+	for start := 0; start < len(keys); start += warmQualityCacheChunkSize {
+		end := start + warmQualityCacheChunkSize
+		if end > len(keys) {
+			end = len(keys)
+		}
+		var rows []qualityCacheRow
+		if err := currentDB.Model(&qualityCacheRow{}).
+			Select("key", "valid", "checked_at").
+			Where("key IN ?", keys[start:end]).
+			Find(&rows).Error; err != nil {
+			// 查询失败时保守返回:当作"全部未缓存",让后台 goroutine 里的
+			// inspectSongQualityCached 自己再判一次缓存(它走 getCachedQuality,
+			// 命中就不会打上游)。功能安全,只是那一刻不能省下探测。
+			continue
+		}
+		for _, row := range rows {
+			ttl := qualityCacheValidTTL
+			if !row.Valid {
+				ttl = qualityCacheInvalidTTL
+			}
+			if now.Sub(row.CheckedAt) > ttl {
+				continue
+			}
+			result[row.Key] = struct{}{}
+		}
+	}
+	return result
 }
 
 func qualityCacheKey(song model.Track) (string, string) {
