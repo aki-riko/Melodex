@@ -54,10 +54,10 @@ const BADGE_TONES = {
   neutral: 'bg-muted text-muted-foreground',
 };
 
-const Badge = ({ tone = 'neutral', title, children }) => (
+const Badge = ({ tone = 'neutral', title, className = '', children }) => (
   <span
     title={title}
-    className={cn('rounded px-1.5 py-0.5 type-micro font-semibold whitespace-nowrap', BADGE_TONES[tone])}
+    className={cn('rounded px-1.5 py-0.5 type-micro font-semibold whitespace-nowrap', BADGE_TONES[tone], className)}
   >
     {children}
   </span>
@@ -439,7 +439,7 @@ const SongRow = ({
             aria-label={coverActionLabel}
             title={coverActionLabel}
             className={cn(
-              'absolute inset-0 z-base hidden items-center justify-center rounded bg-black/45 text-primary md:flex',
+              'absolute inset-0 z-base hidden items-center justify-center rounded bg-black/45 text-primary lg:flex',
               'transition-opacity duration-base ease-standard',
               showPausedCoverPlayButton ? 'opacity-100' : 'opacity-0 hover:opacity-100 focus:opacity-100',
             )}
@@ -452,13 +452,16 @@ const SongRow = ({
           <p className={cn('truncate type-body font-medium', isPlaying ? 'text-primary' : 'text-foreground')}>
             {rowSong.name || '未知歌曲'}
           </p>
+          {/* 徽章区:手机只保留"影响决策"的三类 —— 音质 / 已存到哪里 / 失败。
+              其余(VIP、伴奏、已验、来源、体积)在 375px 下会把信息区挤成 3~4 行,
+              导致每行高度翻倍、列表显得又稀又乱,所以只在 lg+ 显示。 */}
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 type-caption text-muted-foreground">
             <span className="max-w-[12rem] truncate">{rowSong.artist || '未知歌手'}</span>
-            {rowSong.is_vip && <Badge tone="vip">VIP</Badge>}
+            {rowSong.is_vip && <Badge tone="vip" className="hidden lg:inline-flex">VIP</Badge>}
             {q && <Badge tone={q.tone} title={q.title}>{q.label}</Badge>}
-            {instrumentalLabel && <Badge tone="warn">{instrumentalLabel}</Badge>}
+            {instrumentalLabel && <Badge tone="warn" className="hidden lg:inline-flex">{instrumentalLabel}</Badge>}
             {inspectState === 'checking' && <Badge tone="neutral">验证中</Badge>}
-            {inspectState === 'ok' && <Badge tone="ok">已验</Badge>}
+            {inspectState === 'ok' && <Badge tone="ok" className="hidden lg:inline-flex">已验</Badge>}
             {inspectState === 'fail' && <Badge tone="bad">不可播</Badge>}
             {savedBadges.map((label) => (
               <Badge key={label} tone="ok">{label}</Badge>
@@ -466,8 +469,8 @@ const SongRow = ({
             {(cacheState === 'fail' || dlState === 'fail') && (
               <Badge tone="bad" title="上次操作失败，点行内按钮或菜单可重试">失败</Badge>
             )}
-            <span className="type-micro text-muted-foreground/80">{sourceLabel(rowSong.source)}</span>
-            {sizeLabel && <span className="type-micro nums">{sizeLabel}</span>}
+            <span className="hidden lg:inline type-micro text-muted-foreground/80">{sourceLabel(rowSong.source)}</span>
+            {sizeLabel && <span className="hidden lg:inline type-micro nums">{sizeLabel}</span>}
           </div>
           {lyricMatch && (
             <p className="mt-1 flex min-w-0 items-center gap-1.5 type-micro">
@@ -506,7 +509,7 @@ const SongRow = ({
           onClick={handleCoverAction}
           aria-label={coverActionLabel}
           title={coverActionLabel}
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-[filter] duration-base hover:brightness-110 lg:hidden"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-[filter] duration-base hover:brightness-110 lg:hidden"
         >
           <CoverActionIcon size={18} fill="currentColor" aria-hidden="true" />
         </button>

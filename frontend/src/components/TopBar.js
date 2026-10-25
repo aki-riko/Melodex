@@ -99,7 +99,7 @@ export default function TopBar({ currentSection, onNavigate }) {
       <a
         href="#home"
         onClick={(e) => { e.preventDefault(); onNavigate('Home'); }}
-        className="type-title text-primary md:hidden"
+        className="type-title text-primary lg:hidden"
         aria-label="Melodex 首页"
       >
         M<span className="text-foreground">dx</span>
