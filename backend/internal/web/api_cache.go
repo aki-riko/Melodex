@@ -49,6 +49,9 @@ type apiCacheArgs struct {
 	Source     string   `json:"source,omitempty"`
 	ID         string   `json:"id,omitempty"`
 	CategoryID string   `json:"category_id,omitempty"`
+	// Page 供「分类歌单」无限滚动使用:每一页必须单独缓存,
+	// 否则滚到第 2 页会命中第 1 页的缓存(表现为"加载更多没反应")。
+	Page int `json:"page,omitempty"`
 }
 
 type apiCacheEntry struct {
