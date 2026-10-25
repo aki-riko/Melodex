@@ -62,10 +62,16 @@ func TestProviderCatalogExposesSupportedCollections(t *testing.T) {
 		if (GetUserPlaylistsFunc(source) != nil) != want {
 			t.Fatalf("user-playlist source %q exposure mismatch", source)
 		}
-		want = source != "migu"
-		if (GetRecommendFunc(source) != nil) != want {
-			t.Fatalf("recommend source %q exposure mismatch", source)
+		// 5 个 collection 源都具备 recommend 能力。
+		// 历史:migu 在 b681335 迁移时被漏掉(曾断言 source != "migu"),
+		// 但 migu.py 一直有 recommend() 实现,2026-10-25 生产实测可返回 20 张,
+		// 已补回 —— 推荐内容偏少,没有理由排除一个能用的源。
+		if GetRecommendFunc(source) == nil {
+			t.Fatalf("recommend provider %q is not wired", source)
 		}
+	}
+	if got := GetRecommendSourceNames(); !reflect.DeepEqual(got, collectionSources) {
+		t.Fatalf("recommend sources = %v, want %v", got, collectionSources)
 	}
 }
 
