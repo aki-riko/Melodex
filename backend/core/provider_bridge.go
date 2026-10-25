@@ -170,12 +170,14 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 	if err != nil {
 		return providermodel.Track{}, err
 	}
-	candidates, err := client.Search(context.Background(), bridge.SearchRequest{
+	result, err := client.SearchWithRefresh(context.Background(), bridge.SearchRequest{
 		Source: source, Keyword: keyword, Limit: providerSearchLimit(), Cookie: cookie,
 	})
 	if err != nil {
 		return providermodel.Track{}, err
 	}
+	persistRefreshedCookie(source, cookie, result.RefreshedCookie)
+	candidates := result.Songs
 	for _, candidate := range candidates {
 		cacheProviderSong(candidate, cookie)
 		if strings.TrimSpace(candidate.ID) == strings.TrimSpace(song.ID) {
@@ -183,7 +185,16 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 		}
 	}
 	if len(candidates) == 0 {
-		return providermodel.Track{}, errors.New("provider returned no matching songs")
+		// 空的含义有三种, 必须区分 —— 否则会像 2026-10 那次事故一样,
+		// 把"上游限流, 等一会儿就好"误导成"这首歌已下架, 换一首"。
+		switch strings.TrimSpace(result.EmptyReason) {
+		case "rate_limited":
+			return providermodel.Track{}, ErrProviderRateLimited
+		case "paid_or_unavailable":
+			return providermodel.Track{}, ErrProviderPaidOnly
+		default:
+			return providermodel.Track{}, errors.New("provider returned no matching songs")
+		}
 	}
 
 	bestIndex := -1
@@ -196,10 +207,25 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 		}
 	}
 	if bestIndex < 0 || bestScore < 0.75 {
-		return providermodel.Track{}, errors.New("provider returned no matching song identity")
+		// 候选里没有这个 id, 也说明"这首拿不到地址"(付费曲/版权受限),
+		// 而不是"网络抖了"。
+		return providermodel.Track{}, ErrProviderPaidOnly
 	}
 	return candidates[bestIndex], nil
 }
+
+// 播放链路的两种"重试无用但原因不同"的错误, 供 internal/web 分类提示。
+var (
+	// ErrProviderRateLimited: 上游限流(QQ code=2001)。稍等重试可能就好。
+	ErrProviderRateLimited = errors.New("provider rate limited the search")
+	// ErrProviderPaidOnly: 有候选但拿不到下载地址(付费曲/版权受限)。重试无用。
+	ErrProviderPaidOnly = errors.New("provider has no downloadable url for this song")
+)
+
+// IsProviderRateLimited / IsProviderPaidOnly 供上层(web 层)判断错误类型,
+// 避免上层去匹配错误字符串。
+func IsProviderRateLimited(err error) bool { return errors.Is(err, ErrProviderRateLimited) }
+func IsProviderPaidOnly(err error) bool   { return errors.Is(err, ErrProviderPaidOnly) }
 
 func providerDownloadURL(source string, song *providermodel.Track) (string, error) {
 	media, err := ResolveProviderMedia(song)

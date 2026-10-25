@@ -80,6 +80,8 @@ type searchResponse struct {
 	// 寿命, 到期后 sidecar 用 cookie 里的长期凭据换出新 key 并把完整 cookie 回传, 这里
 	// 据此持久化, 用户不必每 3~4 天重新扫码。为空表示本次没有发生续期。
 	RefreshedCookie string `json:"refreshed_cookie,omitempty"`
+	// EmptyReason 见 SearchResult.EmptyReason
+	EmptyReason string `json:"empty_reason,omitempty"`
 }
 
 type lyricResponse struct {
@@ -120,6 +122,12 @@ type SearchResult struct {
 	// RefreshedCookie 非空表示 sidecar 在本次请求中自动续期了该源的 cookie(目前只有 QQ
 	// 会这样: musickey 3 天到期后由长期凭据换新), 调用方应把它持久化。
 	RefreshedCookie string
+	// EmptyReason 在 Songs 为空时说明原因, 便于上层给出"该等还是该换"的提示:
+	//   rate_limited        上游限流(QQ code=2001)—— 等一会儿重试可能就好
+	//   paid_or_unavailable 有候选但都取不到地址(付费曲/版权受限)—— 重试无用
+	//   no_candidates       上游根本没返回候选
+	// 为空表示 sidecar 未提供(非 QQ 源或旧版 sidecar)。
+	EmptyReason string
 }
 
 func (c *Client) Search(ctx context.Context, request SearchRequest) ([]model.Track, error) {
@@ -166,7 +174,11 @@ func (c *Client) SearchWithRefresh(ctx context.Context, request SearchRequest) (
 	if payload.Songs == nil {
 		payload.Songs = []model.Track{}
 	}
-	return SearchResult{Songs: payload.Songs, RefreshedCookie: payload.RefreshedCookie}, nil
+	return SearchResult{
+		Songs:           payload.Songs,
+		RefreshedCookie: payload.RefreshedCookie,
+		EmptyReason:     strings.TrimSpace(payload.EmptyReason),
+	}, nil
 }
 
 func (c *Client) Lyric(ctx context.Context, request LyricRequest) (string, error) {
