@@ -21,6 +21,7 @@ import { FeedbackProvider } from './contexts/FeedbackContext';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import HelpPage from './components/HelpPage';
 import LoadingState from './components/LoadingState';
+import CredentialNotice from './components/CredentialNotice';
 import ErrorBoundary from './ui/ErrorBoundary';
 
 const queryClient = new QueryClient({
@@ -115,6 +116,9 @@ function AppShell() {
               <span>离线模式:只播放本机缓存</span>
             </div>
           )}
+          {/* 凭证过期/即将过期提示。放在离线横幅同一位置 ——
+              这类"能力降级"信息应该常驻可见,而不是埋在设置页里。 */}
+          <CredentialNotice />
           <main
             id="app-main"
             tabIndex={-1}

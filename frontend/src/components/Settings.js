@@ -99,6 +99,17 @@ const missingQQStrongCredential = (source, detail) => (
 
 const credentialHint = (source, loggedIn, qrSupported, detail) => {
   if (!loggedIn) return platformHint(source, loggedIn, qrSupported);
+
+  // 过期相关信息优先 —— 这是用户最需要知道的("为什么音质变差了")。
+  const state = detail?.state;
+  if (state === 'expired') {
+    const basis = detail?.expiry_source === 'probe' ? '在线探测确认已失效' : '凭证有效期已到';
+    return `凭证已过期(${basis})。会员/无损链路已不可用，重新扫码或粘贴新 Cookie 即可恢复。`;
+  }
+  if (state === 'expiring_soon') {
+    return `凭证约 ${formatRemaining(detail.expires_in_seconds)} 后过期，建议提前重新登录以保证无损可用。`;
+  }
+
   if (detail?.error) return `已保存，但真实状态探测失败:${detail.error}`;
   if (missingQQStrongCredential(source, detail)) {
     return '已保存，但缺 QQ 音乐强凭证(qm_keyst/qqmusic_key),VIP/无损可能失效。';
@@ -110,7 +121,47 @@ const credentialHint = (source, loggedIn, qrSupported, detail) => {
     }
     return '真实探测:会员链路不可用。平台 Cookie 是会过期的会话凭证，失效后只能重新扫码或手填新的 Cookie。';
   }
+  // 能算出生效期就顺带告知(QQ 可离线算出,网易只能靠探测)
+  if (state === 'ok' && detail?.expires_in_seconds > 0) {
+    return `凭证有效，约 ${formatRemaining(detail.expires_in_seconds)} 后过期。`;
+  }
   return platformHint(source, loggedIn, qrSupported);
+};
+
+// 把剩余秒数说成人话。过期显示负数时也给出"过期多久"。
+const formatRemaining = (seconds) => {
+  const abs = Math.abs(Number(seconds) || 0);
+  const days = Math.floor(abs / 86400);
+  const hours = Math.floor((abs % 86400) / 3600);
+  const mins = Math.floor((abs % 3600) / 60);
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${mins} 分`;
+  return `${Math.max(1, mins)} 分钟`;
+};
+
+// 凭证过期状态 → 徽章 / 提示文案。
+//
+// 需求背景(用户反馈):凭证过期后没有任何提示,只是音质悄悄变差,
+// 用户不知道为什么,只能自己猜到去重新登录。
+// 现在的结论来自后端三个证据源,可信度依次为:
+//   probe(在线探测)> musickey(cookie 自带创建时间+有效期)> none(无法判断)
+const expiryBadge = (detail) => {
+  const state = detail?.state;
+  if (state === 'expired') {
+    return {
+      text: '已过期',
+      className: 'border-destructive/40 bg-destructive/15 text-destructive',
+      icon: <AlertTriangle size={12} />,
+    };
+  }
+  if (state === 'expiring_soon') {
+    return {
+      text: `剩 ${formatRemaining(detail.expires_in_seconds)}`,
+      className: 'border-yellow-500/35 bg-yellow-500/10 text-yellow-300',
+      icon: <AlertTriangle size={12} />,
+    };
+  }
+  return null;
 };
 
 const credentialBadge = (loggedIn, detail) => {
@@ -121,6 +172,10 @@ const credentialBadge = (loggedIn, detail) => {
       icon: null,
     };
   }
+  // 过期优先:它比"已保存/VIP有效"更能解释"为什么音质变差了"。
+  const expiry = expiryBadge(detail);
+  if (expiry) return expiry;
+
   if (detail?.error || (detail?.vip_checked && !detail.vip)) {
     const hasQQMusicKey = detail?.hints?.has_music_key;
     return {

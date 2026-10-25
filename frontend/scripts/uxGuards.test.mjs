@@ -179,6 +179,10 @@ for (const file of sourceFiles) {
   // ---- 7. UI 层 catch 不得静默 ----
   if (isUiLayer(file)) {
     const content = code;
+    // 豁免标记(silent-ok / ignore-on-purpose)是写在**注释**里的,
+    // 而 code 已经剥掉了注释 —— 如果只在 code 里找,这个豁免机制永远不生效。
+    // 所以同时保留原始源码,按相同索引去查标记。
+    const rawContent = raw;
     const catchRe = /catch\s*(?:\([^)]*\))?\s*\{/g;
     let m;
     while ((m = catchRe.exec(content)) !== null) {
@@ -196,7 +200,9 @@ for (const file of sourceFiles) {
       const body = content.slice(m.index + m[0].length, end).trim();
       const lineNo = content.slice(0, m.index).split('\n').length;
 
-      const silentOk = /silent-ok|ignore-on-purpose/.test(body);
+      // 豁免标记只能写在注释里,所以要在**原始源码**的同一段区间里找。
+      const rawBody = rawContent.slice(m.index, end + 1);
+      const silentOk = /silent-ok|ignore-on-purpose/.test(rawBody);
       if (silentOk) continue;
 
       if (!body) {
