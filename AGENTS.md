@@ -147,6 +147,47 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **前端自建歌单**:Sidebar「我的歌单」组列出 + 「+」弹出菜单(新建空歌单 / 导入 m3u);SongRow 的「+」(ListPlus)弹 AddToPlaylistModal 选歌单加入;MyPlaylist 是歌单详情页(播放全部/移歌/删歌单)。playlistBus 区分推荐歌单(id+source→Trending)vs 自建歌单(collectionId→MyPlaylist);`requestOpenPlaylist` 派发延 60ms 否则切页后目标组件未挂载收不到事件。
 - **m3u/m3u8 导入**(`m3u_import.go`,`POST /music/collections/import_m3u`):解析 `#EXTINF` + 媒体行 → 每条按歌名 `concurrentKeywordSearch` + `sortSongsByRelevance` 取第1名入库 → 返回 {total,matched,skipped}。**关键:优先用媒体行文件名做搜索词**(含分隔符时),因真实 m3u 常 EXTINF 只有歌名、文件名才含"歌手-歌名",用文件名匹配率高(实战 407 首 100% 匹配)。识别 `#EXT-X-` HLS 视频流→拒绝。`.m3u`/`.m3u8` 同一套解析。**坑:前端 importM3U 超时必须放宽到 10min**(默认 30s,百首导入需数分钟会超时失败)。
 
+## 「我的歌单」加载慢:两条根因(2026-10 修复,别再踩)
+
+用户报「每次点歌单都慢」。**这不是一个 bug,是前后端各一处叠加**,两处都必须修;只修一边仍会觉得慢。
+
+### 根因 1(后端,主因):逐首 `payload LIKE` 全表扫描 = O(缺专辑歌曲数) 次全表扫描
+`/music/collections/:id/songs` 每首**缺 album 元数据**的歌都要问一次搜索缓存,改造前是
+`select * from search_cache_rows where payload LIKE '%"id":"<songid>"%' limit 25`。
+生产实测(postgres,238 行 / 9.7MB / 单行最大 240KB):**单次 52ms**,99 首歌单里 15 首缺 → 780ms,
+与线上日志 `GET /collections/8/songs = 755~828ms` 完全吻合;而 19 首且 0 首缺只要 32ms。
+更糟的是**缺 album 的歌往往在搜索缓存里 0 命中**(实测 43 首命中 0)→ 永远写不回 `saved_songs.extra`
+→ **每次打开都重扫**,所以慢是恒定复现而不是偶发。
+修复(`search_album_index.go`):进程内 `(source,song_id) → {album,album_id}` 索引,流式扫一次表构建,
+请求路径只做 O(1) map 查找;TTL 15min(`MUSIC_DL_SEARCH_ALBUM_INDEX_TTL`)、过期先用旧快照后台单飞重建、
+三道上限(5000 行 / 64MB / 20万条)、扫表失败退避 10s 后**退回旧 LIKE 作兜底**(功能不退化)。
+`putCachedSearch` 增量合并不整体失效(否则每次搜索换一次全表重扫);`deleteCachedSearchKey`/GC 删行整体失效,
+并用**代数计数器**防止"扫描期间被删→陈旧快照把已删数据灌回"。
+顺带修掉 `warmQualityCache` 的第二个 N+1:它原先在**请求路径上**逐首 `getCachedQuality` 点查(163 首 = 163 条 SQL)
+才起后台 goroutine,现改为一次 IN 批量(500/块,兼容 sqlite 999 参数上限),真实探测仍留在后台。
+**实测(同库同数据,430 首/8 歌单)**:163 首/43 首缺 **672ms → 4.3ms(约 156×)**;99 首/15 缺 240ms → 3.4ms;
+43 首/8 缺 127ms → 2.2ms;0 首缺 3.6ms → 1.4ms。**响应体与修复前逐字节一致**(四个歌单 SHA256 相同)。
+
+### 根因 2(前端):点一次歌单发**两次**相同请求,且零缓存
+`MyPlaylist` 有两个独立来源都直接调 `load(id)`:
+① 侧栏 `onNavigate` 改 hash → 组件挂载 → hash 恢复 effect 取数;
+② `playlistBus.requestOpenPlaylist` 延 60ms 派发的事件 → 回调里再取数一次。
+没有去重(dev 下 `React.StrictMode` 再翻倍),且无缓存 → 每次切换都重放骨架。
+修复:两个来源**只负责决定 collectionId**(`utils/collectionRoute.js` 的 `mergeCollectionSelection` 收敛成一个 selection),
+取数只由 `useQuery(['collection-songs', String(id)])` 一处完成(StrictMode/并发挂载天然幂等);
+骨架只在 `isLoading`(首次无数据)出现,5 分钟内复访直接用缓存(全局 staleTime 5min),移歌改乐观更新+回滚。
+契约测试 `frontend/scripts/collectionRoute.test.mjs`(`npm run test:collection-route`)直接用 `node_modules` 里
+同一份 react-query v3 断言请求次数,并用「MyPlaylist 里 `getCollectionSongs(` 只能出现 1 处」作静态门禁。
+
+### 排查方法沉淀(可复用)
+- 先用**生产真库**量化,别猜:`docker exec melodex-postgres psql -U melodex -d melodex` 数 `saved_songs`
+  里"缺 album"的行,再 `\timing` 手跑一次 `payload LIKE '...'` 拿到单次成本,两者相乘对日志延迟即可定位。
+- 阶梯现象是 N+1 的指纹:**耗时 ≈ 缺数据行数 × 单次固定成本**(本例 sqlite 基准 ~15ms/首、postgres ~52ms/首)。
+- 回归测试**不要用耗时断言**(CI 抖动),用 GORM logger 计 SQL 条数:`163 首全缺 album 一次请求 ≤ 8 条`;
+  再用 test-only 开关强制退回旧路径断言 `≥163 条 LIKE`,证明这条断言真的锁住了 N+1(否则形同虚设)。
+- 造基准库时若 `quality_cache` 的 key 不是按 Go 的 `qualityCacheKey` 逐字节算出来的,warm 会全部 miss →
+  后台打上游 + 写 SQLite,写锁把基准污染成假慢(实测把 4ms 测成 1181ms)。先用全命中把 warm 静音再测。
+
 ## 平台个人歌单导入(引用型,2026-07 新增)
 
 从已登录平台(当前为网易云/QQ,以 `core.GetUserPlaylistSourceNames()` 为准)一键导入你创建/收藏的歌单。**引用型**:只存 `source+external_id`,打开时后端 `loadImportedCollectionSongs` 实时从平台拉曲目,导入瞬间完成、可在线听、也可整单/逐首下载到 NAS(复用 MyPlaylist 现有下载按钮)。

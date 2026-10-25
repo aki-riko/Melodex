@@ -8,6 +8,9 @@ func startBackgroundCacheMaintenance() {
 	startLocalMusicBackgroundScanner()
 	startSearchCacheBackgroundRefresher()
 	startAPICacheBackgroundRefresher()
+	// 搜索引擎的专辑索引只读 search_cache_rows,启动后异步预建一次:
+	// 部署/重启后的第一次「我的歌单」因此也不用承担那次流式扫表的成本。
+	warmSearchAlbumIndexAsync()
 }
 
 func startLocalMusicBackgroundScanner() {

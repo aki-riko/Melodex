@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from 'react-query';
 import { Download, Ellipsis, HardDriveDownload, Play, Trash2 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
@@ -8,6 +9,11 @@ import { useFeedback } from '../contexts/FeedbackContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
 import { songIdentityKey } from '../utils/songIdentity';
+import {
+  collectionSongsQueryKey,
+  mergeCollectionSelection,
+  parseCollectionIdFromHash,
+} from '../utils/collectionRoute';
 import { useBulkActions } from '../hooks/useBulkActions';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
@@ -18,75 +24,87 @@ import EmptyState from '../ui/EmptyState';
 import Dialog from '../ui/Dialog';
 import { MenuPopover, MenuItem } from '../ui/Menu';
 
+// 稳定的空数组引用:数据未就绪时不要每次渲染都新建 [],否则会不断改变
+// useBulkActions 的 useCallback 依赖,产生无意义的重建。
+const EMPTY_SONGS = [];
+
 // 自建歌单详情页:侧栏点歌单 → 派发 {collectionId,name} → 这里加载歌曲并播放/移除。
 // 批量下载/缓存改用共享 hooks/useBulkActions(原先这里有一份与 Download 页重复的实现)。
+//
+// 取数模型(修「点一次歌单发两次 GET /music/collections/:id/songs」):
+//   hash 路由与 playlistBus 事件**只负责决定要打开哪个歌单**(收敛进 selection),
+//   真正的取数只有 react-query 按 ['collection-songs', String(id)] 这一个 key 做一次。
+//   此前两个来源各自调 load() → 必然两次请求(dev 下 React.StrictMode 再翻倍),
+//   且没有缓存 → 每次点开都重放骨架。
 export default function MyPlaylist() {
-  const [meta, setMeta] = useState(null); // {collectionId, name}
-  const [songs, setSongs] = useState([]);
-  const [loading, setLoading] = useState(false);
+  // {collectionId, name?, kind?}:只是「要打开哪个歌单」,不是数据本身。
+  const [selection, setSelection] = useState(null);
   const [lyric, setLyric] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
-  const loadSeqRef = useRef(0);
+  const lastErrorRef = useRef(null);
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const { user, offline } = useAuth();
   const feedback = useFeedback();
   const { remove, collections } = useCollections();
+  const queryClient = useQueryClient();
   const userId = user?.id || 0;
-  const currentCollection = collections.find((c) => c.id === meta?.collectionId);
-  const currentName = meta?.name || currentCollection?.name || '歌单';
-  const collectionKind = meta?.kind || currentCollection?.kind;
+  const collectionId = selection?.collectionId != null ? selection.collectionId : null;
+  const queryKey = collectionSongsQueryKey(collectionId);
+  const currentCollection = collections.find((c) => c.id === collectionId);
+  const currentName = selection?.name || currentCollection?.name || '歌单';
+  const collectionKind = selection?.kind || currentCollection?.kind;
   const canDeleteCollection = !offline && Boolean(collectionKind) && collectionKind !== 'favorite';
-  const taskKey = userId > 0 && meta?.collectionId != null
-    ? `user:${userId}:collection:${meta.collectionId}`
+  const taskKey = userId > 0 && collectionId != null
+    ? `user:${userId}:collection:${collectionId}`
     : '';
+
+  // 唯一的取数入口:同一歌单并发挂载/StrictMode 双调用都由 react-query 去重,
+  // 缓存命中时不重放骨架(骨架只在 isLoading = 首次无数据时出现)。
+  const state = useQuery(
+    queryKey,
+    async () => {
+      const data = await getCollectionSongs(collectionId);
+      return Array.isArray(data) ? data : (data?.songs || []);
+    },
+    { enabled: collectionId != null && !offline, retry: false },
+  );
+  const songs = offline ? EMPTY_SONGS : (state.data || EMPTY_SONGS);
+  const loading = !offline && collectionId != null && state.isLoading;
+
+  // 失败反馈:按错误对象去重,StrictMode 重复挂载 effect 不会连弹两次。
+  useEffect(() => {
+    const err = state.error;
+    if (!err) { lastErrorRef.current = null; return; }
+    if (lastErrorRef.current === err) return;
+    lastErrorRef.current = err;
+    feedback.error(`加载歌单失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
+  }, [state.error, feedback]);
 
   const {
     bulkDownload, bulkCache, handleDownloadAll, handleCacheAll, hasAnyState,
   } = useBulkActions({ taskKey, songs, scopePrefix: 'collection' });
 
-  const load = useCallback(async (collectionId) => {
-    const seq = loadSeqRef.current + 1;
-    loadSeqRef.current = seq;
-    setLoading(true);
-    if (offline) {
-      if (loadSeqRef.current === seq) { setSongs([]); setLoading(false); }
-      return;
-    }
-    try {
-      const data = await getCollectionSongs(collectionId);
-      const list = Array.isArray(data) ? data : (data?.songs || []);
-      if (loadSeqRef.current === seq) setSongs(list);
-    } catch (err) {
-      if (loadSeqRef.current === seq) setSongs([]);
-      feedback.error(`加载歌单失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
-    } finally {
-      if (loadSeqRef.current === seq) setLoading(false);
-    }
-  }, [offline, feedback]);
-
+  // 来源 1:playlistBus(侧栏点击后延 60ms 派发)。只决定打开哪个歌单。
   useEffect(() => onOpenPlaylist((m) => {
-    if (m && m.collectionId != null) { setMeta(m); load(m.collectionId); }
-  }), [load]);
+    if (!m || m.collectionId == null) return;
+    setSelection((current) => mergeCollectionSelection(current, m));
+  }), []);
 
-  // 哈希路由:刷新/直达/分享 #myplaylist/<id> 时,从 hash 恢复要打开的歌单。
+  // 来源 2:哈希路由(#myplaylist/<id>,刷新/直达/前进后退)。同样只决定打开哪个歌单。
   useEffect(() => {
     const fromHash = () => {
-      const parts = (window.location.hash || '').replace(/^#/, '').split('/');
-      if (parts[0].toLowerCase() === 'myplaylist' && parts[1]) {
-        const id = parseInt(parts[1], 10);
-        if (!isNaN(id)) {
-          setMeta((m) => (m && m.collectionId === id ? m : { collectionId: id, name: '' }));
-          load(id);
-        }
+      const id = parseCollectionIdFromHash(window.location.hash);
+      if (id != null) {
+        setSelection((current) => mergeCollectionSelection(current, { collectionId: id }));
       }
     };
     fromHash();
     window.addEventListener('hashchange', fromHash);
     return () => window.removeEventListener('hashchange', fromHash);
-  }, [load]);
+  }, []);
 
-  if (!meta) {
+  if (!selection) {
     return (
       <EmptyState
         icon={Play}
@@ -96,16 +114,22 @@ export default function MyPlaylist() {
     );
   }
 
+  // 乐观更新 query 缓存 + 失败回滚。query key 必须与读取时同一个来源(collectionSongsQueryKey),
+  // 否则会写到另一个 key 上,出现「移除了但刷新又回来」。
   const handleRemove = async (song) => {
-    if (offline) return;
+    if (offline || collectionId == null) return;
     const targetKey = songIdentityKey(song);
-    const prev = songs;
-    setSongs((s) => s.filter((x) => songIdentityKey(x) !== targetKey));
+    await queryClient.cancelQueries(queryKey);
+    const prev = queryClient.getQueryData(queryKey);
+    queryClient.setQueryData(queryKey, (old) => (
+      (Array.isArray(old) ? old : []).filter((x) => songIdentityKey(x) !== targetKey)
+    ));
     try {
-      await removeSongFromCollection(meta.collectionId, song);
+      await removeSongFromCollection(collectionId, song);
       feedback.success(collectionKind === 'favorite' ? '已取消喜欢' : '已从歌单移除');
     } catch (err) {
-      setSongs(prev);
+      if (prev === undefined) queryClient.invalidateQueries(queryKey);
+      else queryClient.setQueryData(queryKey, prev);
       feedback.error(`移除失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
     }
   };
@@ -131,9 +155,10 @@ export default function MyPlaylist() {
     });
     if (!ok) return;
     try {
-      await remove(meta.collectionId);
-      setMeta(null);
-      setSongs([]);
+      await remove(collectionId);
+      setSelection(null);
+      // 歌单已不存在,清掉它的缓存,避免之后 hash 回到同一 id 时显示已删除的内容。
+      queryClient.removeQueries(queryKey, { exact: true });
       feedback.success('歌单已删除');
     } catch (err) {
       feedback.error(`删除歌单失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);

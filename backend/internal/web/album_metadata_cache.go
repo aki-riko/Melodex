@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
@@ -36,6 +35,9 @@ func hydratePlayHistoryAlbumMetadata(row *playHistoryRow, extra map[string]strin
 	return updated
 }
 
+// hydrateAlbumMetadataFromSearchCache 用搜索结果缓存里已有的专辑元数据补全 extra。
+// 查询走进程内的搜索结果专辑索引(search_album_index.go)的 O(1) 查找,
+// 不再对每首缺 album 的歌发一次全表 LIKE。
 func hydrateAlbumMetadataFromSearchCache(source, songID string, extra map[string]string) (map[string]string, bool) {
 	meta, ok := lookupAlbumMetadataInSearchCache(source, songID)
 	if !ok || meta.Album == "" {
@@ -56,54 +58,33 @@ func hydrateAlbumMetadataFromSearchCache(source, songID string, extra map[string
 	return extra, changed
 }
 
-func lookupAlbumMetadataInSearchCache(source, songID string) (cachedAlbumMetadata, bool) {
-	source = strings.TrimSpace(source)
-	songID = strings.TrimSpace(songID)
-	if db == nil || source == "" || songID == "" {
-		return cachedAlbumMetadata{}, false
-	}
-
-	encodedID, err := json.Marshal(songID)
-	if err != nil {
-		return cachedAlbumMetadata{}, false
-	}
-	pattern := "%\"id\":" + string(encodedID) + "%"
-
-	var rows []searchCacheRow
-	if err := db.Where("payload LIKE ?", pattern).Limit(25).Find(&rows).Error; err != nil {
-		return cachedAlbumMetadata{}, false
-	}
-	for _, row := range rows {
-		var resp jsonSearchResponse
-		if err := json.Unmarshal([]byte(row.Payload), &resp); err != nil {
+func findAlbumMetadataInSongs(songs []model.Track, source, songID string) (cachedAlbumMetadata, bool) {
+	for _, song := range songs {
+		if strings.TrimSpace(song.Source) != source || strings.TrimSpace(song.ID) != songID {
 			continue
 		}
-		if meta, ok := findAlbumMetadataInSongs(resp.Songs, source, songID); ok {
+		if meta, ok := albumMetadataFromTrack(song); ok {
 			return meta, true
 		}
 	}
 	return cachedAlbumMetadata{}, false
 }
 
-func findAlbumMetadataInSongs(songs []model.Track, source, songID string) (cachedAlbumMetadata, bool) {
-	for _, song := range songs {
-		if strings.TrimSpace(song.Source) != source || strings.TrimSpace(song.ID) != songID {
-			continue
-		}
-		album := strings.TrimSpace(song.Album)
-		if album == "" {
-			album = extraMapAlbum(song.Extra)
-		}
-		if album == "" {
-			continue
-		}
-		albumID := strings.TrimSpace(song.AlbumID)
-		if albumID == "" {
-			albumID = extraMapAlbumID(song.Extra)
-		}
-		return cachedAlbumMetadata{Album: album, AlbumID: albumID}, true
+// albumMetadataFromTrack 从一首歌里取专辑名/专辑 ID(含 extra 里的别名键)。
+// 没有专辑名的歌不算命中 —— 与改造前 findAlbumMetadataInSongs 的 continue 语义一致。
+func albumMetadataFromTrack(song model.Track) (cachedAlbumMetadata, bool) {
+	album := strings.TrimSpace(song.Album)
+	if album == "" {
+		album = extraMapAlbum(song.Extra)
 	}
-	return cachedAlbumMetadata{}, false
+	if album == "" {
+		return cachedAlbumMetadata{}, false
+	}
+	albumID := strings.TrimSpace(song.AlbumID)
+	if albumID == "" {
+		albumID = extraMapAlbumID(song.Extra)
+	}
+	return cachedAlbumMetadata{Album: album, AlbumID: albumID}, true
 }
 
 func writeSavedSongExtra(id uint, oldRaw string, extra map[string]string) {

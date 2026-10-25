@@ -29,6 +29,9 @@ func resetCollectionStateForTest() {
 	apiCacheLastGC = time.Time{}
 	searchCacheLastGC = time.Time{}
 	qualityCacheLastGC = time.Time{}
+	// 搜索结果专辑索引是包级全局缓存:不重置会让上一个用例的 search_cache 内容
+	// 泄漏到下一个用例(尤其它的 test-only 强制 legacy 开关),必须在这里清干净。
+	resetSearchAlbumIndexForTest()
 	core.ResetConfigStateForTest()
 }
 
