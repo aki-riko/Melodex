@@ -806,20 +806,29 @@ func buildPlaylistCategoriesResponse(sources []string) jsonPlaylistCategoriesRes
 	return jsonPlaylistCategoriesResponse{Sources: result}
 }
 
+// categoryPlaylistsFunc 是可替换的 provider 钩子(仅为测试;生产用 core 的实现)。
+// 与 userPlaylistsFuncProvider 的写法保持一致。
+var categoryPlaylistsFunc = core.GetCategoryPlaylistsFunc
+
 func buildCategoryPlaylistsResponse(source, categoryID string, page int) jsonPlaylistListResponse {
+	// 先收敛 page 再回显:否则调用方传 0/负数时,响应里的 page 会原样回显非法值,
+	// 前端用它算"下一页"就会错乱。
+	if page < 1 {
+		page = 1
+	}
+	if page > categoryPlaylistsMaxPage {
+		page = categoryPlaylistsMaxPage
+	}
 	resp := jsonPlaylistListResponse{
 		Playlists: []model.RemoteCollection{},
 		Source:    source,
 		Page:      page,
 		PageSize:  categoryPlaylistsPageSize,
 	}
-	fn := core.GetCategoryPlaylistsFunc(source)
+	fn := categoryPlaylistsFunc(source)
 	if fn == nil {
 		resp.Error = "该源不支持歌单分类"
 		return resp
-	}
-	if page < 1 {
-		page = 1
 	}
 	playlists, err := fn(categoryID, page, categoryPlaylistsPageSize)
 	if playlists == nil {
