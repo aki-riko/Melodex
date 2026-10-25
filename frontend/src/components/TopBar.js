@@ -171,7 +171,10 @@ export default function TopBar({ currentSection, onNavigate }) {
                       onClick={() => runSearch(item.keyword)}
                       onMouseEnter={() => setActiveIndex(i)}
                       className={cn(
-                        'flex min-h-touch w-full items-center gap-3 px-3 type-body transition-colors duration-base',
+                        // text-left 必须显式写:<button> 的 UA 默认是 text-align:center,
+                        // 里面 block 的"歌名/最近搜索"两行会继承居中,
+                        // 于是表现为"图标贴最左、文字挤在中间"。
+                        'flex min-h-touch w-full items-center gap-3 px-3 text-left type-body transition-colors duration-base',
                         activeIndex === i ? 'bg-secondary' : 'hover:bg-secondary',
                       )}
                     >

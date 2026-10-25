@@ -463,6 +463,73 @@ for (const file of sourceFiles) {
   checkSegmentedOptions(file, stripComments(readFileSync(file, 'utf8')));
 }
 
+// ---- 14. 整行可点的 <button> 必须显式声明文本对齐 ----
+//
+// 来自一次真实错位:搜索历史下拉项原本有 text-left,重写 TopBar 时丢了,
+// 于是 <button> 的 UA 默认 text-align:center 生效 —— 里面的
+// <span className="block"> 歌名 / 提示 继承了居中,
+// 呈现为"时钟图标贴最左、文字挤在中间",看起来像布局坏了。
+//
+// 构建不会报错、也没有类型检查,只能靠肉眼看;所以这里锁死:
+// 凡是带 w-full 且内部含 block/truncate 文本的按钮,必须写明 text-left/center/right。
+
+// 找 JSX 开标签的结束位置。
+// 不能用 indexOf('>'):属性里的箭头函数 onClick={() => ...} 含有 '>' ,
+// 会让标签被提前截断,className 根本没进检查范围(第一版就是这个 bug,
+// 导致规则对真实代码失效、只对没有箭头函数的合成样例有效)。
+function findJsxTagEnd(chunk) {
+  let brace = 0;
+  let quote = null;
+  for (let i = 0; i < chunk.length; i += 1) {
+    const ch = chunk[i];
+    const prev = chunk.slice(0, i).trimEnd().slice(-1);
+    if (quote) {
+      if (ch === '\\') { i += 1; continue; }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+    if (ch === '{') { brace += 1; continue; }
+    if (ch === '}') { brace = Math.max(0, brace - 1); continue; }
+    // 只在花括号外、且不是箭头函数 '=>' 的 '>' 才视为标签结束
+    if (ch === '>' && brace === 0 && prev !== '=') return i;
+  }
+  return -1;
+}
+
+function checkButtonTextAlign(file, code) {
+  const lines = code.split(/\r?\n/);
+  lines.forEach((line, idx) => {
+    if (!/<button\b/.test(line)) return;
+    const chunk = lines.slice(idx, idx + 30).join('\n');
+    const openEnd = findJsxTagEnd(chunk);
+    if (openEnd < 0) return;
+    const tag = chunk.slice(0, openEnd);
+
+    if (!/\bw-full\b/.test(tag)) return;
+    const body = chunk.slice(openEnd, openEnd + 900);
+    // 只针对"堆叠文本":<span className="block"> 的多行内容会撑满按钮宽度,
+    // text-align:center 会让每行各自居中 → 视觉上就是"图标靠左、文字挤中间"。
+    // 单行 truncate 的 span 在 flex 里宽度收缩到内容,对齐设置看不出来,
+    // 若也算进来会产生大量误报(侧栏歌单行、加歌弹窗列表就是这种)。
+    const hasStackedText = /\bblock\b|line-clamp/.test(body);
+    if (!hasStackedText) return;
+    if (/\btext-left\b|\btext-center\b|\btext-right\b/.test(tag)) return;
+
+    fail(
+      file,
+      idx + 1,
+      'button-text-align',
+      '整行按钮里有 block 堆叠文本但没写 text-left —— ' +
+      '<button> 默认 text-align:center,会让"图标靠左、文字居中"',
+    );
+  });
+}
+
+for (const file of sourceFiles) {
+  checkButtonTextAlign(file, stripComments(readFileSync(file, 'utf8')));
+}
+
 if (failures.length > 0) {
   console.error(`UX 门禁未通过,共 ${failures.length} 项:\n`);
   console.error(failures.join('\n'));
