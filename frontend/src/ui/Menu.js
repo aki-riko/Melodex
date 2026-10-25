@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from './cn';
-import { computeMenuPosition, resolveBoundaryRect, VIEWPORT_MARGIN } from './menuPosition';
+import { computeMenuPosition, pickBoundary, VIEWPORT_MARGIN } from './menuPosition';
 
 // 弹出菜单基础件(行内"更多操作"、侧栏"+"、播放模式等)。
 // 历史问题:各处手写定位,出现多个真实叠层 bug:
 //   · MyPlaylist 的「更多」下拉用 z-40,与播放条同层且 DOM 更早 → 被播放条盖住;
 //   · Sidebar 的「+」菜单用固定坐标 + 内联背景色(#282828)绕过 token;
-//   · 无条件拿 #app-main 当边界 → 侧栏菜单被推到主内容区(离按钮 300px);
+//   · 边界选择错了两次:先无条件用 #app-main(侧栏按钮不在其中 → 被推进主区);
+//     再改成"不在主区就用视口"(→ 菜单越过侧栏右分割线,压到主内容区上);
 //   · panelWidth 写死 240、高度估算 260 → 窄屏右侧溢出、底部误判;
 //   · 只在打开那一刻算一次 → 滚动时菜单脱钩。
-// 现在统一:z-popover 语义层 + 按锚点选边界 + 实测面板尺寸 + 滚动跟随 + 点外部/Esc 关闭。
+//
+// 现在的规则:边界 = **锚点最近的裁切祖先**(侧栏 aside / 主内容区 #app-main)。
+// 也就是"菜单只能出现在它所属的那个面板里",以面板边缘(如侧栏分割线)为切线。
+// 找不到裁切祖先、或容器比面板还窄时才退回视口。
 // 几何计算在 ./menuPosition.js,带契约测试(scripts/menuPosition.test.mjs)。
 //
 // 用法:
@@ -21,6 +25,27 @@ import { computeMenuPosition, resolveBoundaryRect, VIEWPORT_MARGIN } from './men
 
 const ESTIMATED_HEIGHT = 260;
 
+const CLIPPING_OVERFLOW = new Set(['auto', 'scroll', 'hidden', 'clip']);
+
+// 从锚点向上找最近的"裁切祖先" —— overflow 非 visible 且已有实际尺寸的元素。
+// 侧栏 aside(overflow-y-auto)与主内容区 #app-main(overflow-y-auto)都会被找到,
+// 于是侧栏菜单以侧栏分割线为界、行内菜单以主内容区为界,规则统一。
+function findClippingRect(anchor) {
+  let el = anchor?.parentElement;
+  while (el && el !== document.body && el !== document.documentElement) {
+    const style = window.getComputedStyle(el);
+    const clips = CLIPPING_OVERFLOW.has(style.overflowX) || CLIPPING_OVERFLOW.has(style.overflowY);
+    if (clips) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+      }
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
 export function MenuPopover({ anchorRef, open, onClose, align = 'end', width = 'w-60', className = '', children }) {
   const panelRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0, placement: 'down' });
@@ -31,29 +56,28 @@ export function MenuPopover({ anchorRef, open, onClose, align = 'end', width = '
   const reposition = useCallback(() => {
     const anchor = anchorRef?.current;
     if (!anchor) return;
-    const main = document.getElementById('app-main');
-    const boundary = resolveBoundaryRect({
-      anchorInMain: !!main && main.contains(anchor),
+
+    const panel = panelRef.current;
+    const panelWidth = panel?.offsetWidth || 240;
+    const panelHeight = panel?.offsetHeight || ESTIMATED_HEIGHT;
+
+    const boundary = pickBoundary({
+      clippingRect: findClippingRect(anchor),
       viewport: {
         top: 0,
         bottom: window.innerHeight,
         left: 0,
         right: window.innerWidth,
       },
-      mainRect: main
-        ? (() => {
-          const r = main.getBoundingClientRect();
-          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-        })()
-        : null,
+      panelWidth,
+      margin: VIEWPORT_MARGIN,
     });
 
-    const panel = panelRef.current;
     const next = computeMenuPosition({
       anchorRect: anchor.getBoundingClientRect(),
       boundary,
-      panelWidth: panel?.offsetWidth || 240,
-      panelHeight: panel?.offsetHeight || ESTIMATED_HEIGHT,
+      panelWidth,
+      panelHeight,
       align,
       margin: VIEWPORT_MARGIN,
     });
