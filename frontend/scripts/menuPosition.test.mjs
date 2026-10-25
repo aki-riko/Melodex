@@ -46,7 +46,7 @@ const anchorInMain = { top: 200, bottom: 232, left: 600, right: 636 };
   check(b === VIEWPORT, '容器装不下面板时应退回视口', `got ${JSON.stringify(b)}`);
 }
 
-// ---- 4. 核心回归:侧栏菜单必须以分割线为切线,不得越界 ----
+// ---- 4. 核心回归:默认(裁切)模式下,侧栏菜单必须以分割线为切线 ----
 {
   const boundary = pickBoundary({ clippingRect: SIDEBAR, viewport: VIEWPORT, panelWidth: 192 });
   const pos = computeMenuPosition({
@@ -57,15 +57,44 @@ const anchorInMain = { top: 200, bottom: 232, left: 600, right: 636 };
     align: 'end',
   });
   const menuRight = pos.left + 192;
-  // 这是用户明确要求的:以侧栏分割线(240)为切线
   check(
     menuRight <= SIDEBAR.right - VIEWPORT_MARGIN,
-    '侧栏菜单右边缘不得越过侧栏分割线',
+    '裁切模式下侧栏菜单右边缘不得越过侧栏分割线',
     `menuRight=${menuRight}, 分割线=${SIDEBAR.right}`,
   );
-  check(pos.left >= SIDEBAR.left + VIEWPORT_MARGIN, '侧栏菜单不得超出左边缘', `left=${pos.left}`);
-  // 且必须尽量贴着按钮(右对齐),不能因为 clamp 就飘走
-  check(menuRight >= 196, '菜单应贴近按钮而不是飘到左侧', `menuRight=${menuRight}`);
+  check(pos.left >= SIDEBAR.left + VIEWPORT_MARGIN, '菜单不得超出左边缘', `left=${pos.left}`);
+}
+
+// ---- 4b. spillRight 模式:菜单允许越过分割线、向右展开 ----
+// 这是用户明确选择的行为:侧栏 240px 放不下 192px 菜单,
+// "不越分割线"与"在按钮右边"无法同时成立,故选后者(避免向左展开盖住歌单列表)。
+{
+  const boundary = pickBoundary({ clippingRect: null, viewport: VIEWPORT, panelWidth: 192 });
+  const pos = computeMenuPosition({
+    anchorRect: anchorInSidebar, // 按钮右边 232,已到侧栏边缘
+    boundary,
+    panelWidth: 192,
+    panelHeight: 168,
+    align: 'start', // 左边缘对齐按钮左边 → 向右展开
+  });
+  check(pos.left === anchorInSidebar.left, 'spillRight 模式:菜单左边缘应贴按钮左边', `left=${pos.left}, want ${anchorInSidebar.left}`);
+  const menuRight = pos.left + 192;
+  check(menuRight > SIDEBAR.right, 'spillRight 模式:菜单应越过分隔线向右展开', `menuRight=${menuRight} vs 分割线=${SIDEBAR.right}`);
+  check(menuRight <= VIEWPORT.right - VIEWPORT_MARGIN, '但仍不得溢出视口', `menuRight=${menuRight}`);
+}
+
+// ---- 4c. spillRight 也不能在窄屏上溢出右侧(会被 clamp 回来) ----
+{
+  const narrowViewport = { top: 0, bottom: 593, left: 0, right: 300 };
+  const anchorNearEdge = { top: 70, bottom: 102, left: 200, right: 236 };
+  const pos = computeMenuPosition({
+    anchorRect: anchorNearEdge,
+    boundary: narrowViewport,
+    panelWidth: 192,
+    panelHeight: 168,
+    align: 'start',
+  });
+  check(pos.left + 192 <= 300 - VIEWPORT_MARGIN, '窄屏下必须被 clamp 进视口', `right=${pos.left + 192}`);
 }
 
 // ---- 5. 旧 bug 复现:若错误地用视口作边界,菜单就会越界 ----

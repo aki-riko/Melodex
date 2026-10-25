@@ -46,7 +46,20 @@ function findClippingRect(anchor) {
   return null;
 }
 
-export function MenuPopover({ anchorRef, open, onClose, align = 'end', width = 'w-60', className = '', children }) {
+/**
+ * @param {object} props
+ * @param {boolean} [props.spillRight]
+ *   允许菜单越过所属面板、向右展开。默认 false(严格裁在面板内)。
+ *
+ *   为什么需要这个开关:侧栏只有 240px,而「+」菜单近 192px ——
+ *   "不越过侧栏分割线"与"在按钮右边"在数学上无法同时成立。
+ *   用户明确选择了:这类工具栏「+」菜单向右展开、允许盖在内容区上
+ *   (也避免向左展开时压住「我的歌单」列表本身)。
+ *   行内「更多」菜单在主内容区(足够宽),保持默认的裁切行为。
+ */
+export function MenuPopover({
+  anchorRef, open, onClose, align = 'end', width = 'w-60', className = '', children, spillRight = false,
+}) {
   const panelRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0, placement: 'down' });
 
@@ -61,17 +74,22 @@ export function MenuPopover({ anchorRef, open, onClose, align = 'end', width = '
     const panelWidth = panel?.offsetWidth || 240;
     const panelHeight = panel?.offsetHeight || ESTIMATED_HEIGHT;
 
-    const boundary = pickBoundary({
-      clippingRect: findClippingRect(anchor),
-      viewport: {
-        top: 0,
-        bottom: window.innerHeight,
-        left: 0,
-        right: window.innerWidth,
-      },
-      panelWidth,
-      margin: VIEWPORT_MARGIN,
-    });
+    const viewport = {
+      top: 0,
+      bottom: window.innerHeight,
+      left: 0,
+      right: window.innerWidth,
+    };
+
+    // spillRight:显式放弃裁切祖先,直接以视口为界 —— 菜单因此可以伸到面板外。
+    const boundary = spillRight
+      ? viewport
+      : pickBoundary({
+        clippingRect: findClippingRect(anchor),
+        viewport,
+        panelWidth,
+        margin: VIEWPORT_MARGIN,
+      });
 
     const next = computeMenuPosition({
       anchorRect: anchor.getBoundingClientRect(),
@@ -82,7 +100,7 @@ export function MenuPopover({ anchorRef, open, onClose, align = 'end', width = '
       margin: VIEWPORT_MARGIN,
     });
     setPos(next);
-  }, [anchorRef, align]);
+  }, [anchorRef, align, spillRight]);
 
   // 首帧先粗定位(此时还量不到面板尺寸),下一帧拿到真实尺寸后再精确定位。
   useLayoutEffect(() => {

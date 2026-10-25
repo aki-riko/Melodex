@@ -199,7 +199,18 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
         >
           <Plus size={16} />
         </button>
-        <MenuPopover anchorRef={btnRef} open={menuOpen} onClose={() => setMenuOpen(false)} width="w-48">
+        {/* align="start" + spillRight:菜单从按钮左侧起向右展开。
+            侧栏只有 240px、菜单约 192px,"留在侧栏内"与"在按钮右边"在数学上无法同时成立。
+            按用户选择:这类工具栏「+」菜单向右展开、允许盖到内容区上 ——
+            好处是也不会向左展开、把下面的歌单列表整片盖住。 */}
+        <MenuPopover
+          anchorRef={btnRef}
+          open={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          width="w-48"
+          align="start"
+          spillRight
+        >
           <MenuItem icon={Plus} label="新建空歌单" onClick={() => { setMenuOpen(false); setCreating(true); }} />
           <MenuItem
             icon={Download}
