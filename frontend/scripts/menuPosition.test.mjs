@@ -1,16 +1,13 @@
 // ui/Menu 定位算法的契约测试。
 //
 // 为什么需要:菜单定位是纯几何计算,写错的表现是"菜单凭空出现在页面中间"
-// —— 构建与门禁都抓不到,只能靠肉眼看。而这个 bug 已经真实发生过一次:
+// 或"菜单越过侧栏分割线、压在主内容区上" —— 构建与门禁都抓不到,只能靠肉眼看。
+// 这两个 bug 都真实发生过,所以把几何计算抽成纯函数并锁死语义。
 //
-//   侧栏「+」按钮 x 区间约 [278, 310],`#app-main` 的左边缘在 332。
-//   旧逻辑无条件拿 #app-main 当边界:
-//     left = 310 - 240 = 70
-//     clamp = max(8 + 332, 70) = 340   ← 比按钮右边还靠右 30px,看起来完全错位
-//
-// 所以把"选边界 + 算 left/top + 上下翻转"抽成纯函数,在这里锁死。
+// 语义一句话:**菜单只能出现在它所属的那个面板里** ——
+// 侧栏「+」菜单以侧栏右分割线为切线,行内菜单以主内容区为界。
 
-import { resolveBoundaryRect, computeMenuPosition } from '../src/ui/menuPosition.js';
+import { pickBoundary, computeMenuPosition, VIEWPORT_MARGIN } from '../src/ui/menuPosition.js';
 
 let failures = 0;
 const check = (cond, label, extra = '') => {
@@ -20,29 +17,38 @@ const check = (cond, label, extra = '') => {
   }
 };
 
-// 模拟一次 792x593 的窗口:侧栏 240px,主区从 x=332 开始(有 1px 边框视差忽略)
+// 一次 792x593 窗口:侧栏 0~240,主内容区 240~792
 const VIEWPORT = { top: 0, bottom: 593, left: 0, right: 792 };
-const MAIN_RECT = { top: 56, bottom: 545, left: 332, right: 792 };
-const anchorInSidebar = { top: 70, bottom: 102, left: 278, right: 310 };
+const SIDEBAR = { top: 0, bottom: 593, left: 0, right: 240 };
+const MAIN = { top: 56, bottom: 545, left: 240, right: 792 };
+// 侧栏「+」按钮贴在右边缘
+const anchorInSidebar = { top: 70, bottom: 102, left: 196, right: 232 };
 const anchorInMain = { top: 200, bottom: 232, left: 600, right: 636 };
 
-// ---- 1. 选边界 ----
+// ---- 1. pickBoundary:有裁切祖先就用它(哪怕它比视口小) ----
 {
-  // 锚点在侧栏 → 用视口,不能用 #app-main
-  const b = resolveBoundaryRect({ anchorInMain: false, viewport: VIEWPORT, mainRect: MAIN_RECT });
-  check(b.left === 0, '侧栏锚点应使用视口作为边界 left', `got left=${b.left}`);
-  check(b.right === 792, '侧栏锚点边界 right 应为视口宽度', `got right=${b.right}`);
+  const b = pickBoundary({ clippingRect: SIDEBAR, viewport: VIEWPORT, panelWidth: 192 });
+  check(b === SIDEBAR, '有裁切祖先时应以它为边界(不得退回视口)', `got ${JSON.stringify(b)}`);
 }
 {
-  // 锚点在主内容区 → 用 #app-main(它才是真正裁切/滚动的容器)
-  const b = resolveBoundaryRect({ anchorInMain: true, viewport: VIEWPORT, mainRect: MAIN_RECT });
-  check(b.left === 332, '主区锚点应用 #app-main 的 left', `got left=${b.left}`);
-  check(b.bottom === 545, '主区锚点应用 #app-main 的 bottom', `got bottom=${b.bottom}`);
+  const b = pickBoundary({ clippingRect: MAIN, viewport: VIEWPORT, panelWidth: 192 });
+  check(b === MAIN, '主内容区锚点应以主区为边界', `got ${JSON.stringify(b)}`);
+}
+// ---- 2. 没有裁切祖先 → 视口 ----
+{
+  const b = pickBoundary({ clippingRect: null, viewport: VIEWPORT, panelWidth: 192 });
+  check(b === VIEWPORT, '无裁切祖先时应退回视口', `got ${JSON.stringify(b)}`);
+}
+// ---- 3. 容器比面板还窄 → 退回视口(否则会被压成 0 宽) ----
+{
+  const narrow = { top: 0, bottom: 593, left: 0, right: 100 };
+  const b = pickBoundary({ clippingRect: narrow, viewport: VIEWPORT, panelWidth: 192 });
+  check(b === VIEWPORT, '容器装不下面板时应退回视口', `got ${JSON.stringify(b)}`);
 }
 
-// ---- 2. 侧栏「+」菜单:必须贴着按钮左侧展开,不能被推到主区 ----
+// ---- 4. 核心回归:侧栏菜单必须以分割线为切线,不得越界 ----
 {
-  const boundary = resolveBoundaryRect({ anchorInMain: false, viewport: VIEWPORT, mainRect: MAIN_RECT });
+  const boundary = pickBoundary({ clippingRect: SIDEBAR, viewport: VIEWPORT, panelWidth: 192 });
   const pos = computeMenuPosition({
     anchorRect: anchorInSidebar,
     boundary,
@@ -50,75 +56,85 @@ const anchorInMain = { top: 200, bottom: 232, left: 600, right: 636 };
     panelHeight: 168,
     align: 'end',
   });
-  // align=end:面板右边对齐按钮右边 → left = 310 - 192 = 118
-  check(pos.left === 118, '侧栏菜单 left 应对齐按钮右边', `got left=${pos.left}, want 118`);
-  // 关键回归断言:不能让菜单跑到主内容区去(旧 bug 会得到 340)
-  check(pos.left < anchorInSidebar.right, '菜单左边缘必须在按钮右边之内(不得被推到主区)', `left=${pos.left} vs anchor.right=${anchorInSidebar.right}`);
-  check(pos.left >= 8, '菜单不能超出视口左侧安全边距', `left=${pos.left}`);
+  const menuRight = pos.left + 192;
+  // 这是用户明确要求的:以侧栏分割线(240)为切线
+  check(
+    menuRight <= SIDEBAR.right - VIEWPORT_MARGIN,
+    '侧栏菜单右边缘不得越过侧栏分割线',
+    `menuRight=${menuRight}, 分割线=${SIDEBAR.right}`,
+  );
+  check(pos.left >= SIDEBAR.left + VIEWPORT_MARGIN, '侧栏菜单不得超出左边缘', `left=${pos.left}`);
+  // 且必须尽量贴着按钮(右对齐),不能因为 clamp 就飘走
+  check(menuRight >= 196, '菜单应贴近按钮而不是飘到左侧', `menuRight=${menuRight}`);
 }
 
-// ---- 3. 主内容区行内菜单:仍以 #app-main 为界 ----
+// ---- 5. 旧 bug 复现:若错误地用视口作边界,菜单就会越界 ----
+// 这条是"反证"—— 它说明为什么 4 是必要的:同样的锚点,用视口算就会越过分割线。
 {
-  const boundary = resolveBoundaryRect({ anchorInMain: true, viewport: VIEWPORT, mainRect: MAIN_RECT });
-  const pos = computeMenuPosition({
-    anchorRect: anchorInMain,
-    boundary,
+  const wrong = computeMenuPosition({
+    anchorRect: { top: 70, bottom: 102, left: 500, right: 536 }, // 假设按钮在主区
+    boundary: VIEWPORT,
     panelWidth: 256,
-    panelHeight: 320,
+    panelHeight: 200,
     align: 'end',
   });
-  check(pos.left === 636 - 256, '行内菜单 left 应对齐按钮右边', `got ${pos.left}`);
-  check(pos.left >= 332 + 8, '菜单不能越过主区左边缘', `left=${pos.left}`);
-  check(pos.left + 256 <= 792 - 8, '菜单不能超出视口右侧', `right=${pos.left + 256}`);
+  // 用视口时 left = 536-256 = 280,已经越过侧栏分割线 240
+  check(wrong.left > SIDEBAR.right, '（反证）视口边界会让菜单越过侧栏分割线', `left=${wrong.left}`);
 }
 
-// ---- 4. 上下翻转 ----
+// ---- 6. 行内菜单仍以主内容区为界 ----
 {
-  // 靠近容器底部 → 应向上展开
+  const boundary = pickBoundary({ clippingRect: MAIN, viewport: VIEWPORT, panelWidth: 256 });
+  const pos = computeMenuPosition({
+    anchorRect: anchorInMain, boundary, panelWidth: 256, panelHeight: 320, align: 'end',
+  });
+  check(pos.left === 636 - 256, '行内菜单 left 应对齐按钮右边', `got ${pos.left}`);
+  check(pos.left >= MAIN.left + VIEWPORT_MARGIN, '菜单不能越过主区左边缘', `left=${pos.left}`);
+  check(pos.left + 256 <= MAIN.right - VIEWPORT_MARGIN, '菜单不能超出主区右边缘', `right=${pos.left + 256}`);
+}
+
+// ---- 7. 上下翻转 ----
+{
   const boundary = { top: 0, bottom: 545, left: 0, right: 792 };
   const nearBottom = { top: 480, bottom: 512, left: 100, right: 136 };
   const pos = computeMenuPosition({ anchorRect: nearBottom, boundary, panelWidth: 192, panelHeight: 260, align: 'end' });
   check(pos.placement === 'up', '底部空间不足时应向上展开', `got ${pos.placement}`);
-  check(pos.top === 480 - 8, '向上展开时 top = 锚点 top - 边距', `got ${pos.top}`);
+  check(pos.top === 480 - VIEWPORT_MARGIN, '向上展开时 top = 锚点 top - 边距', `got ${pos.top}`);
 }
 {
-  // 上方空间也不足时,保持向下(总比无处可放好)
   const boundary = { top: 0, bottom: 545, left: 0, right: 792 };
   const middle = { top: 200, bottom: 232, left: 100, right: 136 };
   const pos = computeMenuPosition({ anchorRect: middle, boundary, panelWidth: 192, panelHeight: 260, align: 'end' });
   check(pos.placement === 'down', '中间位置应向下展开', `got ${pos.placement}`);
-  check(pos.top === 232 + 8, '向下展开时 top = 锚点 bottom + 边距', `got ${pos.top}`);
+  check(pos.top === 232 + VIEWPORT_MARGIN, '向下展开时 top = 锚点 bottom + 边距', `got ${pos.top}`);
 }
 
-// ---- 5. 必须用实测面板宽度,而不是写死值 ----
+// ---- 8. 必须用实测面板宽度 ----
 {
   const boundary = { top: 0, bottom: 545, left: 0, right: 792 };
   const anchor = { top: 100, bottom: 132, left: 700, right: 736 };
   const wide = computeMenuPosition({ anchorRect: anchor, boundary, panelWidth: 256, panelHeight: 100, align: 'end' });
   const narrow = computeMenuPosition({ anchorRect: anchor, boundary, panelWidth: 192, panelHeight: 100, align: 'end' });
-  check(wide.left !== narrow.left, '不同面板宽度必须得到不同 left(证明用的是实测宽度)', `wide=${wide.left} narrow=${narrow.left}`);
-  check(wide.left + 256 <= 792 - 8, '宽面板也不能溢出视口', `right=${wide.left + 256}`);
+  check(wide.left !== narrow.left, '不同面板宽度必须得到不同 left(证明用实测宽度)', `wide=${wide.left} narrow=${narrow.left}`);
 }
 
-// ---- 6. 锚点贴近视口右边缘时的 clamp ----
+// ---- 9. 贴边 clamp ----
 {
   const boundary = { top: 0, bottom: 545, left: 0, right: 792 };
   const edge = { top: 100, bottom: 132, left: 770, right: 790 };
   const pos = computeMenuPosition({ anchorRect: edge, boundary, panelWidth: 256, panelHeight: 100, align: 'end' });
-  check(pos.left + 256 <= 792 - 8, '贴右边缘时必须被 clamp 进视口', `right=${pos.left + 256}`);
+  check(pos.left + 256 <= 792 - VIEWPORT_MARGIN, '贴右边缘必须被 clamp 进视口', `right=${pos.left + 256}`);
 }
-
-// ---- 7. 锚点贴近视口左边缘 ----
 {
   const boundary = { top: 0, bottom: 545, left: 0, right: 792 };
   const edge = { top: 100, bottom: 132, left: 2, right: 30 };
   const pos = computeMenuPosition({ anchorRect: edge, boundary, panelWidth: 256, panelHeight: 100, align: 'start' });
-  check(pos.left >= 8, '左边缘时必须留出安全边距', `left=${pos.left}`);
+  check(pos.left >= VIEWPORT_MARGIN, '左边缘必须留出安全边距', `left=${pos.left}`);
 }
 
 if (failures > 0) {
   console.error(`\nmenuPosition 契约测试失败 ${failures} 项`);
   process.exitCode = 1;
 } else {
-  console.log('menuPosition 契约测试通过：边界选择 / 侧栏贴按钮 / 主区 clamp / 上下翻转 / 实测宽度 全部符合预期。');
+  console.log('menuPosition 契约测试通过：容器边界 / 侧栏分割线切线 / 主区 clamp / 上下翻转 / 实测宽度 / 贴边安全距 全部符合预期。');
 }
