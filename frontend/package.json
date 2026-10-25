@@ -38,6 +38,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:ux": "node scripts/uxGuards.test.mjs",
+    "test:quality": "node scripts/quality.test.mjs",
     "test:source-boundary": "node scripts/sourceBoundary.test.mjs",
     "test:song-url": "node scripts/songUrlExtra.test.mjs",
     "test:wake": "node scripts/appWakePolicy.test.mjs && node scripts/swForceReload.test.mjs && node scripts/pwaUpdatePolicy.test.mjs",
