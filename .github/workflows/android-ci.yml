@@ -107,6 +107,7 @@ jobs:
         run: |
           npm run test:source-boundary
           npm run test:song-url
+          npm run test:quality
           npm run test:wake
           npm run test:downloads
           npm run test:player

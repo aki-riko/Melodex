@@ -35,31 +35,14 @@ import { formatDuration, formatBytes } from '../utils/displayFormat';
 import HighlightedLyricMatch from './HighlightedLyricMatch';
 import { MenuPopover, MenuItem, MenuDivider } from '../ui/Menu';
 import { cn } from '../ui/cn';
+import { resolveQuality } from '../utils/quality';
 
 const fmtSec = (sec) => (sec ? formatDuration(sec) : '—');
 
-// 音质徽章:颜色只表达"有损/无损"这一个二元差异,
+// 音质徽章的颜色只表达"有损/无损"这一个二元差异,
 // 不再让 VIP、无损、来源全都抢同一块绿色(此前两枚同款绿片无法区分)。
-const qualityOf = (song) => {
-  const ext = (song.ext || '').toLowerCase();
-  const br = song.bitrate || 0;
-  if (ext === 'flac' || br >= 800) return { label: '无损', tone: 'lossless' };
-  if (br >= 320) return { label: '高品', tone: 'high' };
-  if (br > 0) return { label: `${Math.round(br)}k`, tone: 'plain' };
-  return null;
-};
-
-const realQualityOf = (liveInfo, song) => {
-  if (liveInfo && liveInfo.state === 'ok') {
-    const br = liveInfo.bitrateNum || 0;
-    if (br >= 800) return { label: '无损', tone: 'lossless', title: '真实下载音质' };
-    if (br >= 320) return { label: '高品', tone: 'high', title: '真实下载音质' };
-    if (br > 0) return { label: `${Math.round(br)}k`, tone: 'plain', title: '真实下载音质' };
-    return { label: '标准', tone: 'plain', title: '真实下载音质' };
-  }
-  return qualityOf(song);
-};
-
+// 推算逻辑(三路来源与优先级)已抽到 utils/quality.js 并带 Node 契约测试 ——
+// 那里有「体积×8÷时长反推码率」这类容易写错且不易察觉的数值逻辑。
 const BADGE_TONES = {
   lossless: 'bg-primary/15 text-primary',
   high: 'bg-success/15 text-success',
@@ -121,13 +104,20 @@ const CoverThumb = ({ song, size = 44 }) => {
 // 列表表头:列宽与行布局共用同一套 grid 定义,避免"表头/行/窄屏"三者错位。
 // 末列必须容得下「收藏(36px) + 更多(36px)」两个按钮 —— 曾按 2.5rem 写,
 // 结果两个按钮在窄列里互相挤压。这里给 5rem(80px),并让移动端同样留足。
+//
+// ⚠️ 这里**不设独立的"音质"列**。
+// 音质不是每首歌都有的数据:搜索结果的 bitrate 是上游预览值,
+// 而自建歌单存的是 songWritePayload(见 utils/songFields.js),它只写
+// id/source/name/artist/album/cover/duration/extra —— 压根没有 bitrate/ext。
+// 所以一旦做成独立列,自建歌单/最近播放这类页面就会整列渲染成 "—"(实测 462 首歌单全是破折号),
+// 既占宽又制造视觉空洞。正确做法是让它以"行内徽章"出现:有就显示,没有就不占位。
 const ROW_GRID =
-  'grid grid-cols-[minmax(0,1fr)_5rem] lg:grid-cols-[2rem_minmax(0,1.6fr)_7rem_minmax(6rem,0.8fr)_3.5rem_5rem] items-center gap-3 px-3';
+  'grid grid-cols-[minmax(0,1fr)_5rem] lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(6rem,0.8fr)_3.5rem_5rem] items-center gap-3 px-3';
 
 export const SongListHeader = ({ className = '' }) => (
   <div
     className={cn(
-      'hidden lg:grid lg:grid-cols-[2rem_minmax(0,1.6fr)_7rem_minmax(6rem,0.8fr)_3.5rem_5rem]',
+      'hidden lg:grid lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(6rem,0.8fr)_3.5rem_5rem]',
       'items-center gap-3 px-3 pb-1.5 type-micro font-semibold uppercase tracking-wider text-muted-foreground',
       className,
     )}
@@ -135,7 +125,6 @@ export const SongListHeader = ({ className = '' }) => (
   >
     <span className="text-right">#</span>
     <span>歌名 / 歌手</span>
-    <span>音质</span>
     <span>专辑</span>
     <span className="text-right">时长</span>
     <span className="text-right">操作</span>
@@ -197,7 +186,7 @@ const SongRow = ({
   const instrumentalLabel = instrumentalLabelOf(rowSong);
   const { setAddTarget } = useCollections();
   const { user, offline } = useAuth();
-  const { isDownloaded } = useServerDownloads();
+  const { isDownloaded, downloadedCopy } = useServerDownloads();
   const feedback = useFeedback();
   const userId = user?.id || 0;
   const [dlState, setDlState] = useState('');
@@ -214,8 +203,13 @@ const SongRow = ({
 
   const cacheable = canCacheSong(rowSong);
   const effectiveLiveInfo = manualLiveInfo || liveInfo;
-  const q = realQualityOf(effectiveLiveInfo, rowSong);
-  const sizeLabel = formatBytes(effectiveLiveInfo?.sizeBytes || rowSong.size);
+  // 服务器副本记录(含磁盘 ext / size_bytes)。有了它,即使歌曲记录里没有 bitrate/ext
+  // (自建歌单、最近播放就是这种情况),也能显示真实音质与大小。
+  const serverCopy = downloadedCopy(rowSong);
+  const q = resolveQuality(effectiveLiveInfo, serverCopy, rowSong);
+  const sizeLabel = formatBytes(
+    effectiveLiveInfo?.sizeBytes || serverCopy?.size_bytes || rowSong.size,
+  );
   const rowKey = songIdentityKey(rowSong);
   const downloadedToServer = isDownloaded(rowSong);
   const favoriteCacheKey = `${userId}:${rowKey}`;
@@ -484,11 +478,6 @@ const SongRow = ({
             </p>
           )}
         </div>
-      </div>
-
-      {/* 音质列(桌面) */}
-      <div className="hidden lg:block">
-        {q ? <Badge tone={q.tone} title={q.title}>{q.label}</Badge> : <span className="type-micro text-muted-foreground">—</span>}
       </div>
 
       {/* 专辑列(桌面) */}
