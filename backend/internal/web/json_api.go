@@ -202,7 +202,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 			c.JSON(400, gin.H{"error": "该源不支持歌单分类"})
 			return
 		}
-		args := apiCacheArgs{Source: request.Source, CategoryID: request.CategoryID}
+		args := apiCacheArgs{Source: request.Source, CategoryID: request.CategoryID, Page: request.Page}
 		key := apiCacheKey(apiCacheNamespaceCategoryPlaylists, args)
 		if entry, ok := getAPICacheEntry(key); ok {
 			var cached jsonPlaylistListResponse
@@ -215,7 +215,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 				return
 			}
 		}
-		out := buildCategoryPlaylistsResponse(request.Source, request.CategoryID)
+		out := buildCategoryPlaylistsResponse(request.Source, request.CategoryID, request.Page)
 		if len(out.Playlists) > 0 {
 			putAPICache(key, apiCacheNamespaceCategoryPlaylists, args, out)
 		}
@@ -362,6 +362,13 @@ type jsonPlaylistListResponse struct {
 	Playlists []model.RemoteCollection `json:"playlists"`
 	Source    string                   `json:"source"`
 	Error     string                   `json:"error,omitempty"`
+	// Page / HasMore / PageSize 用于前端无限滚动。
+	// HasMore 的判定不能靠"本页是否满额"以外的东西:上游不告诉我们总数,
+	// 只能以"本页返回条数 == 请求条数"推断"可能还有下一页"。
+	// 代价是最后恰好多出一页空结果时会多请求一次 —— 前端遇到空页即停止,可接受。
+	Page     int  `json:"page,omitempty"`
+	PageSize int  `json:"page_size,omitempty"`
+	HasMore  bool `json:"has_more"`
 	cachedResponseMeta
 }
 
@@ -453,12 +460,27 @@ func jsonSearchHandler(c *gin.Context) {
 type categoryPlaylistsRequest struct {
 	Source     string
 	CategoryID string
+	Page       int
 }
 
+// categoryPlaylistsMaxPage 是分类歌单翻页的硬上限,防止有人构造 page=999999 打穿上游。
+const categoryPlaylistsMaxPage = 40
+
+// categoryPlaylistsPageSize 是每页条数。前端无限滚动按页追加。
+const categoryPlaylistsPageSize = 30
+
 func categoryPlaylistsRequestFromContext(c *gin.Context) categoryPlaylistsRequest {
+	page, _ := strconv.Atoi(strings.TrimSpace(c.Query("page")))
+	if page < 1 {
+		page = 1
+	}
+	if page > categoryPlaylistsMaxPage {
+		page = categoryPlaylistsMaxPage
+	}
 	return categoryPlaylistsRequest{
 		Source:     strings.TrimSpace(c.Query("source")),
 		CategoryID: strings.TrimSpace(c.Query("category_id")),
+		Page:       page,
 	}
 }
 
@@ -784,14 +806,22 @@ func buildPlaylistCategoriesResponse(sources []string) jsonPlaylistCategoriesRes
 	return jsonPlaylistCategoriesResponse{Sources: result}
 }
 
-func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListResponse {
-	resp := jsonPlaylistListResponse{Playlists: []model.RemoteCollection{}, Source: source}
+func buildCategoryPlaylistsResponse(source, categoryID string, page int) jsonPlaylistListResponse {
+	resp := jsonPlaylistListResponse{
+		Playlists: []model.RemoteCollection{},
+		Source:    source,
+		Page:      page,
+		PageSize:  categoryPlaylistsPageSize,
+	}
 	fn := core.GetCategoryPlaylistsFunc(source)
 	if fn == nil {
 		resp.Error = "该源不支持歌单分类"
 		return resp
 	}
-	playlists, err := fn(categoryID, 1, 120)
+	if page < 1 {
+		page = 1
+	}
+	playlists, err := fn(categoryID, page, categoryPlaylistsPageSize)
 	if playlists == nil {
 		playlists = []model.RemoteCollection{}
 	}
@@ -799,6 +829,8 @@ func buildCategoryPlaylistsResponse(source, categoryID string) jsonPlaylistListR
 		playlists[i].Source = source
 	}
 	resp.Playlists = playlists
+	// 满页才认为还有下一页;不满页说明已到底。
+	resp.HasMore = len(playlists) >= categoryPlaylistsPageSize && page < categoryPlaylistsMaxPage
 	if err != nil {
 		resp.Error = fmt.Sprintf("获取分类歌单失败: %v", err)
 	}
@@ -1388,7 +1420,7 @@ func refreshAPICacheAsync(key, namespace string, args apiCacheArgs) {
 				putAPICache(key, namespace, args, out)
 			}
 		case apiCacheNamespaceCategoryPlaylists:
-			out := buildCategoryPlaylistsResponse(args.Source, args.CategoryID)
+			out := buildCategoryPlaylistsResponse(args.Source, args.CategoryID, args.Page)
 			if len(out.Playlists) > 0 {
 				putAPICache(key, namespace, args, out)
 			}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
@@ -40,6 +41,23 @@ func listCollectionsRoute(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取歌单失败"})
 		return
 	}
+	// 「我喜欢」必须始终置顶。
+	//
+	// 之前只按 id DESC 排,而「我喜欢」是注册时为每个用户预先创建的那一条(id 最小),
+	// 于是用户每新建一个歌单,它就被往后挤一位 —— 建了 6 个歌单后它排到第 7,
+	// 用户会以为"我喜欢不见了"。收藏是高频动作,入口必须固定在第一位。
+	//
+	// 用 Go 侧排序而不是 SQL 的 CASE WHEN:本项目同时支持 sqlite 与 postgres
+	// (MUSIC_DL_DATABASE_DRIVER),在应用层排可以保证两种驱动行为完全一致,
+	// 也避免把排序规则散进 SQL 字符串。
+	sort.SliceStable(collections, func(i, j int) bool {
+		iFav := collections[i].Kind == collectionKindFavorite
+		jFav := collections[j].Kind == collectionKindFavorite
+		if iFav != jFav {
+			return iFav // 「我喜欢」永远在前
+		}
+		return collections[i].ID > collections[j].ID // 其余维持 id 倒序(新建的在前)
+	})
 	c.JSON(http.StatusOK, collections)
 }
 

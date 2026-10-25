@@ -138,13 +138,15 @@ export const getPlaylistCategories = async (sources = []) => {
   return data; // { sources: [{source, source_name, categories:[{id,name,group}], error}] }
 };
 
-// 某分类下的歌单
-export const getCategoryPlaylists = async (source, categoryId) => {
+// 某分类下的歌单(支持翻页,供首页无限滚动使用)。
+// 返回 { playlists, source, error, page, page_size, has_more }
+export const getCategoryPlaylists = async (source, categoryId, page = 1) => {
   const params = new URLSearchParams();
   params.set('source', source);
   if (categoryId) params.set('category_id', categoryId);
+  if (page > 1) params.set('page', String(page));
   const { data } = await client.get(`/api/v1/category_playlists?${params.toString()}`);
-  return data; // { playlists, source, error }
+  return data;
 };
 
 // 歌单详情(歌曲列表)

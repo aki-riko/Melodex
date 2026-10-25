@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useQuery } from 'react-query';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useInfiniteQuery } from 'react-query';
 import { Compass, Music, Play, RefreshCw } from 'lucide-react';
 import { getRecommend, getPlaylistCategories, getCategoryPlaylists, coverProxyUrl } from '../services/musicdl';
 import { onOpenPlaylist } from '../services/playlistBus';
@@ -31,14 +31,18 @@ const CATEGORY_SOURCES = ['netease', 'migu'];
 // 「全部」这类无意义的分类(点进去等于回到推荐,占了位置没增加内容)
 const IGNORED_CATEGORY_NAMES = new Set(['全部', '全部歌单', '推荐']);
 
-function PlaylistCard({ playlist, onOpen, showSource = false }) {
+function PlaylistCard({ playlist, onOpen, showSource = false, className = '' }) {
   const [failed, setFailed] = useState(false);
   const cover = failed ? '' : coverProxyUrl(playlist);
   return (
     <button
       type="button"
       onClick={() => onOpen(playlist)}
-      className="group w-[9rem] rounded-lg border border-transparent p-2 text-left transition-colors duration-base ease-standard hover:border-border hover:bg-secondary/60 focus-visible:border-border focus-visible:bg-secondary/60 sm:w-40"
+      className={cn(
+        'group w-[9rem] rounded-lg border border-transparent p-2 text-left transition-colors duration-base ease-standard sm:w-40',
+        'hover:border-border hover:bg-secondary/60 focus-visible:border-border focus-visible:bg-secondary/60',
+        className,
+      )}
       title={`打开歌单「${playlist.name}」`}
     >
       <div className="relative aspect-square overflow-hidden rounded-md bg-secondary">
@@ -128,13 +132,64 @@ function CategoryBrowser({ onOpen }) {
   const currentTab = sourceTabs.find((t) => t.source === activeSource) || sourceTabs[0];
   const effectiveCategory = activeCategory || currentTab?.categories?.[0]?.value || '';
 
-  const playlistsQuery = useQuery(
+  // 无限滚动分页。用 useInfiniteQuery 而不是自己维护 page 数组:
+  // 它自带页面顺序、hasNextPage 与"正在取下一页"的状态,切换分类时自动重置,
+  // 也能正确处理 React 严格模式下的重复调用。
+  const playlistsQuery = useInfiniteQuery(
     ['category-playlists', currentTab?.source, effectiveCategory],
-    () => getCategoryPlaylists(currentTab.source, effectiveCategory),
-    { enabled: !!currentTab?.source && !!effectiveCategory, refetchOnWindowFocus: false, staleTime: 15 * 60 * 1000 },
+    ({ pageParam = 1 }) => getCategoryPlaylists(currentTab.source, effectiveCategory, pageParam),
+    {
+      enabled: !!currentTab?.source && !!effectiveCategory,
+      refetchOnWindowFocus: false,
+      staleTime: 15 * 60 * 1000,
+      // 后端以「本页是否满额」推断 has_more,满额即认为还有 —— 这样可以一直翻。
+      getNextPageParam: (lastPage, pages) => {
+        const got = (lastPage?.playlists || []).length;
+        if (!got) return undefined;                 // 空页 = 到底
+        if (lastPage?.has_more === false) return undefined;
+        return pages.length + 1;
+      },
+    },
   );
 
-  const playlists = playlistsQuery.data?.playlists || [];
+  const playlists = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    for (const page of playlistsQuery.data?.pages || []) {
+      for (const pl of page?.playlists || []) {
+        const key = `${pl.source}-${pl.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        list.push(pl);
+      }
+    }
+    return list;
+  }, [playlistsQuery.data]);
+
+  const {
+    hasNextPage, fetchNextPage, isFetchingNextPage, isFetching,
+  } = playlistsQuery;
+
+  // 触底哨兵:进入视口就取下一页。rootMargin 提前 400px,滚到底之前就开始取,
+  // 避免用户看到"到底了还在等"。
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasNextPage) return undefined;
+    if (typeof IntersectionObserver === 'undefined') return undefined;
+    const scroller = document.getElementById('app-main');
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    }, {
+      root: scroller && scroller.contains(node) ? scroller : null,
+      rootMargin: '400px',
+      threshold: 0,
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, playlists.length]);
 
   if (categoriesQuery.isLoading) {
     return <LoadingState compact title="加载分类" detail="正在读取各平台的歌单分类" />;
@@ -148,7 +203,8 @@ function CategoryBrowser({ onOpen }) {
       <SectionHeader
         id="home-categories"
         title="按分类浏览"
-        hint="换一个心情听:华语/欧美/摇滚/轻音乐…"
+        hint="往下滚，自动加载更多"
+        count={playlists.length > 0 ? `已加载 ${playlists.length} 张` : undefined}
         actions={(
           <Button
             variant="ghost"
@@ -177,9 +233,9 @@ function CategoryBrowser({ onOpen }) {
         </div>
       )}
 
-      {/* 分类 chips:换分类立刻重拉 */}
+      {/* 分类 chips:换分类立刻重拉并回到第 1 页 */}
       {currentTab && currentTab.categories.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-1.5">
+        <div className="mb-4 flex flex-wrap gap-1.5">
           {currentTab.categories.map((cat) => {
             const active = cat.value === effectiveCategory;
             return (
@@ -208,19 +264,43 @@ function CategoryBrowser({ onOpen }) {
         <LoadingState compact title="加载分类歌单" detail="正在读取该分类下的歌单" />
       )}
 
-      {!playlistsQuery.isLoading && playlists.length > 0 && (
-        <ScrollRow label="分类歌单">
+      {/* 网格而非横滑:上百张时横向滑动不可用,纵向滚动才符合"翻目录"的直觉 */}
+      {playlists.length > 0 && (
+        <div className="grid grid-cols-2 gap-x-2 gap-y-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {playlists.map((pl) => (
-            <PlaylistCard key={`${pl.source}-${pl.id}`} playlist={pl} onOpen={onOpen} />
+            <PlaylistCard
+              key={`cat-${pl.source}-${pl.id}`}
+              playlist={pl}
+              onOpen={onOpen}
+              className="w-full"
+            />
           ))}
-        </ScrollRow>
+        </div>
+      )}
+
+      {/* 触底哨兵 + 状态 */}
+      <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />
+      {playlists.length > 0 && (
+        <div className="mt-3 flex items-center justify-center">
+          {isFetchingNextPage ? (
+            <StatusLine tone="neutral" loading>正在加载更多…</StatusLine>
+          ) : hasNextPage ? (
+            <Button variant="outline" size="sm" onClick={() => fetchNextPage()} loading={isFetching}>
+              加载更多
+            </Button>
+          ) : (
+            <span className="type-micro text-muted-foreground">
+              已经到底了（共 {playlists.length} 张）
+            </span>
+          )}
+        </div>
       )}
 
       {!playlistsQuery.isLoading && !playlists.length && !playlistsQuery.isError && (
-        <StatusLine tone="neutral">这个分类暂时没有取到歌单,换一个试试</StatusLine>
+        <StatusLine tone="neutral">这个分类暂时没有取到歌单，换一个试试</StatusLine>
       )}
       {playlistsQuery.isError && (
-        <StatusLine tone="error" layout="banner">加载分类歌单失败,请换一个分类或稍后重试</StatusLine>
+        <StatusLine tone="error" layout="banner">加载分类歌单失败，请换一个分类或稍后重试</StatusLine>
       )}
     </section>
   );
