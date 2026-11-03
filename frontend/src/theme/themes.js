@@ -92,7 +92,7 @@ export const THEMES = [
     name: 'Fluent 亚克力',
     tagline: '分层半透明表面 + 4px 小圆角控件，Windows 11 风格。',
     swatchClass: 'theme-swatch--fluent',
-    metaColor: '#202020',
+    metaColor: '#1A1A1A',
   },
 ];
 
