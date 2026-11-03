@@ -39,6 +39,22 @@
     --scrollbar-thumb: 0 0% 28%;
     --scrollbar-thumb-hover: 0 0% 44%;
 
+    /* 遮罩:压在页面上的那层黑。浅色主题若沿用纯黑,会把整个界面压得发灰发脏;
+       浅色模式改用「变暗但不黑」的中性遮罩,同时靠浮层阴影保持焦点。 */
+    --overlay: 0 0% 0% / 0.6;
+
+    /* 开关滑块:暗色主题上滑块是白的(和深色轨道有对比);
+       浅色主题轨道若也浅,滑块必须加深才看得见。 */
+    --switch-knob: 0 0% 100%;
+
+    /* 骨架屏流光:暗色背景上要用白色高光才看得见,
+       浅色背景上白高光等于没有 —— 必须反过来用深色微光。 */
+    --shimmer-highlight: rgba(255, 255, 255, 0.11);
+
+    /* 封面等深色底上的白色叠加(播放中的音量柱、黑胶高光)。
+       这些叠在封面/黑胶这类"永远是深色"的物件上,两套主题都保持白色。 */
+    --on-media: rgba(255, 255, 255, 0.96);
+
     /* 动效 token:所有过渡都应引用这里,不再散落字面量 */
     --motion-fast: 120ms;
     --motion-base: 180ms;
@@ -82,76 +98,90 @@
     --elevation-dialog: 0 24px 64px rgba(0, 0, 0, 0.6);
   }
 
-  /* ===== 主题:Fluent 亚克力(Windows 11 风)=====
+  /* ===== 主题:Fluent 亚克力(Windows 11 浅色)=====
      只覆盖 token,不写任何组件选择器 —— 组件全部读 token,
      所以这套主题不会漏掉某个角落(也不会有"改了样式没生效"的假象)。
 
      与 Spotify 主题的三处本质差异:
-       1. 配色:强调色从 Spotify 绿换成 Windows 强调蓝 #60CDFF;
+       1. 配色:**浅色**。Windows 11 浅色模式的 Mica 是白面 + 灰底,
+          强调色是深蓝 #005FB8(不是暗色模式那个浅蓝 #60CDFF);
        2. 形状:控件圆角 9999px → 4px(卡片仍是 8px);
-       3. 材质:表面半透明 + 背景晕染(Mica),浮层叠加 backdrop blur(Acrylic)。 */
+       3. 材质:半透明白面 + 背景晕染(Mica),浮层叠加 backdrop blur(Acrylic)。
+
+     ⚠️ 浅色化的两个非直觉点(踩过才写下来):
+       · 强调色**不能沿用暗色模式的浅蓝**。浅蓝配白字对比度只有 1.6:1,等于看不见;
+         浅色模式必须换成深蓝,配白字才够 6.3:1。
+       · 层级方向**反转**:暗色是"越上层越亮",浅色要反过来 —— 底层灰、上层白。
+         这决定了 --background 比 --card 暗,而不是亮。 */
   [data-theme="fluent"] {
-    /* ===== 配色 =====
-       Fluent 的层次靠**表面亮度阶梯**,不是靠半透明。
-       第一版把 --card 只比 --background 高 2.5%,再乘 0.88 透明度,
-       实测卡片/背景对比只有 1.06:1(Spotify 主题是 1.20:1)——
-       卡片直接融进背景,整页看起来就是一块灰板子。这一版按 Windows 11
-       真实的 Mica 阶梯重排:背景最暗,卡片明显上浮,浮层再亮一档。 */
-    --background: 0 0% 10%;    /* #1A1A1A 基底 */
-    --foreground: 0 0% 100%;
-    --card: 0 0% 17.5%;        /* #2D2D2D 卡片:比背景亮 7.5 个点,足够分层 */
-    --card-foreground: 0 0% 100%;
-    --popover: 0 0% 21%;       /* #363636 浮层:再亮一档,叠加模糊后能"浮起来" */
-    --popover-foreground: 0 0% 100%;
-    /* 强调色:Windows 11 默认强调蓝 #60CDFF(浅、冷、克制)。
-       它只用于"唯一的主动作"与"正在播放",不铺满整个界面 —— 第一版把
-       大面积按钮刷成这个蓝,观感偏荧光,这是主色观感"不像 Fluent"的主因。 */
-    --primary: 200 100% 69%;
-    --primary-foreground: 197 100% 12%;
-    --secondary: 0 0% 24%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 17.5%;
-    --muted-foreground: 0 0% 74%;
-    /* 悬停面:被悬停的那一行/那一块,提亮到明显可辨 */
-    --accent: 0 0% 27%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 78% 66%;
-    --destructive-foreground: 0 0% 10%;
-    --success: 145 60% 58%;
-    --success-foreground: 0 0% 10%;
-    --warning: 38 92% 62%;
-    --warning-foreground: 0 0% 10%;
-    --info: 200 100% 69%;
-    --info-foreground: 197 100% 12%;
-    --border: 0 0% 28%;        /* 比卡片再亮一档,能看清分层线 */
-    --input: 0 0% 30%;
-    --ring: 200 100% 69%;
+    color-scheme: light;
+
+    /* ===== 配色:Windows 11 浅色阶梯 =====
+       背景 #EDEDED(带一点灰,让白卡片浮起来)/ 卡片 #FFFFFF / 浮层 #FFFFFF + 阴影。 */
+    --background: 0 0% 92.9%;   /* #EDEDED Mica 基底 */
+    --foreground: 222 22% 11%;  /* #15171F 近黑偏冷,比纯黑柔和 */
+    --card: 0 0% 100%;          /* #FFFFFF 卡片 */
+    --card-foreground: 222 22% 11%;
+    --popover: 0 0% 100%;       /* 浮层也是白,靠阴影与背景分离 */
+    --popover-foreground: 222 22% 11%;
+    /* 强调色:Windows 11 浅色模式强调蓝 #005FB8。
+       只用于"唯一的主动作"与"正在播放",不铺满界面。 */
+    --primary: 209 100% 36%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96.5%;    /* #F6F6F6 次级面(白底上的浅灰块) */
+    --secondary-foreground: 222 22% 11%;
+    --muted: 0 0% 96.5%;
+    --muted-foreground: 220 9% 40%;  /* #5C6370 次要文字,白底 6.05:1 */
+    /* 悬停面:白底上的浅灰,鼠标划过能看出来 */
+    --accent: 0 0% 94%;
+    --accent-foreground: 222 22% 11%;
+    --destructive: 6 75% 44%;   /* #C42B1C Win11 危险色,白底 5.66:1 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 145 63% 32%;     /* 浅底上必须压深,否则白字不够看 */
+    --success-foreground: 0 0% 100%;
+    --warning: 30 90% 36%;      /* #B35B00 深琥珀 */
+    --warning-foreground: 0 0% 100%;
+    --info: 209 100% 36%;
+    --info-foreground: 0 0% 100%;
+    --border: 0 0% 85%;         /* #D9D9D9 细边,白底上能看见分层线 */
+    --input: 0 0% 82%;
+    --ring: 209 100% 36%;
 
     /* 形状:控件 4px(Windows 11 控件标准圆角),卡片维持 8px */
     --radius: 0.5rem;
     --radius-control: 4px;
 
-    /* 材质:卡片与浮层保持高不透明度(0.94/0.92)——
-       分层交给上面的亮度阶梯,alpha 只负责"透出一点点背景气息",
-       不再承担"让卡片看起来不一样"的职责(那会让两层一起糊掉)。 */
+    /* 材质:浅色 Mica 是"白面透出一点冷色壁纸"。
+       渐变透明度和暗色相反 —— 暗色是提亮,浅色是**压深**才有层次,
+       所以这里用极淡的冷蓝/淡紫去染白,浓度比暗色低(白底上色偏浓会脏)。 */
     --material-mica:
-      radial-gradient(120% 85% at 12% -12%, hsl(202 100% 62% / 0.13), transparent 58%),
-      radial-gradient(95% 70% at 102% 4%, hsl(262 85% 62% / 0.10), transparent 56%),
-      radial-gradient(80% 60% at 60% 110%, hsl(190 90% 58% / 0.06), transparent 60%);
-    --material-alpha: 0.94;
+      radial-gradient(120% 85% at 10% -10%, hsl(212 90% 70% / 0.16), transparent 62%),
+      radial-gradient(95% 75% at 102% 2%, hsl(268 70% 78% / 0.12), transparent 58%),
+      radial-gradient(85% 65% at 55% 112%, hsl(196 80% 74% / 0.08), transparent 62%);
+    --material-alpha: 0.97;
     --material-blur: 30px;
-    --material-saturate: 130%;
-    --material-veil-alpha: 0.86;
-    --material-rail: hsl(0 0% 13% / 0.72);
+    --material-saturate: 125%;
+    --material-veil-alpha: 0.9;
+    --material-rail: hsl(0 0% 100% / 0.72);
 
-    /* 海拔:分层更明显,Fluent 的浮层靠阴影与背景分离 */
-    --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.32);
-    --elevation-card: 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 2px rgba(0, 0, 0, 0.24);
-    --elevation-flyout: 0 16px 32px rgba(0, 0, 0, 0.52), 0 0 2px rgba(0, 0, 0, 0.3);
-    --elevation-dialog: 0 32px 64px rgba(0, 0, 0, 0.58), 0 0 2px rgba(0, 0, 0, 0.34);
+    /* 海拔:浅色主题靠阴影分层,比暗色更需要阴影(白浮层没有阴影会糊成一片) */
+    --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --elevation-card: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.06);
+    --elevation-flyout: 0 8px 24px rgba(0, 0, 0, 0.16), 0 0 1px rgba(0, 0, 0, 0.1);
+    --elevation-dialog: 0 16px 44px rgba(0, 0, 0, 0.2), 0 0 1px rgba(0, 0, 0, 0.12);
 
-    --scrollbar-thumb: 0 0% 40%;
+    --scrollbar-thumb: 0 0% 72%;
     --scrollbar-thumb-hover: 0 0% 58%;
+
+    /* 浅色下遮罩要更淡:纯黑 60% 压在白界面上像关机了。
+       改用带一点冷调的中性深色 + 更低不透明度,既压得住焦点又不脏。 */
+    --overlay: 222 22% 11% / 0.32;
+    /* 浅色轨道(#F6F6F6 级)上必须用深滑块,否则开关滑块"消失" */
+    --switch-knob: 222 22% 25%;
+    /* 浅色底上白色流光不可见,换成深色微光 */
+    --shimmer-highlight: rgba(0, 0, 0, 0.07);
+    /* 封面/黑胶这类物件无论什么主题都是深色,叠在上面的白色元素保持不变 */
+    --on-media: rgba(255, 255, 255, 0.96);
   }
 
   html {
@@ -228,9 +258,9 @@
   --swatch-accent: hsl(141 73% 49%);
 }
 .theme-swatch--fluent {
-  --swatch-bg: hsl(0 0% 10%);
-  --swatch-card: hsl(0 0% 17.5%);
-  --swatch-accent: hsl(200 100% 69%);
+  --swatch-bg: hsl(0 0% 92.9%);
+  --swatch-card: hsl(0 0% 100%);
+  --swatch-accent: hsl(209 100% 36%);
 }
 
 /* ===== 字号 / 层级 =====
@@ -338,6 +368,19 @@
 /* .elevated —— 只是补上主题海拔阴影(卡片用),不改颜色 */
 .elevated {
   box-shadow: var(--elevation-card);
+}
+
+/* .overlay —— 弹窗/抽屉背后的遮罩。
+   暗色主题下是 60% 纯黑(与改造前 bg-black/60 等价);
+   浅色主题下由 --overlay 换成更淡的冷调深色,否则白界面会被压成脏灰。 */
+.overlay {
+  background-color: hsl(var(--overlay));
+}
+
+/* .switch-knob —— 开关滑块。暗色主题是白滑块(压在深色轨道上);
+   浅色主题轨道变浅后,白滑块会"消失",所以改由 --switch-knob 给深色。 */
+.switch-knob {
+  background-color: hsl(var(--switch-knob));
 }
 
 /* ===== Mica 底色 =====
@@ -503,7 +546,9 @@
   border-radius: 0.375rem;
   overflow: hidden;
   margin-bottom: 0.6rem;
-  background: hsl(0 0% 12%);
+  /* 封面未加载时的占位底色。原来写死 hsl(0 0% 12%)(暗色),
+     浅色主题下会在白卡片上留一个黑方块。改用主题的 muted 面。 */
+  background: hsl(var(--muted));
 }
 .media-card__art img { width: 100%; height: 100%; object-fit: cover; }
 .media-card__play {
@@ -536,7 +581,7 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.11), transparent);
+  background: linear-gradient(90deg, transparent, var(--shimmer-highlight), transparent);
   animation: loading-shimmer 1.25s ease-in-out infinite;
 }
 @keyframes loading-shimmer {
@@ -618,7 +663,7 @@
   width: 4px;
   height: 18px;
   border-radius: 9999px;
-  background: rgba(255,255,255,0.96);
+  background: var(--on-media);
   transform-origin: bottom;
   animation: song-row-equalizer 0.86s ease-in-out infinite;
 }

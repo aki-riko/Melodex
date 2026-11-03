@@ -187,7 +187,7 @@ const FeedbackDialog = ({ dialog, onDone }) => {
       role="dialog"
       aria-modal="true"
       aria-labelledby="feedback-dialog-title"
-      className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4 animate-fade-in"
+      className="fixed inset-0 z-modal flex items-center justify-center overlay p-4 animate-fade-in"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onDone(isPrompt ? null : false);
       }}

@@ -313,7 +313,7 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
       {moreOpen && (
         <>
           <div
-            className="fixed inset-0 z-drawer bg-black/50 lg:hidden"
+            className="fixed inset-0 z-drawer overlay lg:hidden"
             onClick={() => setMoreOpen(false)}
             aria-hidden="true"
           />
