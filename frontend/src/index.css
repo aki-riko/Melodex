@@ -91,22 +91,29 @@
        2. 形状:控件圆角 9999px → 4px(卡片仍是 8px);
        3. 材质:表面半透明 + 背景晕染(Mica),浮层叠加 backdrop blur(Acrylic)。 */
   [data-theme="fluent"] {
-    /* Fluent 深色底:比 Spotify 的 #181818 略亮,更接近 Windows 11 的 #202020 */
-    --background: 0 0% 12.5%;
+    /* ===== 配色 =====
+       Fluent 的层次靠**表面亮度阶梯**,不是靠半透明。
+       第一版把 --card 只比 --background 高 2.5%,再乘 0.88 透明度,
+       实测卡片/背景对比只有 1.06:1(Spotify 主题是 1.20:1)——
+       卡片直接融进背景,整页看起来就是一块灰板子。这一版按 Windows 11
+       真实的 Mica 阶梯重排:背景最暗,卡片明显上浮,浮层再亮一档。 */
+    --background: 0 0% 10%;    /* #1A1A1A 基底 */
     --foreground: 0 0% 100%;
-    --card: 0 0% 15%;
+    --card: 0 0% 17.5%;        /* #2D2D2D 卡片:比背景亮 7.5 个点,足够分层 */
     --card-foreground: 0 0% 100%;
-    --popover: 0 0% 16.5%;
+    --popover: 0 0% 21%;       /* #363636 浮层:再亮一档,叠加模糊后能"浮起来" */
     --popover-foreground: 0 0% 100%;
-    /* 强调色:Windows 11 默认强调蓝 #60CDFF */
+    /* 强调色:Windows 11 默认强调蓝 #60CDFF(浅、冷、克制)。
+       它只用于"唯一的主动作"与"正在播放",不铺满整个界面 —— 第一版把
+       大面积按钮刷成这个蓝,观感偏荧光,这是主色观感"不像 Fluent"的主因。 */
     --primary: 200 100% 69%;
     --primary-foreground: 197 100% 12%;
-    --secondary: 0 0% 23%;
+    --secondary: 0 0% 24%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 77%;
-    /* 悬停面:比 Spotify 主题略亮一档,Fluent 的 hover 是"提亮 + 描边" */
-    --accent: 0 0% 26%;
+    --muted: 0 0% 17.5%;
+    --muted-foreground: 0 0% 74%;
+    /* 悬停面:被悬停的那一行/那一块,提亮到明显可辨 */
+    --accent: 0 0% 27%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 78% 66%;
     --destructive-foreground: 0 0% 10%;
@@ -116,27 +123,30 @@
     --warning-foreground: 0 0% 10%;
     --info: 200 100% 69%;
     --info-foreground: 197 100% 12%;
-    --border: 0 0% 25%;
-    --input: 0 0% 28%;
+    --border: 0 0% 28%;        /* 比卡片再亮一档,能看清分层线 */
+    --input: 0 0% 30%;
     --ring: 200 100% 69%;
 
     /* 形状:控件 4px(Windows 11 控件标准圆角),卡片维持 8px */
     --radius: 0.5rem;
     --radius-control: 4px;
 
-    /* 材质:卡片 88% 不透明、浮层 82% + 30px 模糊 —— 背后内容透出但文字清晰 */
+    /* 材质:卡片与浮层保持高不透明度(0.94/0.92)——
+       分层交给上面的亮度阶梯,alpha 只负责"透出一点点背景气息",
+       不再承担"让卡片看起来不一样"的职责(那会让两层一起糊掉)。 */
     --material-mica:
-      radial-gradient(120% 80% at 18% -10%, hsl(200 100% 69% / 0.10), transparent 60%),
-      radial-gradient(90% 65% at 100% 0%, hsl(268 80% 68% / 0.07), transparent 55%);
-    --material-alpha: 0.88;
+      radial-gradient(120% 85% at 12% -12%, hsl(202 100% 62% / 0.13), transparent 58%),
+      radial-gradient(95% 70% at 102% 4%, hsl(262 85% 62% / 0.10), transparent 56%),
+      radial-gradient(80% 60% at 60% 110%, hsl(190 90% 58% / 0.06), transparent 60%);
+    --material-alpha: 0.94;
     --material-blur: 30px;
-    --material-saturate: 140%;
-    --material-veil-alpha: 0.55;
-    --material-rail: hsl(0 0% 13% / 0.5);
+    --material-saturate: 130%;
+    --material-veil-alpha: 0.86;
+    --material-rail: hsl(0 0% 13% / 0.72);
 
     /* 海拔:分层更明显,Fluent 的浮层靠阴影与背景分离 */
     --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.32);
-    --elevation-card: 0 2px 4px rgba(0, 0, 0, 0.26), 0 0 2px rgba(0, 0, 0, 0.22);
+    --elevation-card: 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 2px rgba(0, 0, 0, 0.24);
     --elevation-flyout: 0 16px 32px rgba(0, 0, 0, 0.52), 0 0 2px rgba(0, 0, 0, 0.3);
     --elevation-dialog: 0 32px 64px rgba(0, 0, 0, 0.58), 0 0 2px rgba(0, 0, 0, 0.34);
 
@@ -151,10 +161,8 @@
 
   body {
     @apply bg-background text-foreground;
-    /* 主题材质(Mica):Spotify 主题的 --material-mica 是 none,渲染结果与改造前一致;
-       Fluent 主题在这里叠一层极淡的蓝/紫晕染,模拟 Windows 11 的桌面壁纸透光。 */
-    background-image: var(--material-mica);
-    background-attachment: fixed;
+    /* Mica 不在 body 上画 —— 它会被 .app-shell 的不透明底盖住(第一版就是这么失效的)。
+       真正的 Mica 落在 .app-shell 上,见下方「Mica 底色」一节。 */
     /* 不声明并不存在的 webfont(PWA/离线/国内网络下载字体是负收益)。
        用系统栈 + 中文字体回退,层级靠字号/字重建立。 */
     font-family: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
@@ -220,8 +228,8 @@
   --swatch-accent: hsl(141 73% 49%);
 }
 .theme-swatch--fluent {
-  --swatch-bg: hsl(0 0% 12.5%);
-  --swatch-card: hsl(0 0% 15%);
+  --swatch-bg: hsl(0 0% 10%);
+  --swatch-card: hsl(0 0% 17.5%);
   --swatch-accent: hsl(200 100% 69%);
 }
 
@@ -330,6 +338,17 @@
 /* .elevated —— 只是补上主题海拔阴影(卡片用),不改颜色 */
 .elevated {
   box-shadow: var(--elevation-card);
+}
+
+/* ===== Mica 底色 =====
+   第一版把 --material-mica 画在 body 上,但 .app-shell 是一个铺满全屏的
+   不透明 bg-background 容器,把 body 的渐变整块盖住了 —— 写了等于没写。
+   现在把 Mica 直接画在 .app-shell 上,并让它的 background-color 走
+   --material-alpha(Spotify 主题 alpha=1,此时背景色完全不透明,
+   与改造前的 bg-background 逐像素一致;Fluent 主题才会透出一点底色)。 */
+.app-shell {
+  background-image: var(--material-mica);
+  background-color: hsl(var(--background) / var(--material-alpha));
 }
 /* ===== 主题:Spotify 风 app-shell 布局(皮肤改编自 Adam Lowenthal CodePen, MIT) ===== */
 
