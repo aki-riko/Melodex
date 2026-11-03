@@ -439,7 +439,7 @@ const SongRow = ({
             aria-label={coverActionLabel}
             title={coverActionLabel}
             className={cn(
-              'absolute inset-0 z-base hidden items-center justify-center rounded bg-black/45 text-primary lg:flex',
+              'absolute inset-0 z-base hidden items-center justify-center rounded overlay text-primary lg:flex',
               'transition-opacity duration-base ease-standard',
               showPausedCoverPlayButton ? 'opacity-100' : 'opacity-0 hover:opacity-100 focus:opacity-100',
             )}

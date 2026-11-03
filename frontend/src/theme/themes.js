@@ -69,6 +69,11 @@ export const REQUIRED_THEME_TOKENS = [
   // ---- 滚动条 ----
   'scrollbar-thumb',
   'scrollbar-thumb-hover',
+  // ---- 浅色主题配套(暗色假设的反面)----
+  'overlay',          // 弹窗遮罩:深色主题是无害的纯黑,浅色主题必须变淡
+  'switch-knob',      // 开关滑块:深轨道白滑块 ↔ 浅轨道深滑块
+  'shimmer-highlight',// 骨架屏流光:暗底白高光 ↔ 浅底深微光
+  'on-media',         // 叠在封面/黑胶上的白色元素(两套主题都是白)
 ];
 
 /**
@@ -89,10 +94,10 @@ export const THEMES = [
   },
   {
     id: 'fluent',
-    name: 'Fluent 亚克力',
-    tagline: '分层半透明表面 + 4px 小圆角控件，Windows 11 风格。',
+    name: 'Fluent 亮色',
+    tagline: '浅色 Mica 白面 + 4px 小圆角控件，Windows 11 风格。',
     swatchClass: 'theme-swatch--fluent',
-    metaColor: '#1A1A1A',
+    metaColor: '#EDEDED',
   },
 ];
 

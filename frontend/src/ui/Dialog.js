@@ -161,7 +161,7 @@ export default function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4 animate-fade-in"
+      className="fixed inset-0 z-modal flex items-center justify-center overlay p-4 animate-fade-in"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && dismissable) onClose?.();
       }}
