@@ -127,9 +127,13 @@
     /* 强调色与状态色统一定义在下方「状态色」一节 ——
        因为浅色主题下它们必须同时满足"淡底上的文字"和"实心块上的白字"两种用法,
        两处的取值需要放在一起权衡,拆成两处定义容易出现覆盖不一致。 */
-    --secondary: 0 0% 96.5%;    /* #F6F6F6 次级面(白底上的浅灰块) */
+    --secondary: 0 0% 90%;      /* #E6E6E6 次级面 / 选中项底色。
+                                   不能太浅:浅色可用的色域只有 #EDEDED→#FFFFFF,
+                                   96.5% 时选中项与白侧栏只差 1.035:1,等于没有选中态。
+                                   90% 提到 1.22:1,配合左侧强调竖条才够辨识;
+                                   同时次级文字仍有 4.84:1,不牺牲可读性。 */
     --secondary-foreground: 222 22% 11%;
-    --muted: 0 0% 96.5%;
+    --muted: 0 0% 90%;          /* 与 secondary 同档:徽章底/行悬停也参与"选中感" */
     --muted-foreground: 220 9% 40%;  /* #5C6370 次要文字,白底 6.05:1 */
     /* 悬停面:白底上的浅灰,鼠标划过能看出来 */
     --accent: 0 0% 94%;
@@ -339,6 +343,41 @@
 /* .surface-inset  —— 内嵌块,用于原来是 bg-background/50、bg-card/40 的面 */
 .surface-inset {
   background-color: hsl(var(--background) / calc(var(--material-alpha) * 0.5));
+}
+
+/* ===== 选中态增强(浅色主题必备)=====
+   问题:选中项用的是 `bg-secondary`,暗色主题下 secondary(#3B3B3B)压在近黑侧栏上
+   对比度 1.72:1,一眼可辨;但浅色主题的可用色域只有 #EDEDED→#FFFFFF 这么窄,
+   同一个 token 压在白色侧栏上只有 **1.035:1** —— 选了跟没选一样。
+
+   靠"把 secondary 调深"治不了本:它会连带影响所有次级按钮/输入框/封面占位底,
+   而且再深也追不上暗色那 1.72:1 的辨识度。所以改用 Fluent 自己的做法 ——
+   选中项左侧一道强调色竖条(Pivot 的 indicator bar)。竖条用 --primary,
+   与文字同色系,在两种主题下都清晰,且不占用背景色的色域预算。
+
+   钩子用 aria-current="page":侧栏/歌单/移动 Tab 都已经带了(无障碍本来就需要),
+   所以这里是纯 CSS 增强,不需要给任何组件加类名。 */
+[aria-current="page"] {
+  position: relative;
+}
+[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  /* 容器普遍是 px-3(12px),竖条放在 4px 处:既不贴死圆角,又明显属于这一行 */
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  max-height: 1.5rem;
+  border-radius: 9999px;
+  background-color: hsl(var(--primary));
+  pointer-events: none;
+}
+/* 已经被 primary 铺满的选中项(主按钮、实心 tab)不需要竖条,否则会出现双重视觉信号 */
+[aria-current="page"].bg-primary::before,
+[aria-current="page"][class*="bg-primary"]::before {
+  display: none;
 }
 
 /* .surface-acrylic —— 浮层:弹窗 / 菜单 / 下拉 / 队列(模糊其后的内容)
