@@ -55,7 +55,7 @@ export default class ErrorBoundary extends React.Component {
               <button
                 type="button"
                 onClick={this.handleReload}
-                className="inline-flex min-h-touch items-center gap-2 rounded-full bg-primary px-5 font-semibold text-primary-foreground transition-[filter] duration-base hover:brightness-110"
+                className="inline-flex min-h-touch items-center gap-2 rounded-control bg-primary px-5 font-semibold text-primary-foreground transition-[filter] duration-base hover:brightness-110"
               >
                 <RefreshCw size={16} aria-hidden="true" />
                 重新加载
@@ -63,7 +63,7 @@ export default class ErrorBoundary extends React.Component {
               <button
                 type="button"
                 onClick={this.handleReset}
-                className="inline-flex min-h-touch items-center gap-2 rounded-full bg-secondary px-5 font-semibold text-secondary-foreground transition-colors duration-base hover:bg-accent"
+                className="inline-flex min-h-touch items-center gap-2 rounded-control bg-secondary px-5 font-semibold text-secondary-foreground transition-colors duration-base hover:bg-accent"
               >
                 再试一次
               </button>

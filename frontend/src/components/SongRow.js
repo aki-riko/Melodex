@@ -141,7 +141,7 @@ const IconAction = ({ icon: Icon, label, onClick, disabled, active, danger, busy
     title={label}
     aria-busy={busy || undefined}
     className={cn(
-      'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full',
+      'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-control',
       'transition-colors duration-base ease-standard',
       'disabled:cursor-not-allowed disabled:opacity-40',
       danger
@@ -509,7 +509,7 @@ const SongRow = ({
           onClick={handleCoverAction}
           aria-label={coverActionLabel}
           title={coverActionLabel}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-[filter] duration-base hover:brightness-110 lg:hidden"
+          className="flex h-11 w-11 items-center justify-center rounded-control bg-primary text-primary-foreground shadow-sm transition-[filter] duration-base hover:brightness-110 lg:hidden"
         >
           <CoverActionIcon size={18} fill="currentColor" aria-hidden="true" />
         </button>
@@ -524,7 +524,7 @@ const SongRow = ({
           aria-haspopup="menu"
           aria-expanded={openMenu}
           className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-base',
+            'flex h-9 w-9 items-center justify-center rounded-control transition-colors duration-base',
             openMenu ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
           )}
         >

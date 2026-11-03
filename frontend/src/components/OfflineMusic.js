@@ -122,7 +122,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
         onClick={() => onPlay(record)}
         aria-label={`播放 ${record.name || '这首歌'}`}
         title="播放"
-        className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[filter] duration-base hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]"
+        className="flex h-10 w-10 items-center justify-center rounded-control bg-primary text-primary-foreground transition-[filter] duration-base hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]"
       >
         <Play size={16} fill="currentColor" aria-hidden="true" />
       </button>
@@ -131,7 +131,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
         onClick={() => onDelete(record)}
         aria-label={`删除本机缓存 ${record.name || '这首歌'}`}
         title="删除本机缓存"
-        className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive"
+        className="flex h-10 w-10 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive"
       >
         <Trash2 size={16} aria-hidden="true" />
       </button>

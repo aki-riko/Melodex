@@ -21,8 +21,9 @@ Melodex/
 │       ├── music.go/collection.go/local_music.go  原 /music/* 路由(下载/inspect/歌词/本地库)
 │       │      videogen.go 仍在但**未注册**(功能已剥离,见下)
 │       └── frontend_dist/    占位 index.html;Docker 构建时被 React 产物覆盖
-└── frontend/   React 18 + Vite + Tailwind(暗色 Spotify 主题,CSS 变量在 index.css)。无 react-router,**哈希路由**(#download/#myplaylist 等,刷新不丢)
+└── frontend/   React 18 + Vite + Tailwind(**多主题**:默认暗色 Spotify 皮肤 + Fluent 亚克力皮肤,CSS 变量在 index.css,注册表在 src/theme/)。无 react-router,**哈希路由**(#download/#myplaylist 等,刷新不丢)
     └── src/
+        ├── theme/            themes.js(主题注册表 + 39 个必填 token 清单 + 首帧/Storage 工具)/ ThemeContext.jsx(ThemeProvider,写 <html data-theme>)
         ├── App.js            app-shell 布局(Sidebar 左固定栏 + TopBar 全局搜索 + 滚动 main + PlayerBar 底部 + MobileTabBar);currentSection 驱动页 + hash 同步;QueryClient 关 refetchOnWindowFocus
         ├── components/        Sidebar(桌面左栏+移动底Tab,含自建歌单列表)/TopBar(全局搜索)/Trending(=首页,热门歌单)/Download(搜索下载)/Artists/Settings/SongRow/MyPlaylist(自建歌单详情)/AddToPlaylistModal/PlaylistSongs/FAQ/Footer
         │                     (Hero/Discover/Navbar/Videogen 已删:首页改用 Trending,发现页与热门重叠已删)

@@ -46,7 +46,7 @@ export default function Segmented({
       role="tablist"
       aria-label={label}
       className={cn(
-        'inline-flex items-center gap-0.5 rounded-full border border-border bg-card p-0.5',
+        'inline-flex items-center gap-0.5 rounded-control border border-border bg-card p-0.5',
         className,
       )}
     >
@@ -63,7 +63,7 @@ export default function Segmented({
             title={opt.hint || opt.label}
             onClick={() => onChange?.(optKey)}
             className={cn(
-              'inline-flex items-center justify-center gap-1.5 rounded-full font-semibold',
+              'inline-flex items-center justify-center gap-1.5 rounded-control font-semibold',
               'transition-colors duration-base ease-standard',
               'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]',
               SIZES[size],

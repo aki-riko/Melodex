@@ -67,7 +67,7 @@ const SleepTimerControl = ({
         <>
           <div className="fixed inset-0 z-drawer" onClick={() => setOpen(false)} />
           <div className={`absolute bottom-full z-popover mb-3 w-72 ${panelAlignClass[align] || panelAlignClass.right}`}>
-            <div className="rounded-lg border border-border bg-card p-3 text-left shadow-2xl">
+            <div className="rounded-lg border border-border p-3 text-left surface-acrylic">
               {extraActions.length > 0 && (
                 <div className="mb-3 border-b border-border pb-2">
                   {extraActions.map(({ key, icon: ActionIcon, label, hint, onClick }) => (

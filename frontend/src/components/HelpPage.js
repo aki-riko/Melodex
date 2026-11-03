@@ -83,7 +83,7 @@ function HelpTopic({ topic, expanded, onToggle }) {
         <Icon size={18} className="flex-shrink-0" />
       </button>
       {expanded && (
-        <div className="space-y-3 p-4 bg-card border-t-2 border-border">
+        <div className="space-y-3 p-4 surface border-t-2 border-border">
           {topic.paragraphs.map((paragraph) => (
             <p key={paragraph} className="text-base leading-7 text-foreground/90">{paragraph}</p>
           ))}

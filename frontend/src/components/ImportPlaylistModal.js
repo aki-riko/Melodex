@@ -170,7 +170,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
             type="button"
             onClick={load}
             disabled={loading}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            className="flex h-9 w-9 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground disabled:opacity-50"
             aria-label="刷新歌单列表"
             title="刷新"
           >
@@ -184,7 +184,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
           <div className="mb-3 flex flex-wrap gap-1">
             {tabs.map((t) => (
               <button key={t.source} onClick={() => setActive(t.source)}
-                className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                className={`px-3 py-1.5 rounded-control text-sm transition-colors ${
                   active === t.source ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground'
                 }`}>
                 {t.source_name || t.source}

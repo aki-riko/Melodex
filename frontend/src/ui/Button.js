@@ -73,7 +73,7 @@ const Button = React.forwardRef(function Button({
       aria-pressed={pressed === undefined ? undefined : pressed}
       className={cn(
         // 基础:圆角、过渡、焦点环、禁用态、触控、禁选中
-        'inline-flex items-center justify-center rounded-full font-semibold whitespace-nowrap',
+        'inline-flex items-center justify-center rounded-control font-semibold whitespace-nowrap',
         'transition-[background-color,color,filter,opacity,transform] duration-base ease-standard',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]',
         'select-none',

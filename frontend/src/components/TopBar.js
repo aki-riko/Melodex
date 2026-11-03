@@ -95,7 +95,7 @@ export default function TopBar({ currentSection, onNavigate }) {
   };
 
   return (
-    <div className="sticky top-0 z-nav flex items-center gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur md:px-6">
+    <div className="sticky top-0 z-nav flex items-center gap-3 border-b border-border surface-bar px-4 py-3 md:px-6">
       <a
         href="#home"
         onClick={(e) => { e.preventDefault(); onNavigate('Home'); }}
@@ -130,7 +130,7 @@ export default function TopBar({ currentSection, onNavigate }) {
               if (!rootRef.current?.contains(document.activeElement)) closeMenu();
             }, 100)}
             placeholder="搜索歌曲、歌手…"
-            className="min-h-touch w-full rounded-full bg-secondary py-2 pl-9 pr-3 type-body text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary"
+            className="min-h-touch w-full rounded-control bg-secondary py-2 pl-9 pr-3 type-body text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary"
             aria-label="全局搜索"
             role="combobox"
             aria-expanded={open}
@@ -147,7 +147,7 @@ export default function TopBar({ currentSection, onNavigate }) {
             id="global-search-listbox"
             role="listbox"
             aria-label="搜索建议"
-            className="absolute inset-x-0 top-full z-popover mt-2 overflow-hidden rounded-md border border-border bg-popover shadow-popover animate-pop-in"
+            className="absolute inset-x-0 top-full z-popover mt-2 overflow-hidden rounded-md border border-border surface-acrylic animate-pop-in"
             onMouseDown={(e) => e.preventDefault()}
           >
             <div className="px-3 py-2 type-micro font-semibold uppercase tracking-wider text-muted-foreground">

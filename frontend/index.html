@@ -23,6 +23,26 @@
     <meta property="og:type" content="website" />
 
     <title>Melodex</title>
+    <!-- 主题首帧注入。
+         为什么必须内联、且必须在这里:主题是 <html data-theme> 上的一个属性,
+         如果等 React 挂载后再写,选了 Fluent 的用户每次打开都会先闪一下 Spotify 皮肤
+         (背景色/圆角跳变)。这段脚本在样式与脚本加载前就把属性写好,首帧即正确。
+         主题清单的真相在 src/theme/themes.js;这里的 id 列表由
+         scripts/themeContract.test.mjs 强制与之一致,增删主题会被测试拦下。 -->
+    <script>
+      (function () {
+        var DEFAULT_THEME = 'spotify';
+        var THEME_IDS = ['spotify', 'fluent'];
+        var id = DEFAULT_THEME;
+        try {
+          var stored = window.localStorage.getItem('melodex_theme');
+          if (stored && THEME_IDS.indexOf(stored) !== -1) id = stored;
+        } catch (error) {
+          /* 无痕模式/禁用存储:用默认主题,不阻断启动 */
+        }
+        document.documentElement.setAttribute('data-theme', id);
+      })();
+    </script>
   </head>
   <body>
     <noscript>需要启用 JavaScript 才能运行 Melodex。</noscript>

@@ -84,7 +84,7 @@ const AuthGate = () => {
           <p className="mt-1 type-caption text-muted-foreground">自托管音乐库 · 多源搜索下载</p>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-6 shadow-subtle">
+        <div className="rounded-lg border border-border surface p-6">
           <h1 className="type-title mb-1">{titles[effectiveMode]}</h1>
           <p className="mb-5 type-caption text-muted-foreground">
             {effectiveMode === 'setup'

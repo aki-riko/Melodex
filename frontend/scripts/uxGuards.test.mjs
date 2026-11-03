@@ -107,7 +107,12 @@ const allFiles = walk(srcRoot);
 const sourceFiles = allFiles.filter((f) => !f.endsWith('index.css'));
 
 const relOf = (file) => relative(srcRoot, file).split('\\').join('/');
-const isDesignSystem = (file) => relOf(file).startsWith('ui/');
+// 设计系统层:色值的唯一真相在这里(ui/ 组件直接消费 token,theme/ 注册表持有
+// <meta theme-color> 这类必须给字面量的颜色)。其余文件一律只准用 token。
+const isDesignSystem = (file) => {
+  const rel = relOf(file);
+  return rel.startsWith('ui/') || rel.startsWith('theme/');
+};
 // 播放器/媒体管线的 catch 是"降级链":失败要回退到另一条播放路径,不适合弹 toast。
 // 对它们只要求"不是完全空 catch";UI 层才强制用户可见反馈。
 const isUiLayer = (file) => {

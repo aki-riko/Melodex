@@ -21,7 +21,7 @@ export default function ProjectNotice() {
         <Icon size={18} className="flex-shrink-0 text-foreground" />
       </button>
       {expanded && (
-        <div className="p-4 bg-card border-t-2 border-border text-sm text-muted-foreground">
+        <div className="p-4 surface border-t-2 border-border text-sm text-muted-foreground">
           <p className="text-foreground/90">
             © 2024-2026 Melodex ·{' '}
             <a

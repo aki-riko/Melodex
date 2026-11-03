@@ -261,7 +261,7 @@ const RecentSearches = ({ items, onPick, onDelete, onClearAll }) => {
       />
       <div className="flex flex-wrap gap-1.5">
         {items.map((h) => (
-          <span key={h.keyword} className="group inline-flex items-center overflow-hidden rounded-full border border-border bg-card">
+          <span key={h.keyword} className="group inline-flex items-center overflow-hidden rounded-control border border-border surface-control">
             <button
               type="button"
               onClick={() => onPick(h.keyword)}

@@ -1594,7 +1594,7 @@ export const PlayerBar = () => {
   return (
     <>
       {/* ===== 桌面端:完整播放条(原样) ===== */}
-      <div className="hidden lg:block fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-bar"
+      <div className="hidden lg:block fixed bottom-0 left-0 right-0 bg-card border-t border-border px-3 py-2 z-bar surface-dock"
         style={{ display: nowPlaying ? undefined : 'none' }}>
         <div className="max-w-6xl mx-auto">
           {notice && <p className="text-xs text-primary font-medium mb-1">{notice}</p>}
@@ -1684,8 +1684,8 @@ export const PlayerBar = () => {
               {queueOpen && (
                 <>
                   <div className="fixed inset-0 z-bar" onClick={() => setQueueOpen(false)} />
-                  <div className="absolute bottom-full right-0 mb-3 w-80 max-h-96 overflow-y-auto app-scroll bg-card border border-border rounded-lg shadow-popover z-popover animate-pop-in">
-                    <div className="sticky top-0 bg-card border-b border-border px-3 py-2 flex items-center justify-between">
+                  <div className="absolute bottom-full right-0 mb-3 w-80 max-h-96 overflow-y-auto app-scroll bg-card border border-border rounded-lg shadow-popover z-popover animate-pop-in surface-acrylic">
+                    <div className="sticky top-0 bg-card border-b border-border px-3 py-2 flex items-center justify-between surface-dock">
                       <span className="font-semibold text-sm">播放队列</span>
                       <span className="text-xs text-muted-foreground">{queue.length} 首</span>
                     </div>
@@ -1721,7 +1721,7 @@ export const PlayerBar = () => {
 
       {/* ===== 移动端:迷你条(封面+名+播放),点击展开全屏播放页 ===== */}
       {nowPlaying && (
-      <div className="lg:hidden fixed left-0 right-0 bg-card border-t border-border z-bar"
+      <div className="lg:hidden fixed left-0 right-0 bg-card border-t border-border z-bar surface-dock"
         style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
         {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
         {/* 顶部细进度条 */}

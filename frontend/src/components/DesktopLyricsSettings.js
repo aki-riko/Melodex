@@ -98,7 +98,7 @@ const DesktopLyricsSettings = () => {
         <MonitorUp className="flex-shrink-0 text-primary" size={24} />
       </div>
 
-      <div className="rounded-md border border-border bg-card p-4">
+      <div className="rounded-md border border-border surface p-4">
         <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
           <li>安装并打开 Melodex 桌面歌词助手。</li>
           <li>助手中填写当前 Melodex 服务地址；不要填写具体 API 路径。</li>
@@ -134,7 +134,7 @@ const DesktopLyricsSettings = () => {
         {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
       </div>
 
-      <div className="mt-4 rounded-md border border-border bg-card">
+      <div className="mt-4 rounded-md border border-border surface">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <p className="font-semibold">已配对助手</p>
           <button

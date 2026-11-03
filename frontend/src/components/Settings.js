@@ -17,6 +17,7 @@ import { sourceLabel } from '../utils/sourceLabels';
 import { loadAutoDownloadOnPlay, saveAutoDownloadOnPlay } from '../contexts/playerAutoDownload';
 import LoadingState from './LoadingState';
 import DesktopLyricsSettings from './DesktopLyricsSettings';
+import AppearanceSettings from './AppearanceSettings';
 
 const SOURCE_NOTES = {
   qq: 'QQ 音乐客户端强登录入口，用于换取 qm_keyst/qqmusic_key 等强凭证。',
@@ -387,7 +388,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
 
   return (
     <>
-      <div className="flex h-full min-h-[108px] flex-col rounded-md border border-border bg-card p-3">
+      <div className="flex h-full min-h-[108px] flex-col rounded-md border border-border surface p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">{sourceLabel(source)}</p>
@@ -452,7 +453,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
 
       {session && (
         <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4" onClick={closeQRSession}>
-          <div className="w-full max-w-sm rounded-lg border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-lg border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
                 <p className="font-semibold">{sourceLabel(source)} 扫码登录</p>
@@ -512,7 +513,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                             value={sodaSMSCode}
                             onChange={(e) => setSodaSMSCode(e.target.value)}
                             placeholder="验证码"
-                            className="min-w-0 flex-grow rounded-md border border-border bg-card px-3 py-2 text-xs outline-none focus:border-primary"
+                            className="min-w-0 flex-grow rounded-md border border-border surface-control px-3 py-2 text-xs outline-none focus:border-primary"
                           />
                           <button
                             onClick={validateSodaSMS}
@@ -551,7 +552,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
 
       {showManual && manualSupported && (
         <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4" onClick={() => setShowManual(false)}>
-          <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-lg border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-lg border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
                 <p className="font-semibold">手动填写 Cookie</p>
@@ -669,9 +670,9 @@ const Settings = () => {
         </section>
       )}
 
-      <section>
-        <h3 className="text-xl font-semibold mb-4">播放偏好</h3>
-        <div className="flex items-center justify-between gap-4 p-4 border border-border rounded-md bg-card">
+      <section aria-labelledby="settings-playback">
+        <h3 id="settings-playback" className="text-xl font-semibold mb-4">播放偏好</h3>
+        <div className="flex items-center justify-between gap-4 p-4 border border-border rounded-md surface">
           <div className="min-w-0">
             <p className="font-semibold">播放时自动下载到服务器</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -696,6 +697,8 @@ const Settings = () => {
         </div>
       </section>
 
+      <AppearanceSettings />
+
       <DesktopLyricsSettings />
 
       <section>
@@ -703,7 +706,7 @@ const Settings = () => {
           <h3 className="text-xl font-semibold">本地音乐库</h3>
           <button
             onClick={() => localMusic.refetch()}
-            className="px-3 py-1.5 border border-border rounded-md bg-card font-medium text-sm transition-colors hover:bg-secondary"
+            className="px-3 py-1.5 border border-border rounded-md surface-control font-medium text-sm transition-colors hover:bg-secondary"
           >
             刷新
           </button>
@@ -725,7 +728,7 @@ const Settings = () => {
         )}
         {!localMusic.isLoading && <div className="space-y-2">
           {tracks.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 p-3 border border-border rounded-md bg-card">
+            <div key={t.id} className="flex items-center gap-3 p-3 border border-border rounded-md surface">
               <div className="flex-grow min-w-0">
                 <p className="font-semibold truncate">{t.name}</p>
                 <p className="text-sm text-muted-foreground truncate">{t.artist}{t.album ? ` · ${t.album}` : ''}</p>

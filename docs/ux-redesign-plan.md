@@ -121,7 +121,7 @@
 
 | 规则 | 原因 |
 |---|---|
-| 裸 hex 色值 / Tailwind 任意色值 | 绕过 token,主题无法统一 |
+| 裸 hex 色值 / Tailwind 任意色值 | 绕过 token,主题无法统一(`src/ui/`、`src/theme/` 例外) |
 | `z-[数字]` / `z-10..z-100` | 曾出现 15 个魔法数字与真实叠层冲突 |
 | `window.confirm/alert/prompt` | 阻塞浏览器、无 Esc、样式与全站无关 |
 | 可滚容器未挂 `.scroll-area` / `.scroll-x` | 会渲染成浏览器默认滚动条(白槽) |
@@ -130,3 +130,48 @@
 | UI 层 catch 只有 `console` | 用户主动操作失败却完全不可见 |
 | 中文文案里的半角标点(`，`→`,`、`？`→`?`、`…`→`...`) | 曾 120 处混用,看起来像机器拼凑的文案 |
 | — | 另外断言:App.js 有 ErrorBoundary、Toast 有 `aria-live`、不出现 `'N/A'` |
+
+---
+
+## 多主题(2026-11 新增)
+
+两套主题并存,默认仍是原来的 Spotify 皮肤,**选中的主题记在 localStorage**(设备级,`melodex_theme`)。
+
+| 主题 id | 名称 | 形状 | 材质 |
+|---|---|---|---|
+| `spotify`(默认) | 暗夜绿 | 控件 9999px 胶囊 | 纯色(alpha=1) |
+| `fluent` | Fluent 亚克力 | 控件 4px、卡片 8px | 半透明表面 + Mica 晕染 + Acrylic 模糊 |
+
+### 加一套主题要动的地方(只有三处,缺一处契约测试就红)
+
+1. `frontend/src/theme/themes.js` —— 往 `THEMES` 里加一条(id / 中文名 / 说明 / `swatchClass` / `metaColor`)。
+2. `frontend/src/index.css` —— 加 `[data-theme="<id>"] { … }`,必须补齐 `REQUIRED_THEME_TOKENS`
+   里的**全部** token;并补一条 `.theme-swatch--<id>` 预览色块。
+3. `frontend/index.html` —— 首帧脚本里的 `THEME_IDS` 加上新 id。
+
+> 第 3 步不是冗余:主题是 `<html data-theme>` 上的属性,若等 React 挂载后再写,
+> 选了非默认主题的用户每次开页都会先闪一下默认皮肤。脚本必须内联且在样式之前。
+
+契约测试 `npm run test:theme` 会校验三处一致,并断言 `metaColor` 与该主题 `--background` 同色
+(否则移动端状态栏会与页面底色断层)。
+
+### 改组件时的两条纪律
+
+- **可点控件的圆角用 `rounded-control`**(= `var(--radius-control)`),不要写 `rounded-full`。
+  `rounded-full` 只留给真正的圆形装饰:头像、状态点、开关、圆形播放键、进度条细条、图标气泡。
+  否则 Fluent 主题下会留下一批"胶囊形状的漏网之鱼"。
+- **"表面"用材质类**,不要写死 `bg-card` / `bg-popover`:
+
+| 类 | 用在哪 | Spotify 下的等价物 |
+|---|---|---|
+| `.surface` | 卡片、面板、输入面 | `bg-card` |
+| `.surface-soft` | 更透一档的面 | `bg-card/60` |
+| `.surface-inset` | 内嵌块 | `bg-background/50` |
+| `.surface-acrylic` | 浮层:弹窗 / 菜单 / 下拉 / 队列 | `bg-popover` + 浮层阴影 |
+| `.surface-bar` | 顶栏(背景色系) | `bg-background/80` + `backdrop-blur` |
+| `.surface-dock` | 播放条 / 移动 Tab 栏(卡片色系) | `bg-card` |
+| `.surface-rail` | 侧栏导轨 | `bg-black/40` |
+
+  `.surface-bar` 与 `.surface-dock` 的区别是**底色来源不同**(背景色 vs 卡片色),
+  套错会让那一处在默认主题下悄悄变暗或变亮一档 —— 这是本次改造中真实踩到并修掉的坑。
+
