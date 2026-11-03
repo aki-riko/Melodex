@@ -102,7 +102,7 @@ export default function StatusLine({
           type="button"
           onClick={onDismiss}
           aria-label="关闭提示"
-          className="-mr-1 -mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
+          className="-mr-1 -mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
         >
           <X size={14} />
         </button>

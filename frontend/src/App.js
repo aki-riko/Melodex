@@ -18,6 +18,7 @@ import { CollectionsProvider } from './contexts/CollectionsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ServerDownloadsProvider } from './contexts/ServerDownloadsContext';
 import { FeedbackProvider } from './contexts/FeedbackContext';
+import { ThemeProvider } from './theme/ThemeContext.jsx';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import HelpPage from './components/HelpPage';
 import LoadingState from './components/LoadingState';
@@ -182,13 +183,15 @@ function App() {
     // ErrorBoundary 必须在最外层:任何 Provider 内部组件渲染抛错都要被兜住,
     // 否则整棵树卸载 → 白屏(历史上真实发生过)。
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <FeedbackProvider>
-            <AuthedApp />
-          </FeedbackProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <FeedbackProvider>
+              <AuthedApp />
+            </FeedbackProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

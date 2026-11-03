@@ -244,11 +244,11 @@ function CategoryBrowser({ onOpen }) {
                 type="button"
                 onClick={() => setActiveCategory(cat.value)}
                 className={cn(
-                  'min-h-9 rounded-full border px-3 type-caption font-medium transition-colors duration-base',
+                  'min-h-9 rounded-control border px-3 type-caption font-medium transition-colors duration-base',
                   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]',
                   active
                     ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground',
+                    : 'border-border surface-control text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground',
                 )}
               >
                 {cat.label}

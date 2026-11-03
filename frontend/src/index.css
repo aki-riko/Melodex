@@ -50,6 +50,98 @@
     /* 原生控件(select / range / 滚动条 / 日期选择器)按暗色渲染。
        缺这一条时 Windows/Linux 上原生滚动条与下拉框会出现浅色白槽。 */
     color-scheme: dark;
+
+    /* ===== 主题形状 =====
+       控件圆角随主题走(rounded-control)。Spotify 主题是 9999px 胶囊,
+       Fluent 主题是 4px 小圆角;两套共用同一批组件类名,不必各写一遍。
+       注意:真正的圆形装饰(头像、状态点、开关、圆形播放键)继续用 rounded-full。 */
+    --radius-control: 9999px;
+
+    /* ===== 材质(Mica / Acrylic)=====
+       Spotify 主题的"材质"是纯色:alpha=1、blur=0、无 Mica 渐变,
+       因此 .surface-acrylic / .app-shell 在这些变量下渲染结果与改造前完全一致。
+       Fluent 主题把 alpha 调低、blur 调大,同一批类名就变成半透明亚克力。 */
+    --material-mica: none;
+    --material-alpha: 1;
+    /* 8px = Tailwind 的 backdrop-blur 默认值。顶栏改造前就是这个模糊量,
+       保持同值才能做到"Spotify 主题零视觉变化";alpha=1 的浮层不受影响。 */
+    --material-blur: 8px;
+    --material-saturate: 100%;
+    /* 顶栏原来是 bg-background/80 + blur —— 这里存的是同一个"透光率",
+       保证 Spotify 主题下顶栏看起来和改造前一模一样。 */
+    --material-veil-alpha: 0.8;
+    /* 侧栏原来是 bg-black/40(半透明纯黑压住背景),不是卡片色。 */
+    --material-rail: hsl(0 0% 0% / 0.4);
+
+    /* ===== 海拔(阴影)=====
+       Fluent 用分层阴影表达"这块浮在下面几层之上";Spotify 主题里卡片无阴影,
+       所以 card 档位给 none,保持原观感。 */
+    --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --elevation-card: none;
+    --elevation-flyout: 0 12px 32px rgba(0, 0, 0, 0.5);
+    --elevation-dialog: 0 24px 64px rgba(0, 0, 0, 0.6);
+  }
+
+  /* ===== 主题:Fluent 亚克力(Windows 11 风)=====
+     只覆盖 token,不写任何组件选择器 —— 组件全部读 token,
+     所以这套主题不会漏掉某个角落(也不会有"改了样式没生效"的假象)。
+
+     与 Spotify 主题的三处本质差异:
+       1. 配色:强调色从 Spotify 绿换成 Windows 强调蓝 #60CDFF;
+       2. 形状:控件圆角 9999px → 4px(卡片仍是 8px);
+       3. 材质:表面半透明 + 背景晕染(Mica),浮层叠加 backdrop blur(Acrylic)。 */
+  [data-theme="fluent"] {
+    /* Fluent 深色底:比 Spotify 的 #181818 略亮,更接近 Windows 11 的 #202020 */
+    --background: 0 0% 12.5%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 15%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 16.5%;
+    --popover-foreground: 0 0% 100%;
+    /* 强调色:Windows 11 默认强调蓝 #60CDFF */
+    --primary: 200 100% 69%;
+    --primary-foreground: 197 100% 12%;
+    --secondary: 0 0% 23%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 77%;
+    /* 悬停面:比 Spotify 主题略亮一档,Fluent 的 hover 是"提亮 + 描边" */
+    --accent: 0 0% 26%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 78% 66%;
+    --destructive-foreground: 0 0% 10%;
+    --success: 145 60% 58%;
+    --success-foreground: 0 0% 10%;
+    --warning: 38 92% 62%;
+    --warning-foreground: 0 0% 10%;
+    --info: 200 100% 69%;
+    --info-foreground: 197 100% 12%;
+    --border: 0 0% 25%;
+    --input: 0 0% 28%;
+    --ring: 200 100% 69%;
+
+    /* 形状:控件 4px(Windows 11 控件标准圆角),卡片维持 8px */
+    --radius: 0.5rem;
+    --radius-control: 4px;
+
+    /* 材质:卡片 88% 不透明、浮层 82% + 30px 模糊 —— 背后内容透出但文字清晰 */
+    --material-mica:
+      radial-gradient(120% 80% at 18% -10%, hsl(200 100% 69% / 0.10), transparent 60%),
+      radial-gradient(90% 65% at 100% 0%, hsl(268 80% 68% / 0.07), transparent 55%);
+    --material-alpha: 0.88;
+    --material-blur: 30px;
+    --material-saturate: 140%;
+    --material-veil-alpha: 0.55;
+    --material-rail: hsl(0 0% 13% / 0.5);
+
+    /* 海拔:分层更明显,Fluent 的浮层靠阴影与背景分离 */
+    --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.32);
+    --elevation-card: 0 2px 4px rgba(0, 0, 0, 0.26), 0 0 2px rgba(0, 0, 0, 0.22);
+    --elevation-flyout: 0 16px 32px rgba(0, 0, 0, 0.52), 0 0 2px rgba(0, 0, 0, 0.3);
+    --elevation-dialog: 0 32px 64px rgba(0, 0, 0, 0.58), 0 0 2px rgba(0, 0, 0, 0.34);
+
+    --scrollbar-thumb: 0 0% 40%;
+    --scrollbar-thumb-hover: 0 0% 58%;
   }
 
   html {
@@ -59,6 +151,10 @@
 
   body {
     @apply bg-background text-foreground;
+    /* 主题材质(Mica):Spotify 主题的 --material-mica 是 none,渲染结果与改造前一致;
+       Fluent 主题在这里叠一层极淡的蓝/紫晕染,模拟 Windows 11 的桌面壁纸透光。 */
+    background-image: var(--material-mica);
+    background-attachment: fixed;
     /* 不声明并不存在的 webfont(PWA/离线/国内网络下载字体是负收益)。
        用系统栈 + 中文字体回退,层级靠字号/字重建立。 */
     font-family: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
@@ -106,6 +202,29 @@
   }
 }
 
+/* ===== 主题预览色块(设置页用)=====
+   预览必须与"真的选中后"看到的是同一套色值,所以这里不复制颜色,
+   而是让色块真正套上对应主题的变量块 —— 选中前先把 data-theme 挂到色块上,
+   浏览器会按那个主题解析 hsl(var(--background)) 等变量。 */
+.theme-swatch {
+  --swatch-bg: hsl(var(--background));
+  --swatch-card: hsl(var(--card));
+  --swatch-accent: hsl(var(--primary));
+  background:
+    linear-gradient(135deg, var(--swatch-accent), transparent 62%),
+    linear-gradient(180deg, var(--swatch-card), var(--swatch-bg));
+}
+.theme-swatch--spotify {
+  --swatch-bg: hsl(0 0% 9%);
+  --swatch-card: hsl(0 0% 16%);
+  --swatch-accent: hsl(141 73% 49%);
+}
+.theme-swatch--fluent {
+  --swatch-bg: hsl(0 0% 12.5%);
+  --swatch-card: hsl(0 0% 15%);
+  --swatch-accent: hsl(200 100% 69%);
+}
+
 /* ===== 字号 / 层级 =====
    字面量字号曾散落 12 种(text-[11px] 出现 9 次)。这里固定 6 级,
    新代码直接用 .type-*;Tailwind 的 text-xs/sm/base 仍可作局部微调。 */
@@ -147,7 +266,72 @@
   }
 }
 
-/* ===== Spotify 风 app-shell 布局(皮肤改编自 Adam Lowenthal CodePen, MIT) ===== */
+/* ===== 主题化表面:卡面与浮层 =====
+   组件里的 bg-card / bg-popover 用的是**不透明**色值;只有当主题把 --material-alpha
+   调成 1 以外时,下面这组工具类才把表面换成"半透明 + 亚克力模糊"。
+   Spotify 主题 alpha=1,这些类的 background 与纯 bg-card 完全等价,零视觉变化。 */
+
+/* .surface        —— 卡片 / 面板 / 输入面(半透明底 + 细描边 + 卡片海拔)
+   刻意做成 bg-card 的**完全替身**:alpha=1 时 hsl(var(--card) / 1) 与 hsl(var(--card))
+   逐像素相同,Spotify 主题的观感一点没动;Fluent 主题把 alpha 调到 0.88 才变成半透明。 */
+.surface {
+  background-color: hsl(var(--card) / var(--material-alpha));
+  border-color: hsl(var(--border) / var(--material-alpha));
+  box-shadow: var(--elevation-card);
+}
+
+/* .surface-control —— 输入框 / 小方块按钮这类"控件面":只有底色随材质变,不加海拔阴影。
+   与 .surface 的区别:控件本身已经有描边和焦点环,再叠卡片阴影会显得脏。 */
+.surface-control {
+  background-color: hsl(var(--card) / var(--material-alpha));
+}
+
+/* .surface-rail  —— 侧栏导轨:原来是半透明纯黑压在背景上,不是卡片色,所以单独一档 */
+.surface-rail {
+  background-color: var(--material-rail);
+}
+
+/* .surface-inset  —— 内嵌块,用于原来是 bg-background/50、bg-card/40 的面 */
+.surface-inset {
+  background-color: hsl(var(--background) / calc(var(--material-alpha) * 0.5));
+}
+
+/* .surface-acrylic —— 浮层:弹窗 / 菜单 / 下拉 / 队列(模糊其后的内容)
+   默认**不带模糊**:Spotify 主题下原来的浮层是不透明的,加上 blur 会让它第一次变得"能透出后面" ——
+   那是观感变化。模糊只在主题把 --material-blur 调大(且 alpha < 1)时才有视觉效果,
+   所以这里让 blur 始终跟随变量,alpha=1 时它是完全看不出来的(背景本身不透明)。 */
+.surface-acrylic {
+  background-color: hsl(var(--popover) / var(--material-alpha));
+  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+  backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+  box-shadow: var(--elevation-flyout);
+}
+.surface-acrylic--dialog {
+  box-shadow: var(--elevation-dialog);
+}
+
+/* 顶栏 / 底栏这类贴在内容之上的条,分两种底色 —— 混用会让某一处悄悄变色:
+     · .surface-bar  : 顶栏。原来就是 bg-background/80 + backdrop-blur,
+                       所以用背景色 + --material-veil-alpha(Spotify 下 = /80)。
+     · .surface-dock : 播放条 / 移动 Tab 栏。原来是不透明的 bg-card,
+                       所以用卡片色 + --material-alpha(Spotify 下 alpha=1,与 bg-card 完全等价)。 */
+.surface-bar {
+  background-color: hsl(var(--background) / var(--material-veil-alpha));
+  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+  backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+}
+
+.surface-dock {
+  background-color: hsl(var(--card) / var(--material-alpha));
+  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+  backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+}
+
+/* .elevated —— 只是补上主题海拔阴影(卡片用),不改颜色 */
+.elevated {
+  box-shadow: var(--elevation-card);
+}
+/* ===== 主题:Spotify 风 app-shell 布局(皮肤改编自 Adam Lowenthal CodePen, MIT) ===== */
 
 /* app-shell 高度用 dvh 而非 vh: 移动端浏览器地址栏收放时 100vh 恒等于"最大可视高度",
    会把底部固定栏算进不可见区域, 导致内容被遮挡。100vh 作为旧浏览器回退。 */

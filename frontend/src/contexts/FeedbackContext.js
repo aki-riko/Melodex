@@ -156,7 +156,7 @@ const ToastItem = ({ item, onClose, onPause, onResume }) => {
       <button
         type="button"
         onClick={() => onClose(item.id)}
-        className="-mr-1 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
+        className="-mr-1 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
         aria-label="关闭提示"
       >
         <X size={15} />
@@ -226,14 +226,14 @@ const FeedbackDialog = ({ dialog, onDone }) => {
           <button
             type="button"
             onClick={() => onDone(isPrompt ? null : false)}
-            className="min-h-touch rounded-full px-4 type-body font-semibold text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
+            className="min-h-touch rounded-control px-4 type-body font-semibold text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
           >
             {dialog.cancelLabel}
           </button>
           <button
             type="submit"
             className={cn(
-              'min-h-touch rounded-full px-4 type-body font-semibold transition-[filter] duration-base hover:brightness-110',
+              'min-h-touch rounded-control px-4 type-body font-semibold transition-[filter] duration-base hover:brightness-110',
               dialog.danger
                 ? 'bg-destructive text-destructive-foreground'
                 : 'bg-primary text-primary-foreground',

@@ -66,6 +66,9 @@ module.exports = {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        // 控件圆角:随主题变化(Spotify 主题=9999px 胶囊,Fluent 主题=4px 小圆角)。
+        // 可点控件(按钮/输入框/芯片/图标钮)用它,视觉圆形装饰才继续用 rounded-full。
+        control: 'var(--radius-control)',
       },
       // 语义化层级:不再散落 z-[55]/z-[61]/z-[90] 这类魔法数字。
       // 顺序即叠放顺序,数字之间留足空隙以便插入新层。

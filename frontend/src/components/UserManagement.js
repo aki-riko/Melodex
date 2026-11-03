@@ -113,7 +113,7 @@ const UserManagement = () => {
         <p className={`mb-4 text-sm font-medium ${err ? 'text-destructive' : 'text-success'}`}>{err || msg}</p>
       )}
 
-      <section className="mb-8 p-4 border border-border rounded-lg bg-card">
+      <section className="mb-8 p-4 border border-border rounded-lg surface">
         <div className="flex items-center justify-between">
           <div>
             <p className="font-semibold">开放注册</p>
@@ -135,19 +135,19 @@ const UserManagement = () => {
             value={newUser.username}
             onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
             placeholder="用户名"
-            className="px-3 py-2 border border-border rounded-md bg-card outline-none focus:border-primary"
+            className="px-3 py-2 border border-border rounded-md surface-control outline-none focus:border-primary"
           />
           <input
             type="password"
             value={newUser.password}
             onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
             placeholder="密码(≥8 位)"
-            className="px-3 py-2 border border-border rounded-md bg-card outline-none focus:border-primary"
+            className="px-3 py-2 border border-border rounded-md surface-control outline-none focus:border-primary"
           />
           <select
             value={newUser.role}
             onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-            className="px-3 py-2 border border-border rounded-md bg-card outline-none focus:border-primary"
+            className="px-3 py-2 border border-border rounded-md surface-control outline-none focus:border-primary"
           >
             <option value="user">普通用户</option>
             <option value="admin">管理员</option>
@@ -170,7 +170,7 @@ const UserManagement = () => {
         ) : (
           <div className="space-y-2">
             {users.map((u) => (
-              <div key={u.id} className="flex flex-wrap items-center gap-2 p-3 border border-border rounded-md bg-card">
+              <div key={u.id} className="flex flex-wrap items-center gap-2 p-3 border border-border rounded-md surface">
                 <div className="flex-grow min-w-0">
                   <p className="font-semibold truncate">
                     {u.username}
@@ -181,15 +181,15 @@ const UserManagement = () => {
                 </div>
                 {u.id !== me?.id && (
                   <>
-                    <button onClick={() => onToggleRole(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
+                    <button onClick={() => onToggleRole(u)} className="px-2 py-1 border border-border rounded-md surface-control text-xs font-medium hover:bg-secondary transition-colors">
                       {u.role === 'admin' ? '降为用户' : '升为管理员'}
                     </button>
-                    <button onClick={() => onToggleDisabled(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
+                    <button onClick={() => onToggleDisabled(u)} className="px-2 py-1 border border-border rounded-md surface-control text-xs font-medium hover:bg-secondary transition-colors">
                       {u.disabled ? '启用' : '禁用'}
                     </button>
                   </>
                 )}
-                <button onClick={() => onResetPassword(u)} className="px-2 py-1 border border-border rounded-md bg-card text-xs font-medium hover:bg-secondary transition-colors">
+                <button onClick={() => onResetPassword(u)} className="px-2 py-1 border border-border rounded-md surface-control text-xs font-medium hover:bg-secondary transition-colors">
                   重置密码
                 </button>
                 {u.id !== me?.id && (

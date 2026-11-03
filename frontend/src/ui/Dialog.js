@@ -196,7 +196,7 @@ export default function Dialog({
                 type="button"
                 onClick={onClose}
                 aria-label="关闭"
-                className="-mr-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
+                className="-mr-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
               >
                 <X size={18} />
               </button>
