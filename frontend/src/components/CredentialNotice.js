@@ -97,7 +97,7 @@ export default function CredentialNotice() {
     >
       <AlertTriangle
         size={16}
-        className={cn('mt-0.5 flex-shrink-0', isError ? 'text-destructive' : 'text-yellow-400')}
+        className={cn('mt-0.5 flex-shrink-0', isError ? 'text-destructive-text' : 'text-yellow-400')}
         aria-hidden="true"
       />
       <span className="min-w-0 flex-grow">{text}</span>

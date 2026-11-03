@@ -184,7 +184,7 @@ export function MenuItem({ icon: Icon, label, hint, onClick, disabled, danger, b
         'flex min-h-touch w-full items-center gap-3 px-3 py-2 text-left type-body transition-colors duration-base',
         'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[hsl(var(--ring))]',
         'disabled:cursor-not-allowed disabled:opacity-45',
-        danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground hover:bg-secondary',
+        danger ? 'text-destructive-text hover:bg-destructive/10' : 'text-foreground hover:bg-secondary',
       )}
     >
       {Icon && (

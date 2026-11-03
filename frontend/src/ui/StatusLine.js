@@ -40,7 +40,7 @@ const TONES = {
     icon: AlertCircle,
     text: 'text-foreground',
     wrap: 'border-destructive/45 bg-destructive/10 text-foreground',
-    iconCls: 'text-destructive',
+    iconCls: 'text-destructive-text',
   },
 };
 

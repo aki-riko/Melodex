@@ -29,6 +29,8 @@ module.exports = {
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
+          // 文字专用档:暗底上需要更亮才够对比。见 index.css 的 --destructive-text。
+          text: 'hsl(var(--destructive-text))',
         },
         success: {
           DEFAULT: 'hsl(var(--success))',

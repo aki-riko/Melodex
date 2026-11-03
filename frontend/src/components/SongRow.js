@@ -50,7 +50,7 @@ const BADGE_TONES = {
   vip: 'bg-warning/15 text-warning',
   warn: 'bg-warning/15 text-warning',
   ok: 'bg-primary/15 text-primary',
-  bad: 'bg-destructive/15 text-destructive',
+  bad: 'bg-destructive/15 text-destructive-text',
   neutral: 'bg-muted text-muted-foreground',
 };
 
@@ -145,7 +145,7 @@ const IconAction = ({ icon: Icon, label, onClick, disabled, active, danger, busy
       'transition-colors duration-base ease-standard',
       'disabled:cursor-not-allowed disabled:opacity-40',
       danger
-        ? 'text-destructive hover:bg-destructive/10'
+        ? 'text-destructive-text hover:bg-destructive/10'
         : active
           ? 'bg-primary/10 text-primary hover:bg-primary/15'
           : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
