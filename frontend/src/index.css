@@ -20,15 +20,26 @@
     --muted-foreground: 0 0% 67%;     /* #AAAAAA 次要文字 */
     /* accent 不再等于主色:它是"中性的高亮/悬停面",避免绿色被用在所有东西上。
        (绿色只保留给唯一主动作与正在播放状态,语义见 docs/ux-visual-spec.md) */
-    --accent: 0 0% 26%;
+    /* 悬停面。26% 时 muted-foreground 压在其上只有 4.38:1(低于 AA),
+       压到 24% 后升到 4.73:1,而 --accent 实际只用于次级按钮的 hover
+       (bg-secondary hover:bg-accent),影响面极小,不会让全站变暗。 */
+    --accent: 0 0% 24%;
     --accent-foreground: 0 0% 100%;
+    /* 危险色拆成两个用途,因为它们的对比度要求方向相反:
+         · --destructive       用作**实心块底色**(删除按钮),白字压其上 → 越深越好
+         · --destructive-text  用作**文字颜色**(错误提示、删除图标) → 暗底上要够亮
+       之前两者共用一个值,导致"红字压在淡红悬停底上"只有 2.85:1。
+       现在文字档单独提亮到 66%,暗底与淡红底上都够看。 */
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
+    --destructive-text: 0 84% 68%;
     --success: 141 73% 49%;
     --success-foreground: 0 0% 9%;
     --warning: 38 92% 55%;
     --warning-foreground: 0 0% 9%;
-    --info: 210 90% 60%;
+    /* info 只用作图标/文字(不铺实心底),所以直接提亮即可 ——
+       60% 压在 accent 悬停面上只有 3.66:1,提到 68% 升到 4.58:1。 */
+    --info: 210 90% 68%;
     --info-foreground: 0 0% 9%;
     --border: 0 0% 22%;               /* #383838 细边 */
     --input: 0 0% 26%;                /* #424242 输入框边 */
@@ -148,6 +159,8 @@
     --primary-foreground: 0 0% 100%;
     --destructive: 6 100% 34%;  /* #AD1100 */
     --destructive-foreground: 0 0% 100%;
+    /* 浅色下"文字档"要更深(白底上浅红看不清),与暗色主题正好相反 */
+    --destructive-text: 6 100% 36%;
     --success: 145 100% 21%;    /* #006B2D */
     --success-foreground: 0 0% 100%;
     --warning: 30 100% 28%;     /* #8F4700 */

@@ -274,7 +274,7 @@ const RecentSearches = ({ items, onPick, onDelete, onClearAll }) => {
               type="button"
               onClick={(e) => onDelete(h.keyword, e)}
               aria-label={`删除搜索记录「${h.keyword}」`}
-              className="flex min-h-touch w-8 items-center justify-center text-muted-foreground transition-colors duration-base hover:text-destructive"
+              className="flex min-h-touch w-8 items-center justify-center text-muted-foreground transition-colors duration-base hover:text-destructive-text"
             >
               <X size={13} />
             </button>
@@ -809,7 +809,7 @@ const SearchPane = ({
             disabled={recognition.phase === 'uploading'}
             aria-label={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
             title={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
-            className={recognition.phase === 'recording' ? 'border-destructive text-destructive' : ''}
+            className={recognition.phase === 'recording' ? 'border-destructive text-destructive-text' : ''}
           >
             {recognition.phase === 'recording' ? <Square size={16} fill="currentColor" /> : <Mic size={17} />}
           </Button>

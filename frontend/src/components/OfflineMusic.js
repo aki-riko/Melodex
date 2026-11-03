@@ -131,7 +131,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
         onClick={() => onDelete(record)}
         aria-label={`删除本机缓存 ${record.name || '这首歌'}`}
         title="删除本机缓存"
-        className="flex h-10 w-10 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive"
+        className="flex h-10 w-10 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive-text"
       >
         <Trash2 size={16} aria-hidden="true" />
       </button>

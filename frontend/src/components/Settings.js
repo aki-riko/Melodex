@@ -151,7 +151,7 @@ const expiryBadge = (detail) => {
   if (state === 'expired') {
     return {
       text: '已过期',
-      className: 'border-destructive/40 bg-destructive/15 text-destructive',
+      className: 'border-destructive/40 bg-destructive/15 text-destructive-text',
       icon: <AlertTriangle size={12} />,
     };
   }

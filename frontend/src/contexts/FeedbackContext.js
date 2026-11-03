@@ -14,7 +14,7 @@ const FeedbackContext = createContext(null);
 
 const TOAST_CONF = {
   success: { icon: CheckCircle2, accent: 'text-success', ring: 'border-success/35' },
-  error: { icon: AlertCircle, accent: 'text-destructive', ring: 'border-destructive/45' },
+  error: { icon: AlertCircle, accent: 'text-destructive-text', ring: 'border-destructive/45' },
   warning: { icon: TriangleAlert, accent: 'text-warning', ring: 'border-warning/40' },
   info: { icon: Info, accent: 'text-info', ring: 'border-border' },
 };
@@ -218,7 +218,7 @@ const FeedbackDialog = ({ dialog, onDone }) => {
               )}
             />
             {invalid && (
-              <span role="alert" className="mt-1 block type-micro text-destructive">这里不能为空</span>
+              <span role="alert" className="mt-1 block type-micro text-destructive-text">这里不能为空</span>
             )}
           </label>
         )}

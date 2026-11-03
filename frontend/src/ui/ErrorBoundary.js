@@ -41,7 +41,7 @@ export default class ErrorBoundary extends React.Component {
       <div className="app-shell flex overflow-hidden bg-background text-foreground">
         <main className="flex flex-grow items-center justify-center p-6">
           <div className="w-full max-w-lg rounded-lg border border-destructive/40 bg-card p-6 text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/15 text-destructive-text">
               <AlertTriangle size={26} />
             </div>
             <h1 className="type-title text-foreground">界面出错了</h1>

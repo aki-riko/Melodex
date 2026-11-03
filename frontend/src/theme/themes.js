@@ -42,6 +42,7 @@ export const REQUIRED_THEME_TOKENS = [
   'accent-foreground',
   'destructive',
   'destructive-foreground',
+  'destructive-text',
   'success',
   'success-foreground',
   'warning',

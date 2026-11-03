@@ -106,13 +106,13 @@ export function Field({
       {label && (
         <label htmlFor={id} className="mb-1.5 block type-caption text-muted-foreground">
           {label}
-          {required && <span className="ml-0.5 text-destructive" aria-hidden="true">*</span>}
+          {required && <span className="ml-0.5 text-destructive-text" aria-hidden="true">*</span>}
           {required && <span className="sr-only">(必填)</span>}
         </label>
       )}
       {child}
       {error ? (
-        <p id={errorId} role="alert" className="mt-1 type-micro text-destructive">{error}</p>
+        <p id={errorId} role="alert" className="mt-1 type-micro text-destructive-text">{error}</p>
       ) : hint ? (
         <p id={hintId} className="mt-1 type-micro text-muted-foreground">{hint}</p>
       ) : null}

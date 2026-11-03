@@ -110,7 +110,7 @@ const UserManagement = () => {
       <p className="text-muted-foreground mb-6 mt-3">管理账号、角色与开放注册开关。仅管理员可见。</p>
 
       {(msg || err) && (
-        <p className={`mb-4 text-sm font-medium ${err ? 'text-destructive' : 'text-success'}`}>{err || msg}</p>
+        <p className={`mb-4 text-sm font-medium ${err ? 'text-destructive-text' : 'text-success'}`}>{err || msg}</p>
       )}
 
       <section className="mb-8 p-4 border border-border rounded-lg surface">
@@ -175,7 +175,7 @@ const UserManagement = () => {
                   <p className="font-semibold truncate">
                     {u.username}
                     {u.id === me?.id && <span className="ml-2 text-xs text-muted-foreground">(我)</span>}
-                    {u.disabled && <span className="ml-2 text-xs text-destructive">已禁用</span>}
+                    {u.disabled && <span className="ml-2 text-xs text-destructive-text">已禁用</span>}
                   </p>
                   <p className="text-sm text-muted-foreground">{ROLE_LABEL[u.role] || u.role}</p>
                 </div>

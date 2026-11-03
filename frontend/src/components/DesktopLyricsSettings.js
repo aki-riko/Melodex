@@ -126,12 +126,12 @@ const DesktopLyricsSettings = () => {
             </button>
           )}
           {pairing?.code && (
-            <span className={`text-xs ${codeExpired ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <span className={`text-xs ${codeExpired ? 'text-destructive-text' : 'text-muted-foreground'}`}>
               {codeExpired ? '已过期，请重新生成' : `${remaining} 秒后过期；使用一次即失效`}
             </span>
           )}
         </div>
-        {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+        {error && <p className="mt-3 text-sm text-destructive-text">{error}</p>}
       </div>
 
       <div className="mt-4 rounded-md border border-border surface">
@@ -162,7 +162,7 @@ const DesktopLyricsSettings = () => {
             <button
               type="button"
               onClick={() => revoke(device)}
-              className="text-muted-foreground transition-colors hover:text-destructive"
+              className="text-muted-foreground transition-colors hover:text-destructive-text"
               title="移除设备"
               aria-label={`移除 ${device.name}`}
             >
