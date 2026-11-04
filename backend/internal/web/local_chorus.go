@@ -208,6 +208,21 @@ type chorusIdentity struct {
 	Artist string
 }
 
+// trackChorusIdentities 把一批 model.Track 转成补副歌用的身份列表。
+//
+// 抽出来是为了让所有"返回歌给前端"的地方都用同一套写法 —— 少一处手写 to-identity
+// 就少一个可能漏掉副歌的入口(2026-11 就是因为逐个手写, 漏了导入歌单与平台详情)。
+func trackChorusIdentities(tracks []providermodel.Track) []chorusIdentity {
+	identities := make([]chorusIdentity, 0, len(tracks))
+	for i := range tracks {
+		identities = append(identities, chorusIdentity{
+			Source: tracks[i].Source, SongID: tracks[i].ID,
+			Name: tracks[i].Name, Artist: tracks[i].Artist,
+		})
+	}
+	return identities
+}
+
 // applyChorusToExtraMap 把副歌点位写进一个 extra map(供 gin.H 响应用)。
 //
 // 与 writeLocalChorusExtra 同口径: 键名必须与前端 playerChorus.mjs 消费的一致,

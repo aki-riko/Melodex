@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/bridge"
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
@@ -314,5 +316,50 @@ func TestImportedCollectionParserFallbackContract(t *testing.T) {
 	tracks, err := loadImportedCollectionSongs(&Collection{Kind: collectionKindImported, ContentType: collectionContentPlaylist, Source: "qq", ExternalID: "playlist-1", Link: "https://example.com/playlist/1"})
 	if err != nil || len(tracks) != 1 || tracks[0].ID != "song-parse" || tracks[0].Source != "qq" {
 		t.Fatalf("parser fallback tracks = %#v, err=%v", tracks, err)
+	}
+}
+
+// TestImportedCollectionSongsCarryChorus 锁住"导入歌单也要补副歌"(2026-11 漏过一遍)。
+//
+// 导入歌单是**活数据**: 每次打开都实时从平台拉, 平台的返回里没有副歌字段。之前只给
+// 手动歌单(saved_songs)补了, 导入歌单走的是另一个分支(remoteCollectionSongJSON),
+// 于是从平台导入的歌单永远看不到进度条标记 —— 用户原话是"那你还是没覆盖全部歌单的呢"。
+func TestImportedCollectionSongsCarryChorus(t *testing.T) {
+	setupUserTestDB(t)
+	resetLocalChorusCacheForTest()
+	t.Cleanup(resetLocalChorusCacheForTest)
+
+	previousDetail := playlistDetailFuncProvider
+	playlistDetailFuncProvider = func(string) func(string) ([]model.Track, error) {
+		return func(string) ([]model.Track, error) {
+			return []model.Track{
+				{ID: "1398663411", Source: "netease", Name: "冬眠", Artist: "司南", Duration: 269},
+			}, nil
+		}
+	}
+	t.Cleanup(func() { playlistDetailFuncProvider = previousDetail })
+
+	withChorusStub(t, func(context.Context, bridge.ChorusRequest) (map[string]model.ChorusPoint, error) {
+		return map[string]model.ChorusPoint{"1398663411": {Start: 92894, End: 122397}}, nil
+	})
+
+	collection := &Collection{
+		Kind: collectionKindImported, ContentType: collectionContentPlaylist,
+		Source: "netease", ExternalID: "pl-1", Link: "https://music.163.com/playlist?id=1",
+	}
+	response, err := collectionSongsJSON(collection)
+	if err != nil {
+		t.Fatalf("collectionSongsJSON: %v", err)
+	}
+	if len(response) != 1 {
+		t.Fatalf("songs = %d, want 1", len(response))
+	}
+	extra, ok := response[0]["extra"].(map[string]string)
+	if !ok {
+		t.Fatalf("extra = %#v, want map with chorus keys", response[0]["extra"])
+	}
+	if extra["chorus_start_ms"] != "92894" || extra["chorus_end_ms"] != "122397" {
+		t.Fatalf("chorus = %q/%q, want 92894/122397 (导入歌单必须补副歌)",
+			extra["chorus_start_ms"], extra["chorus_end_ms"])
 	}
 }
