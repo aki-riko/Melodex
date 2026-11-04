@@ -395,13 +395,42 @@ func qualityProbeVersion(source string) string {
 	}
 }
 
+// qualityExtraHash 把 extra 里**与取址/音质有关**的字段算进缓存 key。
+//
+// 为什么必须是白名单, 而不是"整个 extra 全部参与":这个哈希会进 quality_cache 的主键,
+// 任何与音质无关的展示型字段一旦写进 extra, 就会把所有历史音质缓存一次性冲掉 ——
+// 下次打开歌单时后台要按首歌重新打上游探测, 属于纯浪费的真回归。
+// 具体踩点:2026-11 给搜索结果的 extra 加副歌点位(chorus_start_ms / chorus_end_ms)时,
+// 按旧实现(全字段参与)会让整库音质缓存失效;这些字段只是给前端画进度条标记用,
+// 与"这首歌能不能取到地址、多少码率"毫无关系, 不该参与 key。
+//
+// 新增字段时的判断标准:它会不会改变取址结果? 会 => 加进白名单; 不会 => 别加。
+var qualityExtraKeyAllowlist = map[string]bool{
+	"songmid":      true, // QQ 取址依赖的 mid
+	"song_id":      true, // 部分源的数值 id
+	"hash":         true, // 酷狗等按文件 hash 取址
+	"album_id":     true,
+	"albumMid":     true,
+	"album_mid":    true,
+	"is_paid":      true, // 付费标记直接影响能取到哪一档
+	"needs_vip":    true,
+	"has_lossless": true,
+	"play_auth":    true,
+}
+
 func qualityExtraHash(extra map[string]string) string {
 	if len(extra) == 0 {
 		return ""
 	}
 	keys := make([]string, 0, len(extra))
 	for key := range extra {
+		if !qualityExtraKeyAllowlist[key] {
+			continue
+		}
 		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return ""
 	}
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))

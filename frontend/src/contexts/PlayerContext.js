@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import DesktopLyricsBridge from '../components/DesktopLyricsBridge';
 import SleepTimerControl from '../components/SleepTimerControl';
@@ -44,6 +44,7 @@ import {
 import NativePlayerProvider from './NativePlayerProvider.js';
 import { isNativeAndroidPlayback } from './nativePlayback.js';
 import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
+import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
 
 const PlayerContext = createContext(null);
 
@@ -1447,6 +1448,26 @@ const KaraokeLine = ({ line, cur }) => {
   );
 };
 
+// 副歌标记:进度条上的一根可点小竖条,点击跳到副歌起点。
+//
+// 为什么必须是 <button> 而不是装饰性 div:它本身就是可交互控件,键盘/读屏也要能触达,
+// 所以带 aria-label + title(两者都写:title 给鼠标悬停提示,aria-label 给读屏)。
+// 为什么外层比视觉条大这么多:进度条只有十几像素高,一个 2px 宽的标记几乎点不中;
+// 外层靠 -inset-y-3 把可点高度撑到接近 44px 的触控下限,内部才画细标记。
+// pointer-events 只落在外层按钮上,细标记本身不拦截事件。
+const ChorusMarker = ({ percent, onSeek }) => (
+  <button
+    type="button"
+    onClick={onSeek}
+    aria-label="跳到副歌"
+    title="跳到副歌"
+    className="absolute -inset-y-3 flex w-3 -translate-x-1/2 items-center justify-center"
+    style={{ left: `${percent}%` }}
+  >
+    <span className="h-3 w-0.5 rounded-full bg-primary ring-1 ring-border" />
+  </button>
+);
+
 // 常驻底部播放器条:封面/标题 + 上/播/下 + 进度条 + 播放模式
 export const PlayerBar = () => {
   const {
@@ -1470,6 +1491,22 @@ export const PlayerBar = () => {
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
   const { offline } = useAuth();
   const coverUrl = cachedCoverUrl || (!offline && nowPlaying?.cover ? coverProxyUrl(nowPlaying) : '');
+
+  // 副歌标记位置:从歌曲 extra 派生,不额外存 state。
+  // 为什么用 useMemo 而不是每次渲染现算:progress 每帧都在变(时间更新),PlayerBar 会跟着重渲染;
+  // 而副歌区间只跟"当前是哪首歌 + 音频真实时长"有关,没必要每帧重新解析 extra。
+  // 真实时长优先取 progress.dur(音频加载后才准),拿不到才退回歌曲元数据 duration。
+  const chorusDurationSec = Number(progress.dur) > 0 ? Number(progress.dur) : Number(nowPlaying?.duration || 0);
+  const chorusRange = useMemo(
+    () => parseChorusRange(nowPlaying?.extra, chorusDurationSec),
+    [curKey, nowPlaying, chorusDurationSec],
+  );
+  const chorusPercentValue = chorusPercent(chorusRange, chorusDurationSec);
+  // 没有可信副歌数据(或时长未知算不出位置)时一律不渲染标记,不做空壳。
+  const showChorusMarker = chorusRange != null && chorusPercentValue != null;
+  const seekToChorus = useCallback(() => {
+    if (chorusRange) seek(chorusRange.start);
+  }, [chorusRange, seek]);
 
   // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
   const [favorited, setFavorited] = useState(false);
@@ -1654,11 +1691,16 @@ export const PlayerBar = () => {
             {/* 右:进度条 */}
             <div className="flex items-center gap-2 flex-grow min-w-0">
               <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>
-              <input
-                type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
-                onChange={(e) => seek(Number(e.target.value))}
-                className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="播放进度"
-              />
+              {/* 用 relative 包裹:副歌标记要绝对定位到进度条的真实轨道上,
+                  所以 input 与标记必须是同一坐标系的兄弟节点。 */}
+              <div className="relative flex-grow min-w-0 flex items-center">
+                <input
+                  type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+                  onChange={(e) => seek(Number(e.target.value))}
+                  className="w-full min-w-0 accent-primary cursor-pointer" aria-label="播放进度"
+                />
+                {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
+              </div>
               <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
             </div>
             {/* 音量: 仅桌面。窄屏(md)隐藏 —— 那里空间不够, 且大多用系统音量。 */}
@@ -1725,8 +1767,17 @@ export const PlayerBar = () => {
         style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
         {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
         {/* 顶部细进度条 */}
-        <div className="h-0.5 bg-secondary">
+        <div className="relative h-0.5 bg-secondary">
           <div className="h-full bg-primary" style={{ width: progress.dur ? `${(progress.cur / progress.dur) * 100}%` : '0%' }} />
+          {/* 这条只有 2px 高,放可点标记必然点不中(还会跟迷你条本身的"点击展开"抢事件),
+              所以这里只画一根不可点的视觉指示;点击跳转只在真实进度条上提供。 */}
+          {showChorusMarker && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute -translate-x-1/2 top-0 h-0.5 w-2 bg-primary ring-1 ring-border"
+              style={{ left: `${chorusPercentValue}%` }}
+            />
+          )}
         </div>
         <div className="flex items-center gap-2 px-3 py-2">
           <button className="flex items-center gap-3 min-w-0 flex-grow text-left" onClick={openExpanded} aria-label="展开播放页">
@@ -1850,11 +1901,14 @@ export const PlayerBar = () => {
           </div>
           {/* 进度 */}
           <div className="px-8 mt-5">
-            <input
-              type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
-              onChange={(e) => seek(Number(e.target.value))}
-              className="w-full accent-primary cursor-pointer" aria-label="播放进度"
-            />
+            <div className="relative flex items-center">
+              <input
+                type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+                onChange={(e) => seek(Number(e.target.value))}
+                className="w-full accent-primary cursor-pointer" aria-label="播放进度"
+              />
+              {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
+            </div>
             <div className="flex justify-between text-xs text-muted-foreground tabular-nums mt-1">
               <span>{fmtTime(progress.cur)}</span>
               <span>{fmtTime(progress.dur)}</span>
@@ -1958,9 +2012,12 @@ export const PlayerBar = () => {
           <div className="px-16 pb-8">
             <div className="flex items-center gap-3 mb-3 max-w-4xl mx-auto w-full">
               <span className="text-xs text-muted-foreground tabular-nums w-10 text-right">{fmtTime(progress.cur)}</span>
-              <input type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
-                onChange={(e) => seek(Number(e.target.value))}
-                className="flex-grow accent-primary cursor-pointer" aria-label="播放进度" />
+              <div className="relative flex-grow flex items-center">
+                <input type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+                  onChange={(e) => seek(Number(e.target.value))}
+                  className="w-full accent-primary cursor-pointer" aria-label="播放进度" />
+                {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
+              </div>
               <span className="text-xs text-muted-foreground tabular-nums w-10">{fmtTime(progress.dur)}</span>
             </div>
             <div className="flex items-center justify-center gap-8">

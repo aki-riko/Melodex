@@ -231,3 +231,48 @@ func legacyQualityCacheKeyForTest(song model.Track) (string, string) {
 	sum := sha1.Sum([]byte(raw))
 	return hex.EncodeToString(sum[:]), extraHash
 }
+
+// TestQualityExtraHashIgnoresPresentationOnlyFields 锁住"展示型字段不得冲掉音质缓存"。
+//
+// 回归背景(2026-11):给搜索结果的 extra 加副歌点位(chorus_start_ms / chorus_end_ms)时,
+// qualityExtraHash 原本把 extra 里**所有**键都算进 quality_cache 主键, 于是新增两个与取址
+// 完全无关的字段 = 整库音质缓存一次性失效, 下次打开歌单会对每首歌重新打上游探测。
+// 这条断言要求:只有展示型字段不同时, 音质缓存 key 必须完全一致。
+func TestQualityExtraHashIgnoresPresentationOnlyFields(t *testing.T) {
+	base := model.Track{
+		ID:     "002t0xbC4DCGdE",
+		Source: "qq",
+		Extra:  map[string]string{"songmid": "002t0xbC4DCGdE"},
+	}
+	withChorus := model.Track{
+		ID:     "002t0xbC4DCGdE",
+		Source: "qq",
+		Extra: map[string]string{
+			"songmid":         "002t0xbC4DCGdE",
+			"chorus_start_ms": "84498",
+			"chorus_end_ms":   "142301",
+			"provider":        "charles-musicdl",
+			"_rank":           "3",
+		},
+	}
+
+	baseKey, baseExtraHash := qualityCacheKey(base)
+	chorusKey, chorusExtraHash := qualityCacheKey(withChorus)
+	if baseExtraHash != chorusExtraHash {
+		t.Fatalf("extra hash changed by presentation-only fields: %q vs %q", baseExtraHash, chorusExtraHash)
+	}
+	if baseKey != chorusKey {
+		t.Fatalf("quality cache key changed by presentation-only fields: %q vs %q", baseKey, chorusKey)
+	}
+
+	// 反向锁:真正影响取址的字段必须仍然改变 key,否则白名单写漏了会串缓存。
+	moved := model.Track{
+		ID:     "002t0xbC4DCGdE",
+		Source: "qq",
+		Extra:  map[string]string{"songmid": "different-mid"},
+	}
+	movedKey, _ := qualityCacheKey(moved)
+	if movedKey == baseKey {
+		t.Fatal("songmid change must change the quality cache key")
+	}
+}

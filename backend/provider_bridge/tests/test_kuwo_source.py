@@ -268,6 +268,84 @@ class ResolvePlayUrlTests(unittest.TestCase):
         )
 
 
+class ChorusTests(unittest.TestCase):
+    """副歌点位(payInfo.refrain_start/end)写进 extra。
+
+    注意这与 PaidDetectionTests 是两件独立的事: refrain_start 能当"副歌起点"用,
+    但绝不能反过来当付费信号 —— 两组测试共同锁死这条边界。
+    """
+
+    def _item(self, start, end, duration="269"):
+        return {
+            "SONGNAME": "晴天", "ARTIST": "周杰伦", "MUSICRID": "MUSIC_228908",
+            "DURATION": duration, "fpay": "0", "PAY": "8913032",
+            "MINFO": "level:p,bitrate:320,format:mp3,size:10.29Mb",
+            "payInfo": {"refrain_start": start, "refrain_end": end},
+        }
+
+    def test_writes_valid_range_into_extra(self):
+        """实测晴天 84346/142843(曲长 269s)必须原样写进 extra。"""
+        payload = kuwo_source.build_payload(self._item("84346", "142843"), {}, 0)
+        self.assertEqual(payload["extra"]["chorus_start_ms"], "84346")
+        self.assertEqual(payload["extra"]["chorus_end_ms"], "142843")
+
+    def test_free_song_also_gets_chorus(self):
+        """免费曲也有 refrain_start(实测 79683) —— 副歌点位与付费与否完全解耦。"""
+        payload = kuwo_source.build_payload(
+            self._item("79683", "135159", duration="462"), {}, 1,
+        )
+        self.assertEqual(payload["extra"]["chorus_start_ms"], "79683")
+        self.assertFalse(payload["is_vip"])
+        self.assertNotIn("needs_vip", payload["extra"])
+
+    def test_does_not_change_paid_detection(self):
+        """加副歌点位不得改变付费判定(这是有意的设计, 回归就翻车)。"""
+        self.assertFalse(kuwo_source._is_paid_item(self._item("84346", "142843")))
+        self.assertTrue(kuwo_source._is_paid_item({**self._item("84346", "142843"), "fpay": "1"}))
+
+    def test_rejects_zero_start(self):
+        payload = kuwo_source.build_payload(self._item("0", "142843"), {}, 0)
+        self.assertNotIn("chorus_start_ms", payload["extra"])
+        self.assertNotIn("chorus_end_ms", payload["extra"])
+
+    def test_rejects_end_before_or_equal_start(self):
+        for end in ("84346", "80000", "0"):
+            payload = kuwo_source.build_payload(self._item("84346", end), {}, 0)
+            self.assertNotIn("chorus_start_ms", payload["extra"], end)
+
+    def test_rejects_end_beyond_duration(self):
+        """终点越出曲长(含容差)一律不写 —— 画到曲末之外的标记比不画更误导。"""
+        # 269s 曲长 → 容差 max(5s, 10%) = 26.9s, 295s 还容得下, 400s 就明显越界了。
+        tolerated = kuwo_source.build_payload(self._item("84346", "295000"), {}, 0)
+        self.assertEqual(tolerated["extra"]["chorus_start_ms"], "84346")
+        rejected = kuwo_source.build_payload(self._item("84346", "400000"), {}, 0)
+        self.assertNotIn("chorus_start_ms", rejected["extra"])
+
+    def test_no_duration_means_no_chorus(self):
+        """拿不到曲长就无法校验越界, 宁可不报(不能把脏数据画到进度条上)。"""
+        payload = kuwo_source.build_payload(self._item("84346", "142843", duration="0"), {}, 0)
+        self.assertNotIn("chorus_start_ms", payload["extra"])
+
+    def test_missing_or_malformed_pay_info(self):
+        for pay_info in (None, {}, "不是字典", {"refrain_start": "x", "refrain_end": "y"}):
+            item = {**self._item("1", "2"), "payInfo": pay_info}
+            if pay_info is None:
+                item.pop("payInfo")
+            payload = kuwo_source.build_payload(item, {}, 0)
+            self.assertNotIn("chorus_start_ms", payload["extra"], repr(pay_info))
+
+    def test_search_payload_carries_chorus(self):
+        """真实搜索路径上也要带出来(不只 build_payload 单测)。"""
+        session = FakeSession(mobi={"207227837": full_song("207227837", 462)})
+        songs = kuwo_source.search("周杰伦 晴天", 10, session=session)
+        paid = next(s for s in songs if s["id"] == "228908")
+        free = next(s for s in songs if s["id"] == "207227837")
+        self.assertEqual(paid["extra"]["chorus_start_ms"], "84346")
+        self.assertEqual(paid["extra"]["chorus_end_ms"], "142843")
+        self.assertEqual(free["extra"]["chorus_start_ms"], "79683")
+        self.assertEqual(free["extra"]["chorus_end_ms"], "135159")
+
+
 class SearchTests(unittest.TestCase):
     def test_paid_song_is_invalid_and_not_resolved(self):
         """付费曲连取址请求都不该发(省往返 + 防误收片段)。"""

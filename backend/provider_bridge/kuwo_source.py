@@ -308,6 +308,32 @@ def _search_items(client: PlatformHTTP, keyword: str, limit: int) -> list[dict[s
     ]
 
 
+def _chorus_range(item: dict[str, Any], duration: int) -> tuple[int, int] | None:
+    """从 `payInfo` 取出副歌起止(毫秒); 不可信时返回 None。
+
+    为什么要校验而不是照抄: 这两个字段只用来在播放进度条上画副歌区间, **标错比不标更糟**
+    (用户会以为副歌就在那)。所以只在能自证合理时才上报: 起点为正、终点晚于起点、
+    且不越出曲长(与取址判定同一套容差, 吸收编码/统计误差)。
+
+    `DURATION` 缺失(为 0)时无法校验越界, 宁可不报 —— 否则一个脏数据就能把标记画到
+    曲末之外, 而前端还得为这种边界单独兜底。
+    """
+    pay_info = item.get("payInfo")
+    if not isinstance(pay_info, dict):
+        return None
+    start = _integer(pay_info.get("refrain_start"))
+    end = _integer(pay_info.get("refrain_end"))
+    if start <= 0 or end <= start:
+        return None
+    total_ms = _integer(duration) * 1000
+    if total_ms <= 0:
+        return None
+    tolerance = max(DURATION_TOLERANCE_SECONDS * 1000, int(total_ms * DURATION_TOLERANCE_RATIO))
+    if end > total_ms + tolerance:
+        return None
+    return start, end
+
+
 def build_payload(
     item: dict[str, Any],
     resolution: dict[str, Any] | None,
@@ -339,6 +365,13 @@ def build_payload(
     if _is_paid_item(item):
         # 付费曲无 cookie 必然只有试听片段; 明确标记, 前端据此提示"需登录会员"。
         extra["needs_vip"] = "1"
+    # 副歌点位: 搜索响应本身就带(零额外请求), 前端拿它在进度条上画副歌区间。
+    # 注意与上面 needs_vip 是**完全无关**的两件事 —— refrain_start 每首歌都有(免费曲也有),
+    # 它能当副歌起点用, 但绝不能反过来当付费信号(见 _is_paid_item 的说明)。
+    chorus = _chorus_range(item, duration)
+    if chorus is not None:
+        extra["chorus_start_ms"] = str(chorus[0])
+        extra["chorus_end_ms"] = str(chorus[1])
     return {
         "id": raw_id,
         "name": _string(item.get("SONGNAME")) or _string(item.get("NAME")),
