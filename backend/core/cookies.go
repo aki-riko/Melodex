@@ -49,6 +49,39 @@ type CookieStatusDetail struct {
 	//   probe    = 在线探测结果(网易)
 	//   none     = 无法判断
 	ExpirySource string `json:"expiry_source,omitempty"`
+
+	// AutoRefreshable 表示"到期后 sidecar 能自己把 key 换回来,用户不必重新扫码"。
+	//
+	// 为什么需要它:QQ musickey 只有 72h,界面上的倒计时到 0 时用户以为要掉线了,
+	// 实际上只要是扫码登录来的 cookie,里面还有寿命几十天的授权 token,
+	// Provider sidecar 会在下次搜索时自动续期(见 provider_bridge/qq_source.py
+	// 的 refresh_musickey)。不把这个能力说出口,用户只会白重新扫一次码。
+	//
+	// 注意判断的是**能力**而不是剩余时间:还剩 23 小时时它同样为 true。
+	AutoRefreshable bool `json:"auto_refreshable,omitempty"`
+}
+
+// QQ musickey 只有 72h,但同一份 cookie 里这些授权 token 的寿命长得多,
+// sidecar 就是拿它们去换新 musickey 的(见 provider_bridge/qq_source.py 的 TOKEN_KEYS,
+// 以及 qq_login.py 里逐项回退的那套顺序)。这里只判断"有没有",值绝不外泄。
+var qqLongLivedTokenNames = []string{
+	"p_skey", "skey", "superkey", "supertoken", "pt_oauth_token",
+	"refresh_token", "psrf_qqrefresh_token", "refresh_key",
+}
+
+// credentialAutoRefreshable: 这份凭证到期后,sidecar 能不能不靠人就把 key 换回来。
+//
+// 三个条件缺一不可,与 sidecar 的真实行为逐项对应:
+//   - has_key            : 只有 musickey 过期才触发续期(没有 key 就没有可续的东西)
+//   - has_uin            : refresh_musickey 拿不到 uin 会直接返回空
+//   - has_long_lived_token: 没有任何长期 token 时,所有候选都为空,同样换不出新 key
+//
+// 宁可说"不能续"也不要承诺一个实际做不到的自动续期 —— 那会让用户连提醒都错过。
+func credentialAutoRefreshable(source string, hints map[string]bool) bool {
+	if canonicalCookieSource(source) != "qq" {
+		return false
+	}
+	return hints["has_uin"] && hints["has_music_key"] && hints["has_long_lived_token"]
 }
 
 // 即将过期的阈值:剩余不足 24h 就值得提醒(QQ musickey 有效期通常是 72h)。
@@ -179,6 +212,7 @@ func BuildCookieStatusDetail(source, cookie string, verify bool) CookieStatusDet
 		CookieLength: len(cookie),
 		Hints:        credentialHints(source, cookie),
 	}
+	detail.AutoRefreshable = credentialAutoRefreshable(source, detail.Hints)
 
 	// 先做「离线可算」的有效期判断(QQ 的 musickey 自带创建时间与有效期)。
 	// 这一步不联网,所以即使 verify=false 也能给出结论 ——
@@ -340,14 +374,22 @@ func credentialHints(source, cookie string) map[string]bool {
 	case "netease":
 		return map[string]bool{"has_music_u": names["MUSIC_U"]}
 	case "qq":
+		// has_long_lived_token 必须与 sidecar 实际续期用的那份清单一致。
+		// 历史 bug:当年只有 has_refresh_key / has_refresh_token 两项,但 refresh_musickey
+		// 真正拿来换 key 的是 TOKEN_KEYS(p_skey/skey/superkey/supertoken/pt_oauth_token),
+		// refresh_token 只是其中一个可选来源。于是一份"扫码登录、p_skey 齐全、但没有
+		// refresh_token"的 cookie 会被判成不可续期并催用户重扫码 —— 而它其实自己就能续。
 		return map[string]bool{
-			"has_uin":           has("str_musicid", "qqmusic_uin", "musicid", "uin"),
-			"has_music_key":     has("musickey", "qqmusic_key", "qm_keyst"),
-			"has_musickey":      names["musickey"],
-			"has_qqmusic_key":   names["qqmusic_key"],
-			"has_qm_keyst":      names["qm_keyst"],
-			"has_refresh_key":   names["refresh_key"],
-			"has_refresh_token": has("refresh_token", "psrf_qqrefresh_token"),
+			"has_uin":               has("str_musicid", "qqmusic_uin", "musicid", "uin"),
+			"has_music_key":         has("musickey", "qqmusic_key", "qm_keyst"),
+			"has_musickey":          names["musickey"],
+			"has_qqmusic_key":       names["qqmusic_key"],
+			"has_qm_keyst":          names["qm_keyst"],
+			"has_refresh_key":       names["refresh_key"],
+			"has_refresh_token":     has("refresh_token", "psrf_qqrefresh_token"),
+			"has_long_lived_token":  has(qqLongLivedTokenNames...),
+			"has_pt_oauth_token":    names["pt_oauth_token"],
+			"has_ps_key":            names["p_skey"],
 		}
 	case "kugou":
 		return map[string]bool{

@@ -499,6 +499,48 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
   非法值一律安静降级成"没有副歌",绝不抛异常影响播放)。标记组件 `ChorusMarker` 用
   `<button>` 保证键盘/读屏可达,移动迷你条那条 2px 细进度条只画不可点的视觉指示。
 
+## 平台凭证有效期与「自动续期」的 UI 契约(2026-11)
+
+用户反馈:设置页 QQ 卡片显示「⚠ 剩 23 小时 34 分」,以为马上要掉线、准备重新扫码。**实际上它会自己续上。**
+
+### 机制(读源码得出)
+- QQ **musickey 只有 72h**(`keyExpiresIn=259200`),但同一份 cookie 里的授权 token
+  (`p_skey/skey/superkey/supertoken/pt_oauth_token`,即 `qq_login.TOKEN_KEYS`)寿命长得多。
+- `provider_bridge/qq_source.py` 的 `refresh_musickey` 用它们重走扫码登录第 5 步
+  (`QQConnectLogin.LoginServer/QQLogin`)换出**全新 musickey**,经 `refreshed_cookie_sink`
+  → `app.py` 的 `refreshed_cookie` → Go `core.persistRefreshedCookie` 落库(settings.db)。
+- **触发时机只有一处**:`qq_source.search()` 里 `state["has_key"] and state["expired"]`,
+  即**下次搜索/取址/播放**时才续。倒计时走到 0 之后不会自动重登,但也**不需要**用户重登。
+- 因此 `state == "expiring_soon"`(剩 <24h)**不代表要掉线**,只代表"还没到续期那一刻"。
+
+### 判断「能不能续」的唯一口径:`detail.auto_refreshable`
+`core.BuildCookieStatusDetail` 输出该字段,三条件缺一不可,与 sidecar 的真实行为逐项对应:
+`has_uin`(拿不到 uin 直接返回 `{}`)+ `has_music_key`(只有 key 过期才触发)+
+`has_long_lived_token`(候选 token 全空同样换不出新 key)。非 QQ 源恒为 false。
+
+> **踩过的 bug**:Go 侧原先只有 `has_refresh_key`/`has_refresh_token` 两项,而
+> `refresh_musickey` 真正用的是 `TOKEN_KEYS`(refresh_token 只是其中一个可选来源)。
+> 于是「扫码登录、p_skey 齐全、但没有 refresh_token」的 cookie 被判成不可续期,
+> 把用户赶去白扫一次码 —— 而它自己就能续。Python 侧 `credential_state.refreshable`
+> 同步修正为同一份清单。**两边判据必须一致:判断能续的,就必须真能续。**
+
+### UI 规则
+- 纯逻辑在 `frontend/src/utils/credentialExpiry.js`(`expiryBadge`/`expiryHint`/
+  `classifyCredentialNotices`/`credentialNoticeText`),由
+  `frontend/scripts/credentialExpiry.test.mjs`(`npm run test:credential`)锁定。
+- **能续期时绝不催用户重新登录**:徽章用中性/蓝色 +「自动续期」字样,
+  `expired` 且能续期显示「已过期 · 待续期」(黄色,不是红色 —— 红色会让人立刻跑去重扫)。
+- **不能续期时如实警告**,并说明"缺长期授权凭证、无法自动续期"。
+- `CredentialNotice` 全局提示条按**用户要不要动手**分三桶(**不是**按"能不能续"分,这里极易写反):
+  - `expired` + 不能续 → 红色,"必须自己重登";
+  - `expired` + **能续** → 蓝色,**仍然提示**:"下次搜索会自动续期,若续期失败再重扫"。
+    不能因为"能续"就不提示 —— 续期可能被上游风控拒绝,而失败表现正是"音质悄悄变差",
+    那恰是本组件当初要解决的问题;
+  - `expiring_soon` + 能续 → **完全不提示**(正常现象,下次搜索就续上);
+  - `expiring_soon` + 不能续 → 黄色,"无法自动续期,建议提前重登"。
+- 前端**不得自己推断**能否续期:它看不见 cookie 内容,一律读后端 `auto_refreshable`
+  (旧后端无此字段 → 按 false 处理,宁可多提醒一次)。
+
 ## 能力边界(已做到极限,别白费功夫)
 
 - **刮削**:下载文件嵌入 标题/歌手/专辑/专辑艺人/日期/完整LRC歌词/封面(webp 自动转 JPEG)。track/genre/year **数据源没有**(model.Song + Extra 只有 song_id),硬加是空帧,别做。再要更全需接 MusicBrainz(另一量级)。

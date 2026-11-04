@@ -231,7 +231,19 @@ def credential_state(cookie: str) -> dict[str, Any]:
     expires_at = created_at + lifetime if created_at and lifetime else 0
     now = int(time.time())
     expired = bool(expires_at and now >= expires_at)
-    refreshable = bool(_first_present(cookies.get("refresh_token"), cookies.get("psrf_qqrefresh_token")))
+    # 这里原先只认 refresh_token/psrf_qqrefresh_token, 但 refresh_musickey 实际拿的是
+    # TOKEN_KEYS(p_skey/skey/superkey/supertoken/pt_oauth_token) 那一串授权 token ——
+    # 于是"扫码登录、p_skey 齐全、没有 refresh_token"的 cookie 会被判成不可续期,
+    # 而它自己完全能续。两处必须用同一份清单: 判断能续的, 就必须真能续。
+    # uin 也一样, refresh_musickey 拿不到 uin 会直接放弃。
+    refreshable = bool(uin) and bool(
+        _first_present(
+            *(cookies.get(name) for name in TOKEN_KEYS),
+            cookies.get("refresh_token"),
+            cookies.get("psrf_qqrefresh_token"),
+            cookies.get("refresh_key"),
+        )
+    )
     if not musickey:
         summary = "缺失会员key"
     elif not expires_at:
