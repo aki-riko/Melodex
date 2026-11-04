@@ -187,3 +187,45 @@ func verifyPlaylistProvider(id, link string, detail func(string) ([]model.Track,
 	}
 	return fmt.Errorf("playlist %q returned no tracks", id)
 }
+
+// TestCookieSourceNamesHaveNoQQAliasCards 锁住「设置页不再重复出 QQ 卡」。
+//
+// 2026-11 用户反馈(附截图):账号登录区同时出现两张 QQ 音乐卡,
+// 一张「QQ音乐 · 强凭证」、一张「QQ音乐 · 微信入口」,两者的「剩 23 小时 34 分」
+// 完全一致 —— 看着像两个账号或重复配置。
+//
+// 根因:cookieSourceNames 里放了 qq_wx,而 canonicalCookieSource 把
+// qq_wx/qq_mobile/qq_connect 全部折成 qq,读的是同一份 cookie。于是同一个源
+// 被渲染成两张卡。
+//
+// 这条测试守住两点:
+//  1. cookieSourceNames 里不得再出现 QQ 的别名(否则又冒出重复卡);
+//  2. 别名折叠能力必须保留 —— 老部署若真存过 qq_wx 这个 key,仍要能读出来。
+func TestCookieSourceNamesHaveNoQQAliasCards(t *testing.T) {
+	qqAliases := []string{"qq_wx", "qq_mobile", "qq_connect"}
+	for _, name := range GetCookieSourceNames() {
+		for _, alias := range qqAliases {
+			if name == alias {
+				t.Fatalf("cookieSourceNames 不应包含 QQ 别名 %q(会渲染成与 qq 重复的卡片)", alias)
+			}
+		}
+	}
+
+	// qq 本身必须还在 —— 删重复卡不等于删 QQ 登录入口。
+	foundQQ := false
+	for _, name := range GetCookieSourceNames() {
+		if name == "qq" {
+			foundQQ = true
+		}
+	}
+	if !foundQQ {
+		t.Fatal("qq 必须保留在 cookieSourceNames 里(否则设置页没有 QQ 登录入口)")
+	}
+
+	// 别名折叠能力必须保留:老部署存的 qq_wx 仍要被认成 qq。
+	for _, alias := range qqAliases {
+		if got := canonicalCookieSource(alias); got != "qq" {
+			t.Fatalf("canonicalCookieSource(%q) = %q, 期望折叠成 qq(别名读取能力不能丢)", alias, got)
+		}
+	}
+}
