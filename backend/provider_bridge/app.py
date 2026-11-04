@@ -10,7 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from provider_bridge import kugou_lyric, kuwo_source, netease_lyric, netease_source, qq_source
+from provider_bridge import (
+    kugou_lyric,
+    kuwo_source,
+    netease_chorus,
+    netease_lyric,
+    netease_source,
+    qq_source,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -176,6 +183,43 @@ def _enrich_verbatim_lyrics(songs: list[dict[str, Any]], source: str) -> None:
         LOGGER.info("[%s] 逐字歌词已应用 %d/%d 首", source, replaced, len(songs))
 
 
+def _enrich_netease_chorus(songs: list[dict[str, Any]]) -> None:
+    """把网易批量接口给的副歌起止写进 extra(一次请求覆盖整页, 尽力而为)。
+
+    与酷我不同, 网易的搜索响应里没有 `payInfo.refrain_start` 这类字段, 只能额外打一次
+    官方批量接口(`/api/song/chorus`)。之所以只打**一次**: 逐首请求会把搜索从 ~2s
+    拖回几十秒, 那是酷我快照的老毛病, 不能在这里重演。
+
+    副歌点位只是给进度条画标记用的展示增强: 整段包在 try/except 里, 任何失败都只
+    记一条 warning, 绝不让搜索因此失败或慢到超预算。
+    """
+    if not songs or not netease_chorus.chorus_enabled():
+        return
+    try:
+        chorus = netease_chorus.fetch_chorus_map(
+            [_string(song.get("id")) for song in songs]
+        )
+    except Exception as error:  # 增强项: 失败只留痕, 不影响搜索
+        LOGGER.warning("[netease] 副歌点位批量获取异常: %s", error)
+        return
+    if not chorus:
+        return
+    applied = 0
+    for song in songs:
+        item = chorus.get(_string(song.get("id")))
+        if not item:
+            continue
+        extra = song.get("extra")
+        if not isinstance(extra, dict):
+            extra = {}
+            song["extra"] = extra
+        extra["chorus_start_ms"] = str(item["start"])
+        extra["chorus_end_ms"] = str(item["end"])
+        applied += 1
+    if applied:
+        LOGGER.info("[netease] 副歌点位已应用 %d/%d 首", applied, len(songs))
+
+
 class _SingleFlightSlot:
     """一次进行中的搜索; 其余等价请求等它就绪后共享结果。"""
 
@@ -309,6 +353,8 @@ def _search_impl(
             LOGGER.warning("[netease] 搜索被上游限流 keyword=%r: %s", keyword, error)
             raise ValueError(f"netease search rate limited: {error}") from error
         # 歌词改懒加载(见 lyric()): 不再为每首候选预取逐字歌词(实测 +0.5s/次搜索)。
+        # 副歌点位补一次批量请求(实测 1 次覆盖整页 9~10/10), 失败/关闭都不影响搜索本身。
+        _enrich_netease_chorus(native_songs)
         return {"songs": native_songs}
     # QQ 走 Melodex 自有实现(见 qq_source 模块说明):快照的 QQ 取地址链路打的是 QQ 已
     # 停用的 u.y.qq.com,拿不到 purl 就会把所有 QQ 歌曲当作不可播丢弃,导致 QQ 源恒为空。

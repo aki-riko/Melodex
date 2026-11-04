@@ -469,6 +469,36 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 - **缓存版本坑**: `search_cache` 的 key 含版本号, payload 形状一变(如新增逐字歌词)必须 bump
   `searchRankingCacheVersion`, 否则旧行会在 TTL(24h)内继续返回旧内容, 看起来像"改动没生效"。
 
+### 副歌点位(chorus, 2026-11)
+
+前端在播放进度条上画一个可点标记,点击跳到副歌起点。数据写在 `extra.chorus_start_ms` /
+`extra.chorus_end_ms`(字符串毫秒,**两个都必须是真值**,缺一边前端就不画)。
+
+- **数据只有两路,QQ 没有**:
+  - **酷我**:搜索响应的 `payInfo.refrain_start/refrain_end` **自带**,零额外请求。`kuwo_source._chorus_range`
+    会校验「起点>0 且 终点>起点 且 终点 <= 曲长+容差(复用 `DURATION_TOLERANCE_*`)」,
+    **曲长缺失时不写**(无法校验越界,标错比不标更糟)。
+  - **网易**:搜索响应**没有**这字段,要额外打一次官方批量接口
+    `GET https://music.163.com/api/song/chorus?ids=[186016,185809]`(实测一次覆盖整页 9~10/10)。
+    实现在 `netease_chorus.py`,由 `app.py:_enrich_netease_chorus` 接在**原生搜索分支**返回前,
+    整段 try/except 尽力而为。开关 `MELODEX_NETEASE_CHORUS`(默认开)。
+  - **QQ:没有任何可用接口** —— 试过 `PreviewInfoRead.GetPreviewInfo` / `ChorusInfo.GetChorusInfo`
+    等多个模块全部返回 `code 500003`(模块不存在),别再白费功夫。
+- **千万别用 `refrain_start` 判付费**:它每首歌都有非零值(免费曲也有),误用会把所有歌判成付费。
+  这是 `_is_paid_item` 里刻意写下的反例,新代码不要"顺手复用"。
+- **交叉验证过的真值**:酷我与网易对《晴天》给出的副歌点分别是 84346ms 与 84498ms,
+  换算到进度条是 31.36% vs 31.41%(偏差 0.05%)——两路独立数据高度吻合,说明是真实数据而非估算。
+  这条交叉校验固化在 `frontend/scripts/playerChorusE2E.mjs`。
+- **`qualityExtraHash` 的连带坑(踩过,已修)**:`internal/web/quality_cache.go` 原先把这个歌
+  `extra` 的**所有**键都算进 `quality_cache` 主键。于是往 extra 里加任何**展示型**字段(如副歌点位)
+  都会把整库音质缓存一次性冲掉,下次打开歌单要对每首歌重新打上游探测 —— 纯浪费的真回归。
+  现已改成白名单 `qualityExtraKeyAllowlist`(只让真正影响取址的字段参与),并由
+  `TestQualityExtraHashIgnoresPresentationOnlyFields` 锁死。**以后往 extra 加展示字段前,
+  先 grep 一遍有没有别处把整份 extra 当哈希/主键用。**
+- 前端解析在 `src/contexts/playerChorus.mjs`(宽容解析:extra 可为对象或 JSON 串、毫秒可为数字或字符串;
+  非法值一律安静降级成"没有副歌",绝不抛异常影响播放)。标记组件 `ChorusMarker` 用
+  `<button>` 保证键盘/读屏可达,移动迷你条那条 2px 细进度条只画不可点的视觉指示。
+
 ## 能力边界(已做到极限,别白费功夫)
 
 - **刮削**:下载文件嵌入 标题/歌手/专辑/专辑艺人/日期/完整LRC歌词/封面(webp 自动转 JPEG)。track/genre/year **数据源没有**(model.Song + Extra 只有 song_id),硬加是空帧,别做。再要更全需接 MusicBrainz(另一量级)。
