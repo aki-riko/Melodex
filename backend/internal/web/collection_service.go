@@ -158,8 +158,17 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 			return nil, err
 		}
 		warmQualityCache(tracks, 6)
+		// 导入歌单是**活数据**(每次打开都实时从平台拉), 平台的返回里同样没有副歌字段,
+		// 所以这里也要补 —— 否则从平台导入的歌单永远看不到标记。
+		chorusPoints := fillChorusForTracks(trackChorusIdentities(tracks))
 		response := make([]gin.H, 0, len(tracks))
 		for _, track := range tracks {
+			if point, ok := chorusPoints[chorusSourceKey(track.Source, track.ID)]; ok && point.Valid() {
+				if track.Extra == nil {
+					track.Extra = make(map[string]string, 2)
+				}
+				applyChorusToExtraMap(track.Extra, point)
+			}
 			response = append(response, remoteCollectionSongJSON(collection.ID, track))
 		}
 		return response, nil

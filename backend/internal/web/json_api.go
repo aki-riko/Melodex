@@ -761,6 +761,20 @@ func buildSongListDetailResponse(contentType, id, src string) jsonSongListRespon
 			songs[i].Source = src
 		}
 	}
+	// 平台的歌单/专辑详情的返回里**没有**副歌字段, 而这里的歌用户点开就会播,
+	// 进度条上要有标记就得在这里补(2026-11)。与其它展示入口共用同一套限流路径:
+	// 网易一次批量、酷我串行 ≤5 首、每源独立超时, 拿不到就静默降级。
+	chorusPoints := fillChorusForTracks(trackChorusIdentities(songs))
+	for i := range songs {
+		point, ok := chorusPoints[chorusSourceKey(songs[i].Source, songs[i].ID)]
+		if !ok || !point.Valid() {
+			continue
+		}
+		if songs[i].Extra == nil {
+			songs[i].Extra = make(map[string]string, 2)
+		}
+		applyChorusToExtraMap(songs[i].Extra, point)
+	}
 	resp.Songs = songs
 	if err != nil {
 		if contentType == "album" {
