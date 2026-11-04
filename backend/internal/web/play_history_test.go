@@ -1,10 +1,13 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/aki-riko/Melodex/backend/internal/provider/bridge"
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
 )
 
@@ -142,5 +145,59 @@ func TestEncodeSongExtraWithMetadataAddsAlbumFields(t *testing.T) {
 	extra = decodeSongExtraMap(raw)
 	if extraMapValue(extra, "album") != "别名专辑" || extraMapValue(extra, "album_id") != "mid-1" {
 		t.Fatalf("album aliases should be normalized, got %#v", extra)
+	}
+}
+
+// TestPlayHistoryBackfillsChorusIntoExtra 锁住「最近播放」的副歌回填(2026-11 生产反馈)。
+//
+// 现场: 用户从「最近播放」点开一首网易歌, 进度条上没有副歌标记。原因是 play_history_rows
+// 存的是**播放当时**的 extra 快照 —— 那时还没有 chorus_* 字段, 而前端只认 extra 里的值。
+// 只在「已下载」列表做回填是不够的: 展示层读到旧快照, 就永远看不到标记。
+//
+// 这里断言的是"读取时补", 而不是"写入时补": 历史行本身不该被改写(它是播放记录,
+// 不是元数据表), 但返回给前端的结构必须带上副歌。
+func TestPlayHistoryBackfillsChorusIntoExtra(t *testing.T) {
+	setupUserTestDB(t)
+	resetLocalChorusCacheForTest()
+	t.Cleanup(resetLocalChorusCacheForTest)
+
+	u, _ := createUser("chorushist", "choruspass1", RoleUser)
+
+	// 历史行里**没有**副歌字段 —— 模拟"播放发生在功能上线之前"。
+	recordPlayHistory(u.ID, "1398663411", "netease", "冬眠", "司南", "", 269, `{"album":"冬眠"}`)
+	rows, err := listPlayHistory(u.ID, 0)
+	if err != nil {
+		t.Fatalf("list play history: %v", err)
+	}
+
+	// 上游给出真实点位(真机实测过: 冬眠 92894~122397)。
+	withChorusStub(t, func(_ context.Context, request bridge.ChorusRequest) (map[string]model.ChorusPoint, error) {
+		return map[string]model.ChorusPoint{"1398663411": {Start: 92894, End: 122397}}, nil
+	})
+
+	songs := playHistoryToSongs(rows)
+	if len(songs) != 1 {
+		t.Fatalf("songs = %d, want 1", len(songs))
+	}
+	extra, ok := songs[0]["extra"].(map[string]string)
+	if !ok {
+		t.Fatalf("extra = %#v, want map with chorus keys", songs[0]["extra"])
+	}
+	if extra["chorus_start_ms"] != "92894" || extra["chorus_end_ms"] != "122397" {
+		t.Fatalf("chorus = %q/%q, want 92894/122397 (最近播放必须补副歌)",
+			extra["chorus_start_ms"], extra["chorus_end_ms"])
+	}
+	// 原有字段不能被冲掉(前端还要用它渲染专辑)。
+	if extra["album"] != "冬眠" {
+		t.Fatalf("album lost: %#v", extra)
+	}
+
+	// 历史行本身不该被改写 —— 它是播放记录, 不是元数据表。
+	var saved playHistoryRow
+	if err := db.Where("user_id = ? AND song_id = ?", u.ID, "1398663411").First(&saved).Error; err != nil {
+		t.Fatalf("reload history: %v", err)
+	}
+	if strings.Contains(saved.Extra, "chorus_start_ms") {
+		t.Fatalf("history row must not be rewritten with chorus, got %q", saved.Extra)
 	}
 }

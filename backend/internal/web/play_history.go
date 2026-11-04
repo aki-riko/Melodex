@@ -96,10 +96,35 @@ func listPlayHistory(userID uint, limit int) ([]playHistoryRow, error) {
 
 // playHistoryToSongs 把历史行转成与 collectionSongsJSON 对齐的歌曲结构
 // (含 extra 解析出的 album/album_id/link),供前端 SongRow 直接渲染/播放。
+//
+// 副歌点位在这里补(2026-11): 历史行存的是**播放当时**的 extra 快照, 那时还没有
+// chorus_* 字段, 而前端进度条只认 extra 里的值 —— 不回填的话用户从「最近播放」
+// 点开一首网易歌就永远看不到副歌标记(实测生产就是这么发生的)。
+//
+// 只补当前返回的这一页(最多 limit 首), 且走 fillChorusForTracks 的统一限流路径:
+// 网易一次批量, 酷我串行 ≤5 首。拿不到就静默降级(少一个标记, 不影响列表)。
 func playHistoryToSongs(rows []playHistoryRow) []gin.H {
+	// 先把所有行解码好, 再一次性按 (source,song_id) 批量补副歌, 避免逐行打上游。
+	extras := make([]map[string]string, len(rows))
+	identities := make([]chorusIdentity, 0, len(rows))
+	for i, r := range rows {
+		extras[i] = hydratePlayHistoryAlbumMetadata(&rows[i], decodeSongExtraMap(r.Extra))
+		identities = append(identities, chorusIdentity{
+			Source: r.Source, SongID: r.SongID, Name: r.Name, Artist: r.Artist,
+		})
+	}
+	points := fillChorusForTracks(identities)
+
 	resp := make([]gin.H, 0, len(rows))
-	for _, r := range rows {
-		extraMap := hydratePlayHistoryAlbumMetadata(&r, decodeSongExtraMap(r.Extra))
+	for i, r := range rows {
+		extraMap := extras[i]
+		// extra 保持原来的形状(没数据时是 nil 而不是空 map), 除非这次真的补到了副歌 ——
+		// 补到时才改成 map, 因为要往里加两个字段。这样既有响应对老客户端完全不变。
+		var extraOut interface{} = decodeSongExtraObject(r.Extra)
+		if point, ok := points[chorusSourceKey(r.Source, r.SongID)]; ok && point.Valid() {
+			applyChorusToExtraMap(extraMap, point)
+			extraOut = extraMap
+		}
 		resp = append(resp, gin.H{
 			"id":        r.SongID,
 			"source":    r.Source,
@@ -110,7 +135,7 @@ func playHistoryToSongs(rows []playHistoryRow) []gin.H {
 			"cover":     r.Cover,
 			"duration":  r.Duration,
 			"link":      extraMapValue(extraMap, "link"),
-			"extra":     decodeSongExtraObject(r.Extra),
+			"extra":     extraOut,
 			"played_at": r.PlayedAt,
 		})
 	}

@@ -261,6 +261,44 @@ func TestLocalChorusIsSequential(t *testing.T) {
 	}
 }
 
+// TestLocalChorusNeteaseResultSurvivesKuwoTimeout 锁定一个真实生产 bug(2026-11)。
+//
+// 现场: 网易先跑完并命中 38/38 首(provider 日志有据), 但紧随其后的酷我反查把整页的
+// 3s 共享预算耗尽 → 旧代码在"ctx 超时"时直接 return nil → **把已经到手的网易结果整批丢掉**。
+// 用户看到的现象就是"已下载列表里网易的歌一个副歌标记都没有"。
+//
+// 正确语义: 失败了的是酷我那一路, 网易那一路已经付过代价、拿到数据, 必须照常回填。
+func TestLocalChorusNeteaseResultSurvivesKuwoTimeout(t *testing.T) {
+	initCollectionDBForTest(t)
+	seedDownloadRecord(t, "n.flac", "netease", "186016", "晴天", "周杰伦")
+	seedDownloadRecord(t, "k.flac", "kuwo", "228908", "晴天", "周杰伦")
+
+	withChorusStub(t, func(ctx context.Context, request bridge.ChorusRequest) (map[string]providermodel.ChorusPoint, error) {
+		if request.Source == "kuwo" {
+			// 模拟"酷我把预算耗尽": 等自己的 ctx 到期, 返回一个超时错误。
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return map[string]providermodel.ChorusPoint{"186016": {Start: 84498, End: 142301}}, nil
+	})
+
+	neteaseTrack := trackAt("n.flac")
+	kuwoTrack := trackAt("k.flac")
+	fillLocalChorusForPage([]*localMusicTrack{neteaseTrack, kuwoTrack})
+
+	// 网易那首必须拿到副歌 —— 这是本用例的全部要点。
+	if got := neteaseTrack.Extra["chorus_start_ms"]; got != "84498" {
+		t.Fatalf("netease chorus_start_ms = %q, want 84498 (酷我超时不得吞掉网易结果)", got)
+	}
+	if got := neteaseTrack.Extra["chorus_end_ms"]; got != "142301" {
+		t.Fatalf("netease chorus_end_ms = %q, want 142301", got)
+	}
+	// 酷我那首拿不到是合理的(它确实超时了), 但绝不能写成脏值。
+	if _, ok := kuwoTrack.Extra["chorus_start_ms"]; ok {
+		t.Fatal("kuwo 超时不应写入任何副歌字段")
+	}
+}
+
 // TestLocalChorusSendsKuwoHints 锁定酷我反查需要的歌名/歌手确实传给了 sidecar。
 func TestLocalChorusSendsKuwoHints(t *testing.T) {
 	initCollectionDBForTest(t)
