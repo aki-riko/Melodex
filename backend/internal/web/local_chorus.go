@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,10 +37,18 @@ const (
 	// 落在任务要求的 6~12h 区间内。
 	localChorusCacheTTL = 8 * time.Hour
 
-	// localChorusRequestTimeout 是整页补副歌的总超时。
-	// 列表接口不能被上游拖死: 超时后直接返回已有结果(没副歌照常返回列表)。
-	// 3s 让网易批量(实测 ~0.5s)有充足余量, 又能兜住偶发的上游卡顿。
-	localChorusRequestTimeout = 3 * time.Second
+	// localChorusNeteaseTimeout 是网易那一路的预算。
+	// 网易是一次批量请求(实测 0.2~0.6s), 3s 足够吸收偶发抖动。
+	localChorusNeteaseTimeout = 3 * time.Second
+
+	// localChorusKuwoTimeout 是酷我那一路的预算, **独立于网易**。
+	//
+	// 为什么必须分开(2026-11 生产实测踩过): 酷我没有"按 id 批量取副歌"的接口, 只能拿
+	// 歌名+歌手反查, sidecar 内串行最多 5 首、每首一次完整搜索(实测 ~1s)。原先两路共用
+	// 一个 3s ctx, 酷我必然把它吃满, 于是**排在它前面的网易结果也被一起判超时丢掉**,
+	// 表现是"已下载列表里网易的歌全都没有副歌标记", 而 provider 日志明明写着命中 38/38。
+	// 给酷我单独 4s(5 首串行 ~5s 的实测成本下, 拿多少算多少), 谁也别拖死谁。
+	localChorusKuwoTimeout = 4 * time.Second
 
 	// localChorusMaxNeteaseIDs 是单次批量请求的 id 上限, 与 sidecar 的 MAX_BATCH_IDS 对齐。
 	// 一页最多 100 首, 所以正常永远不会触发截断; 留着是为了"上游请求规模有上界"这件事可审计。
@@ -148,6 +157,82 @@ func localChorusFillableSource(source string) bool {
 	default:
 		return false
 	}
+}
+
+// fillChorusForTracks 给一批**已有源身份**的歌曲补副歌点位(原地改 extra)。
+//
+// 与 fillLocalChorusForPage 的区别: 那条路要先从 download_records 还原身份(因为本地
+// 扫描出来的 Source 恒为 "local"); 这条路手上的歌已经带着真实 (source, song_id) ——
+// 比如「最近播放」的 play_history_rows、歌单的 saved_songs, 直接按身份查即可。
+//
+// 为什么要单独做(2026-11 生产反馈): 用户从「最近播放」点开一首网易歌, 进度条上没有
+// 副歌标记 —— 那些行的 extra 是**播放当时**的快照, 里面根本没有 chorus_*, 而当时
+// 只给「已下载」列表做了回填。展示层拿到的既然是旧快照, 就得在读取时补, 而不是指望
+// 历史行自己长出字段。
+//
+// 并发纪律不变: 不启 goroutine, 网易一次批量, 酷我串行 ≤5 首, 每源独立超时。
+func fillChorusForTracks(entries []chorusIdentity) map[string]providermodel.ChorusPoint {
+	if len(entries) == 0 {
+		return nil
+	}
+	// 去重 + 白名单过滤, 得到"值得问上游且还没查过"的身份。
+	missing := make(map[string]localTrackOrigin, len(entries))
+	for _, entry := range entries {
+		source := strings.ToLower(strings.TrimSpace(entry.Source))
+		songID := strings.TrimSpace(entry.SongID)
+		if source == "" || songID == "" || !localChorusFillableSource(source) {
+			continue
+		}
+		if _, hit := localChorusCache.load(source, songID); hit {
+			continue
+		}
+		key := chorusSourceKey(source, songID)
+		if _, ok := missing[key]; ok {
+			continue
+		}
+		missing[key] = localTrackOrigin{
+			Source: source, SongID: songID, Name: entry.Name, Artist: entry.Artist,
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fetchLocalChorusUpstream(missing)
+}
+
+// chorusIdentity 是一个"已知平台身份"的歌, 用来按身份补副歌。
+type chorusIdentity struct {
+	Source string
+	SongID string
+	Name   string
+	Artist string
+}
+
+// applyChorusToExtraMap 把副歌点位写进一个 extra map(供 gin.H 响应用)。
+//
+// 与 writeLocalChorusExtra 同口径: 键名必须与前端 playerChorus.mjs 消费的一致,
+// 且两个都必须有值 —— 缺一边前端就不画标记。
+func applyChorusToExtraMap(extra map[string]string, point providermodel.ChorusPoint) {
+	if extra == nil || !point.Valid() {
+		return
+	}
+	extra["chorus_start_ms"] = strconv.FormatInt(int64(point.Start), 10)
+	extra["chorus_end_ms"] = strconv.FormatInt(int64(point.End), 10)
+}
+
+// chorusPointFor 按 (source, song_id) 取副歌点位: 先缓存, 缓存没有再走 fillChorusForTracks。
+// 供"单首已知身份"的场景使用(避免调用方自己拼 map)。
+func chorusPointFor(source, songID, name, artist string) providermodel.ChorusPoint {
+	source = strings.ToLower(strings.TrimSpace(source))
+	songID = strings.TrimSpace(songID)
+	if source == "" || songID == "" || !localChorusFillableSource(source) {
+		return providermodel.ChorusPoint{}
+	}
+	if point, hit := localChorusCache.load(source, songID); hit {
+		return point
+	}
+	fetched := fillChorusForTracks([]chorusIdentity{{Source: source, SongID: songID, Name: name, Artist: artist}})
+	return fetched[chorusSourceKey(source, songID)]
 }
 
 // fillLocalChorusForPage 为当前页的本地曲目补副歌点位(原地修改 track.Extra)。
@@ -300,26 +385,36 @@ func missingLocalChorusOrigins(origins map[string]localTrackOrigin) map[string]l
 // 串行而不是并发: 网易与酷我加起来最多两次上游交互(网易 1 次批量、酷我最坏 5 次
 // 串行反查, 后者发生在 sidecar 内部)。这个量级不需要并发, 并发只会让
 // "并发别加高"这条约束更难审计。
+//
+// **每个源各给一份独立预算**(2026-11 修): 之前是所有源共用同一个 3s ctx, 结果
+// 酷我串行反查 5 首(每首一次完整搜索,实测每首 ~1s)必然吃满预算, 让排在后面的源
+// 全部拿不到时间。现在网易 3s(批量,实测 0.2~0.6s 足够)、酷我单独 4s。
+// 总时长仍有上界(≤7s), 但**没有一个源能拖死另一个**。
+// 顺序仍是网易优先: 它是主力覆盖(126/631), 先把这份稳的拿到手。
 func fetchLocalChorusUpstream(missing map[string]localTrackOrigin) map[string]providermodel.ChorusPoint {
 	bySource := make(map[string][]localTrackOrigin, 2)
 	for _, origin := range missing {
 		bySource[origin.Source] = append(bySource[origin.Source], origin)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), localChorusRequestTimeout)
-	defer cancel()
-
 	result := make(map[string]providermodel.ChorusPoint, len(missing))
-	// 固定顺序遍历(网易优先): map 遍历顺序随机, 若某次超时被截断,
-	// 我们希望被截掉的总是排在后面的酷我, 而不是主力覆盖的网易。
-	for _, source := range []string{"netease", "kuwo"} {
-		origins := bySource[source]
+	// 固定顺序遍历(网易优先), 每个源用自己那份超时。
+	for _, entry := range []struct {
+		source  string
+		timeout time.Duration
+	}{
+		{"netease", localChorusNeteaseTimeout},
+		{"kuwo", localChorusKuwoTimeout},
+	} {
+		origins := bySource[entry.source]
 		if len(origins) == 0 {
 			continue
 		}
-		for key, point := range fetchChorusForSource(ctx, source, origins) {
+		ctx, cancel := context.WithTimeout(context.Background(), entry.timeout)
+		for key, point := range fetchChorusForSource(ctx, entry.source, origins) {
 			result[key] = point
 		}
+		cancel()
 	}
 	return result
 }
@@ -359,10 +454,15 @@ func fetchChorusForSource(
 		log.Printf("[local_chorus] %s 取副歌失败(%d 首): %v", source, len(ids), err)
 	}
 
-	// 即使 err != nil 也要为查过的 id 写缓存(空点位)。否则上游持续失败时,
-	// 每次翻页都会重试同一批歌 —— 那正是"别打爆上游"要避免的。
-	// 但真正超时/取消的那一批不写: 它根本没得到上游的答案, 写"没有副歌"是错误的固化。
-	if ctx.Err() != nil {
+	// 只在"这次请求本身没有拿到任何结果"时才放弃回填。
+	//
+	// **曾经这里是 `if ctx.Err() != nil { return nil }`, 那是个真 bug(2026-11 生产实测)**:
+	// 网易先跑完、38/38 首点位都拿到了, 随后酷我反查把 3s 总预算耗尽 → ctx.Err() 非空 →
+	// 这个函数直接返回 nil, 把**已经到手的网易结果整批丢掉**。表现就是"已下载列表里
+	// 网易的歌一个副歌标记都没有", 而 provider 日志明明写着"命中 38/38"。
+	// 正确判据是"这一路有没有真的拿到数据", 而不是"整页的总预算是否还活着":
+	// 拿到了就照常回填(它已经付过代价了), 没拿到才当失败。
+	if len(points) == 0 && ctx.Err() != nil {
 		return nil
 	}
 

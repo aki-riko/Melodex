@@ -171,9 +171,24 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 	}
 	response := make([]gin.H, 0, len(rows))
 	warmTracks := make([]model.Track, 0, len(rows))
+	// 副歌点位在读取时补(2026-11): saved_songs.extra 存的是"加歌当时"的快照, 那时
+	// 还没有 chorus_* 字段。不回填的话, 用户从歌单点开一首网易歌也看不到副歌标记 ——
+	// 和「最近播放」是同一个根因, 只是表不同。
+	// 只处理这一页(歌单可能有几百首), 且走统一限流路径(网易批量、酷我串行 ≤5)。
+	identities := make([]chorusIdentity, 0, len(rows))
+	for index := range rows {
+		row := &rows[index]
+		identities = append(identities, chorusIdentity{
+			Source: row.Source, SongID: row.SongID, Name: row.Name, Artist: row.Artist,
+		})
+	}
+	chorusPoints := fillChorusForTracks(identities)
 	for index := range rows {
 		row := &rows[index]
 		extra := hydrateSavedSongAlbumMetadata(row, decodeSongExtraMap(row.Extra))
+		if point, ok := chorusPoints[chorusSourceKey(row.Source, row.SongID)]; ok && point.Valid() {
+			applyChorusToExtraMap(extra, point)
+		}
 		warmTracks = append(warmTracks, model.Track{
 			ID: row.SongID, Source: row.Source, Duration: row.Duration, Extra: extra,
 		})
