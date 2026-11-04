@@ -40,6 +40,10 @@ func listLocalMusicRoute(c *gin.Context) {
 	limit := parseLocalMusicRangeInt(c.Query("limit"), 0)
 	page := paginateLocalMusicTracks(tracks, offset, limit)
 	markAlreadyAddedLocalTracks(c.Query("collection_id"), currentUserID(c), page)
+	// 副歌回填放在 paginate 之后: 只处理当前页(前端每页 100 首), 不对整库 631 首补。
+	// 这是用户"并发别加高"硬约束的落地点 —— 整库回填会让一次列表刷新变成几百次上游请求。
+	// 内部带 8h TTL 缓存与 3s 总超时, 失败静默降级(没有副歌照常返回列表)。
+	fillLocalChorusForPage(page)
 	c.JSON(http.StatusOK, gin.H{
 		"download_dir": filepath.ToSlash(dir), "exists": exists,
 		"tracks": page, "total": len(tracks), "offset": offset, "limit": limit,

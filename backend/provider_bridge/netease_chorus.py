@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+from collections import OrderedDict
 from typing import Any, Iterable
 
 from provider_bridge.platform_http import PlatformHTTP
@@ -93,6 +95,27 @@ def build_chorus_map(payload: Any) -> dict[str, dict[str, int]]:
     return out
 
 
+def cached_chorus_for(
+    song_ids: Iterable[Any],
+) -> dict[str, dict[str, int]]:
+    """只读缓存, 命中多少返回多少(**不发任何请求**)。
+
+    这是"搜索不等副歌"的关键一半: 搜索路径同步调用它, 把**之前后台已经补到**的副歌
+    直接贴到本次结果上(零延迟、零上游压力); 没补到的那些由调用方起后台任务去补。
+    """
+    out: dict[str, dict[str, int]] = {}
+    with _chorus_cache_lock:
+        for value in song_ids or []:
+            key = _string(value)
+            if not key:
+                continue
+            hit = _chorus_cache.get(key)
+            if hit:
+                out[key] = dict(hit)
+                _chorus_cache.move_to_end(key)
+    return out
+
+
 def fetch_chorus_map(
     song_ids: Iterable[Any],
     *,
@@ -103,6 +126,11 @@ def fetch_chorus_map(
 
     参数是**id 的可迭代对象**, 非数字 id(如 `loc:` 开头的本地 id)直接跳过: 上游只
     认网易的数字 song id。整批只发一次请求, 失败即放弃(不做逐首重试, 那会拖慢搜索)。
+
+    结果进进程内缓存(见 `_chorus_cache`): 副歌点位对一首歌来说是常量, 反复查询同批歌
+    没有任何意义。缓存还有个关键作用 —— 搜索改成了**后台补全**(不阻塞返回), 后台那次
+    请求的结果必须能被紧随其后的下一次搜索吃到, 否则 Go 侧 24h 搜索缓存会把"第一次
+    还没有副歌"的结果固化下来, 看起来就像功能没生效。
     """
     numeric_ids: list[int] = []
     for value in song_ids or []:
@@ -116,6 +144,11 @@ def fetch_chorus_map(
     if not numeric_ids:
         return {}
     numeric_ids = numeric_ids[:MAX_BATCH_IDS]
+
+    cached = _cache_lookup(numeric_ids)
+    if cached is not None:
+        return cached
+
     try:
         client = PlatformHTTP(cookie, session)
         payload = client.get(_chorus_url(numeric_ids), headers={"Referer": NETEASE_REFERER})
@@ -126,8 +159,51 @@ def fetch_chorus_map(
     if not chorus:
         LOGGER.debug("[netease] 副歌点位无可用数据(%d 首)", len(numeric_ids))
         return {}
+    _cache_store(chorus)
     LOGGER.info("[netease] 副歌点位命中 %d/%d 首", len(chorus), len(numeric_ids))
     return chorus
 
 
-__all__ = ["build_chorus_map", "chorus_enabled", "fetch_chorus_map"]
+# 进程内副歌缓存: key=网易数字 song id 字符串, value={start,end}。
+# 用 LRU 上限(而不是无限增长)防止长时间运行后把内存吃掉; 条目是纯数字,
+# 一首歌约几十字节, 上限 5 万条约几 MB, 可接受。
+_CHORUS_CACHE_MAX = 50_000
+_chorus_cache_lock = threading.Lock()
+_chorus_cache: "OrderedDict[str, dict[str, int]]" = OrderedDict()
+
+
+def _cache_lookup(numeric_ids: list[int]) -> dict[str, dict[str, int]] | None:
+    """命中条件: 这批 id **全部**已有缓存项(含"确认没有副歌"的负缓存)。
+
+    只要求"整批命中"是为了简单 —— 部分命中时反正也要发一次请求, 不如直接发。
+    """
+    keys = [str(n) for n in numeric_ids]
+    with _chorus_cache_lock:
+        if not all(key in _chorus_cache for key in keys):
+            return None
+        for key in keys:
+            _chorus_cache.move_to_end(key)
+        return {key: dict(_chorus_cache[key]) for key in keys if _chorus_cache[key]}
+
+
+def _cache_store(chorus: dict[str, dict[str, int]]) -> None:
+    with _chorus_cache_lock:
+        for key, value in chorus.items():
+            _chorus_cache[key] = dict(value)
+            _chorus_cache.move_to_end(key)
+        while len(_chorus_cache) > _CHORUS_CACHE_MAX:
+            _chorus_cache.popitem(last=False)
+
+
+def reset_cache_for_test() -> None:
+    """清空缓存(仅供测试; 生产代码不需要调用)。"""
+    with _chorus_cache_lock:
+        _chorus_cache.clear()
+
+
+__all__ = [
+    "build_chorus_map",
+    "chorus_enabled",
+    "fetch_chorus_map",
+    "reset_cache_for_test",
+]

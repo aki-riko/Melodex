@@ -184,29 +184,39 @@ def _enrich_verbatim_lyrics(songs: list[dict[str, Any]], source: str) -> None:
 
 
 def _enrich_netease_chorus(songs: list[dict[str, Any]]) -> None:
-    """把网易批量接口给的副歌起止写进 extra(一次请求覆盖整页, 尽力而为)。
+    """把副歌起止写进 extra: 缓存命中部分**同步贴**上, 未命中的交给后台补。
 
-    与酷我不同, 网易的搜索响应里没有 `payInfo.refrain_start` 这类字段, 只能额外打一次
-    官方批量接口(`/api/song/chorus`)。之所以只打**一次**: 逐首请求会把搜索从 ~2s
-    拖回几十秒, 那是酷我快照的老毛病, 不能在这里重演。
+    与酷我不同, 网易的搜索响应里没有 `payInfo.refrain_start` 这类字段, 只能额外打官方
+    批量接口(`/api/song/chorus`)。之所以只打**一次**: 逐首请求会把搜索从 ~2s 拖回
+    几十秒, 那是酷我快照的老毛病, 不能在这里重演。
 
-    副歌点位只是给进度条画标记用的展示增强: 整段包在 try/except 里, 任何失败都只
-    记一条 warning, 绝不让搜索因此失败或慢到超预算。
+    **为什么不能让搜索等它**(2026-11 实测后改): 网易是 `searchPrimarySources` 里的主力源,
+    前台搜索会**等它完成才返回**, 所以同步补副歌的耗时直接算进用户等待 —— 实测同一关键词
+    从 0.466s 变成 0.720s(+0.25s; 纯副歌请求本身 0.55~0.82s)。副歌只是给进度条画标记的
+    **展示增强**, 不该让每次搜索都多等半秒。
+
+    所以分成两半:
+      1. **同步**: 只查进程内缓存(`cached_chorus_for`, 纯内存, 零延迟零请求),
+         把之前后台补到过的副歌立刻贴上 —— 同一批歌的第二次搜索就完整了;
+      2. **后台**: 起 1 个线程(不提高并发度)补未命中的, 补完整进缓存。
+
+    整段包在 try/except 里: 任何失败都只记一条 warning, 绝不让搜索失败或变慢。
     """
     if not songs or not netease_chorus.chorus_enabled():
         return
-    try:
-        chorus = netease_chorus.fetch_chorus_map(
-            [_string(song.get("id")) for song in songs]
-        )
-    except Exception as error:  # 增强项: 失败只留痕, 不影响搜索
-        LOGGER.warning("[netease] 副歌点位批量获取异常: %s", error)
+
+    song_ids = [_string(song.get("id")) for song in songs if _string(song.get("id"))]
+    if not song_ids:
         return
-    if not chorus:
-        return
+
     applied = 0
+    try:
+        cached = netease_chorus.cached_chorus_for(song_ids)
+    except Exception as error:  # 缓存层异常也不能影响搜索
+        LOGGER.warning("[netease] 副歌缓存查询异常: %s", error)
+        cached = {}
     for song in songs:
-        item = chorus.get(_string(song.get("id")))
+        item = cached.get(_string(song.get("id")))
         if not item:
             continue
         extra = song.get("extra")
@@ -217,7 +227,15 @@ def _enrich_netease_chorus(songs: list[dict[str, Any]]) -> None:
         extra["chorus_end_ms"] = str(item["end"])
         applied += 1
     if applied:
-        LOGGER.info("[netease] 副歌点位已应用 %d/%d 首", applied, len(songs))
+        LOGGER.info("[netease] 副歌点位(缓存命中)已贴 %d/%d 首", applied, len(songs))
+
+    def _run() -> None:
+        try:
+            netease_chorus.fetch_chorus_map(song_ids)
+        except Exception as error:  # 增强项: 失败只留痕, 不影响搜索
+            LOGGER.warning("[netease] 副歌点位后台补齐失败: %s", error)
+
+    threading.Thread(target=_run, name="netease-chorus-enrich", daemon=True).start()
 
 
 class _SingleFlightSlot:

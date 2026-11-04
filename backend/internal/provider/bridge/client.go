@@ -34,6 +34,30 @@ type LyricRequest struct {
 	Cookie string `json:"cookie,omitempty"`
 }
 
+// ChorusRequest 是一次副歌点位查询。
+//
+// 只有 Source 参与上游选路, IDs 是**同源**的一批歌曲标识; 一次请求覆盖整页是硬要求
+// (网易那条上游接口本身就是批量形态), 逐首请求会把一次列表刷新放大成上百次往返。
+//
+// KuwoHints 只在 kuwo 下有意义: 酷我没有"按 id 批量取副歌"的接口, sidecar 只能拿
+// 歌名+歌手去反查, 而这两样只有 Go 侧(从 download_records)知道。键是 song_id,
+// 值是"歌名 歌手"。其他源忽略该字段。
+type ChorusRequest struct {
+	Source    string            `json:"source"`
+	IDs       []string          `json:"ids"`
+	Cookie    string            `json:"cookie,omitempty"`
+	KuwoHints map[string]string `json:"kuwo_hints,omitempty"`
+}
+
+// ChorusResponse 以歌曲 id 为键返回副歌点位。
+//
+// 用 map 而不是数组: 上游可能只覆盖批次里的一部分歌(网易实测 9~10/10),
+// 用 map 让"这首没有数据"与"这次请求整体失败"天然可区分 —— 前者缺键, 后者直接是 error。
+type ChorusResponse struct {
+	Chorus map[string]model.ChorusPoint `json:"chorus"`
+	Error  string                       `json:"error,omitempty"`
+}
+
 type CollectionRequest struct {
 	Source     string `json:"source"`
 	Action     string `json:"action"`
@@ -195,6 +219,61 @@ func (c *Client) Lyric(ctx context.Context, request LyricRequest) (string, error
 		return "", errors.New(payload.Error)
 	}
 	return strings.TrimSpace(payload.Lyric), nil
+}
+
+// Chorus 批量取一批**同源**歌曲的副歌点位。
+//
+// 只接受一个 source: 网易的批量接口只认自己的数字 id, 把多源 id 混在一条请求里
+// 既没有语义也没法选路。IDs 为空时不发请求直接返回空 map —— 调用方(列表分页)
+// 经常出现"这一页全是 QQ"的情况, 那时光是省掉一次往返就值得。
+func (c *Client) Chorus(ctx context.Context, request ChorusRequest) (map[string]model.ChorusPoint, error) {
+	request.Source = strings.TrimSpace(request.Source)
+	request.IDs = compactChorusIDs(request.IDs)
+	if request.Source == "" {
+		return nil, errors.New("provider chorus requires source")
+	}
+	if len(request.IDs) == 0 {
+		return map[string]model.ChorusPoint{}, nil
+	}
+	var payload ChorusResponse
+	if err := c.postJSON(ctx, "/v1/chorus", request, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Error != "" {
+		return nil, errors.New(payload.Error)
+	}
+	// 只回传能自证合理的点位: 上游偶尔给出 start=0 或 end<start 的脏行,
+	// 让它们在边界处消失, 比让前端各自兜底更安全。
+	valid := make(map[string]model.ChorusPoint, len(payload.Chorus))
+	for id, point := range payload.Chorus {
+		key := strings.TrimSpace(id)
+		if key == "" || !point.Valid() {
+			continue
+		}
+		valid[key] = point
+	}
+	return valid, nil
+}
+
+// compactChorusIDs 去空白、去空串并保持首次出现顺序的去重。
+//
+// 顺序要保留: 上游对超长 id 列表会截断, 调用方按页内顺序送进来时,
+// 截断丢掉的总是"排在后面"的那几首, 行为可预期。
+func compactChorusIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func (c *Client) Collections(ctx context.Context, request CollectionRequest) (CollectionResponse, error) {
