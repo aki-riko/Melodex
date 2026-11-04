@@ -34,10 +34,20 @@ func TestCookieStatusDetailsAreRedactedAndAliasQQWX(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode cookie status: %v", err)
 	}
-	if !body.LoggedIn["qq"] || !body.LoggedIn["qq_wx"] {
-		t.Fatalf("qq and qq_wx should both be logged in via qq cookie: %#v", body.LoggedIn)
+	if !body.LoggedIn["qq"] {
+		t.Fatalf("qq should be logged in via saved cookie: %#v", body.LoggedIn)
 	}
-	if !body.Details["qq"].Hints["has_music_key"] || !body.Details["qq_wx"].Hints["has_music_key"] {
-		t.Fatalf("qq strong credential hint missing: %#v %#v", body.Details["qq"], body.Details["qq_wx"])
+	if !body.Details["qq"].Hints["has_music_key"] {
+		t.Fatalf("qq strong credential hint missing: %#v", body.Details["qq"])
+	}
+	// qq_wx 自 2026-11 起不再单独出登录卡(cookieSourceNames 已移除):
+	// 它只是 qq 的别名,读同一份 cookie,单独成卡会让用户以为有两个 QQ 账号。
+	// 但**别名读取能力必须保留** —— 老部署若真存过 qq_wx 这个 key,仍要能认出来。
+	if body.LoggedIn["qq_wx"] {
+		t.Fatalf("qq_wx 不应再作为独立登录卡片返回: %#v", body.LoggedIn)
+	}
+	aliasDetail := core.BuildCookieStatusDetail("qq_wx", "qqmusic_uin=123456; qm_keyst=SECRET_KEY", false)
+	if !aliasDetail.Saved || aliasDetail.Source != "qq" {
+		t.Fatalf("qq_wx 必须仍被折叠成 qq(别名读取能力不能丢): %#v", aliasDetail)
 	}
 }
