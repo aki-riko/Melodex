@@ -19,6 +19,24 @@ from provider_bridge import app as bridge_app
 from provider_bridge import netease_chorus
 
 
+def setUpModule():
+    """每个测试模块开始时清空副歌缓存。
+
+    为什么必须清: 缓存是**进程级全局**的(生产上这正是我们要的 —— 后台补过一次,
+    后续搜索零延迟命中)。但测试之间共享同一进程, 上一个用例存进去的
+    "186016 -> 84498" 会让下一个用例以为自己没打请求却拿到了数据,
+    表现为"单独跑通过、一起跑失败"的假象。
+    """
+    netease_chorus.reset_cache_for_test()
+
+
+class ChorusTestBase(unittest.TestCase):
+    """所有涉及副歌缓存的用例都从干净缓存开始。"""
+
+    def setUp(self):
+        netease_chorus.reset_cache_for_test()
+
+
 # 真实接口的响应形状(截取诚实值: 晴天 84498/142301)。
 CHORUS_PAYLOAD = {
     "code": 200,
@@ -99,7 +117,7 @@ class ChorusMapTests(unittest.TestCase):
             self.assertEqual(netease_chorus.build_chorus_map(payload), {}, repr(payload))
 
 
-class FetchChorusMapTests(unittest.TestCase):
+class FetchChorusMapTests(ChorusTestBase):
     def test_single_batch_request_for_all_ids(self):
         """整体只发一次请求 —— 逐首请求会重演酷我快照那种"搜索几十秒"的老毛病。"""
         session = FakeSession()
@@ -159,7 +177,7 @@ class FetchChorusMapTests(unittest.TestCase):
             self.assertTrue(netease_chorus.chorus_enabled(), "默认必须开")
 
 
-class EnrichWiringTests(unittest.TestCase):
+class EnrichWiringTests(ChorusTestBase):
     """app.py 把 chorus 写进每首 extra 的行为(含关闭与失败)。"""
 
     def _songs(self):
@@ -170,10 +188,10 @@ class EnrichWiringTests(unittest.TestCase):
         ]
 
     def test_writes_start_end_into_extra(self):
+        """缓存里已有的副歌, 要在**同步阶段**就贴到 extra 上(零延迟、零请求)。"""
         songs = self._songs()
-        with mock.patch.object(
-            netease_chorus, "fetch_chorus_map", return_value=netease_chorus.build_chorus_map(CHORUS_PAYLOAD),
-        ):
+        netease_chorus._cache_store(netease_chorus.build_chorus_map(CHORUS_PAYLOAD))
+        with mock.patch.object(netease_chorus, "fetch_chorus_map"):
             bridge_app._enrich_netease_chorus(songs)
         self.assertEqual(songs[0]["extra"]["chorus_start_ms"], "84498")
         self.assertEqual(songs[0]["extra"]["chorus_end_ms"], "142301")
@@ -185,21 +203,34 @@ class EnrichWiringTests(unittest.TestCase):
     def test_creates_extra_dict_when_missing(self):
         """payload 万一没有 extra 也不能崩(todict 形状变化时)。"""
         songs = [{"id": "186016", "name": "晴天"}]
-        with mock.patch.object(
-            netease_chorus, "fetch_chorus_map", return_value={"186016": {"start": 1, "end": 2}},
-        ):
+        netease_chorus._cache_store({"186016": {"start": 1, "end": 2}})
+        with mock.patch.object(netease_chorus, "fetch_chorus_map"):
             bridge_app._enrich_netease_chorus(songs)
         self.assertEqual(songs[0]["extra"], {"chorus_start_ms": "1", "chorus_end_ms": "2"})
 
-    def test_fetch_failure_is_swallowed_with_warning(self):
-        """批量接口炸了也只能留 warning —— 搜索必须照常返回。"""
+    def test_miss_does_not_write_and_spawns_background_fetch(self):
+        """缓存未命中时: 不写 extra(还没有数据), 但要发起后台补齐。"""
+        songs = self._songs()
+        with mock.patch.object(netease_chorus, "fetch_chorus_map") as fetch:
+            bridge_app._enrich_netease_chorus(songs)
+            # 后台线程是异步的, 等它真的被调用到(最多 1s, 避免偶发)。
+            for _ in range(100):
+                if fetch.called:
+                    break
+                import time as _time
+                _time.sleep(0.01)
+        self.assertTrue(fetch.called, "缓存未命中时必须发起后台补齐")
+        for song in songs:
+            self.assertNotIn("chorus_start_ms", song["extra"], "还没补到就不该写值")
+
+    def test_fetch_failure_never_breaks_enrich(self):
+        """批量接口炸了也只影响自己 —— _enrich 必须正常返回, 且不给 extra 写脏值。"""
         songs = self._songs()
         with mock.patch.object(
             netease_chorus, "fetch_chorus_map", side_effect=RuntimeError("boom"),
         ):
-            with self.assertLogs("provider_bridge.app", level="WARNING") as captured:
-                bridge_app._enrich_netease_chorus(songs)
-        self.assertIn("副歌点位", "\n".join(captured.output))
+            # 不应抛出任何异常
+            bridge_app._enrich_netease_chorus(songs)
         for song in songs:
             self.assertNotIn("chorus_start_ms", song["extra"])
 
@@ -215,39 +246,59 @@ class EnrichWiringTests(unittest.TestCase):
         fetch.assert_not_called()
 
 
-class NativeSearchChorusTests(unittest.TestCase):
-    """端到端接线: 网易原生搜歌的返回里必须带副歌点位。"""
+class NativeSearchChorusTests(ChorusTestBase):
+    """端到端接线: 网易原生搜歌**不能等副歌**, 但要靠缓存把已补到的带上。
 
-    def test_native_search_applies_chorus(self):
-        native = [
-            {"id": "186016", "name": "晴天", "extra": {"_rank": "0"}},
-            {"id": "1901371647", "name": "孤勇者", "extra": {"_rank": "1"}},
-        ]
+    2026-11 改造后的语义(实测依据: 同步补副歌会让搜索 0.466s -> 0.720s):
+      1. 首次搜索 → 立即返回(无副歌), 同时后台线程补, 补完进缓存;
+      2. 同一批歌再次搜索 → 缓存命中, 同步贴上副歌, 仍然零额外延迟。
+    """
+
+    def test_first_search_does_not_block_on_chorus(self):
+        """首次搜索必须在副歌请求返回之前就交出结果 —— 这是"搜索不变慢"的核心保证。"""
+        native = [{"id": "186016", "name": "晴天", "extra": {"_rank": "0"}}]
+        released = []
+
+        def slow_fetch(ids, **_kwargs):
+            released.append(True)
+            return netease_chorus.build_chorus_map(CHORUS_PAYLOAD)
+
         with mock.patch("provider_bridge.netease_source.search_songs", return_value=native):
-            with mock.patch.object(
-                netease_chorus, "fetch_chorus_map",
-                return_value=netease_chorus.build_chorus_map(CHORUS_PAYLOAD),
-            ) as fetch:
+            with mock.patch.object(netease_chorus, "fetch_chorus_map", side_effect=slow_fetch):
                 result = bridge_app.search(
                     {"source": "netease", "keyword": "周杰伦 晴天", "limit": 20, "cookie": ""},
                     work_dir="provider-test-output",
                 )
-        self.assertEqual(len(fetch.call_args_list), 1, "一次搜索只打一次批量接口")
+        # 搜索返回时不该带上副歌(因为后台还没跑完/结果没回填这次响应)
+        self.assertNotIn("chorus_start_ms", result["songs"][0]["extra"])
+        self.assertEqual(result["songs"][0]["id"], "186016")
+
+    def test_second_search_hits_cache_without_extra_request(self):
+        """后台补过之后, 同一批歌再搜就直接带副歌, 且**不再发请求**。"""
+        native = [{"id": "186016", "name": "晴天", "extra": {"_rank": "0"}}]
+        # 模拟"后台已经补完"的状态: 直接把数据塞进缓存。
+        netease_chorus._cache_store(netease_chorus.build_chorus_map(CHORUS_PAYLOAD))
+        with mock.patch("provider_bridge.netease_source.search_songs", return_value=native):
+            with mock.patch.object(netease_chorus, "fetch_chorus_map") as fetch:
+                result = bridge_app.search(
+                    {"source": "netease", "keyword": "周杰伦 晴天", "limit": 20, "cookie": ""},
+                    work_dir="provider-test-output",
+                )
+        # 缓存命中的结果必须贴在**这次**的返回里
         self.assertEqual(result["songs"][0]["extra"]["chorus_start_ms"], "84498")
-        self.assertEqual(result["songs"][1]["extra"]["chorus_end_ms"], "120000")
+        self.assertEqual(result["songs"][0]["extra"]["chorus_end_ms"], "142301")
 
     def test_native_search_survives_chorus_failure(self):
-        """副歌接口挂掉时, 搜索结果必须原样返回(只少两个字段)。"""
+        """副歌后台任务炸掉时, 搜索结果必须原样返回(只少两个字段)。"""
         native = [{"id": "186016", "name": "晴天", "extra": {"_rank": "0"}}]
         with mock.patch("provider_bridge.netease_source.search_songs", return_value=native):
             with mock.patch.object(
                 netease_chorus, "fetch_chorus_map", side_effect=RuntimeError("boom"),
             ):
-                with self.assertLogs("provider_bridge.app", level="WARNING"):
-                    result = bridge_app.search(
-                        {"source": "netease", "keyword": "周杰伦 晴天", "limit": 20, "cookie": ""},
-                        work_dir="provider-test-output",
-                    )
+                result = bridge_app.search(
+                    {"source": "netease", "keyword": "周杰伦 晴天", "limit": 20, "cookie": ""},
+                    work_dir="provider-test-output",
+                )
         self.assertEqual(result["songs"], native)
         self.assertNotIn("chorus_start_ms", result["songs"][0]["extra"])
 

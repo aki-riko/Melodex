@@ -297,6 +297,22 @@ func verifyProviderAccount(source, cookie string) (bool, error) {
 	})
 }
 
+// CookieForSource 返回某源已保存的平台 cookie(空串表示未登录)。
+//
+// 导出它是因为 internal/web 需要用同一份凭证去请求"按身份补数据"的接口(如副歌点位),
+// 而 cookie 的规范化规则(qq_wx -> qq)必须只有一处实现, 不能让 web 层自己再拼一遍。
+func CookieForSource(source string) string {
+	return cookieForSource(source)
+}
+
+// NewProviderBridgeClient 返回 Provider sidecar 的客户端。
+//
+// 与 getProviderBridgeClient 的区别仅在可见性: 前者供 internal/web 发起
+// 不与搜索链路耦合的独立请求(如副歌点位批量查询), 二者共享连接与缓存配置。
+func NewProviderBridgeClient() (*bridge.Client, error) {
+	return getProviderBridgeClient()
+}
+
 func cacheProviderSong(song providermodel.Track, cookie string) {
 	song.Source = strings.TrimSpace(song.Source)
 	song.ID = strings.TrimSpace(song.ID)
