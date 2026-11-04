@@ -3,6 +3,7 @@ import { useQuery } from 'react-query';
 import { AlertTriangle, X } from 'lucide-react';
 import { getCookieStatus } from '../services/musicdl';
 import { useAuth } from '../contexts/AuthContext';
+import { classifyCredentialNotices, credentialNoticeText } from '../utils/credentialExpiry';
 import { cn } from '../ui/cn';
 
 // 全局「凭证即将过期/已过期」提示条。
@@ -48,14 +49,10 @@ export default function CredentialNotice() {
     staleTime: 10 * 60 * 1000,
   });
 
-  const details = data?.details || {};
-  const expired = [];
-  const expiringSoon = [];
-  for (const [source, detail] of Object.entries(details)) {
-    if (!detail || detail.state === 'missing') continue;
-    if (detail.state === 'expired') expired.push(source);
-    else if (detail.state === 'expiring_soon') expiringSoon.push(source);
-  }
+  // 分类与文案都在 utils/credentialExpiry.js 里(纯函数 + Node 契约测试)。
+  // 这里只负责取数、渲染和"关闭状态"。
+  const buckets = classifyCredentialNotices(data?.details);
+  const { expired, expiringSoon, autoRetry } = buckets;
 
   // 出现过期的源集合变化时,允许再次提示 —— 否则用户关掉一次后,
   // 即使之后又有别的源过期,也永远看不到(等于回到"静默失效"的老问题)。
@@ -75,14 +72,11 @@ export default function CredentialNotice() {
 
   if (dismissed) return null;
 
-  if (expired.length === 0 && expiringSoon.length === 0) return null;
+  if (expired.length === 0 && expiringSoon.length === 0 && autoRetry.length === 0) return null;
 
   const isError = expired.length > 0;
-  const targets = (isError ? expired : expiringSoon).map(sourceNameOf).join('、');
-
-  const text = isError
-    ? `${targets} 的登录凭证已过期，会员/无损音质已不可用。到「设置」重新扫码或粘贴新 Cookie 即可恢复。`
-    : `${targets} 的登录凭证即将过期（不足 24 小时），建议提前重新登录以保证无损可用。`;
+  const isAutoRetry = !isError && autoRetry.length > 0;
+  const text = credentialNoticeText(buckets, sourceNameOf);
 
   return (
     <div
@@ -92,12 +86,17 @@ export default function CredentialNotice() {
         'flex items-start gap-2 border-b px-4 py-2 type-caption md:px-6',
         isError
           ? 'border-destructive/40 bg-destructive/12 text-foreground'
-          : 'border-yellow-500/35 bg-yellow-500/10 text-foreground',
+          : isAutoRetry
+            ? 'border-sky-500/30 bg-sky-500/10 text-foreground'
+            : 'border-yellow-500/35 bg-yellow-500/10 text-foreground',
       )}
     >
       <AlertTriangle
         size={16}
-        className={cn('mt-0.5 flex-shrink-0', isError ? 'text-destructive-text' : 'text-yellow-400')}
+        className={cn(
+          'mt-0.5 flex-shrink-0',
+          isError ? 'text-destructive-text' : isAutoRetry ? 'text-sky-400' : 'text-yellow-400',
+        )}
         aria-hidden="true"
       />
       <span className="min-w-0 flex-grow">{text}</span>
