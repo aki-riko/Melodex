@@ -33,7 +33,13 @@ func classifyPlaybackOpenError(err error) (reason string, retryable bool) {
 		return "音乐源正在限流", true
 	}
 	if core.IsProviderPaidOnly(err) {
-		return "这首歌在当前音乐源需要付费或会员才能播放", false
+		// 这个哨兵叫 PaidOnly, 但它覆盖的是"拿不到可播放地址"的整类情况,
+		// 至少两种: ①付费/会员曲 ②原曲已从该源曲库下架/版权受限。
+		// 实测(2026-11)「差一步的爱情(最痛的不是失去) 程艾影」属于后者:
+		// 精确搜索 QQ/网易/酷我/咪咕/酷狗/千千 六个源都查不到这一版,
+		// 但提示若只说"需要付费或会员", 用户会以为自己该去买会员 —— 那是误导。
+		// 两种都不可重试, 所以文案必须同时说清, 并引导换源/换歌。
+		return "这首歌在当前音乐源已下架或需要会员才能播放", false
 	}
 
 	message := strings.ToLower(err.Error())
@@ -41,8 +47,8 @@ func classifyPlaybackOpenError(err error) (reason string, retryable bool) {
 	switch {
 	// 旧文案兜底(侧边车未提供 empty_reason 时仍可能走到这里)
 	case strings.Contains(message, "no matching song identity"):
-		// 候选里没有目标 id: 说明这首拿不到地址(付费/版权), 而不是网络问题
-		return "这首歌在当前音乐源需要付费或会员才能播放", false
+		// 候选里没有目标 id: 说明这首拿不到地址(付费/下架/版权), 而不是网络问题
+		return "这首歌在当前音乐源已下架或需要会员才能播放", false
 	case strings.Contains(message, "no matching songs"):
 		// 有个候选都没有: 可能是限流, 也可能是真没货 —— 给可重试的选项更安全,
 		// 因为对"真没货"重试只是白点一次, 而对"限流"不许重试才是真误导。
@@ -52,7 +58,7 @@ func classifyPlaybackOpenError(err error) (reason string, retryable bool) {
 	case strings.Contains(message, "invalid download url"),
 		strings.Contains(message, "is_invalid"),
 		strings.Contains(message, "provider returned an invalid"):
-		return "当前音乐源没有返回可播放地址（可能是付费曲或版权受限）", false
+		return "当前音乐源没有返回可播放地址（可能是已下架、付费曲或版权受限）", false
 	}
 
 	// 其余视为可重试:上游超时、连接被拒、sidecar 临时不可用等。

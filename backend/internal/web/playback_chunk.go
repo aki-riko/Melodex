@@ -52,6 +52,8 @@ var playbackChunkJobStore = struct {
 	jobs map[string]*playbackChunkJob
 }{jobs: make(map[string]*playbackChunkJob)}
 
+var playbackChunkJobProvider = getOrCreatePlaybackChunkJob
+
 func playbackChunkHandler(c *gin.Context, song *model.Track, rawChunk string) {
 	chunkIndex, err := strconv.Atoi(rawChunk)
 	if err != nil || chunkIndex < 0 || chunkIndex > playbackChunkMaxIndex {
@@ -59,10 +61,10 @@ func playbackChunkHandler(c *gin.Context, song *model.Track, rawChunk string) {
 		return
 	}
 
-	job, err := getOrCreatePlaybackChunkJob(c, song, chunkIndex)
+	job, err := playbackChunkJobProvider(c, song, chunkIndex)
 	if err != nil {
 		log.Printf("[playback-chunk] 创建任务失败 source=%q id=%q chunk=%d: %v", song.Source, song.ID, chunkIndex, err)
-		c.String(http.StatusBadGateway, "Failed to prepare playback chunk")
+		writePlaybackChunkFailure(c, err)
 		return
 	}
 	job.touch()
@@ -76,12 +78,30 @@ func playbackChunkHandler(c *gin.Context, song *model.Track, rawChunk string) {
 			return
 		}
 		log.Printf("[playback-chunk] 生成失败 source=%q id=%q chunk=%d: %v", song.Source, song.ID, chunkIndex, err)
-		c.String(http.StatusBadGateway, "Failed to generate playback chunk")
+		writePlaybackChunkFailure(c, err)
 		return
 	}
 	if err := servePlaybackChunk(c, job, chunkPath, chunkIndex, final); err != nil {
 		log.Printf("[playback-chunk] 写响应失败 source=%q id=%q chunk=%d: %v", song.Source, song.ID, chunkIndex, err)
 	}
+}
+
+// writePlaybackChunkFailure 把分块失败翻译成用户能看懂的中文原因, 并带上
+// "这个错误到底值不值得重试"。
+//
+// 背景(2026-11 用户截图): Web/MSE 连续播放是主力播放路径, 它走的正是这条
+// 分块分支。但 2026-10 那次修「播不出来要说清原因」时, 只给**非分块**的
+// playbackSegmentHandler 接上了 classifyPlaybackOpenError, 分块分支还停在
+// 一句英文 "Failed to prepare playback chunk" + 502, 也没有
+// X-Melodex-Playback-Retryable 头。于是前端按"5xx 一律可重试"处理:
+// 既把英文内部错误原样贴到播放条上, 又建议用户"点一下重试" —— 而真实原因是
+// provider has no downloadable url for this song (付费/版权受限), 重试永远没用。
+//
+// 这里与非分块路径共用同一套分类, 保证两条路径对用户的口径一致。
+func writePlaybackChunkFailure(c *gin.Context, err error) {
+	reason, retryable := classifyPlaybackOpenError(err)
+	c.Header("X-Melodex-Playback-Retryable", boolFlag(retryable))
+	c.String(http.StatusBadGateway, reason)
 }
 
 func getOrCreatePlaybackChunkJob(c *gin.Context, song *model.Track, chunkIndex int) (*playbackChunkJob, error) {

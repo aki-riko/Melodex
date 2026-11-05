@@ -23,38 +23,38 @@ import (
 // 付费曲必须 retryable=false —— 两者搞反都会给出错误引导。
 func TestClassifyPlaybackOpenError(t *testing.T) {
 	cases := []struct {
-		name          string
-		err           error
-		wantRetryable bool
-		wantContain   string
+		name           string
+		err            error
+		wantRetryable  bool
+		wantContain    string
 		wantNotContain string
 	}{
 		{
-			name:          "哨兵:上游限流(应可重试)",
-			err:           core.ErrProviderRateLimited,
-			wantRetryable: true,
-			wantContain:   "限流",
+			name:           "哨兵:上游限流(应可重试)",
+			err:            core.ErrProviderRateLimited,
+			wantRetryable:  true,
+			wantContain:    "限流",
 			wantNotContain: "换一个源",
 		},
 		{
-			name:          "哨兵:付费曲拿不到地址(不可重试,应引导换源)",
-			err:           core.ErrProviderPaidOnly,
-			wantRetryable: false,
-			wantContain:   "付费或会员",
+			name:           "哨兵:付费曲拿不到地址(不可重试,应引导换源)",
+			err:            core.ErrProviderPaidOnly,
+			wantRetryable:  false,
+			wantContain:    "会员",
 			wantNotContain: "限流",
 		},
 		{
-			name:          "文案兜底:code=2001 限流",
-			err:           errors.New("provider returned no matching songs"),
-			wantRetryable: true,
-			wantContain:   "限流",
+			name:           "文案兜底:code=2001 限流",
+			err:            errors.New("provider returned no matching songs"),
+			wantRetryable:  true,
+			wantContain:    "限流",
 			wantNotContain: "已不可用",
 		},
 		{
-			name:          "文案兜底:候选里没有该 id(付费/版权)",
+			name:          "文案兜底:候选里没有该 id(付费/下架)",
 			err:           errors.New("open source: get download url: provider returned no matching song identity"),
 			wantRetryable: false,
-			wantContain:   "付费或会员",
+			wantContain:   "会员",
 		},
 		{
 			name:          "缺少查找数据",
@@ -107,6 +107,29 @@ func TestClassifyPlaybackOpenError(t *testing.T) {
 	}
 }
 
+// 回归: ErrProviderPaidOnly 覆盖的不只是"付费曲", 还包括"原曲已从曲库下架"。
+//
+// 实测依据(2026-11, 容器内直连 provider): 目标 songmid=000cdiQg0r5FsI
+// 「差一步的爱情(最痛的不是失去) 程艾影」用精确歌名+歌手在
+// qq/netease/kuwo/migu/kugou/qianqian 六个源分别搜索, 没有任何一个源还返回
+// 这个 id —— 这一版已下架/版权受限, 不是"再等等"。
+// 若提示只说"需要付费或会员", 用户会去开会员却依然播不了, 属于误导。
+func TestPaidOnlyWordingCoversDelistedNotJustVIP(t *testing.T) {
+	reason, retryable := classifyPlaybackOpenError(core.ErrProviderPaidOnly)
+	if retryable {
+		t.Fatalf("下架/付费类错误必须不可重试, got reason=%q", reason)
+	}
+	if !strings.Contains(reason, "下架") {
+		t.Fatalf("reason = %q, 必须提到已下架(实测该曲六个源均查不到, 不是会员问题)", reason)
+	}
+	if !strings.Contains(reason, "会员") {
+		t.Fatalf("reason = %q, 也要保留会员这一种可能(付费曲确实存在)", reason)
+	}
+	if strings.Contains(reason, "重试") {
+		t.Fatalf("reason = %q, 不可重试类文案不得出现重试字样(会让人无效重点)", reason)
+	}
+}
+
 // 核心回归:限流与付费曲的 retryable 必须相反。
 // 这条单独写,因为它是这次事故里最容易搞反、后果最直接的一点。
 func TestRateLimitedAndPaidOnlyAreOpposite(t *testing.T) {
@@ -133,9 +156,10 @@ func TestClassifyPlaybackOpenErrorIsCaseInsensitive(t *testing.T) {
 
 // 回归:生产日志里出现过的真实错误串都要被正确分类。
 // 证据来自 2026-10-25 生产日志:
-//   [playback-chunk] 创建任务失败 source="qq" id="001bLkWD2EYA4P" chunk=17:
-//     open source: get download url: provider returned no matching song identity
-//   ... provider returned no matching songs
+//
+//	[playback-chunk] 创建任务失败 source="qq" id="001bLkWD2EYA4P" chunk=17:
+//	  open source: get download url: provider returned no matching song identity
+//	... provider returned no matching songs
 func TestClassifyPlaybackOpenErrorRealLogStrings(t *testing.T) {
 	// 有候选但没目标 id → 付费/版权 → 不可重试
 	paid := "open source: get download url: provider returned no matching song identity"
