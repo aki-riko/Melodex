@@ -485,16 +485,31 @@ assert.match(
   const irreversible = describePipelineFailureNotice({
     song: { name: '天龙八部之宿敌' },
     bufferedSeconds: 0,
-    reason: '这首歌在当前音乐源需要付费或会员才能播放',
+    reason: '这首歌在当前音乐源已下架或需要会员才能播放',
     retryable: false,
   });
-  assert.match(irreversible, /付费|会员|无法播放|不可用/, '不可重试时要说明为什么放不出来');
+  assert.match(irreversible, /付费|会员|无法播放|不可用|下架/, '不可重试时要说明为什么放不出来');
   assert.match(irreversible, /换一个源或换一首/, '不可重试时要引导换源/换歌');
   assert.doesNotMatch(
     irreversible,
     /点一下播放重试/,
     '不可重试时绝不能建议重试 —— 那是无效引导',
   );
+
+  // 事故(2026-11-06 用户截图):「差一步的爱情(最痛的不是失去)」播放条显示
+  //   播放失败：Failed to prepare playback chunk；请点一下播放重试。
+  // 两句都错: 英文内部错误不该给用户看, 而且这首歌在六个源都已查不到(下架),
+  // 重试永远不会成功。后端修好后这里模拟它给出的真实文案, 锁住"可读 + 不劝重试"。
+  const delisted = describePipelineFailureNotice({
+    song: { name: '差一步的爱情(最痛的不是失去)' },
+    bufferedSeconds: 0,
+    reason: '这首歌在当前音乐源已下架或需要会员才能播放',
+    retryable: false,
+  });
+  assert.match(delisted, /已下架|会员/, '下架类失败要讲清原因');
+  assert.match(delisted, /换一个源或换一首/, '下架类失败要引导换源/换歌');
+  assert.doesNotMatch(delisted, /Failed to prepare playback chunk/, '绝不能把英文内部错误贴给用户');
+  assert.doesNotMatch(delisted, /点一下播放重试/, '下架类失败不得建议重试');
 
   // 后端没给原因时也要有可读兜底
   const noReason = describePipelineFailureNotice({
