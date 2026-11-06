@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from './cn';
+import { useBackLayer } from '../contexts/backNavigation.js';
 
 // 统一对话框基础件。
 // 此前全站有 8 个手写 `div.fixed` 浮层,结果是:
@@ -149,6 +150,15 @@ export default function Dialog({
     const target = preferred || nodes[0] || panel;
     window.requestAnimationFrame(() => target.focus());
   }, [open]);
+
+  // 安卓返回键 / 浏览器后退:返回键应关闭这个弹窗,而不是直接退站/退 App。
+  // dismissable=false 的弹窗会"挡住"返回(blocked),不会穿透去关下面的层。
+  useBackLayer({
+    active: open,
+    dismissable,
+    name: 'dialog',
+    onBack: () => { onClose?.(); },
+  });
 
   if (!open) return null;
 

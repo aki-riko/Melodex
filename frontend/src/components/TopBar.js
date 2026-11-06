@@ -4,6 +4,7 @@ import { Clock, CornerDownLeft, Search, Sparkles } from 'lucide-react';
 import { requestDownloadSearch } from '../services/downloadBus';
 import { getSearchHistory } from '../services/musicdl';
 import { cn } from '../ui/cn';
+import { useBackLayer } from '../contexts/backNavigation.js';
 
 // 主区顶部:全局搜索框,任意页面输入回车/点建议 → 找歌页并预填搜索。
 //
@@ -60,6 +61,17 @@ export default function TopBar({ currentSection, onNavigate }) {
   }, [query, relatedItems]);
 
   const closeMenu = () => { setOpen(false); setActiveIndex(-1); };
+
+  // 安卓返回键 / 浏览器后退:先收搜索建议下拉,而不是直接退站。
+  // 注意 open 也会因 onFocus 打开(还没输入内容),这同样算一层可见层。
+  useBackLayer({
+    active: open,
+    name: 'topbar-suggest',
+    onBack: () => {
+      closeMenu();
+      // 收起下拉后再按返回应能继续往下走,所以这里不聚焦也不阻止默认。
+    },
+  });
 
   const runSearch = (value) => {
     const q = (value || '').trim();

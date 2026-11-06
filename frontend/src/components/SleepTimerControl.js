@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Clock, Menu, X } from 'lucide-react';
 import { SLEEP_TIMER_PRESETS_MINUTES, formatSleepTimerRemaining } from '../contexts/playerSleepTimer.js';
+import { useBackLayer } from '../contexts/backNavigation.js';
 
 const panelAlignClass = {
   left: 'left-0',
@@ -47,6 +48,14 @@ const SleepTimerControl = ({
   const triggerTitle = isMobileMenu
     ? active ? `播放器菜单，${title}` : '播放器菜单'
     : title;
+
+  // 安卓返回键 / 浏览器后退:先收这个面板,而不是直接退站/退 App。
+  // 这一层之前完全没接返回键,在 APK 上按返回会直接把 App 退掉。
+  useBackLayer({
+    active: open,
+    name: 'sleep-timer-panel',
+    onBack: () => { setOpen(false); },
+  });
 
   useEffect(() => {
     if (!open) return undefined;

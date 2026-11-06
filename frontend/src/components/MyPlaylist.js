@@ -23,6 +23,7 @@ import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
 import Dialog from '../ui/Dialog';
 import { MenuPopover, MenuItem } from '../ui/Menu';
+import { useBackLayer } from '../contexts/backNavigation.js';
 
 // 稳定的空数组引用:数据未就绪时不要每次渲染都新建 [],否则会不断改变
 // useBulkActions 的 useCallback 依赖,产生无意义的重建。
@@ -42,6 +43,14 @@ export default function MyPlaylist() {
   const [lyric, setLyric] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
+
+  // 安卓返回键 / 浏览器后退:先收歌单页的「更多操作」菜单。
+  useBackLayer({
+    active: moreOpen,
+    name: 'playlist-more-menu',
+    onBack: () => { setMoreOpen(false); },
+  });
+
   const lastErrorRef = useRef(null);
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const { user, offline } = useAuth();

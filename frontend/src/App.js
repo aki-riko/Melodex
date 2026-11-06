@@ -24,6 +24,7 @@ import HelpPage from './components/HelpPage';
 import LoadingState from './components/LoadingState';
 import CredentialNotice from './components/CredentialNotice';
 import ErrorBoundary from './ui/ErrorBoundary';
+import { useBackNavigation } from './contexts/backNavigation.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -179,6 +180,10 @@ function AuthedApp() {
 }
 
 function App() {
+  // 返回键接线必须在根部挂一次(浏览器 popstate + 安卓原生事件 → 统一返回栈)。
+  // 放在 App 而不是 AppShell:登录页(未鉴权)也会有弹层,同样需要返回键生效。
+  useBackNavigation();
+
   return (
     // ErrorBoundary 必须在最外层:任何 Provider 内部组件渲染抛错都要被兜住,
     // 否则整棵树卸载 → 白屏(历史上真实发生过)。
