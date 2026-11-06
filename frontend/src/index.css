@@ -343,6 +343,8 @@
    所以这里是纯 CSS 增强,不需要给任何组件加类名。 */
 [aria-current="page"] {
   position: relative;
+  /* 竖条出现时背景同时渐变 —— 两个信号一起动,切换才不显得突兀 */
+  transition: background-color var(--motion-base) var(--ease-standard);
 }
 [aria-current="page"]::before {
   content: "";
@@ -357,6 +359,21 @@
   border-radius: 9999px;
   background-color: hsl(var(--primary));
   pointer-events: none;
+  /* 竖条"长出来"的动画:从 0 高度展开 + 淡入,而不是凭空闪现。
+     为什么用 scaleY 而不动 height:后者每帧重排,在低端机上会让整个侧栏抖动。
+     transform-origin 设在中心,视觉上是"从中间撑开",比从顶部下拉更稳。 */
+  transform-origin: center;
+  animation: accent-bar-grow var(--motion-base) var(--ease-emphasized) both;
+}
+@keyframes accent-bar-grow {
+  from {
+    transform: translateY(-50%) scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(-50%) scaleY(1);
+    opacity: 1;
+  }
 }
 /* 已经被 primary 铺满的选中项(主按钮、实心 tab)不需要竖条,否则会出现双重视觉信号 */
 [aria-current="page"].bg-primary::before,
@@ -764,33 +781,45 @@
      · 时长上限 300ms:再长就变成"每次切页都要等"(Fluent 自己的页面切换也在此区间);
      · 全部尊重 prefers-reduced-motion(见文件末尾的降级块),不能强行给所有人放动画。
 
-   ---- 页面切换 ----
-   主滚动区内容在切页时做一次上浮 + 淡入。为什么不是左右滑:本应用是哈希路由,
-   导航是"同级页面切换"而非前进/后退栈,左右滑会暗示不存在的方向语义。
+   ---- 页面切换:错峰淡入 ----
+   容器整体淡入,内部按层级**错开**出现:标题先、正文随后。
+   为什么不做位移:上一版是"上浮 14px + 轻微缩放",用户反馈"动画不太对"。
+   位移式切换在长页面上会让整块内容像被推了一下,而本应用是同级页面切换
+   (哈希路由),没有方向语义 —— 位移反而在暗示一个不存在的方向。
 
-   ⚠ 位移与时长都调过一轮:第一版是 6px / 180ms,实测**肉眼几乎看不出来**
-   (用户在真机上反馈"切换左侧项时没动画")。原因不是没生效,而是幅度太弱:
-   6px 在 2780px 高的手机上不足 0.25%,180ms 只够 11 帧,眨眼就过去了。
-   现在改成 14px + 240ms,并加 scale 0.995 让"整块内容轻轻推上来",
-   一眼能看出页面换了但不会觉得拖沓。 */
-@keyframes fluent-page-enter {
+   错峰的实现:**不靠给每个页面加类名**,而是用容器的直接子元素做级联延迟。
+   页面结构普遍是「header + 若干 section」,所以:
+     · 第 1 个子元素(标题区)      delay 0ms
+     · 第 2 个起(section/列表)    delay 60ms
+   这样任何页面都自动获得层次感,新增页面不需要额外配合。 */
+@keyframes fluent-page-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fluent-page-rise {
   from {
     opacity: 0;
-    transform: translateY(14px) scale(0.995);
+    /* 只给后段内容极小的位移(4px):错峰要的是"层次",不是"飞入" */
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 .fluent-page-enter {
-  animation: fluent-page-enter var(--motion-slow) var(--ease-emphasized) both;
-  /* 强制独立合成层:位移/缩放动画走 GPU 而非主线程。
-     不加这条时,首次切页若同时有大量列表渲染,动画可能掉帧到"看不见" ——
-     这也是"静态检查全绿但用户说没动画"的一个可能成因。 */
-  will-change: transform, opacity;
+  animation: fluent-page-fade var(--motion-base) var(--ease-standard) both;
 }
+
+/* 子元素错峰:用 :nth-child 而不是 :not(:first-child) —— 后者在
+   「第一个孩子是注释节点」时语义不稳定,而 nth-child 只看元素位置。 */
+.fluent-page-enter > * {
+  animation: fluent-page-rise var(--motion-base) var(--ease-emphasized) both;
+}
+.fluent-page-enter > *:nth-child(1) { animation-delay: 0ms; }
+.fluent-page-enter > *:nth-child(n + 2) { animation-delay: 60ms; }
 
 /* ---- 列表项逐个浮现 ----
    用于歌单/歌曲列表首次渲染:每项延迟 18ms,最多 8 项(之后一起出现)。

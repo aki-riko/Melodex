@@ -80,20 +80,9 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
                 >
                   <Icon size={18} aria-hidden="true" />
                   <span>{it.label}</span>
-                  {/* 选中标记:一条从左滑入的强调竖条。
-                      Windows 11 的 NavigationView 就是这个视觉 —— 选中项左侧有一根
-                      3px 的强调色竖条,并且是**滑入**而非闪现。
-                      用 span 而非 ::before:便于加 transition,也避免动伪元素的 transform。 */}
-                  <span
-                    aria-hidden="true"
-                    className="absolute left-0 top-1/2 h-5 w-[3px] rounded-full bg-primary transition-all duration-base ease-emphasized"
-                    style={{
-                      // translateY 与 scaleY 都写在 style 里:两者共用 transform 属性,
-                      // 用 Tailwind 类分开写会互相覆盖(只剩最后一条生效)。
-                      transform: `translateY(-50%) scaleY(${active ? 1 : 0})`,
-                      opacity: active ? 1 : 0,
-                    }}
-                  />
+                  {/* 选中竖条不在这里画:index.css 的 [aria-current="page"]::before
+                      已经统一提供了(纯 CSS 增强,全站生效)。之前本鱼在这里又加了一条
+                      <span>,结果侧栏出现**两条并排的竖条**,已删除。 */}
                 </a>
               );
             })}
