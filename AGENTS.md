@@ -8,7 +8,7 @@ Melodex 是自托管音乐应用:
 - **Web/PWA 与 PrismQML 客户端** —— Melodex 自有应用实现
 - **[CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl)** —— 固定提交的多源 Provider 快照,**Apache-2.0**
 
-架构决策:**React 作统一 Web 前端,PrismQML 作原生桌面客户端,Go 作 Melodex JSON/下载后端,Python sidecar 承载 Apache Provider**。项目整体采用 **AGPL-3.0**，固定 Provider 快照保留其 **Apache-2.0** 许可证。用户纯开源自用、不商业化。界面**全中文**(对接国内平台,无 i18n / 无语言切换)。**UI 使用暗色 Spotify 风**(视觉改编自 Adam Lowenthal 的 CodePen "Spotify Artist Page UI",**MIT**,见 `frontend/THIRD-PARTY-LICENSES.md` 署名;主色 Spotify 绿 #1ED760 / 底 #181818 / 卡片 #282828 / Roboto;图标用 lucide-react)。**主力用法已转 PWA Web 前端**(音流等 Subsonic 客户端对 search3 结果客户端重排,排序不可控,见下;Web 前端排序自控)。
+架构决策:**React 作统一 Web 前端,PrismQML 作原生桌面客户端,Go 作 Melodex JSON/下载后端,Python sidecar 承载 Apache Provider**。项目整体采用 **AGPL-3.0**，固定 Provider 快照保留其 **Apache-2.0** 许可证。用户纯开源自用、不商业化。界面**全中文**(对接国内平台,无 i18n / 无语言切换)。**UI 使用 Fluent Design(Windows 11 风格),深浅两档、跟随系统**(详见下方「主题系统」节;Spotify 暗色皮肤已于 2026-11 彻底移除)。图标用 lucide-react。**主力用法已转 PWA Web 前端**(音流等 Subsonic 客户端对 search3 结果客户端重排,排序不可控,见下;Web 前端排序自控)。
 
 ## 架构(读源码得出,非臆测)
 
@@ -21,7 +21,7 @@ Melodex/
 │       ├── music.go/collection.go/local_music.go  原 /music/* 路由(下载/inspect/歌词/本地库)
 │       │      videogen.go 仍在但**未注册**(功能已剥离,见下)
 │       └── frontend_dist/    占位 index.html;Docker 构建时被 React 产物覆盖
-└── frontend/   React 18 + Vite + Tailwind(**多主题**:默认暗色 Spotify 皮肤 + Fluent 亚克力皮肤,CSS 变量在 index.css,注册表在 src/theme/)。无 react-router,**哈希路由**(#download/#myplaylist 等,刷新不丢)
+└── frontend/   React 18 + Vite + Tailwind(**单套 Fluent Design,深浅两档**:CSS 变量在 index.css,注册表在 src/theme/)。无 react-router,**哈希路由**(#download/#myplaylist 等,刷新不丢)
     └── src/
         ├── theme/            themes.js(主题注册表 + 39 个必填 token 清单 + 首帧/Storage 工具)/ ThemeContext.jsx(ThemeProvider,写 <html data-theme>)
         ├── App.js            app-shell 布局(Sidebar 左固定栏 + TopBar 全局搜索 + 滚动 main + PlayerBar 底部 + MobileTabBar);currentSection 驱动页 + hash 同步;QueryClient 关 refetchOnWindowFocus
@@ -41,8 +41,72 @@ Melodex/
 - **登录/setup 页**(`/music/login`)保留,React Settings 引导用户来此做管理员鉴权。登录成功跳回 `/`(不是已下线的 /music)。
 - **videogen 已剥离**(2026-06):前端组件/引擎/导航删除,后端 `RegisterVideogenRoutes` 不再注册。原因——移植成 ES module 后严格模式暴露隐式全局变量(coverRadius 等),且封面容错依赖墙外 placeholder + webp,国内环境天生不稳;用户不用。`videogen.go` 文件留着但不挂载,要彻底删可连文件一起清。
 - **下载到 NAS(自托管)**:点「下载」走 `saveToServer` → `POST /music/download?save_local=1&embed=1` + `X-Requested-With` 头(`write_guard.go` 要求 POST+同源+XHR 防 CSRF),存到容器 `data/downloads`(随 data 卷持久化),带完整刮削,本地音乐库可扫到。**不是**浏览器下载(那不经服务器,本地库永远空)。
-- **哈希路由**:URL hash 即当前页(#download/#settings),刷新/直达不丢;`handleLinkClick` 写 hash,`hashchange` 监听前进后退。
+- **哈希路由**:URL hash 即当前页(#download/#settings),刷新/直达不丢;**导航必须用 `pushRouteEntry`(写 `history.state` 深度标记),不能直接改 `location.hash`** —— 后者带不了 state,返回时无法判断"还有没有站内上一页"。
+- **返回键三层(2026-11 系统化,`contexts/backLayers.js` + `backNavigation.js` + `routeHistory.js`)**:
+  ① 浮层按 LIFO 收(弹窗/抽屉/菜单/播放页,均挂 `useBackLayer`);
+  ② 浮层清空后沿**真实历史**后退一页(`goBackInApp`,靠 `ROUTE_DEPTH_KEY` 判断,不能用 `history.length` —— APK 外壳加载远端站时它包含外部跳转,几乎永远 >1);
+  ③ 退回入口页(深度 0)才交给系统退出。
+  **踩过的坑**:第一版写成"不在首页就 `navigate('Home')`",结果从歌单点进去按返回**一律掉回首页**(用户报的正是这个);
+  另 `pushState` 只派发 `popstate` 不派发 `hashchange`,所以路由同步必须两个都听。
+- **APK 侧返回键**:Capacitor 8 核心**不处理返回键**(不覆写 onBackPressed 也不转发),必须自己注册 `SystemBackPlugin`(OnBackPressedCallback → JS 派发 `melodex:systemback` → JS `preventDefault` 表示已消费),栈空时 `moveTaskToBack` 而非 `finish()`(后者会中断播放并丢 MediaSession)。
 - **react-query 全局关 `refetchOnWindowFocus`/`refetchOnReconnect`**(App.js QueryClient defaultOptions):否则切窗口再聚焦会自动重新搜索 + 重新验活。
+
+## 主题系统:Fluent Design 深浅两档(2026-11 重做)
+
+全站只有 **Fluent Design 一套设计语言**,Spotify 暗色皮肤已彻底移除(用户明确要求)。
+用户选的是**模式**(`system` / `light` / `dark`,默认 system),写到 `<html data-theme>` 的
+是**解析后**的 id(`fluent-light` / `fluent-dark`)。组件只读 token,永远不知道用户选了什么模式。
+
+### 文件分工
+- `src/theme/themes.js` —— 纯数据/纯函数:模式清单、`resolveThemeId(mode, prefersDark)`、
+  44 个必填 token、Storage 读写、旧值兼容。**全站唯一的解析处**。
+- `src/theme/ThemeContext.jsx` —— React 态 + matchMedia/原生桥订阅 + 写 data-theme。
+- `src/index.css` —— 两个变量块(`:root`/`fluent-light` 与 `fluent-dark`)。
+- `index.html` 内联脚本 —— 首帧解析(异步拿不到原生值,只能用 matchMedia,见下)。
+
+### 两档的三处非直觉差异(改配色前必读)
+1. **层级方向相反**:深色越上层越亮(`#212121`→`#2C2C2C`→`#333`),浅色越上层越白
+   (`#F3F3F3`→`#FAFAFA`→`#FFF`)。浅色照抄深色,白卡片会淹没在白底里。
+2. **强调色不能跨模式复用**:Win11 深色是浅蓝 `#60CDFF`、浅色是深蓝 `#004F99`。
+   浅色用浅蓝配白字只有 1.6:1(看不见);深色用深蓝压深底同样看不清。
+3. **Mica 渐变方向相反**:深色"提亮"、浅色"压深",两套渐变不能互换颜色。
+
+### ★ 「跟随系统」在 APK 里必须靠原生 uiMode(踩了很久)
+**现象**:系统浅色、外观选「跟随系统」,页面却渲染成深色;手动选浅色立刻正常。
+**根因**:APK 是外壳 + `server.url` 加载远端站点,此形态下
+`matchMedia('(prefers-color-scheme: dark)')` **报告的与系统实际不符**(系统浅色它报 dark)。
+**修法**:`SystemThemePlugin.getSystemTheme()` 读 `resources.configuration.uiMode`,
+Android 上优先用它并订阅 `onConfigurationChanged`;Web 端仍用 matchMedia(浏览器里可靠)。
+**首帧例外**:原生是异步的,等它回来页面已画完,所以首帧脚本只能用 matchMedia 猜一次,
+挂载后立即纠正 —— 可能有一瞬跳变,但最终一定正确,比"首帧等异步白屏"好。
+
+配套的原生侧两件事(缺一不可):
+- `res/values/colors.xml` + **`values-night/`** 各一套窗口底色(此前只有写死的暗色、无 night 变体,
+  导致 WebView 连底层依据都是暗的);
+- `MainActivity` 设 `isAlgorithmicDarkeningAllowed = false`(API 33+)/
+  `forceDark = FORCE_DARK_OFF`(API 29~32),**关掉 WebView 自己的算法反色** ——
+  否则它会对我们精心调好的浅色页面强行反色,把对比度全毁。
+
+### 验证与门禁(`npm run test:theme`,三套)
+- `themeContract.test.mjs` —— 3 模式 → 2 主题、每块 44 token 齐全、
+  index.css 无旧皮肤选择器、index.html 首帧脚本与注册表规则一致、旧值映射。
+- `themeContrast.test.mjs` —— **两档各 20 组前景/背景配对做 WCAG AA 计算**,
+  共 40 项。这是能机器验证的硬指标,改动配色后必须跑。
+- `fluentMotion.test.mjs` —— 见下节。
+- 设置页外观区有一行**诊断输出**(只在"原生值与 matchMedia 不一致"时显示),
+  排查此类问题一眼定位,别再去两套颜色之间猜。
+
+### 动效系统(2026-11)
+五档 `.fluent-*` 类:切页(`-page-enter`,6px 上浮)、列表项(`-item-enter`,**最多 8 项**后一起出现
+—— 不封顶时上百项列表的最后一行会延迟 2 秒才出,看着像卡死)、浮层(`-flyout-in`,缩放而非位移,
+已替换 TopBar/Dialog/Menu/确认框;Toast 保留原动画因它是边缘滑入)、按下(`-pressable`,scale 0.98)、
+导航项(`-nav-item`)。
+
+三条纪律(`fluentMotion.test.mjs` 强制):一律 `transform`/`opacity`(**禁止** width/height/top/left,
+逐帧重排会让低端安卓掉帧)、时长 ≤300ms、必须被 `prefers-reduced-motion` 覆盖。
+该测试还**当场抓出过既有问题**:`loading-bar-indeterminate` 原本用 `left: -45%→100%` 做逐帧动画。
+
+**切页动画必须配 `key={section/subPath}`**:否则 React 复用节点,animation 只在首次生效。
 
 ## 多用户隔离 + 两级 RBAC(2026-06 新增)
 
