@@ -48,7 +48,7 @@
     "test:downloads": "node scripts/serverDownloads.test.mjs",
     "test:collection-route": "node scripts/collectionRoute.test.mjs",
     "test:credential": "node scripts/credentialExpiry.test.mjs",
-    "test:theme": "node scripts/themeContract.test.mjs && node scripts/themeContrast.test.mjs",
+    "test:theme": "node scripts/themeContract.test.mjs && node scripts/themeContrast.test.mjs && node scripts/fluentMotion.test.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {

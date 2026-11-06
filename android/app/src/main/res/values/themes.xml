@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 浅色档(AppCompat.DayNight 在系统浅色时选中)。
+         状态栏/导航栏图标必须是**深色**,因为底色是浅的 ——
+         此前这里不分深浅写死 windowLightStatusBar=false,
+         导致浅色底上出现白色状态栏图标(几乎看不见)。 -->
     <style name="Theme.Melodex" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowBackground">@color/melodex_background</item>
-        <item name="android:colorAccent">@color/melodex_green</item>
+        <item name="android:colorAccent">@color/melodex_accent</item>
         <item name="android:navigationBarColor">@color/melodex_background</item>
         <item name="android:statusBarColor">@color/melodex_background</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
