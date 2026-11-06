@@ -836,23 +836,61 @@
   animation-delay: 70ms;
 }
 
-/* ---- 列表项逐个浮现 ----
-   用于歌单/歌曲列表首次渲染:每项延迟 18ms,最多 8 项(之后一起出现)。
-   为什么要封顶:列表动辄上百项,不封顶会让"最后一行"延迟 2 秒才出现,
-   看起来像卡死。 */
-@keyframes fluent-item-enter {
+/* ---- 列表项:从右往左滑入,从上到下依次出现 ----
+   这是用户明确要的效果(「从上到下依次加载并从右往左划入」),全站歌曲列表统一。
+
+   实现取舍 —— **不加类名、不改 7 个页面的代码**:
+   所有歌曲列表都是 `<div class="space-y-0.5">{songs.map(...)}</div>` 这个形态
+   (核查过 Download / LocalMusic / MyPlaylist / PlaylistSongs / RecentlyPlayed
+   共 7 处,结构一致)。所以直接对 `.space-y-0.5` 的直接子元素下动画,
+   任何页面只要沿用这个列表容器就自动获得效果 —— 新增页面不需要配合。
+
+   ⚠ 为什么用 `space-y-0.5` 作钩子而不是给 SongRow 加类:
+   SongRow 是行组件,它同时用于搜索结果、歌单、最近播放、本地库等场景,
+   加类要改 7 处调用点;而这个容器类是这些列表的共同特征,一处 CSS 即可覆盖。
+
+   ---- 参数的两个硬约束 ----
+   ① **必须封顶**:每项 22ms、最多 12 项(≈264ms 全部出现)。
+      不封顶时 100 首的列表最后一行要等 2.2 秒,看着像卡死;
+      封顶后第 13 项起与第 12 项同时出现,视觉上仍然连贯。
+   ② **位移要小**:从右往左 24px 足够看出"划入",再大就变成"飞进来",
+      在长列表上会让人眼花。 */
+@keyframes fluent-list-item-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateX(24px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(0);
   }
 }
 
+/* 直接子元素统一上动画 */
+.space-y-0\.5 > * {
+  animation: fluent-list-item-in var(--motion-base) var(--ease-emphasized) both;
+}
+
+/* 依次延迟:第 1 项 0ms,第 n 项 (n-1)×22ms,封顶到第 12 项。
+   逐条写出来而不是用 CSS 变量累加 —— 后者需要给每个元素单独 style,
+   又会回到"改 7 处调用点"的老路。这里 12 条规则换来零侵入,值得。 */
+.space-y-0\.5 > *:nth-child(1) { animation-delay: 0ms; }
+.space-y-0\.5 > *:nth-child(2) { animation-delay: 22ms; }
+.space-y-0\.5 > *:nth-child(3) { animation-delay: 44ms; }
+.space-y-0\.5 > *:nth-child(4) { animation-delay: 66ms; }
+.space-y-0\.5 > *:nth-child(5) { animation-delay: 88ms; }
+.space-y-0\.5 > *:nth-child(6) { animation-delay: 110ms; }
+.space-y-0\.5 > *:nth-child(7) { animation-delay: 132ms; }
+.space-y-0\.5 > *:nth-child(8) { animation-delay: 154ms; }
+.space-y-0\.5 > *:nth-child(9) { animation-delay: 176ms; }
+.space-y-0\.5 > *:nth-child(10) { animation-delay: 198ms; }
+.space-y-0\.5 > *:nth-child(11) { animation-delay: 220ms; }
+/* 第 12 项起全部落在同一档(264ms 封顶)—— 之后的行一起出现,不再继续累加 */
+.space-y-0\.5 > *:nth-child(n + 12) { animation-delay: 242ms; }
+
+/* 旧类保留(其他地方可能引用),与上面同一动画 */
 .fluent-item-enter {
-  animation: fluent-item-enter var(--motion-base) var(--ease-standard) both;
+  animation: fluent-list-item-in var(--motion-base) var(--ease-emphasized) both;
 }
 
 /* ---- 浮层弹出 ----
