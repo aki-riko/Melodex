@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 浅色 + API 27 及以上:导航栏图标也能改深色。
+         拆到这里是因为 windowLightNavigationBar 需要 API 27,
+         而基础档(minSdk 26)不能引用它(lint NewApi 会判构建失败)。 -->
+    <style name="Theme.Melodex" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/melodex_background</item>
+        <item name="android:colorAccent">@color/melodex_accent</item>
+        <item name="android:navigationBarColor">@color/melodex_background</item>
+        <item name="android:statusBarColor">@color/melodex_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>
