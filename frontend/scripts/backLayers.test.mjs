@@ -225,7 +225,6 @@ assert.equal(SYSTEM_BACK_EVENT, 'melodex:systemback');
     ['src/ui/Dialog.js', '统一对话框(加入歌单/导入歌单/下载确认等)'],
     ['src/components/SleepTimerControl.js', '睡眠定时面板'],
     ['src/components/TopBar.js', '全局搜索建议'],
-    ['src/components/Sidebar.js', '移动端「更多」抽屉'],
     ['src/components/SongRow.js', '歌曲行「更多操作」菜单'],
     ['src/contexts/PlayerContext.js', '全屏播放页 / 播放队列'],
     ['src/contexts/FeedbackContext.js', '确认/输入对话框'],
