@@ -24,6 +24,7 @@ import EmptyState from '../ui/EmptyState';
 import Dialog from '../ui/Dialog';
 import { MenuPopover, MenuItem } from '../ui/Menu';
 import { useBackLayer } from '../contexts/backNavigation.js';
+import { pushRouteEntry } from '../contexts/routeHistory.js';
 
 // 稳定的空数组引用:数据未就绪时不要每次渲染都新建 [],否则会不断改变
 // useBulkActions 的 useCallback 依赖,产生无意义的重建。
@@ -273,7 +274,7 @@ export default function MyPlaylist() {
           title="这个歌单还没有歌"
           description="去「找歌」搜索后，用行内「加入歌单」把歌存进来。"
           action={(
-            <Button variant="primary" onClick={() => { window.location.hash = 'download'; }}>
+            <Button variant="primary" onClick={() => { pushRouteEntry('download'); }}>
               去找歌
             </Button>
           )}

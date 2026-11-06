@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Captions } from 'lucide-react';
 import { apiBase } from '../services/musicdl';
+import { pushRouteEntry } from '../contexts/routeHistory.js';
 import {
   DESKTOP_LYRICS_PROTOCOL,
   desktopLyricsProgressMessage,
@@ -125,7 +126,7 @@ const DesktopLyricsBridge = ({
   return (
     <button
       type="button"
-      onClick={() => { window.location.hash = 'settings'; }}
+      onClick={() => { pushRouteEntry('settings'); }}
       aria-label="桌面歌词助手"
       className={`transition-colors ${connected ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
       title={connected ? '桌面歌词同步服务已连接；点击管理 Windows/macOS 助手' : '点击配对 Windows/macOS 桌面歌词助手'}

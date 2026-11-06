@@ -14,6 +14,7 @@ import Segmented from '../ui/Segmented';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
 import { cn } from '../ui/cn';
+import { pushRouteEntry } from '../contexts/routeHistory.js';
 
 const UNKNOWN_ALBUM = '未知专辑';
 
@@ -312,7 +313,7 @@ export default function LocalMusic() {
           title="服务器上还没有歌"
           description="在「找歌」里把歌存到服务器，或在这里直接上传音频文件。"
           action={(
-            <Button variant="primary" onClick={() => { window.location.hash = 'download'; }}>
+            <Button variant="primary" onClick={() => { pushRouteEntry('download'); }}>
               去找歌
             </Button>
           )}

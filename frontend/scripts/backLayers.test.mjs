@@ -222,9 +222,12 @@ assert.equal(SYSTEM_BACK_EVENT, 'melodex:systemback');
     /setRouteBackResolver\s*\(/.test(app),
     'AppShell 必须调用 setRouteBackResolver —— 否则在 #more/#settings 等页面按返回会直接退出 App(真机实测踩到过)',
   );
+  // 回退必须沿真实历史走(goBackInApp),不能写死回首页。
+  // 写死成 navigate('Home') 的版本曾上线:从歌单点进去按返回,不管来路
+  // 一律掉回首页 —— 用户报的正是这个。详细锁定见 routeHistory.test.mjs。
   assert.ok(
-    /navigateRef\.current\?\.\('Home'\)/.test(app),
-    '路由回退必须真的导航回 Home,只注册不导航等于没做',
+    /goBackInApp\(/.test(app),
+    '路由回退必须调用 goBackInApp(沿历史后退),不能写死目标页面',
   );
 }
 
