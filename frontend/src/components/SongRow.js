@@ -34,6 +34,7 @@ import { songIdentityKey } from '../utils/songIdentity';
 import { formatDuration, formatBytes } from '../utils/displayFormat';
 import HighlightedLyricMatch from './HighlightedLyricMatch';
 import { MenuPopover, MenuItem, MenuDivider } from '../ui/Menu';
+import { useBackLayer } from '../contexts/backNavigation.js';
 import { cn } from '../ui/cn';
 import { resolveQuality } from '../utils/quality';
 
@@ -272,6 +273,15 @@ const SongRow = ({
   }, [favoriteCacheKey, inView, offline, rowSong]);
 
   const closeMenu = () => setOpenMenu(false);
+
+  // 安卓返回键 / 浏览器后退:先收这一行的「更多操作」菜单。
+  // 长列表里同时只可能有一行开着菜单,但每行都注册也无妨 ——
+  // 返回栈按 id/顺序处理,没开的那行 active=false 不会入栈。
+  useBackLayer({
+    active: openMenu,
+    name: 'song-row-menu',
+    onBack: () => { setOpenMenu(false); },
+  });
 
   const handleDownload = async (e) => {
     e?.stopPropagation?.();

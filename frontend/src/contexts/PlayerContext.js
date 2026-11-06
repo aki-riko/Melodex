@@ -43,6 +43,7 @@ import {
 } from './playerMediaSource.js';
 import NativePlayerProvider from './NativePlayerProvider.js';
 import { isNativeAndroidPlayback } from './nativePlayback.js';
+import { useBackLayer } from './backNavigation.js';
 import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
 
@@ -1505,6 +1506,13 @@ export const PlayerBar = () => {
   } = usePlayer();
 
   const [queueOpen, setQueueOpen] = useState(false);
+  // 队列面板(桌面 popover / 移动全屏覆盖层)也要能被返回键收掉。
+  // 它比播放页更晚入栈,所以返回键会**先收队列再收播放页**,符合视觉层级。
+  useBackLayer({
+    active: queueOpen,
+    name: 'player-queue',
+    onBack: () => { setQueueOpen(false); },
+  });
   const [expanded, setExpanded] = useState(false); // 移动端:点击迷你条展开全屏播放页
   const [showLyric, setShowLyric] = useState(false); // 展开页:封面(黑胶)↔ 歌词切换
   const [closing, setClosing] = useState(false); // 展开页收起动画中
@@ -1555,33 +1563,26 @@ export const PlayerBar = () => {
   const expandedRef = useRef(false);
   useEffect(() => { expandedRef.current = expanded; }, [expanded]);
 
-  // 收起播放页。fromPop=true 表示由返回键(popstate)触发,此时不再 history.back
-  // (历史已被浏览器弹出);否则主动收起需 history.back() 弹掉展开时压入的历史条目。
-  const collapseExpanded = useCallback((fromPop = false) => {
-    expandedRef.current = false; // 立即置否,避免 history.back 触发的 popstate 二次收起
+  // 收起播放页(带动画)。历史条目现在由统一的返回栈管理(backNavigation.js),
+  // 这里不再自己 pushState/back —— 旧写法与其它弹层各管各的,必然互相顶掉。
+  const collapseExpanded = useCallback(() => {
+    expandedRef.current = false;
     setClosing(true);
     setTimeout(() => { setExpanded(false); setClosing(false); }, 260);
-    if (fromPop !== true && window.history.state && window.history.state.playerExpanded) {
-      window.history.back();
-    }
   }, []);
 
-  // 展开播放页:压入一条带标记的历史,让手机返回键先收起而非退站。
+  // 展开播放页:只改状态,历史哨兵由返回栈统一维护。
   const openExpanded = useCallback(() => {
     setExpanded(true);
-    if (!window.history.state || !window.history.state.playerExpanded) {
-      window.history.pushState({ playerExpanded: true }, '');
-    }
   }, []);
 
-  // 返回键(popstate):若正展开,拦截为收起播放页(带下滑动画,不再退站)。
-  useEffect(() => {
-    const onPop = () => {
-      if (expandedRef.current) collapseExpanded(true);
-    };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, [collapseExpanded]);
+  // 返回键:播放页展开时先收播放页(不退站/不退 App)。
+  // 队列覆盖层挂在播放页之上,由它自己注册的更晚入栈 → 返回键会先收队列。
+  useBackLayer({
+    active: expanded,
+    name: 'player-sheet',
+    onBack: () => { collapseExpanded(); },
+  });
 
   // 当前歌变化时拉取并解析歌词。桌面底栏和展开播放页共用同一份结果。
   useEffect(() => {

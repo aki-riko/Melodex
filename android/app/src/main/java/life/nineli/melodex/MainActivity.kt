@@ -9,6 +9,9 @@ import com.getcapacitor.BridgeActivity
 class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(NativePlaybackPlugin::class.java)
+        // 返回键必须由原生接管后再交给 JS 返回栈,否则按返回会直接退出 App
+        // 而不是先收起弹窗/播放页。详见 SystemBackPlugin 的注释。
+        registerPlugin(SystemBackPlugin::class.java)
         super.onCreate(savedInstanceState)
         requestNotificationPermission()
     }

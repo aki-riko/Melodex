@@ -10,6 +10,7 @@ import { importM3U } from '../services/collections';
 import { requestOpenPlaylist } from '../services/playlistBus';
 import ImportPlaylistModal from './ImportPlaylistModal';
 import { MenuPopover, MenuItem } from '../ui/Menu';
+import { useBackLayer } from '../contexts/backNavigation.js';
 import { cn } from '../ui/cn';
 
 // 导航项:桌面左栏分组展示,移动端取 primary 的几项做底部 Tab
@@ -295,6 +296,13 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [moreOpen]);
+
+  // 安卓返回键 / 浏览器后退:先收「更多」抽屉,而不是直接退站/退 App。
+  useBackLayer({
+    active: moreOpen,
+    name: 'mobile-more-drawer',
+    onBack: () => { setMoreOpen(false); },
+  });
 
   const go = (section, after, subPath) => {
     setMoreOpen(false);

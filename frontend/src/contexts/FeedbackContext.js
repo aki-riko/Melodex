@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Info, TriangleAlert, X } from 'lucide-react';
 import { cn } from '../ui/cn';
+import { useBackLayer } from './backNavigation.js';
 
 // 全站反馈通道。本轮改造要点:
 //  1. 可访问性:容器加 role/aria-live —— 否则这是全站唯一的成功/失败反馈,
@@ -170,6 +171,13 @@ const FeedbackDialog = ({ dialog, onDone }) => {
   const [touched, setTouched] = useState(false);
   const isPrompt = dialog.kind === 'prompt';
   const invalid = isPrompt && dialog.required && touched && !value.trim();
+
+  // 安卓返回键 / 浏览器后退:取消这个反馈框(等同点遮罩)。
+  // prompt 返回 null(= 用户取消),confirm 返回 false,与点遮罩的语义保持一致。
+  useBackLayer({
+    name: 'feedback-dialog',
+    onBack: () => { onDone(isPrompt ? null : false); },
+  });
 
   const submit = (e) => {
     e.preventDefault();

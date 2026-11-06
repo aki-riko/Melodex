@@ -112,6 +112,7 @@ jobs:
           npm run test:wake
           npm run test:downloads
           npm run test:player
+          npm run test:back
           npm run test:theme
 
       # ---- Android(需要 Android 改动才跑) ----
