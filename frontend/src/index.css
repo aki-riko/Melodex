@@ -765,21 +765,27 @@
      · 全部尊重 prefers-reduced-motion(见文件末尾的降级块),不能强行给所有人放动画。
 
    ---- 页面切换 ----
-   主滚动区内容在切页时做一次轻微上浮 + 淡入。为什么不是左右滑:本应用是哈希路由,
-   导航是"同级页面切换"而非前进/后退栈,左右滑会暗示不存在的方向语义。 */
+   主滚动区内容在切页时做一次上浮 + 淡入。为什么不是左右滑:本应用是哈希路由,
+   导航是"同级页面切换"而非前进/后退栈,左右滑会暗示不存在的方向语义。
+
+   ⚠ 位移与时长都调过一轮:第一版是 6px / 180ms,实测**肉眼几乎看不出来**
+   (用户在真机上反馈"切换左侧项时没动画")。原因不是没生效,而是幅度太弱:
+   6px 在 2780px 高的手机上不足 0.25%,180ms 只够 11 帧,眨眼就过去了。
+   现在改成 14px + 240ms,并加 scale 0.995 让"整块内容轻轻推上来",
+   一眼能看出页面换了但不会觉得拖沓。 */
 @keyframes fluent-page-enter {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(14px) scale(0.995);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 .fluent-page-enter {
-  animation: fluent-page-enter var(--motion-base) var(--ease-emphasized) both;
+  animation: fluent-page-enter var(--motion-slow) var(--ease-emphasized) both;
 }
 
 /* ---- 列表项逐个浮现 ----

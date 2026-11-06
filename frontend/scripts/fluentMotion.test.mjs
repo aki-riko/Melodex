@@ -118,4 +118,33 @@ for (const decl of motionDecls) {
   // 用 token 的写法(如 var(--motion-base)=180ms)天然在范围内,不额外校验。
 }
 
+// ---- 6. 页面切换动效必须**看得出** ----
+// 用户真机反馈"切换左侧项时没动画"。静态检查全过、CSS 也在产物里,
+// 真实原因只是**幅度太弱**:第一版 6px / 180ms 在手机上不足 0.25% 高度、11 帧就过去了,
+// 主观上等于没有。这条锁住下限,防止以后又被"优化"回去。
+{
+  const pageKeyframe = css.match(/@keyframes fluent-page-enter\s*\{([\s\S]*?)\n\}/);
+  assert.ok(pageKeyframe, '找不到 @keyframes fluent-page-enter');
+  const body = pageKeyframe[1];
+
+  const shift = body.match(/translateY\((\d+)px\)/);
+  assert.ok(shift, 'page-enter 必须有位移(纯淡入太弱,看不出"换页")');
+  assert.ok(
+    Number(shift[1]) >= 10,
+    `page-enter 位移只有 ${shift[1]}px,太小 —— 手机上肉眼几乎看不出。实测 6px 时用户直接反馈"没动画"`,
+  );
+
+  // 时长:用 token 时要确认该 token 够长(>=200ms),否则再大的位移也一闪而过
+  const pageRule = css.match(/\.fluent-page-enter\s*\{([^}]*)\}/);
+  assert.ok(pageRule, '找不到 .fluent-page-enter 规则');
+  const duration = pageRule[1].match(/var\(--motion-([a-z]+)\)/);
+  assert.ok(duration, 'page-enter 应使用 motion token 而非字面量');
+  const tokenValue = css.match(new RegExp(`--motion-${duration[1]}\\s*:\\s*(\\d+)ms`));
+  assert.ok(tokenValue, `找不到 --motion-${duration[1]} 的毫秒值`);
+  assert.ok(
+    Number(tokenValue[1]) >= 200,
+    `page-enter 时长只有 ${tokenValue[1]}ms —— 配合位移仍会"一闪而过",建议 >=200ms`,
+  );
+}
+
 console.log('fluentMotion tests passed');
