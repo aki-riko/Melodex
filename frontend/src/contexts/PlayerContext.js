@@ -105,6 +105,11 @@ const WebPlayerProvider = ({ children }) => {
   const modeRef = useRef(loadMode());
   const nowPlayingRef = useRef(null);
   const sleepTimerRef = useRef(null);
+  // 到点判定入口。定时器 effect 里注册,音频 timeupdate 里也会调一次 ——
+  // 后台标签页会把 setInterval 限流到每分钟(甚至冻结),而音频元素仍在播、
+  // timeupdate 照常触发,是唯一稳定的"还在走"的心跳。
+  // 注:这里不要写尖括号的 audio 标签字面量,playerQueue 契约测试按它统计元素数量。
+  const sleepReconcileRef = useRef(null);
   const sleepStopAfterTrackRef = useRef(loadStopAfterTrackPreference());
   const volumeRef = useRef(volume);
   const mutedRef = useRef(muted);
@@ -544,10 +549,14 @@ const WebPlayerProvider = ({ children }) => {
   }, []);
 
   const stopPlaybackForSleepTimer = useCallback((message = '睡眠定时已停止播放。') => {
+    // 先把定时清掉再暂停: pauseWithFade 结束时会触发 pause / timeupdate 回调,
+    // 那些回调里还会再走一次到点判定; 若这时 ref 仍指向已到点的 timer, 会重复暂停并复写提示。
+    sleepTimerRef.current = null;
+    setSleepTimer(null);
+    setSleepRemainingMs(0);
     pauseWithFade('sleep_timer');
-    clearSleepTimer();
     setNotice(message);
-  }, [clearSleepTimer, pauseWithFade]);
+  }, [pauseWithFade]);
 
   const startSleepTimer = useCallback((minutes) => {
     const timer = createSleepTimer(minutes);
@@ -628,6 +637,9 @@ const WebPlayerProvider = ({ children }) => {
       stopPlaybackForSleepTimer();
     };
 
+    // 让音频 timeupdate 也能推进到点判定(见 sleepReconcileRef 的说明)。
+    sleepReconcileRef.current = reconcile;
+
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') reconcile();
     };
@@ -637,6 +649,7 @@ const WebPlayerProvider = ({ children }) => {
     reconcile();
     const id = window.setInterval(reconcile, 1000);
     return () => {
+      sleepReconcileRef.current = null;
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pageshow', reconcile);
       window.removeEventListener('focus', reconcile);
@@ -946,6 +959,14 @@ const WebPlayerProvider = ({ children }) => {
       dur = local.dur;
     }
     setProgress({ cur, dur });
+    // 后台标签页会把 setInterval 限流到每分钟甚至冻结,而音频 timeupdate 仍在正常触发。
+    // 睡眠定时「到点立刻停播」这条路径必须靠这个心跳兜住,否则页面被挂到后台就不停了。
+    // 只在真正到点时推进:reconcile 会写 sleepRemainingMs,而 timeupdate 每秒 4 次,
+    // 无条件调用等于把剩余时间的展示刷新率也抬到 4Hz(纯浪费渲染,倒计时看着还发抖)。
+    const sleepTimerNow = sleepTimerRef.current;
+    if (sleepTimerNow && getSleepTimerRemainingMs(sleepTimerNow) <= 0) {
+      sleepReconcileRef.current?.();
+    }
     const now = Date.now();
     if (now - lastSaveRef.current > 5000) {
       lastSaveRef.current = now;
