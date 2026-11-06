@@ -170,8 +170,9 @@ function AppShell() {
           >
             {/* key 用 section+subPath:切页时容器重挂载,动画才会重新播放。
                 若只加 className,React 复用同一节点,animation 只在首次生效。
-                动画本身在 index.css 的 .fluent-page-enter(6px 上浮 + 淡入,
-                var(--motion-base)=180ms),并已被 prefers-reduced-motion 降级覆盖。 */}
+                动画定义在 index.css 的 .fluent-page-enter(14px 上浮 + 淡入 +
+                轻微缩放,var(--motion-slow)=280ms),并已被 prefers-reduced-motion 覆盖。
+                幅度经过一轮调整:第一版 6px/180ms 用户反馈"没动画"(太弱不是没生效)。 */}
             <div
               key={`${section}/${activeSubPath || ''}`}
               className="container mx-auto px-4 md:px-6 py-6 max-w-6xl fluent-page-enter"

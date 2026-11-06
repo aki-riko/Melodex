@@ -786,6 +786,10 @@
 
 .fluent-page-enter {
   animation: fluent-page-enter var(--motion-slow) var(--ease-emphasized) both;
+  /* 强制独立合成层:位移/缩放动画走 GPU 而非主线程。
+     不加这条时,首次切页若同时有大量列表渲染,动画可能掉帧到"看不见" ——
+     这也是"静态检查全绿但用户说没动画"的一个可能成因。 */
+  will-change: transform, opacity;
 }
 
 /* ---- 列表项逐个浮现 ----
