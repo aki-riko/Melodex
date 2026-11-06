@@ -70,7 +70,7 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
                   href={`#${it.key.toLowerCase()}`}
                   onClick={(e) => { e.preventDefault(); onNavigate(it.key); }}
                   className={cn(
-                    'flex min-h-touch items-center gap-3 rounded-md px-3 type-body font-medium transition-colors duration-base',
+                    'fluent-nav-item fluent-pressable flex min-h-touch items-center gap-3 rounded-md px-3 type-body font-medium',
                     'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[hsl(var(--ring))]',
                     active
                       ? 'bg-secondary text-foreground'
@@ -80,6 +80,20 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
                 >
                   <Icon size={18} aria-hidden="true" />
                   <span>{it.label}</span>
+                  {/* 选中标记:一条从左滑入的强调竖条。
+                      Windows 11 的 NavigationView 就是这个视觉 —— 选中项左侧有一根
+                      3px 的强调色竖条,并且是**滑入**而非闪现。
+                      用 span 而非 ::before:便于加 transition,也避免动伪元素的 transform。 */}
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1/2 h-5 w-[3px] rounded-full bg-primary transition-all duration-base ease-emphasized"
+                    style={{
+                      // translateY 与 scaleY 都写在 style 里:两者共用 transform 属性,
+                      // 用 Tailwind 类分开写会互相覆盖(只剩最后一条生效)。
+                      transform: `translateY(-50%) scaleY(${active ? 1 : 0})`,
+                      opacity: active ? 1 : 0,
+                    }}
+                  />
                 </a>
               );
             })}
@@ -306,12 +320,19 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
             href={`#${it.key.toLowerCase()}`}
             onClick={(e) => { e.preventDefault(); onNavigate(it.key); }}
             className={cn(
-              'flex flex-1 flex-col items-center justify-center gap-0.5 type-micro transition-colors duration-base',
+              'fluent-pressable flex flex-1 flex-col items-center justify-center gap-0.5 type-micro',
+              'transition-colors duration-base',
               active ? 'text-primary' : 'text-muted-foreground',
             )}
             aria-current={active ? 'page' : undefined}
           >
-            <Icon size={20} aria-hidden="true" />
+            {/* 选中时图标轻微放大:比只改颜色更容易被"扫一眼"发现,
+                也和 Windows 11 底部导航的反馈一致。 */}
+            <Icon
+              size={20}
+              aria-hidden="true"
+              className={cn('transition-transform duration-base ease-emphasized', active && 'scale-110')}
+            />
             <span>{it.mobileLabel || it.label}</span>
           </a>
         );
@@ -322,12 +343,17 @@ export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
         href="#more"
         onClick={(e) => { e.preventDefault(); onNavigate('More'); }}
         className={cn(
-          'flex flex-1 flex-col items-center justify-center gap-0.5 type-micro transition-colors duration-base',
+          'fluent-pressable flex flex-1 flex-col items-center justify-center gap-0.5 type-micro',
+          'transition-colors duration-base',
           currentSection === 'More' ? 'text-primary' : 'text-muted-foreground',
         )}
         aria-current={currentSection === 'More' ? 'page' : undefined}
       >
-        <Menu size={20} aria-hidden="true" />
+        <Menu
+          size={20}
+          aria-hidden="true"
+          className={cn('transition-transform duration-base ease-emphasized', currentSection === 'More' && 'scale-110')}
+        />
         <span>更多</span>
       </a>
     </nav>
