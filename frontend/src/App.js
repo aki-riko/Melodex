@@ -26,6 +26,7 @@ import LoadingState from './components/LoadingState';
 import CredentialNotice from './components/CredentialNotice';
 import ErrorBoundary from './ui/ErrorBoundary';
 import { useBackNavigation, setRouteBackResolver } from './contexts/backNavigation.js';
+import { pushRouteEntry, goBackInApp, ROUTE_DEPTH_KEY } from './contexts/routeHistory.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,11 +58,31 @@ function AppShell() {
   const { section: currentSection, subPath: currentSubPath } = route;
   const [downloadRequest, setDownloadRequest] = useState(null);
 
-  // hash 变化同步当前页(浏览器前进后退/分享)
+  // 首次挂载:把当前页标记成"本次会话的入口页"(深度 0)。
+  //
+  // 为什么需要:hash 路由里用户可能带着 #myplaylist/7 深链接直接进来,
+  // 或者刷新到某一子页 —— 这时 history.state 是 null。不显式标 0 的话,
+  // readRouteDepth 会把 null 当 0(行为正确),但**深链接页面上"是否还能后退"**
+  // 就失去了明确语义;标一次之后,后续 pushRouteEntry 的 +1 才有可靠基线。
+  // 用 replaceState 而不是 pushState:入口页不该多出一条历史。
   useEffect(() => {
-    const onHash = () => setRoute(routeFromHash());
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    if (window.history.state?.[ROUTE_DEPTH_KEY] != null) return;
+    window.history.replaceState({ [ROUTE_DEPTH_KEY]: 0 }, '', window.location.href);
+  }, []);
+
+  // 路由同步。两个来源都要听,缺一个就会出现"URL 变了页面没变":
+  //   · hashchange —— 手动改 hash(深链接、外部跳转、部分老入口);
+  //   · popstate   —— 用 pushState 写的历史(本站 navigate)在后退/前进时
+  //                   **只派发 popstate,不派发 hashchange**。
+  // 只监听 hashchange 的话,按返回键 URL 会变但页面停在原处 —— 真机踩过。
+  useEffect(() => {
+    const syncRoute = () => setRoute(routeFromHash());
+    window.addEventListener('hashchange', syncRoute);
+    window.addEventListener('popstate', syncRoute);
+    return () => {
+      window.removeEventListener('hashchange', syncRoute);
+      window.removeEventListener('popstate', syncRoute);
+    };
   }, []);
 
   // 发现页/全局搜索「去下载」→ 切到下载页并预填搜索词
@@ -77,7 +98,9 @@ function AppShell() {
     // 目标 hash:有 subPath 则 #section/sub(如 #myplaylist/123),否则 #section
     const targetHash = subPath != null ? `${section.toLowerCase()}/${subPath}` : section.toLowerCase();
     if (window.location.hash.replace(/^#/, '') !== targetHash) {
-      window.location.hash = targetHash;
+      // 用 pushState 而不是 location.hash=:后者带不了 state,而"返回上一页"
+      // 需要靠 state 里的深度标记区分站内层级(见 routeHistory.js)。
+      pushRouteEntry(targetHash);
     }
     const scroller = document.getElementById('app-main');
     if (scroller) scroller.scrollTo({ top: 0, behavior: 'smooth' });
@@ -89,25 +112,19 @@ function AppShell() {
   const section = offline ? 'Offline' : (currentSection === 'Users' && !isAdmin ? 'Home' : currentSection);
   const activeSubPath = section === 'MyPlaylist' ? currentSubPath : null;
 
-  // 返回键:浮层都收完之后,若当前不在首页,先回首页而不是退出 App。
+  // 返回键:浮层都收完之后,沿**历史**退回上一页;退不动了才交给系统退出。
   //
-  // 为什么需要:哈希路由是**页面**切换(#home ↔ #more ↔ #settings),
-  // 但原生返回键只认浮层栈,不知道"页面"这件事 —— 真机实测过,
-  // 在「更多」页按返回会直接退到桌面,用户以为"App 没了"。
+  // 这里踩过一个坑,记下来别再犯:第一版写的是"不在首页就 navigate('Home')",
+  // 于是从歌单点进去按返回,不管从哪来都一律掉回首页 —— 用户报的正是这个。
+  // "上一页"必须沿真实历史后退,不能猜一个固定目标。
   //
-  // 用 ref 保存最新的 section 与 navigate,让注册只发生一次;
-  // 若把 section 放进依赖,每次切页都会重新注册(与返回栈的幂等替换相互干扰)。
-  const sectionRef = useRef(section);
-  const navigateRef = useRef(null);
-  useEffect(() => {
-    sectionRef.current = section;
-    navigateRef.current = navigate;
-  });
+  // 判断依据是 history.state 里的深度标记(见 routeHistory.js):
+  // APK 是外壳加载远端站,history.length 包含外部跳转,拿它判断必然误判。
   useEffect(() => setRouteBackResolver(() => {
-    // 已经在首页 → 不消费,交给系统退出/退到后台。
-    if (sectionRef.current === 'Home') return false;
-    navigateRef.current?.('Home');
-    return true;
+    // 站内还有上一页 → 后退。浏览器/WebView 会派发 popstate,
+    // 上面那个同步 effect 监听了 popstate,路由随之更新。
+    // 已经是本次会话的入口页(深度 0)→ 不消费,让系统退出/退到后台。
+    return goBackInApp();
   }), []);
 
   return (
