@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 深色档(系统深色时选中)。状态栏图标改用浅色。 -->
+    <!-- 深色档(系统深色时选中)。状态栏图标改用浅色。
+         同样不在基础档引用 windowLightNavigationBar(需 API 27)。 -->
     <style name="Theme.Melodex" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowBackground">@color/melodex_background</item>
@@ -8,7 +9,6 @@
         <item name="android:navigationBarColor">@color/melodex_background</item>
         <item name="android:statusBarColor">@color/melodex_background</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
