@@ -118,32 +118,86 @@ for (const decl of motionDecls) {
   // 用 token 的写法(如 var(--motion-base)=180ms)天然在范围内,不额外校验。
 }
 
-// ---- 6. 页面切换动效必须**看得出** ----
-// 用户真机反馈"切换左侧项时没动画"。静态检查全过、CSS 也在产物里,
-// 真实原因只是**幅度太弱**:第一版 6px / 180ms 在手机上不足 0.25% 高度、11 帧就过去了,
-// 主观上等于没有。这条锁住下限,防止以后又被"优化"回去。
+// ---- 6. 页面切换必须是**错峰淡入**,且看得出 ----
+//
+// 这个设计换过三次,每次的教训都不同:
+//   ① 6px/180ms 位移    → 用户"没动画"(幅度太弱)
+//   ② 14px/280ms + 缩放 → 用户"动画不太对"(位移像把整块内容推了一下,
+//      而同级页面切换本没有方向语义)
+//   ③ 错峰淡入(当前)  → 标题先、内容后,靠**层次**而非位移制造可感知度
+//
+// 所以这条不再要求"位移够大",而是要求:
+//   · 容器有淡入;
+//   · 子元素错峰(第 2 个起有 delay),这是本设计的核心;
+//   · 时长 >=160ms(太短仍是"眨一下就没了");
+//   · 位移保持在**很小**的范围(≤6px)—— 大了又变回"被推一下"。
 {
-  const pageKeyframe = css.match(/@keyframes fluent-page-enter\s*\{([\s\S]*?)\n\}/);
-  assert.ok(pageKeyframe, '找不到 @keyframes fluent-page-enter');
-  const body = pageKeyframe[1];
-
-  const shift = body.match(/translateY\((\d+)px\)/);
-  assert.ok(shift, 'page-enter 必须有位移(纯淡入太弱,看不出"换页")');
+  // 容器淡入必须存在
   assert.ok(
-    Number(shift[1]) >= 10,
-    `page-enter 位移只有 ${shift[1]}px,太小 —— 手机上肉眼几乎看不出。实测 6px 时用户直接反馈"没动画"`,
+    /\.fluent-page-enter\s*\{[^}]*animation:\s*fluent-page-fade/.test(css),
+    'page-enter 容器应当用淡入(fluent-page-fade)',
   );
 
-  // 时长:用 token 时要确认该 token 够长(>=200ms),否则再大的位移也一闪而过
-  const pageRule = css.match(/\.fluent-page-enter\s*\{([^}]*)\}/);
-  assert.ok(pageRule, '找不到 .fluent-page-enter 规则');
-  const duration = pageRule[1].match(/var\(--motion-([a-z]+)\)/);
-  assert.ok(duration, 'page-enter 应使用 motion token 而非字面量');
-  const tokenValue = css.match(new RegExp(`--motion-${duration[1]}\\s*:\\s*(\\d+)ms`));
-  assert.ok(tokenValue, `找不到 --motion-${duration[1]} 的毫秒值`);
+  // 错峰:必须给子元素设 animation,且第 2 个起的 delay 大于第 1 个
+  const staggerRule = css.match(/\.fluent-page-enter\s*>\s*\*\s*\{([^}]*)\}/);
+  assert.ok(staggerRule, 'page-enter 必须给直接子元素加动画(错峰的基础)');
   assert.ok(
-    Number(tokenValue[1]) >= 200,
-    `page-enter 时长只有 ${tokenValue[1]}ms —— 配合位移仍会"一闪而过",建议 >=200ms`,
+    /animation:\s*fluent-page-rise/.test(staggerRule[1]),
+    '子元素应当用 fluent-page-rise',
+  );
+
+  const firstDelay = css.match(/\.fluent-page-enter\s*>\s*\*:nth-child\(1\)\s*\{\s*animation-delay:\s*(\d+)ms/);
+  const restDelay = css.match(/\.fluent-page-enter\s*>\s*\*:nth-child\(n\s*\+\s*2\)\s*\{\s*animation-delay:\s*(\d+)ms/);
+  assert.ok(firstDelay, '缺少第一个子元素的 delay 定义');
+  assert.ok(restDelay, '缺少后续子元素的 delay 定义(错峰的核心)');
+  assert.ok(
+    Number(restDelay[1]) > Number(firstDelay[1]),
+    `错峰的后续延迟(${restDelay[1]}ms)必须大于首个(${firstDelay[1]}ms),否则等于没有错峰`,
+  );
+  assert.ok(
+    Number(restDelay[1]) <= 120,
+    `后续延迟 ${restDelay[1]}ms 太大 —— 页面会有"内容跟不上"的迟滞感,建议 40~80ms`,
+  );
+
+  // 位移保持在很小的范围:大了又会变成"被推一下"
+  const riseKeyframe = css.match(/@keyframes fluent-page-rise\s*\{([\s\S]*?)\n\}/);
+  assert.ok(riseKeyframe, '找不到 @keyframes fluent-page-rise');
+  const shift = riseKeyframe[1].match(/translateY\((\d+)px\)/);
+  if (shift) {
+    assert.ok(
+      Number(shift[1]) <= 6,
+      `错峰动画的位移 ${shift[1]}px 过大 —— 本设计靠层次而非位移,超过 6px 又会变成"整块被推一下"`,
+    );
+  }
+
+  // 时长下限:太短仍是"眨一下就没了"
+  const tokenMatch = css.match(/--motion-base\s*:\s*(\d+)ms/);
+  assert.ok(tokenMatch, '找不到 --motion-base');
+  assert.ok(
+    Number(tokenMatch[1]) >= 160,
+    `--motion-base 只有 ${tokenMatch[1]}ms,淡入会"一闪而过"`,
+  );
+}
+
+// ---- 7. 选中竖条只能有一处来源 ----
+//
+// 真实事故:强调竖条早已由 index.css 的 `[aria-current="page"]::before` 统一提供
+// (纯 CSS 增强,全站生效)。本鱼没查到它,又在 Sidebar 里手加了一条
+// `<span class="... bg-primary">` 做滑入动画 —— 结果侧栏出现**两条并排的竖条**,
+// 用户直接截图反馈"而且咋俩条"。
+//
+// 这条锁住:"竖条"这个视觉只能由 CSS 伪元素提供,组件里不得再画一个。
+{
+  const pillarInComponent = /bg-primary[^"'`]*w-\[3px\]|w-\[3px\][^"'`]*bg-primary/;
+  assert.ok(
+    !pillarInComponent.test(sources),
+    '组件里出现了 3px 的 primary 竖条 —— 它与 [aria-current="page"]::before 会重叠成两条。' +
+    '选中竖条只应由 index.css 的伪元素提供',
+  );
+  // 伪元素那条必须还在
+  assert.ok(
+    /\[aria-current="page"\]::before\s*\{/.test(css),
+    'index.css 必须保留 [aria-current="page"]::before 作为竖条的唯一来源',
   );
 }
 
