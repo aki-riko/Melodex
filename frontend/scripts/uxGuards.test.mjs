@@ -535,10 +535,52 @@ for (const file of sourceFiles) {
   checkButtonTextAlign(file, stripComments(readFileSync(file, 'utf8')));
 }
 
+// ---- 15. 透明遮罩不得压住同文件的浮层面板 ----
+//
+// 来自一次真实上线事故(2026-10 的 z-index 语义化 sweep):
+// SleepTimerControl 原本是「透明全屏遮罩 z-[80] + 浮层 z-[90]」两层,sweep 把
+// 魔法数字换成语义层时换成了 backdrop=z-drawer(60) / panel=z-popover(50),
+// **顺序被弄反了**。遮罩是透明的,所以面板照常显示、看起来完全正常,
+// 但用户点到面板的每一下其实都点在遮罩上:遮罩的 onClick 只有 setOpen(false)。
+// 表现为「选 30 分钟 → 面板一闪就没了,定时根本没设上」= 用户报的「自动停止失效」。
+//
+// 纯逻辑/单元测试对这类 bug 是瞎的(状态机完全正确,只是点不到),构建也不报错,
+// 只能靠静态扫描。规则:同一文件内,自闭合的 fixed inset-0 透明遮罩
+// 其 z 层不得高于该文件浮层面板(z-popover)所在的层。
+const Z_LAYERS = {
+  nav: 20, tabbar: 30, bar: 40, popover: 50, drawer: 60, sheet: 70, modal: 85, toast: 90,
+};
+
+function checkOverlayOrder(file, code) {
+  const lines = code.split(/\r?\n/);
+  if (!lines.some((line) => /\bz-popover\b/.test(line))) return;
+  lines.forEach((line, idx) => {
+    if (!/fixed inset-0/.test(line)) return;
+    // 只认"自闭合的透明遮罩";带子元素的 fixed inset-0 是全屏页/对话框容器。
+    if (!/\/>\s*$/.test(line)) return;
+    const m = line.match(/\bz-(nav|tabbar|bar|popover|drawer|sheet|modal|toast)\b/);
+    if (!m) return;
+    const backdropZ = Z_LAYERS[m[1]];
+    if (backdropZ > Z_LAYERS.popover) {
+      fail(
+        file,
+        idx + 1,
+        'popover-backdrop-order',
+        `透明遮罩 z-${m[1]}(${backdropZ}) 压住了同文件的 z-popover(${Z_LAYERS.popover}) 面板 —— ` +
+        '面板看得见却点不到,所有点击都落在遮罩上(曾因此让睡眠定时整个失效)',
+      );
+    }
+  });
+}
+
+for (const file of sourceFiles) {
+  checkOverlayOrder(file, stripComments(readFileSync(file, 'utf8')));
+}
+
 if (failures.length > 0) {
   console.error(`UX 门禁未通过,共 ${failures.length} 项:\n`);
   console.error(failures.join('\n'));
   process.exitCode = 1;
 } else {
-  console.log('UX 门禁通过:未定义标识符 / 组件契约 / token / z-index / 滚动条 / 原生弹窗 / 静默失败 / 可访问名称 / ErrorBoundary / toast aria-live 均合规。');
+  console.log('UX 门禁通过:未定义标识符 / 组件契约 / token / z-index / 遮罩层级 / 滚动条 / 原生弹窗 / 静默失败 / 可访问名称 / ErrorBoundary / toast aria-live 均合规。');
 }
