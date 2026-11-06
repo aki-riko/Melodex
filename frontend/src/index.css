@@ -787,11 +787,18 @@
    位移式切换在长页面上会让整块内容像被推了一下,而本应用是同级页面切换
    (哈希路由),没有方向语义 —— 位移反而在暗示一个不存在的方向。
 
-   错峰的实现:**不靠给每个页面加类名**,而是用容器的直接子元素做级联延迟。
-   页面结构普遍是「header + 若干 section」,所以:
+   错峰的实现:**不靠给每个页面加类名**,而是按页面内部结构做级联延迟。
+   页面结构普遍是「header/标题 + 若干 section/列表」,所以:
      · 第 1 个子元素(标题区)      delay 0ms
      · 第 2 个起(section/列表)    delay 60ms
-   这样任何页面都自动获得层次感,新增页面不需要额外配合。 */
+
+   ⚠️ 这里踩过一个真坑(连续三次调参都没效果的真因):
+   组件树的层级是 **容器 > 页面组件根节点 > 页面内部各块**,
+   而每个页面组件的根节点都是**单个 <div>**。所以 `.fluent-page-enter > *`
+   永远只命中那一个 div,`:nth-child(n+2)` **根本没有对象** ——
+   错峰逻辑写了等于没写,页面上只有容器自身的淡入。
+   现在改成向下**两层**:容器 > 页面根 div > 内部块,
+   用 `> *` 与 `> * > *` 同时覆盖,页面组件无论包不包一层都能错开。 */
 @keyframes fluent-page-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -800,8 +807,8 @@
 @keyframes fluent-page-rise {
   from {
     opacity: 0;
-    /* 只给后段内容极小的位移(4px):错峰要的是"层次",不是"飞入" */
-    transform: translateY(4px);
+    /* 只给后段内容极小的位移(3px):错峰要的是"层次",不是"飞入" */
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -813,13 +820,21 @@
   animation: fluent-page-fade var(--motion-base) var(--ease-standard) both;
 }
 
-/* 子元素错峰:用 :nth-child 而不是 :not(:first-child) —— 后者在
-   「第一个孩子是注释节点」时语义不稳定,而 nth-child 只看元素位置。 */
-.fluent-page-enter > * {
+/* 子元素错峰。两个层级都覆盖:
+     .fluent-page-enter > *        —— 页面组件根节点(通常只有一个 div)
+     .fluent-page-enter > * > *    —— 页面内部真正的 header / section 块
+   第二层才是**真正提供层次感**的那一层。第一层保留是为了兼容直接把多块
+   铺在容器里的页面(如 MorePage 有 3 个 section)。 */
+.fluent-page-enter > *,
+.fluent-page-enter > * > * {
   animation: fluent-page-rise var(--motion-base) var(--ease-emphasized) both;
 }
-.fluent-page-enter > *:nth-child(1) { animation-delay: 0ms; }
-.fluent-page-enter > *:nth-child(n + 2) { animation-delay: 60ms; }
+
+/* delay 只加在"内部块"这一层:根 div 自己不延迟(否则整页会晚 60ms 才开始),
+   内部的第 2 块起依次后延,形成标题先、内容后的节奏。 */
+.fluent-page-enter > * > *:nth-child(n + 2) {
+  animation-delay: 70ms;
+}
 
 /* ---- 列表项逐个浮现 ----
    用于歌单/歌曲列表首次渲染:每项延迟 18ms,最多 8 项(之后一起出现)。
