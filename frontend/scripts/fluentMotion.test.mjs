@@ -138,25 +138,28 @@ for (const decl of motionDecls) {
     'page-enter 容器应当用淡入(fluent-page-fade)',
   );
 
-  // 错峰:必须给子元素设 animation,且第 2 个起的 delay 大于第 1 个
-  const staggerRule = css.match(/\.fluent-page-enter\s*>\s*\*\s*\{([^}]*)\}/);
-  assert.ok(staggerRule, 'page-enter 必须给直接子元素加动画(错峰的基础)');
+  // 错峰:必须覆盖**两层**,且 delay 加在内部块那一层
+  //
+  // 这里踩过一个真坑:一开始只写 `.fluent-page-enter > *`,
+  // 结果每个页面组件的根节点都是单个 <div>,`:nth-child(n+2)` 根本没有对象,
+  // 错峰等于没写 —— 连续三次调参都没效果,真因在这个层级上。
+  const firstLayer = css.match(/\.fluent-page-enter\s*>\s*\*\s*[,{]/);
+  const secondLayer = css.match(/\.fluent-page-enter\s*>\s*\*\s*>\s*\*/);
+  assert.ok(firstLayer, '`> *` 层缺失');
   assert.ok(
-    /animation:\s*fluent-page-rise/.test(staggerRule[1]),
-    '子元素应当用 fluent-page-rise',
+    secondLayer,
+    '`> * > *` 层缺失 —— 页面组件根节点是单个 div,只写 `> *` 的话错峰没有作用对象',
   );
 
-  const firstDelay = css.match(/\.fluent-page-enter\s*>\s*\*:nth-child\(1\)\s*\{\s*animation-delay:\s*(\d+)ms/);
-  const restDelay = css.match(/\.fluent-page-enter\s*>\s*\*:nth-child\(n\s*\+\s*2\)\s*\{\s*animation-delay:\s*(\d+)ms/);
-  assert.ok(firstDelay, '缺少第一个子元素的 delay 定义');
-  assert.ok(restDelay, '缺少后续子元素的 delay 定义(错峰的核心)');
+  const innerDelay = css.match(/\.fluent-page-enter\s*>\s*\*\s*>\s*\*:nth-child\(n\s*\+\s*2\)\s*\{\s*animation-delay:\s*(\d+)ms/);
+  assert.ok(innerDelay, '缺少内部块的 delay 定义(它是错峰真正的执行者)');
   assert.ok(
-    Number(restDelay[1]) > Number(firstDelay[1]),
-    `错峰的后续延迟(${restDelay[1]}ms)必须大于首个(${firstDelay[1]}ms),否则等于没有错峰`,
+    Number(innerDelay[1]) > 0,
+    '内部块 delay 必须 > 0,否则等于没有错峰',
   );
   assert.ok(
-    Number(restDelay[1]) <= 120,
-    `后续延迟 ${restDelay[1]}ms 太大 —— 页面会有"内容跟不上"的迟滞感,建议 40~80ms`,
+    Number(innerDelay[1]) <= 120,
+    `内部块延迟 ${innerDelay[1]}ms 太大 —— 页面会有"内容跟不上"的迟滞感,建议 40~90ms`,
   );
 
   // 位移保持在很小的范围:大了又会变成"被推一下"
