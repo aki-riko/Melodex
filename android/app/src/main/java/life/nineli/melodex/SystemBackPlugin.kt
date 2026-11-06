@@ -74,7 +74,19 @@ class SystemBackPlugin : Plugin() {
             // 判定逻辑抽在 SystemBackResult 里并有单测覆盖 ——
             // 用 contains("handled") 会把 "unhandled" 也判成已处理,
             // 结果是返回键被吞、App 永远退不出去(这个坑必须钉住)。
-            if (!SystemBackResult.isHandled(result)) exitToBackground()
+            if (SystemBackResult.isHandled(result)) {
+                // JS 已经处理掉了(收弹层 / 收播放页 / 回退到上一个路由页),
+                // 原生什么都不做。
+                return@evaluateJavascript
+            }
+            // JS 说"我没东西可收了",而且也没有可回退的站内历史 —— 退到后台。
+            //
+            // 注意这里**不能**用 webView.canGoBack() 代替 JS 判断:
+            // 本 APK 是外壳加载远端站(server.url),Capacitor 内部跳转、
+            // 重定向都会压历史,canGoBack() 常年为 true。真机上实测过那种写法,
+            // 结果是在首页按返回变成"在 WebView 历史里倒退",反而退不出去。
+            // 所以"还有没有站内上一页"这件事必须由 JS 的哈希路由自己回答。
+            exitToBackground()
         }
     }
 

@@ -183,6 +183,65 @@ const makeHistory = () => {
 assert.deepEqual(sentinelState(), { melodexBackLayer: true });
 assert.equal(SYSTEM_BACK_EVENT, 'melodex:systemback');
 
+// ---- 路由层回退:浮层清空后,非首页应回首页而不是退出 ----
+//
+// 真机实测过的坑:把「更多」改成一级页面(#more)后,在那里按返回会
+// **直接退到桌面**。原因是返回键只问浮层栈,完全不知道"页面"这件事。
+// 这条测试锁住:浮层清空 → 交给路由层 → 路由层消费掉这次返回。
+{
+  const history = makeHistory();
+  let routed = 0;
+  const guard = createHistoryBackGuard({
+    history,
+    location: { href: '/x' },
+    hasLayers: () => true, // 假装还有页面级保护(哨兵上膛)
+    onBack: () => 'passthrough', // 没有浮层
+    onRouteBack: () => { routed += 1; return true; },
+  });
+  guard.sync();
+  assert.equal(guard.handlePop(), true, '非首页时返回必须被路由层吃掉,不能退站/退 App');
+  assert.equal(routed, 1);
+
+  // 已在首页:路由层不消费 → 放行给系统退出。
+  const history2 = makeHistory();
+  const guard2 = createHistoryBackGuard({
+    history: history2,
+    location: { href: '/x' },
+    hasLayers: () => true,
+    onBack: () => 'passthrough',
+    onRouteBack: () => false,
+  });
+  guard2.sync();
+  assert.equal(guard2.handlePop(), false, '首页时返回必须放行,否则退不出去');
+}
+
+// 静态:AppShell 必须注册路由回退,否则 #more 之类页面按返回会直接退出 App
+{
+  const app = readFileSync(resolve(frontendRoot, 'src/App.js'), 'utf8');
+  assert.ok(
+    /setRouteBackResolver\s*\(/.test(app),
+    'AppShell 必须调用 setRouteBackResolver —— 否则在 #more/#settings 等页面按返回会直接退出 App(真机实测踩到过)',
+  );
+  assert.ok(
+    /navigateRef\.current\?\.\('Home'\)/.test(app),
+    '路由回退必须真的导航回 Home,只注册不导航等于没做',
+  );
+}
+
+// 原生侧不得再用 webView.canGoBack() 判断:外壳加载远端站时它常年为 true,
+// 会退成"在 WebView 历史里倒退"而退不出去。站内是否还有上一页必须由 JS 回答。
+{
+  const kt = readFileSync(
+    resolve(frontendRoot, '..', 'android/app/src/main/java/life/nineli/melodex/SystemBackPlugin.kt'),
+    'utf8',
+  );
+  const code = kt.split(/\r?\n/).filter((line) => !/^\s*(\*|\/\/)/.test(line)).join('\n');
+  assert.ok(
+    !/canGoBack\(\)/.test(code),
+    'SystemBackPlugin 不得用 webView.canGoBack() 判断站内历史 —— 必须由 JS 的哈希路由回答',
+  );
+}
+
 // ============================================================
 // 三、静态契约:原生与 JS 的事件名必须一致
 // ============================================================

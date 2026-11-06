@@ -45,6 +45,7 @@ export const createHistoryBackGuard = ({
   onBack = () => 'passthrough',
   hasLayers = () => false,
   onSync,
+  onRouteBack = () => false,
 } = {}) => {
   let armed = false;
   let ignoreNextPop = false;
@@ -83,19 +84,35 @@ export const createHistoryBackGuard = ({
       if (!armed) return false;
       armed = false;
       const result = onBack();
-      // handled 与 blocked 都必须重新上膛,否则一次返回就把保护磨掉了,
-      // 下次按下就直接退站。
-      if ((result === 'handled' || result === 'blocked') && hasLayers()) {
-        arm();
+      if (result === 'handled' || result === 'blocked') {
+        // 消费了:若还有层就重新上膛,保护下一次返回。
+        if (hasLayers()) arm();
         return true;
       }
-      if (result === 'blocked') return true;
+      // 浮层已清空:交给路由层 —— 不在首页就回首页(这同样算消费)。
+      if (onRouteBack()) {
+        if (hasLayers()) arm();
+        return true;
+      }
       return false;
     },
 
     isArmed: () => armed,
     isIgnoring: () => pendingIgnore > 0,
   };
+};
+
+// ---- 路由层的返回:由 AppShell 注册"当前是否还可以回上一页" ----
+
+let routeBackResolver = () => false;
+
+/**
+ * 注册「没有浮层时,返回键该不该回上一页」。
+ * AppShell 挂载时注册,返回 true 表示会把用户带回首页。
+ */
+export const setRouteBackResolver = (resolver) => {
+  routeBackResolver = typeof resolver === 'function' ? resolver : () => false;
+  return () => { routeBackResolver = () => false; };
 };
 
 // ---- 安卓原生桥 ----
@@ -105,6 +122,15 @@ let nativeBridgeBound = false;
 /**
  * 把原生返回键接到返回栈。只订阅一次(全局)。
  * 由页面 preventDefault 表达"我消费了",原生据此决定是否退到后台。
+ *
+ * 处理顺序(与视觉层级一致,先上后下):
+ *   1. 浮层(弹窗/抽屉/菜单/播放页)按 LIFO 收;
+ *   2. 浮层全收完后,若当前不在首页 → 回首页;
+ *   3. 已经在首页 → 交回原生 moveTaskToBack。
+ *
+ * 为什么第 2 步必须有:哈希路由是**页面**切换,但原生桥不知道这件事。
+ * 真机实测过,少了这一步在「更多」页按返回会直接退到桌面 —— 用户眼里就是
+ * "我只是想回上一页,App 却没了"。
  */
 export const bindNativeBackBridge = (target = globalThis.window) => {
   if (nativeBridgeBound || !target?.addEventListener) return () => {};
@@ -112,9 +138,16 @@ export const bindNativeBackBridge = (target = globalThis.window) => {
 
   const onSystemBack = (event) => {
     const result = backLayerStack.handleBack();
-    // passthrough = 栈空,什么都不做,让原生 moveTaskToBack。
-    // 其余情况(handled/blocked)都要吞掉这次返回。
-    if (result !== 'passthrough') event.preventDefault();
+    if (result !== 'passthrough') {
+      event.preventDefault();
+      return;
+    }
+    // 浮层已清空:看看是不是还在某个子页面。
+    if (routeBackResolver()) {
+      event.preventDefault();
+      return;
+    }
+    // 已经是首页,什么都不做 —— 让原生 moveTaskToBack。
   };
 
   target.addEventListener(SYSTEM_BACK_EVENT, onSystemBack);
@@ -158,6 +191,8 @@ export const useBackNavigation = () => {
     const guard = createHistoryBackGuard({
       onBack: () => backLayerStack.handleBack(),
       hasLayers: () => backLayerStack.size() > 0,
+      // 浮层清空后,交给路由层决定是否回上一个页面。
+      onRouteBack: () => routeBackResolver(),
     });
     guardRef.current = guard;
 

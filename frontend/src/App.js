@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { WifiOff } from 'lucide-react';
 import { Sidebar, MobileTabBar } from './components/Sidebar';
@@ -25,7 +25,7 @@ import MorePage from './components/MorePage';
 import LoadingState from './components/LoadingState';
 import CredentialNotice from './components/CredentialNotice';
 import ErrorBoundary from './ui/ErrorBoundary';
-import { useBackNavigation } from './contexts/backNavigation.js';
+import { useBackNavigation, setRouteBackResolver } from './contexts/backNavigation.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,6 +88,27 @@ function AppShell() {
   // 「更多」页里的入口(最近播放/设置/歌单)都要打后端,离线时同样归到离线页。
   const section = offline ? 'Offline' : (currentSection === 'Users' && !isAdmin ? 'Home' : currentSection);
   const activeSubPath = section === 'MyPlaylist' ? currentSubPath : null;
+
+  // 返回键:浮层都收完之后,若当前不在首页,先回首页而不是退出 App。
+  //
+  // 为什么需要:哈希路由是**页面**切换(#home ↔ #more ↔ #settings),
+  // 但原生返回键只认浮层栈,不知道"页面"这件事 —— 真机实测过,
+  // 在「更多」页按返回会直接退到桌面,用户以为"App 没了"。
+  //
+  // 用 ref 保存最新的 section 与 navigate,让注册只发生一次;
+  // 若把 section 放进依赖,每次切页都会重新注册(与返回栈的幂等替换相互干扰)。
+  const sectionRef = useRef(section);
+  const navigateRef = useRef(null);
+  useEffect(() => {
+    sectionRef.current = section;
+    navigateRef.current = navigate;
+  });
+  useEffect(() => setRouteBackResolver(() => {
+    // 已经在首页 → 不消费,交给系统退出/退到后台。
+    if (sectionRef.current === 'Home') return false;
+    navigateRef.current?.('Home');
+    return true;
+  }), []);
 
   return (
     <>
