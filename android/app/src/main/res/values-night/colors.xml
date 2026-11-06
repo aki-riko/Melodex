@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Fluent 深色(系统深色时生效)。与前端 fluent-dark 的 --background(#212121)对齐。
+    <!-- Fluent 深色(系统深色时生效)。与前端 fluent-dark 的页面底色 #212121 对齐。
 
-         ★ 这个文件的存在本身就是修复的核心 ★
-         缺了 values-night 时,AppCompat.DayNight 只能拿到浅色资源,
-         即使用户系统是深色,窗口底色仍是浅色 —— 而 WebView 的
-         prefers-color-scheme 又会跟着窗口底色走,于是「跟随系统」失效。 -->
+         这个文件的存在本身就是修复的核心:缺了 values-night 时,
+         AppCompat.DayNight 只能拿到浅色资源,即使用户系统是深色,
+         窗口底色仍是浅色,而 WebView 的 prefers-color-scheme 又跟着
+         窗口底色走,于是「跟随系统」失效。
+
+         注意:XML 注释里不能出现连续两个减号,所以这里不写 CSS 变量名。 -->
     <color name="melodex_background">#212121</color>
     <color name="melodex_surface">#2C2C2C</color>
     <color name="melodex_accent">#60CDFF</color>
