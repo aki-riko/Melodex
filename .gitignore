@@ -35,6 +35,7 @@ output/
 .playwright-mcp/
 # Android 本地构建产物
 android/.gradle/
+android/.kotlin/
 android/.idea/
 android/local.properties
 android/**/build/
