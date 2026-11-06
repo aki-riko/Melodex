@@ -26,9 +26,12 @@ export default function AppearanceSettings() {
   const [diagnostic, setDiagnostic] = useState('');
 
   // 自检:把「原生报的系统值 / matchMedia 报的值 / 实际生效的主题」摆出来。
-  // 为什么要这段:真机上 matchMedia 与系统实际不符(系统浅色它报 dark),
-  // 导致「跟随系统」永远错。没有这行输出就只能在两套颜色之间瞎猜 ——
-  // 这正是本轮排查花掉最多时间的地方。
+  //
+  // 为什么保留这段:真机上 matchMedia 与系统实际不符(系统浅色它报 dark),
+  // 这是本轮最花时间的 bug。留着这行,以后出现同类问题时一眼就能定位。
+  //
+  // 但**只在两者不一致时显示** —— 一致时它是纯噪音,普通用户不需要看到
+  // 内部诊断术语。这正是"诊断有用但不打扰"的分界。
   useEffect(() => {
     let cancelled = false;
     const query = (() => {
@@ -41,19 +44,22 @@ export default function AppearanceSettings() {
     const fromMatchMedia = query === true ? '深' : query === false ? '浅' : '不可用';
     const native = isNativeAndroid() ? SystemTheme : null;
     if (!native?.getSystemTheme) {
-      if (!cancelled) {
-        setDiagnostic(`浏览器判定:${fromMatchMedia} · 当前渲染:${themeId}`);
-      }
+      setDiagnostic('');
       return undefined;
     }
     native.getSystemTheme()
       .then((result) => {
         if (cancelled) return;
         const fromNative = result?.dark ? '深' : '浅';
-        setDiagnostic(`系统实际:${fromNative} · 浏览器判定:${fromMatchMedia} · 当前渲染:${themeId}`);
+        // 只在"原生与浏览器判定不一致"时提示 —— 那才说明环境有这个毛病。
+        if (fromNative !== fromMatchMedia) {
+          setDiagnostic(`系统实际:${fromNative} · 浏览器判定:${fromMatchMedia} · 当前渲染:${themeId}`);
+        } else {
+          setDiagnostic('');
+        }
       })
       .catch(() => {
-        if (!cancelled) setDiagnostic(`原生不可用 · 浏览器判定:${fromMatchMedia} · 当前渲染:${themeId}`);
+        if (!cancelled) setDiagnostic('');
       });
     return () => { cancelled = true; };
   }, [themeId]);
