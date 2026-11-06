@@ -8,7 +8,7 @@
          手势条留位(主滚动区、播放条、移动 Tab 栏)。没有 viewport-fit=cover 时, iOS 上
          env(safe-area-inset-*) 恒为 0 —— 那些留白全部失效, 内容会被底部手势条压住。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#181818" />
+    <meta name="theme-color" content="#F3F3F3" />
     <!-- 原生控件(滚动条/select/日期选择器)跟随当前主题的 color-scheme。
          必须是 both 而不是 dark:浅色的 Fluent 主题若被这条锁成暗色,
          原生下拉框/滚动条会保持黑底,在白色界面上像一块补丁。
@@ -34,16 +34,34 @@
          scripts/themeContract.test.mjs 强制与之一致,增删主题会被测试拦下。 -->
     <script>
       (function () {
-        var DEFAULT_THEME = 'spotify';
-        var THEME_IDS = ['spotify', 'fluent'];
-        var id = DEFAULT_THEME;
+        // 与 src/theme/themes.js 的 resolveThemeId 保持同一套规则:
+        // 模式(system/light/dark) + 系统偏好 → 解析后的主题 id。
+        // 两处不一致会导致"首帧闪一下再跳变",所以 themeContract 测试会比对两边。
+        var DEFAULT_MODE = 'system';
+        var MODES = ['system', 'light', 'dark'];
+        var mode = DEFAULT_MODE;
         try {
           var stored = window.localStorage.getItem('melodex_theme');
-          if (stored && THEME_IDS.indexOf(stored) !== -1) id = stored;
+          if (stored && MODES.indexOf(stored) !== -1) mode = stored;
+          // 兼容改造前存下的皮肤 id
+          else if (stored === 'fluent' || stored === 'fluent-light') mode = 'light';
+          else if (stored === 'fluent-dark' || stored === 'spotify') mode = 'dark';
         } catch (error) {
-          /* 无痕模式/禁用存储:用默认主题,不阻断启动 */
+          /* 无痕模式/禁用存储:用默认模式,不阻断启动 */
         }
+        var prefersDark = false;
+        try {
+          prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        } catch (error) {
+          prefersDark = false;
+        }
+        var id = mode === 'light' ? 'fluent-light'
+          : mode === 'dark' ? 'fluent-dark'
+          : (prefersDark ? 'fluent-dark' : 'fluent-light');
         document.documentElement.setAttribute('data-theme', id);
+        // <meta theme-color> 也在这里定,避免移动端地址栏先闪白再变深。
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', id === 'fluent-dark' ? '#202020' : '#F3F3F3');
       })();
     </script>
   </head>

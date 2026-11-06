@@ -3,163 +3,59 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    /* 暗色 Spotify 风(皮肤改编自 Adam Lowenthal 的 Spotify Artist Page UI, MIT,
-       见 THIRD-PARTY-LICENSES.md):近黑底 / Spotify 绿强调 / 深灰卡片 */
-    --background: 0 0% 9%;             /* #181818 近黑底 */
-    --foreground: 0 0% 100%;          /* #FFFFFF 主文字 */
-    --card: 0 0% 16%;                 /* #282828 深灰卡片 */
-    --card-foreground: 0 0% 100%;
-    --popover: 0 0% 16%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 141 73% 49%;           /* Spotify 绿 #1ED760 */
-    --primary-foreground: 0 0% 9%;    /* 绿底上用深色字 */
-    --secondary: 0 0% 23%;            /* #3A3A3A 次级灰 */
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 16%;
-    --muted-foreground: 0 0% 67%;     /* #AAAAAA 次要文字 */
-    /* accent 不再等于主色:它是"中性的高亮/悬停面",避免绿色被用在所有东西上。
-       (绿色只保留给唯一主动作与正在播放状态,语义见 docs/ux-visual-spec.md) */
-    /* 悬停面。26% 时 muted-foreground 压在其上只有 4.38:1(低于 AA),
-       压到 24% 后升到 4.73:1,而 --accent 实际只用于次级按钮的 hover
-       (bg-secondary hover:bg-accent),影响面极小,不会让全站变暗。 */
-    --accent: 0 0% 24%;
-    --accent-foreground: 0 0% 100%;
-    /* 危险色拆成两个用途,因为它们的对比度要求方向相反:
-         · --destructive       用作**实心块底色**(删除按钮),白字压其上 → 越深越好
-         · --destructive-text  用作**文字颜色**(错误提示、删除图标) → 暗底上要够亮
-       之前两者共用一个值,导致"红字压在淡红悬停底上"只有 2.85:1。
-       现在文字档单独提亮到 66%,暗底与淡红底上都够看。 */
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --destructive-text: 0 84% 68%;
-    --success: 141 73% 49%;
-    --success-foreground: 0 0% 9%;
-    --warning: 38 92% 55%;
-    --warning-foreground: 0 0% 9%;
-    /* info 只用作图标/文字(不铺实心底),所以直接提亮即可 ——
-       60% 压在 accent 悬停面上只有 3.66:1,提到 68% 升到 4.58:1。 */
-    --info: 210 90% 68%;
-    --info-foreground: 0 0% 9%;
-    --border: 0 0% 22%;               /* #383838 细边 */
-    --input: 0 0% 26%;                /* #424242 输入框边 */
-    --ring: 141 73% 49%;              /* 聚焦环 Spotify 绿 */
-    --radius: 0.5rem;
+  /* ==========================================================================
+     Fluent Design —— 全站唯一的设计语言,深浅两档
+     ==========================================================================
 
-    /* 滚动条(供 .scroll-area / .scroll-x 使用) */
-    --scrollbar-thumb: 0 0% 28%;
-    --scrollbar-thumb-hover: 0 0% 44%;
+     此前的 Spotify 暗色皮肤已按项目要求彻底移除。保留两套皮肤意味着每处样式
+     都要在两种圆角/两种层级方向下各验一次,维护成本不对等。
 
-    /* 遮罩:压在页面上的那层黑。浅色主题若沿用纯黑,会把整个界面压得发灰发脏;
-       浅色模式改用「变暗但不黑」的中性遮罩,同时靠浮层阴影保持焦点。 */
-    --overlay: 0 0% 0% / 0.6;
+     用户选的是**模式**(跟随系统 / 浅色 / 深色),真正生效的是解析后的
+     data-theme(fluent-light / fluent-dark),由 src/theme/themes.js 的
+     resolveThemeId 统一算出;组件只读 token,永远不知道模式这件事。
 
-    /* 开关滑块:暗色主题上滑块是白的(和深色轨道有对比);
-       浅色主题轨道若也浅,滑块必须加深才看得见。 */
-    --switch-knob: 0 0% 100%;
+     ---- 两档的层级方向相反(非直觉)----
+       · 深色:越上层越**亮**(#212121 底 → #2C2C2C 卡片 → #333 浮层)
+       · 浅色:越上层越**白**(#F3F3F3 底 → #FAFAFA 卡片 → #FFF 浮层)
+     若浅色照抄深色的"越上层越亮",白卡片会淹没在白底里,层次全靠阴影硬撑。
 
-    /* 骨架屏流光:暗色背景上要用白色高光才看得见,
-       浅色背景上白高光等于没有 —— 必须反过来用深色微光。 */
-    --shimmer-highlight: rgba(255, 255, 255, 0.11);
+     ---- 强调色不能跨模式复用 ----
+       Windows 11 深色强调色是浅蓝 #60CDFF,浅色是深蓝 #004F99。
+       浅色若沿用浅蓝,配白字只有 1.6:1(等于看不见);
+       深色若沿用深蓝,压在深底上同样看不清。两档必须各取各的。
 
-    /* 封面等深色底上的白色叠加(播放中的音量柱、黑胶高光)。
-       这些叠在封面/黑胶这类"永远是深色"的物件上,两套主题都保持白色。 */
-    --on-media: rgba(255, 255, 255, 0.96);
+     ---- 形状(两档一致)----
+       控件 4px(Windows 11 控件标准)、卡片 8px。
+       真正的圆形装饰(头像、状态点、开关、黑胶)继续用 rounded-full。
+     ========================================================================== */
 
-    /* 动效 token:所有过渡都应引用这里,不再散落字面量 */
-    --motion-fast: 120ms;
-    --motion-base: 180ms;
-    --motion-slow: 280ms;
-    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
-    --ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
-    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
-
-    /* 原生控件(select / range / 滚动条 / 日期选择器)按暗色渲染。
-       缺这一条时 Windows/Linux 上原生滚动条与下拉框会出现浅色白槽。 */
-    color-scheme: dark;
-
-    /* ===== 主题形状 =====
-       控件圆角随主题走(rounded-control)。Spotify 主题是 9999px 胶囊,
-       Fluent 主题是 4px 小圆角;两套共用同一批组件类名,不必各写一遍。
-       注意:真正的圆形装饰(头像、状态点、开关、圆形播放键)继续用 rounded-full。 */
-    --radius-control: 9999px;
-
-    /* ===== 材质(Mica / Acrylic)=====
-       Spotify 主题的"材质"是纯色:alpha=1、blur=0、无 Mica 渐变,
-       因此 .surface-acrylic / .app-shell 在这些变量下渲染结果与改造前完全一致。
-       Fluent 主题把 alpha 调低、blur 调大,同一批类名就变成半透明亚克力。 */
-    --material-mica: none;
-    --material-alpha: 1;
-    /* 8px = Tailwind 的 backdrop-blur 默认值。顶栏改造前就是这个模糊量,
-       保持同值才能做到"Spotify 主题零视觉变化";alpha=1 的浮层不受影响。 */
-    --material-blur: 8px;
-    --material-saturate: 100%;
-    /* 顶栏原来是 bg-background/80 + blur —— 这里存的是同一个"透光率",
-       保证 Spotify 主题下顶栏看起来和改造前一模一样。 */
-    --material-veil-alpha: 0.8;
-    /* 侧栏原来是 bg-black/40(半透明纯黑压住背景),不是卡片色。 */
-    --material-rail: hsl(0 0% 0% / 0.4);
-
-    /* ===== 海拔(阴影)=====
-       Fluent 用分层阴影表达"这块浮在下面几层之上";Spotify 主题里卡片无阴影,
-       所以 card 档位给 none,保持原观感。 */
-    --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.25);
-    --elevation-card: none;
-    --elevation-flyout: 0 12px 32px rgba(0, 0, 0, 0.5);
-    --elevation-dialog: 0 24px 64px rgba(0, 0, 0, 0.6);
-  }
-
-  /* ===== 主题:Fluent 亚克力(Windows 11 浅色)=====
-     只覆盖 token,不写任何组件选择器 —— 组件全部读 token,
-     所以这套主题不会漏掉某个角落(也不会有"改了样式没生效"的假象)。
-
-     与 Spotify 主题的三处本质差异:
-       1. 配色:**浅色**。Windows 11 浅色模式的 Mica 是白面 + 灰底,
-          强调色是深蓝 #005FB8(不是暗色模式那个浅蓝 #60CDFF);
-       2. 形状:控件圆角 9999px → 4px(卡片仍是 8px);
-       3. 材质:半透明白面 + 背景晕染(Mica),浮层叠加 backdrop blur(Acrylic)。
-
-     ⚠️ 浅色化的两个非直觉点(踩过才写下来):
-       · 强调色**不能沿用暗色模式的浅蓝**。浅蓝配白字对比度只有 1.6:1,等于看不见;
-         浅色模式必须换成深蓝,配白字才够 6.3:1。
-       · 层级方向**反转**:暗色是"越上层越亮",浅色要反过来 —— 底层灰、上层白。
-         这决定了 --background 比 --card 暗,而不是亮。 */
-  [data-theme="fluent"] {
+  /* ---------- Fluent 浅色(默认) ---------- */
+  :root,
+  [data-theme="fluent-light"] {
     color-scheme: light;
 
-    /* ===== 配色:Windows 11 浅色阶梯 =====
-       背景 #EDEDED(带一点灰,让白卡片浮起来)/ 卡片 #FFFFFF / 浮层 #FFFFFF + 阴影。 */
-    --background: 0 0% 92.9%;   /* #EDEDED Mica 基底 */
-    --foreground: 222 22% 11%;  /* #15171F 近黑偏冷,比纯黑柔和 */
-    --card: 0 0% 100%;          /* #FFFFFF 卡片 */
-    --card-foreground: 222 22% 11%;
-    --popover: 0 0% 100%;       /* 浮层也是白,靠阴影与背景分离 */
-    --popover-foreground: 222 22% 11%;
-    /* 强调色与状态色统一定义在下方「状态色」一节 ——
-       因为浅色主题下它们必须同时满足"淡底上的文字"和"实心块上的白字"两种用法,
-       两处的取值需要放在一起权衡,拆成两处定义容易出现覆盖不一致。 */
-    --secondary: 0 0% 90%;      /* #E6E6E6 次级面 / 选中项底色。
-                                   不能太浅:浅色可用的色域只有 #EDEDED→#FFFFFF,
-                                   96.5% 时选中项与白侧栏只差 1.035:1,等于没有选中态。
-                                   90% 提到 1.22:1,配合左侧强调竖条才够辨识;
-                                   同时次级文字仍有 4.84:1,不牺牲可读性。 */
-    --secondary-foreground: 222 22% 11%;
-    --muted: 0 0% 90%;          /* 与 secondary 同档:徽章底/行悬停也参与"选中感" */
-    --muted-foreground: 220 9% 40%;  /* #5C6370 次要文字,白底 6.05:1 */
-    /* 悬停面:白底上的浅灰,鼠标划过能看出来 */
-    --accent: 0 0% 94%;
-    --accent-foreground: 222 22% 11%;
-    /* 状态色必须在**两种用法**下都达标,这两个要求方向相反,所以要取满足交集的值:
-         a) 白字压在该色实心块上(主按钮、实心徽章)   → 越深越安全
-         b) 该色文字压在同色 15% 淡底上(状态徽章)     → 越深越安全
-       两者都要求"深",所以浅色主题的状态色整体比暗色主题低 6~11 个亮度点。
-       实测(浏览器渲染,非估算):淡底 4.58~5.91:1,白字 6.69~8.14:1,全部过 AA。
-       早期版本沿用暗色的亮度,导致淡底上只有 4.04~4.33:1 —— 这是"很多地方对比度低"的主因之一。 */
+    /* 配色:Windows 11 浅色阶梯。三档 95% / 98% / 100%,每档都留可见差异。 */
+    --background: 0 0% 95%;     /* #F3F3F3 Mica 基底 */
+    --foreground: 0 0% 7%;      /* #111 主文字 */
+    --card: 0 0% 98%;           /* #FAFAFA 卡片:比底亮一档 */
+    --card-foreground: 0 0% 7%;
+    --popover: 0 0% 100%;       /* #FFF 浮层:最亮一层 */
+    --popover-foreground: 0 0% 7%;
+    --secondary: 0 0% 90%;      /* #E6E6E6 次级面 / 选中项 */
+    --secondary-foreground: 0 0% 7%;
+    --muted: 0 0% 90%;
+    --muted-foreground: 0 0% 40%;   /* #666 白底 5.74:1 */
+    --accent: 0 0% 93%;         /* 悬停面 */
+    --accent-foreground: 0 0% 7%;
+
+    /* 状态色:必须在**两种用法**下都达标,两向要求相反,取交集:
+         a) 白字压在该色实心块上   → 越深越安全
+         b) 该色文字压在同色淡底上 → 越深越安全
+       所以浅色的状态色整体比深色低 6~11 个亮度点。 */
     --primary: 209 100% 30%;    /* #004F99 */
     --primary-foreground: 0 0% 100%;
     --destructive: 6 100% 34%;  /* #AD1100 */
     --destructive-foreground: 0 0% 100%;
-    /* 浅色下"文字档"要更深(白底上浅红看不清),与暗色主题正好相反 */
     --destructive-text: 6 100% 36%;
     --success: 145 100% 21%;    /* #006B2D */
     --success-foreground: 0 0% 100%;
@@ -167,17 +63,15 @@
     --warning-foreground: 0 0% 100%;
     --info: 209 100% 30%;
     --info-foreground: 0 0% 100%;
-    --border: 0 0% 85%;         /* #D9D9D9 细边,白底上能看见分层线 */
+    --border: 0 0% 85%;         /* #D9D9D9 细边 */
     --input: 0 0% 82%;
-    --ring: 209 100% 30%;       /* 与 --primary 同色:焦点环必须和被聚焦的控件同色系 */
+    --ring: 209 100% 30%;
 
-    /* 形状:控件 4px(Windows 11 控件标准圆角),卡片维持 8px */
+    /* 形状:控件 4px,卡片 8px —— 两档一致 */
     --radius: 0.5rem;
     --radius-control: 4px;
 
-    /* 材质:浅色 Mica 是"白面透出一点冷色壁纸"。
-       渐变透明度和暗色相反 —— 暗色是提亮,浅色是**压深**才有层次,
-       所以这里用极淡的冷蓝/淡紫去染白,浓度比暗色低(白底上色偏浓会脏)。 */
+    /* 材质:浅色 Mica 是"白面透出一点冷色壁纸"。浓度要比深色低 —— 白底上色偏浓会脏。 */
     --material-mica:
       radial-gradient(120% 85% at 10% -10%, hsl(212 90% 70% / 0.16), transparent 62%),
       radial-gradient(95% 75% at 102% 2%, hsl(268 70% 78% / 0.12), transparent 58%),
@@ -188,7 +82,7 @@
     --material-veil-alpha: 0.9;
     --material-rail: hsl(0 0% 100% / 0.72);
 
-    /* 海拔:浅色主题靠阴影分层,比暗色更需要阴影(白浮层没有阴影会糊成一片) */
+    /* 海拔:浅色靠阴影分层,比深色更需要(白浮层没阴影会糊成一片) */
     --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.08);
     --elevation-card: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.06);
     --elevation-flyout: 0 8px 24px rgba(0, 0, 0, 0.16), 0 0 1px rgba(0, 0, 0, 0.1);
@@ -197,15 +91,93 @@
     --scrollbar-thumb: 0 0% 72%;
     --scrollbar-thumb-hover: 0 0% 58%;
 
-    /* 浅色下遮罩要更淡:纯黑 60% 压在白界面上像关机了。
-       改用带一点冷调的中性深色 + 更低不透明度,既压得住焦点又不脏。 */
-    --overlay: 222 22% 11% / 0.32;
-    /* 浅色轨道(#F6F6F6 级)上必须用深滑块,否则开关滑块"消失" */
-    --switch-knob: 222 22% 25%;
-    /* 浅色底上白色流光不可见,换成深色微光 */
+    /* 浅色遮罩要更淡:纯黑 60% 压在白界面上像关机了 */
+    --overlay: 0 0% 0% / 0.3;
+    --switch-knob: 0 0% 25%;        /* 浅轨道上必须用深滑块 */
     --shimmer-highlight: rgba(0, 0, 0, 0.07);
-    /* 封面/黑胶这类物件无论什么主题都是深色,叠在上面的白色元素保持不变 */
     --on-media: rgba(255, 255, 255, 0.96);
+
+    /* 动效 token(两档都要定义,缺失会静默回落到另一档的值) */
+    --motion-fast: 120ms;
+    --motion-base: 180ms;
+    --motion-slow: 280ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  /* ---------- Fluent 深色 ---------- */
+  [data-theme="fluent-dark"] {
+    color-scheme: dark;
+
+    /* 配色:Windows 11 深色阶梯 —— 越上层越亮 */
+    --background: 0 0% 13%;     /* #212121 Mica 基底 */
+    --foreground: 0 0% 100%;
+    --card: 0 0% 17%;           /* #2C2C2C 卡片 */
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 20%;        /* #333 浮层:最亮一层 */
+    --popover-foreground: 0 0% 100%;
+    --secondary: 0 0% 24%;      /* #3D3D3D 次级面 / 选中项 */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 17%;
+    --muted-foreground: 0 0% 67%;   /* #AAA 次要文字 */
+    --accent: 0 0% 26%;         /* 悬停面 */
+    --accent-foreground: 0 0% 100%;
+
+    /* 深色状态色:比浅色亮 20~40 个点,因为底是暗的。
+       但**不能一直往亮抬**:亮到一定程度"白字压实心块"反而不达标,
+       所以主色用 Win11 深色的浅蓝,文字档单独再提亮一档。 */
+    --primary: 199 100% 69%;    /* #60CDFF */
+    --primary-foreground: 0 0% 10%;
+    --destructive: 0 84% 65%;
+    --destructive-foreground: 0 0% 10%;
+    --destructive-text: 0 90% 72%;  /* 文字档更亮:暗底上深红看不清 */
+    --success: 145 70% 55%;
+    --success-foreground: 0 0% 10%;
+    --warning: 38 92% 62%;
+    --warning-foreground: 0 0% 10%;
+    --info: 203 90% 72%;
+    --info-foreground: 0 0% 10%;
+    --border: 0 0% 26%;         /* #424242 细边 */
+    --input: 0 0% 30%;
+    --ring: 199 100% 69%;
+
+    --radius: 0.5rem;
+    --radius-control: 4px;
+
+    /* 材质:深色 Mica 是"深面透出一点冷色壁纸"。深色是**提亮**方向,
+       与浅色的"压深"相反 —— 两套渐变不能直接互换颜色。 */
+    --material-mica:
+      radial-gradient(120% 85% at 10% -10%, hsl(212 90% 55% / 0.10), transparent 62%),
+      radial-gradient(95% 75% at 102% 2%, hsl(268 70% 60% / 0.09), transparent 58%),
+      radial-gradient(85% 65% at 55% 112%, hsl(196 70% 50% / 0.07), transparent 62%);
+    --material-alpha: 0.86;
+    --material-blur: 30px;
+    --material-saturate: 125%;
+    --material-veil-alpha: 0.82;
+    --material-rail: hsl(0 0% 0% / 0.32);
+
+    /* 海拔:深色的阴影在暗底上不明显,必须配合"上一层更亮"的阶梯,不能只靠阴影。 */
+    --elevation-control: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --elevation-card: 0 1px 3px rgba(0, 0, 0, 0.32), 0 0 1px rgba(0, 0, 0, 0.24);
+    --elevation-flyout: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 1px rgba(0, 0, 0, 0.4);
+    --elevation-dialog: 0 16px 44px rgba(0, 0, 0, 0.58), 0 0 1px rgba(0, 0, 0, 0.45);
+
+    --scrollbar-thumb: 0 0% 34%;
+    --scrollbar-thumb-hover: 0 0% 48%;
+
+    /* 深色遮罩要浓:暗界面本来就暗,淡遮罩压不住焦点 */
+    --overlay: 0 0% 0% / 0.6;
+    --switch-knob: 0 0% 100%;       /* 深轨道上滑块是白的 */
+    --shimmer-highlight: rgba(255, 255, 255, 0.11);
+    --on-media: rgba(255, 255, 255, 0.96);
+
+    --motion-fast: 120ms;
+    --motion-base: 180ms;
+    --motion-slow: 280ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   }
 
   html {
@@ -276,15 +248,15 @@
     linear-gradient(135deg, var(--swatch-accent), transparent 62%),
     linear-gradient(180deg, var(--swatch-card), var(--swatch-bg));
 }
-.theme-swatch--spotify {
-  --swatch-bg: hsl(0 0% 9%);
-  --swatch-card: hsl(0 0% 16%);
-  --swatch-accent: hsl(141 73% 49%);
+.theme-swatch--light {
+  --swatch-bg: hsl(0 0% 95%);
+  --swatch-card: hsl(0 0% 98%);
+  --swatch-accent: hsl(209 100% 30%);
 }
-.theme-swatch--fluent {
-  --swatch-bg: hsl(0 0% 92.9%);
-  --swatch-card: hsl(0 0% 100%);
-  --swatch-accent: hsl(209 100% 36%);
+.theme-swatch--dark {
+  --swatch-bg: hsl(0 0% 13%);
+  --swatch-card: hsl(0 0% 17%);
+  --swatch-accent: hsl(199 100% 69%);
 }
 
 /* ===== 字号 / 层级 =====
@@ -329,13 +301,12 @@
 }
 
 /* ===== 主题化表面:卡面与浮层 =====
-   组件里的 bg-card / bg-popover 用的是**不透明**色值;只有当主题把 --material-alpha
-   调成 1 以外时,下面这组工具类才把表面换成"半透明 + 亚克力模糊"。
-   Spotify 主题 alpha=1,这些类的 background 与纯 bg-card 完全等价,零视觉变化。 */
+   组件里的 bg-card / bg-popover 用的是**不透明**色值;下面这组工具类把表面换成
+   "半透明 + 亚克力模糊"(--material-alpha < 1 时才看得出来),这是 Fluent 的 Acrylic。 */
 
 /* .surface        —— 卡片 / 面板 / 输入面(半透明底 + 细描边 + 卡片海拔)
    刻意做成 bg-card 的**完全替身**:alpha=1 时 hsl(var(--card) / 1) 与 hsl(var(--card))
-   逐像素相同,Spotify 主题的观感一点没动;Fluent 主题把 alpha 调到 0.88 才变成半透明。 */
+   background 与 bg-card 同色,只是多带一个 alpha,让 Mica 底能透出来。 */
 .surface {
   background-color: hsl(var(--card) / var(--material-alpha));
   border-color: hsl(var(--border) / var(--material-alpha));
@@ -394,9 +365,7 @@
 }
 
 /* .surface-acrylic —— 浮层:弹窗 / 菜单 / 下拉 / 队列(模糊其后的内容)
-   默认**不带模糊**:Spotify 主题下原来的浮层是不透明的,加上 blur 会让它第一次变得"能透出后面" ——
-   那是观感变化。模糊只在主题把 --material-blur 调大(且 alpha < 1)时才有视觉效果,
-   所以这里让 blur 始终跟随变量,alpha=1 时它是完全看不出来的(背景本身不透明)。 */
+   这就是 Fluent 的 Acrylic:半透明 popover 色 + backdrop blur。 */
 .surface-acrylic {
   background-color: hsl(var(--popover) / var(--material-alpha));
   -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
@@ -409,9 +378,9 @@
 
 /* 顶栏 / 底栏这类贴在内容之上的条,分两种底色 —— 混用会让某一处悄悄变色:
      · .surface-bar  : 顶栏。原来就是 bg-background/80 + backdrop-blur,
-                       所以用背景色 + --material-veil-alpha(Spotify 下 = /80)。
+                       所以用背景色 + --material-veil-alpha(比卡片更透,能透出滚动内容)。
      · .surface-dock : 播放条 / 移动 Tab 栏。原来是不透明的 bg-card,
-                       所以用卡片色 + --material-alpha(Spotify 下 alpha=1,与 bg-card 完全等价)。 */
+                       所以用卡片色 + --material-alpha。 */
 .surface-bar {
   background-color: hsl(var(--background) / var(--material-veil-alpha));
   -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
@@ -446,13 +415,13 @@
    第一版把 --material-mica 画在 body 上,但 .app-shell 是一个铺满全屏的
    不透明 bg-background 容器,把 body 的渐变整块盖住了 —— 写了等于没写。
    现在把 Mica 直接画在 .app-shell 上,并让它的 background-color 走
-   --material-alpha(Spotify 主题 alpha=1,此时背景色完全不透明,
-   与改造前的 bg-background 逐像素一致;Fluent 主题才会透出一点底色)。 */
+   --material-alpha(让 Mica 壁纸色能透出一点),
+   不再是写死的纯色。 */
 .app-shell {
   background-image: var(--material-mica);
   background-color: hsl(var(--background) / var(--material-alpha));
 }
-/* ===== 主题:Spotify 风 app-shell 布局(皮肤改编自 Adam Lowenthal CodePen, MIT) ===== */
+/* ===== app-shell 布局 ===== */
 
 /* app-shell 高度用 dvh 而非 vh: 移动端浏览器地址栏收放时 100vh 恒等于"最大可视高度",
    会把底部固定栏算进不可见区域, 导致内容被遮挡。100vh 作为旧浏览器回退。 */
