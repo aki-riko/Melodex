@@ -204,4 +204,48 @@ for (const decl of motionDecls) {
   );
 }
 
+// ---- 8. 歌曲列表:从右往左滑入 + 从上到下依次出现 ----
+//
+// 用户明确要求的效果(「从上到下依次加载并从右往左划入」),全站歌曲列表统一。
+// 实现是挂在 `.space-y-0.5` 容器上的 —— 核查过 8 处用法,全部是歌曲列表容器,
+// 所以不需要给 7 个页面各加类名。
+{
+  const listKeyframe = css.match(/@keyframes fluent-list-item-in\s*\{([\s\S]*?)\n\}/);
+  assert.ok(listKeyframe, '缺少 fluent-list-item-in(歌曲列表滑入动画)');
+  const body = listKeyframe[1];
+
+  // 方向必须是"从右往左" = 起始时位于右侧(x 为正),结束时归位
+  assert.ok(
+    /translateX\(\s*[1-9]\d*px\s*\)/.test(body),
+    '列表项动画必须是 translateX 正值(从右侧划入)。用 Y 轴就变成"从上往下浮起",不是用户要的方向',
+  );
+
+  // 位移幅度要克制:太大在长列表上会眼花
+  const shift = body.match(/translateX\(\s*(\d+)px\s*\)/);
+  assert.ok(Number(shift[1]) <= 40, `列表滑入位移 ${shift[1]}px 过大,长列表上会眼花(建议 ≤32px)`);
+
+  // 容器钩子必须存在,且作用于直接子元素
+  assert.ok(
+    /\.space-y-0\\\.5\s*>\s*\*/.test(css),
+    '缺少 .space-y-0.5 > * 的动画规则 —— 歌曲列表拿不到效果',
+  );
+
+  // 必须封顶:第 12 项起延迟固定,不得继续累加
+  const capped = css.match(/\.space-y-0\\\.5\s*>\s*\*:nth-child\(n\s*\+\s*12\)\s*\{\s*animation-delay:\s*(\d+)ms/);
+  assert.ok(
+    capped,
+    '缺少封顶规则(:nth-child(n+12))。不封顶时 100 首的列表最后一行要等 2 秒以上,看着像卡死',
+  );
+
+  // 逐项递增且间隔合理:22ms 一档,总量不超过 300ms
+  const stagger = css.match(/\.space-y-0\\\.5\s*>\s*\*:nth-child\(2\)\s*\{\s*animation-delay:\s*(\d+)ms/);
+  assert.ok(stagger, '缺少第 2 项的延迟(错峰的基础)');
+  assert.ok(Number(stagger[1]) > 0, '逐项延迟必须 > 0');
+  assert.ok(Number(stagger[1]) <= 40, `单项间隔 ${stagger[1]}ms 太大,列表会出现明显排队感`);
+  assert.ok(
+    Number(capped[1]) <= 300,
+    `封顶延迟 ${capped[1]}ms 过大 —— 列表末尾要等太久`,
+  );
+}
+
 console.log('fluentMotion tests passed');
