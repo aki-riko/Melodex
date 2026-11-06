@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../theme/ThemeContext.jsx';
+import { SystemTheme, isNativeAndroid } from '../theme/ThemeContext.jsx';
 import { cn } from '../ui/cn';
 
 // 设置页的「外观」区:深浅色模式切换。
@@ -21,7 +22,41 @@ const MODE_ICONS = {
 };
 
 export default function AppearanceSettings() {
-  const { mode, setMode, modes } = useTheme();
+  const { mode, setMode, modes, isDark, themeId } = useTheme();
+  const [diagnostic, setDiagnostic] = useState('');
+
+  // 自检:把「原生报的系统值 / matchMedia 报的值 / 实际生效的主题」摆出来。
+  // 为什么要这段:真机上 matchMedia 与系统实际不符(系统浅色它报 dark),
+  // 导致「跟随系统」永远错。没有这行输出就只能在两套颜色之间瞎猜 ——
+  // 这正是本轮排查花掉最多时间的地方。
+  useEffect(() => {
+    let cancelled = false;
+    const query = (() => {
+      try {
+        return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches;
+      } catch {
+        return null;
+      }
+    })();
+    const fromMatchMedia = query === true ? '深' : query === false ? '浅' : '不可用';
+    const native = isNativeAndroid() ? SystemTheme : null;
+    if (!native?.getSystemTheme) {
+      if (!cancelled) {
+        setDiagnostic(`浏览器判定:${fromMatchMedia} · 当前渲染:${themeId}`);
+      }
+      return undefined;
+    }
+    native.getSystemTheme()
+      .then((result) => {
+        if (cancelled) return;
+        const fromNative = result?.dark ? '深' : '浅';
+        setDiagnostic(`系统实际:${fromNative} · 浏览器判定:${fromMatchMedia} · 当前渲染:${themeId}`);
+      })
+      .catch(() => {
+        if (!cancelled) setDiagnostic(`原生不可用 · 浏览器判定:${fromMatchMedia} · 当前渲染:${themeId}`);
+      });
+    return () => { cancelled = true; };
+  }, [themeId]);
 
   return (
     <section aria-labelledby="settings-appearance">
@@ -67,6 +102,11 @@ export default function AppearanceSettings() {
           );
         })}
       </div>
+      {diagnostic && (
+        <p className="mt-2 type-micro text-muted-foreground">
+          {diagnostic}
+        </p>
+      )}
     </section>
   );
 }

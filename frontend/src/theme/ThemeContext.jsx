@@ -49,7 +49,7 @@ function readPrefersDark() {
 // WebView 的 `prefers-color-scheme` 报告的与系统实际不符 —— 系统浅色时它报 dark,
 // 于是「跟随系统」永远解析成深色。而 Android 侧 resources.configuration.uiMode
 // 是唯一真相,没有中间层。所以 Android 上优先问原生,Web 端才退回 matchMedia。
-const SystemTheme = registerPlugin('SystemTheme');
+export const SystemTheme = registerPlugin('SystemTheme');
 
 export const isNativeAndroid = (capacitor = Capacitor) => Boolean(
   capacitor?.isNativePlatform?.() && capacitor?.getPlatform?.() === 'android',
