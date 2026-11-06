@@ -21,6 +21,7 @@ import { FeedbackProvider } from './contexts/FeedbackContext';
 import { ThemeProvider } from './theme/ThemeContext.jsx';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import HelpPage from './components/HelpPage';
+import MorePage from './components/MorePage';
 import LoadingState from './components/LoadingState';
 import CredentialNotice from './components/CredentialNotice';
 import ErrorBoundary from './ui/ErrorBoundary';
@@ -36,7 +37,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const VALID_SECTIONS = ['Home', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Offline', 'Users'];
+const VALID_SECTIONS = ['Home', 'Download', 'Settings', 'FAQ', 'MyPlaylist', 'Recent', 'Local', 'Offline', 'Users', 'More'];
 // hash 形如 #myplaylist 或 #myplaylist/123(歌单 id);section 取第一段。
 const routeFromHash = () => {
   const parts = (window.location.hash || '').replace(/^#/, '').split('/');
@@ -84,6 +85,7 @@ function AppShell() {
 
   // 离线模式只开放本机缓存页,避免首页/搜索/歌单页自动请求后端。
   // 非管理员访问用户管理页 → 回首页(防直接改 hash 进入)。
+  // 「更多」页里的入口(最近播放/设置/歌单)都要打后端,离线时同样归到离线页。
   const section = offline ? 'Offline' : (currentSection === 'Users' && !isAdmin ? 'Home' : currentSection);
   const activeSubPath = section === 'MyPlaylist' ? currentSubPath : null;
 
@@ -138,6 +140,7 @@ function AppShell() {
               {section === 'Offline' && <OfflineMusic />}
               {section === 'Users' && isAdmin && <UserManagement />}
               {section === 'FAQ' && <HelpPage />}
+              {section === 'More' && <MorePage onNavigate={navigate} />}
             </div>
           </main>
         </div>
