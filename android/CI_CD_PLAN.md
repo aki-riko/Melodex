@@ -11,7 +11,7 @@
 3. `vX.Y.Z-rc.N`产生正式密钥签名的GitHub Pre-release。
 4. `vX.Y.Z`产生正式密钥签名的GitHub Release。
 5. 每个Release同时发布APK、SHA256和GitHub构建来源证明。
-6. 稳定版必须来自已经在目标vivo上完成真实播放验收的同一提交。
+6. 稳定版必须来自已经在真机(PKG110 / Android 16)上完成真实播放验收的同一提交。
 
 ## 流水线
 
@@ -35,6 +35,28 @@ GitHub Actions是唯一构建发布源。私仓与GitHub继续双推源码，但
 - `v0.2.1-rc.1`已完成首次真实Pre-release，APK、SHA256、固定证书和来源证明均通过；其运行暴露并验证修复了Windows PowerShell 5上传Base64时的BOM问题。
 - 因上传修复发生在`rc.1`标签之后，本文件所在最终提交将直接发布为`v0.2.1-rc.2`，它才是后续vivo真机验收候选。
 - `v0.2.1`稳定标签继续由目标vivo真机验收门禁阻挡，不在本轮自动创建。
+
+截至2026-11-06（`v0.2.1-rc.3`）：
+
+- 本版内容是**返回键系统化**(此前 APK 完全没处理返回键,按一下直接退 App)
+  与睡眠定时面板修复。发布链本身无改动。
+- `android-release` Environment 设了必需审核人,打标签后 workflow 会停在
+  `waiting`。命令行批准(本机 `gh` token 已有权限):
+  `gh api -X POST repos/aki-riko/Melodex/actions/runs/<id>/pending_deployments --input approve.json`,
+  请求体 `{"environment_ids":[<env_id>],"state":"approved"}`;
+  环境 id 从 `GET .../pending_deployments` 取。**注意 `-f environment_ids[]=` 会被当成字符串**
+  报 422,必须走 `--input` 传 JSON。
+- 本机给真机装包时注意:设备上装的是 Release 签名版,**debug 包签名不同装不上**
+  (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`),必须走 CI 出正式签名包。
+  而 `cap:copy` 只拷贝 `android/web`,前端改动仍随远端站点即时生效,
+  只有**原生代码**(如 SystemBackPlugin)必须重新装 APK。
+- 真机(PKG110 / Android 16 / API 36)已实测 `rc.3` 返回键三项:
+  ① 打开「更多」抽屉按返回 → 只收抽屉,Activity 仍 `topResumedActivity`;
+  ② 全屏播放页按返回 → 收起播放页留在列表;
+  ③ 层级全空后再按一次 → App 退到后台(前台切走)且 **pid 仍存活**、
+  MediaSession 仍在(播放不中断);再回 App 状态完整保留。
+  ④ 连按两次:第一次收播放页且留在 App,第二次才退后台 —— 证明不是"一按就退"。
+
 
 ## 版本规则
 
@@ -84,10 +106,11 @@ versionCode = major * 1,000,000 + minor * 10,000 + patch * 100 + channel
 1. 从GitHub Pre-release下载签名APK并覆盖安装旧版，确认设置和登录数据保留。
 2. 用真实账号、真实歌曲队列锁屏播放至少15分钟。
 3. 至少自动切换4首，确认队列顺序和音流一致。
-4. 确认vivo虚假noisy事件不会暂停。
+4. 确认虚假noisy事件不会暂停(此前 vivo 机型出现过;换机后同样要观察)。
 5. 确认真实有线/蓝牙耳机断开会暂停。
 6. 确认耳机键单击播放/暂停、双击下一首。
-7. 日志中无崩溃、后台服务退出或循环错误重试。
+7. 返回键逐层收界面、层空才退后台,且退后台后播放不中断(见上方 rc.3 实测项)。
+8. 日志中无崩溃、后台服务退出或循环错误重试。
 
 验收通过后，对同一提交创建稳定标签；禁止修改代码后直接沿用旧RC结论。
 
