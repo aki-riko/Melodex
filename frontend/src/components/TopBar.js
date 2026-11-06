@@ -159,7 +159,7 @@ export default function TopBar({ currentSection, onNavigate }) {
             id="global-search-listbox"
             role="listbox"
             aria-label="搜索建议"
-            className="absolute inset-x-0 top-full z-popover mt-2 overflow-hidden rounded-md border border-border surface-acrylic animate-pop-in"
+            className="absolute inset-x-0 top-full z-popover mt-2 overflow-hidden rounded-md border border-border surface-acrylic fluent-flyout-in"
             onMouseDown={(e) => e.preventDefault()}
           >
             <div className="px-3 py-2 type-micro font-semibold uppercase tracking-wider text-muted-foreground">

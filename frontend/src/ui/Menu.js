@@ -164,7 +164,7 @@ export function MenuPopover({
       className={cn(
         'z-popover overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-popover',
         width,
-        'animate-pop-in',
+        'fluent-flyout-in',
         className,
       )}
     >

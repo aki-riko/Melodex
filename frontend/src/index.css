@@ -644,9 +644,12 @@
   background: hsl(var(--primary));
   animation: loading-bar-indeterminate 1.1s ease-in-out infinite;
 }
+/* 不确定进度条:一条 45% 宽的滑块循环扫过。
+   用 transform 而不是 left:left 每帧都会触发布局重排,低端安卓上可见地掉帧。
+   起始位置由 left 定位一次,之后的位移全部交给 translateX。 */
 @keyframes loading-bar-indeterminate {
-  0% { left: -45%; }
-  100% { left: 100%; }
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(322%); }  /* 100% / 45% ≈ 2.22,再加一个自身宽度 */
 }
 
 /* 底栏当前歌词:当前行切换时轻微淡入。 */
@@ -747,7 +750,97 @@
 }
 .player-sheet-exit { animation: player-slide-down 0.26s var(--ease-exit) forwards; }
 
-/* ===== 留声机:转盘 + 唱臂 ===== */
+/* ===== Fluent 动效系统 =====
+   Windows 11 的动效不是装饰,它承担两个功能:
+     1. **方向感**:内容从哪来、往哪去(新页面从下方/侧面进入);
+     2. **层次感**:浮层弹出时轻微放大,表达"它在上面一层"。
+   因此这里区分两套曲线:
+     · --ease-standard :常规位移/淡入(进入/离开都自然)
+     · --ease-emphasized:强调动效(浮层弹出、页面切换),末端更"收得住"
+
+   ⚠ 三条纪律(踩过的坑):
+     · 一律用 transform/opacity,不动 width/height/top/left —— 后者触发布局重排,
+       在低端安卓上会肉眼可见地卡;
+     · 时长上限 300ms:再长就变成"每次切页都要等"(Fluent 自己的页面切换也在此区间);
+     · 全部尊重 prefers-reduced-motion(见文件末尾的降级块),不能强行给所有人放动画。
+
+   ---- 页面切换 ----
+   主滚动区内容在切页时做一次轻微上浮 + 淡入。为什么不是左右滑:本应用是哈希路由,
+   导航是"同级页面切换"而非前进/后退栈,左右滑会暗示不存在的方向语义。 */
+@keyframes fluent-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fluent-page-enter {
+  animation: fluent-page-enter var(--motion-base) var(--ease-emphasized) both;
+}
+
+/* ---- 列表项逐个浮现 ----
+   用于歌单/歌曲列表首次渲染:每项延迟 18ms,最多 8 项(之后一起出现)。
+   为什么要封顶:列表动辄上百项,不封顶会让"最后一行"延迟 2 秒才出现,
+   看起来像卡死。 */
+@keyframes fluent-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fluent-item-enter {
+  animation: fluent-item-enter var(--motion-base) var(--ease-standard) both;
+}
+
+/* ---- 浮层弹出 ----
+   已有 .animate-pop-in(见 tailwind 配置),但它的位移是 -4px(从上往下),
+   而 Fluent 的 flyout 是从锚点方向轻微放大。这里补一个更贴近规范的一档。 */
+@keyframes fluent-flyout-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.fluent-flyout-in {
+  animation: fluent-flyout-in var(--motion-fast) var(--ease-emphasized) both;
+  transform-origin: top center;
+}
+
+/* ---- 按下反馈 ----
+   Fluent 的控件按下会有轻微下沉(scale 0.98),松手回弹。
+   只在能触发 :active 的真实按钮上生效;disabled 不响应。 */
+.fluent-pressable {
+  transition: transform var(--motion-fast) var(--ease-standard),
+              background-color var(--motion-base) var(--ease-standard),
+              border-color var(--motion-base) var(--ease-standard);
+}
+.fluent-pressable:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* ---- 选中态过渡(侧栏/Tab 的强调竖条)----
+   竖条是 inset 定位的伪元素,用 scaleY 而不是 height,避免重排。 */
+.fluent-nav-item {
+  position: relative;
+  transition: background-color var(--motion-base) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+
+/* ---- 留声机:转盘 + 唱臂 ===== */
 .turntable { position: relative; }
 /* 唱臂:从转盘上方偏右的支点摆动;.down 落到唱片(播放),.up 抬起(暂停) */
 .tonearm {
@@ -815,8 +908,15 @@
   .player-sheet-enter,
   .player-sheet-exit,
   .player-mini-lyric,
+  .fluent-page-enter,
+  .fluent-item-enter,
+  .fluent-flyout-in,
   .fade-in {
     animation: none !important;
+  }
+  /* 按下反馈也随之取消:reduced-motion 用户要的是"别动",不是"动得更快" */
+  .fluent-pressable:active:not(:disabled) {
+    transform: none;
   }
   .marquee__inner {
     padding-left: 0;

@@ -186,7 +186,7 @@ export default function Dialog({
         className={cn(
           'w-full rounded-lg border border-border bg-popover text-popover-foreground shadow-dialog',
           'max-h-[85dvh] overflow-y-auto scroll-area',
-          'animate-pop-in focus:outline-none',
+          'fluent-flyout-in focus:outline-none',
           SIZES[size],
           className,
           panelClassName,

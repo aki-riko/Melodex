@@ -202,7 +202,7 @@ const FeedbackDialog = ({ dialog, onDone }) => {
     >
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-lg border border-border bg-popover p-4 shadow-dialog animate-pop-in"
+        className="w-full max-w-sm rounded-lg border border-border bg-popover p-4 shadow-dialog fluent-flyout-in"
       >
         <div className="mb-4">
           <h2 id="feedback-dialog-title" className="type-section text-foreground">{dialog.title}</h2>

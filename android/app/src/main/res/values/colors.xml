@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="melodex_background">#181818</color>
-    <color name="melodex_surface">#282828</color>
-    <color name="melodex_green">#1ED760</color>
-    <color name="melodex_text">#FFFFFF</color>
-    <color name="melodex_text_secondary">#B3B3B3</color>
+    <!-- Fluent 浅色(默认)。与前端 fluent-light 的 --background(#F3F3F3)对齐。
+
+         为什么这几个色值重要:APK 的 windowBackground / statusBarColor 决定
+         WebView 里 `prefers-color-scheme` 的初判。此前这里写死 #181818(暗色)
+         且没有 values-night 变体,结果**系统处于浅色时 WebView 仍报 dark**,
+         「跟随系统」永远解析成深色 —— 这是一个只在真机上才暴露的坑。 -->
+    <color name="melodex_background">#F3F3F3</color>
+    <color name="melodex_surface">#FAFAFA</color>
+    <color name="melodex_accent">#004F99</color>
+    <color name="melodex_text">#111111</color>
+    <color name="melodex_text_secondary">#666666</color>
 </resources>
