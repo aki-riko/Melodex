@@ -55,6 +55,12 @@
         } catch (error) {
           prefersDark = false;
         }
+        // ⚠ 首帧只能用 matchMedia —— 原生插件是异步的,等它回来页面已经画完了,
+        // 那就失去了"首帧正确"的意义。
+        // 代价:Android WebView 里 matchMedia 的值可能不可靠(真机实测过系统浅色
+        // 却报 dark),此时首帧会猜错,React 挂载后 ThemeContext 会用原生
+        // SystemTheme 插件取到的 uiMode 值纠正一次。用户可能看到一瞬跳变,
+        // 但**最终一定是正确的** —— 这比"首帧等异步结果导致白屏"要好。
         var id = mode === 'light' ? 'fluent-light'
           : mode === 'dark' ? 'fluent-dark'
           : (prefersDark ? 'fluent-dark' : 'fluent-light');

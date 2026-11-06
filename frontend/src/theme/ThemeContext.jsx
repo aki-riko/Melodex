@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import {
   DARK_MEDIA_QUERY,
   DEFAULT_MODE,
@@ -42,6 +43,18 @@ function readPrefersDark() {
   }
 }
 
+// 系统深浅色的**原生桥**。
+//
+// 为什么需要它:真机实测,在本项目的形态下(APK 外壳 + server.url 加载远端站点),
+// WebView 的 `prefers-color-scheme` 报告的与系统实际不符 —— 系统浅色时它报 dark,
+// 于是「跟随系统」永远解析成深色。而 Android 侧 resources.configuration.uiMode
+// 是唯一真相,没有中间层。所以 Android 上优先问原生,Web 端才退回 matchMedia。
+const SystemTheme = registerPlugin('SystemTheme');
+
+export const isNativeAndroid = (capacitor = Capacitor) => Boolean(
+  capacitor?.isNativePlatform?.() && capacitor?.getPlatform?.() === 'android',
+);
+
 export function ThemeProvider({ children, storage }) {
   // 模式:首帧读 Storage。data-theme 已由 index.html 的内联脚本写好,
   // 这里不重复解析 —— 模式才是 React 该持有的状态。
@@ -59,22 +72,63 @@ export function ThemeProvider({ children, storage }) {
 
   // 跟随系统:监听器始终挂载 —— 用户从手动切回 system 时要立刻拿到最新值,
   // 那时再临时注册会有一帧用旧值的空窗。
+  //
+  // 两条来源,Android 优先:
+  //   1. 原生 SystemTheme 插件(读 resources.configuration.uiMode,唯一真相);
+  //   2. Web 端退回 matchMedia(浏览器里它是可靠的)。
   useEffect(() => {
+    let disposed = false;
+    let nativeHandle = null;
     let query = null;
+
+    const applyNative = (dark) => {
+      if (!disposed) setPrefersDark(Boolean(dark));
+    };
+
+    if (isNativeAndroid()) {
+      // 先拿一次当前值 —— 不用等系统变化,否则首帧会停在 matchMedia 的错误结果上。
+      SystemTheme.getSystemTheme?.()
+        .then((result) => applyNative(result?.dark))
+        .catch(() => {
+          // 插件不可用(极老包)时静默退回 matchMedia,不阻断启动。
+        });
+      Promise.resolve(SystemTheme.addListener?.('change', (event) => applyNative(event?.dark)))
+        .then((handle) => {
+          if (disposed) handle?.remove?.();
+          else nativeHandle = handle;
+        })
+        .catch(() => {});
+    }
+
     try {
       query = window.matchMedia?.(DARK_MEDIA_QUERY) || null;
     } catch {
       query = null;
     }
-    if (!query) return undefined;
-    const onChange = (event) => setPrefersDark(Boolean(event.matches));
-    // 新版浏览器用 addEventListener,旧版只有 addListener。
-    if (typeof query.addEventListener === 'function') {
-      query.addEventListener('change', onChange);
-      return () => query.removeEventListener('change', onChange);
+    const onChange = (event) => {
+      // Android 上原生值优先;只有原生不存在时才让 matchMedia 生效。
+      if (isNativeAndroid()) return;
+      setPrefersDark(Boolean(event.matches));
+    };
+    if (query) {
+      if (typeof query.addEventListener === 'function') {
+        query.addEventListener('change', onChange);
+      } else {
+        query.addListener?.(onChange);
+      }
     }
-    query.addListener?.(onChange);
-    return () => query.removeListener?.(onChange);
+
+    return () => {
+      disposed = true;
+      nativeHandle?.remove?.();
+      if (query) {
+        if (typeof query.removeEventListener === 'function') {
+          query.removeEventListener('change', onChange);
+        } else {
+          query.removeListener?.(onChange);
+        }
+      }
+    };
   }, []);
 
   // 多标签页同步。注意存的是模式,不是解析结果。
