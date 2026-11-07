@@ -236,6 +236,18 @@ func parseMediaDownloadRequest(c *gin.Context) (mediaDownloadRequest, error) {
 	stream := c.Query("stream") == "1"
 	rangeHeader := strings.TrimSpace(c.GetHeader("Range"))
 	withoutRange := rangeHeader == ""
+	// 播放诊断:记录客户端(浏览器 / ExoPlayer)实际发来的 Range。
+	//
+	// 为什么需要(2026-11 排查「手机端拖动进度条无效,PWA 正常」):
+	// 两条播放路径完全不同 —— PWA 走 audio 元素,MSE 已关闭后走普通流;
+	// 手机走 ExoPlayer。两边共用这一个入口。若手机端拖动后这里看不到
+	// 带大偏移量的 Range 请求,说明 seek 根本没发出来(前端/JS 层问题);
+	// 若能看到却仍从头播,说明是 ExoPlayer 对响应的判定问题(头部缺失等)。
+	// 没有这条日志只能靠猜,而猜错过两轮了。
+	if stream {
+		log.Printf("[stream-range] source=%q id=%q range=%q ua=%q",
+			track.Source, track.ID, rangeHeader, c.GetHeader("User-Agent"))
+	}
 	return mediaDownloadRequest{
 		track:          track,
 		stream:         stream,
@@ -454,19 +466,20 @@ func proxyProviderAudio(c *gin.Context, request mediaDownloadRequest, settings c
 	} else {
 		setDownloadHeader(c, filename)
 	}
-	// 只有在真拿到上游的 Range 响应(206 + Content-Range)时才声明可分段。
+	// Accept-Ranges 只在**确实拿到分段响应**时才由我们主动声明。
 	//
-	// 2026-11(修「拖动进度条完全不生效」):这条回退路径会把上游的状态码原样透传。
-	// 若上游对 Range 请求回了 200(不带 Content-Range),而我们已经对浏览器宣称
-	// Accept-Ranges: bytes,浏览器会以为能随便跳 —— 实际每次 seek 都变成从头重下,
-	// 表现为"拖了又回开头"。所以把支持性如实告知:拿不到分段就明确说 none,
-	// 让浏览器禁用拖动而不是假装可以。这也是 Navidrome 的做法(可 seek 才发 206,
-	// 不可 seek 的流转码流显式 Accept-Ranges: none)。
+	// 2026-11(修「拖动进度条完全不生效」):之前这里什么都不写,靠
+	// copyUpstreamHeaders 透传上游的值 —— 上游若声明 bytes 却没真支持分段,
+	// 浏览器/ExoPlayer 会以为能随便跳,每次 seek 都变成从头重下,表现为
+	// "拖了又回开头"。所以现在以"真拿到 206 + Content-Range"为唯一依据。
+	//
+	// 但**绝不能**在拿不到时主动写 none:ExoPlayer(手机端)看到
+	// Accept-Ranges: none 会直接把媒体源判定为不可 seek,连它本来能做的
+	// 缓冲内跳转也会被禁掉 —— 那是比原问题更严重的回归。拿不到分段时
+	// 什么都不声明,让上游的声明(若有)继续透传,由播放器自己探测。
 	rangeSatisfied := response.StatusCode == http.StatusPartialContent && response.Header.Get("Content-Range") != ""
 	if request.requestedRange != "" && rangeSatisfied {
 		c.Header("Accept-Ranges", "bytes")
-	} else {
-		c.Header("Accept-Ranges", "none")
 	}
 	c.Status(response.StatusCode)
 	clearWriteDeadline(c)
