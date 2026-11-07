@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getStreamUrl, coverProxyUrl, recordPlayHistory, saveToServer, serverSaveSucceeded } from '../services/musicdl.js';
 import { normalizeSong } from '../utils/songFields.js';
 import { songIdentityKey } from '../utils/songIdentity.js';
@@ -12,6 +12,14 @@ import {
   loadStopAfterTrackPreference,
   saveStopAfterTrackPreference,
 } from './playerSleepTimer.js';
+import {
+  armSeekTarget,
+  beginScrub,
+  createScrubState,
+  endScrub,
+  resetScrubState,
+  shouldApplyProgressReport,
+} from './playerScrub.js';
 import {
   NativePlayback,
   buildNativeQueue,
@@ -57,6 +65,10 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
   const recordedSongRef = useRef('');
   const autoDownloadedRef = useRef(new Set());
   const lastSavedAtRef = useRef(0);
+  // 拖动仲裁(见 playerScrub.js)。原生侧尤其需要:插件每 500ms 轮询一次
+  // player.currentPosition,拖动中的旧 positionMs 会盖掉刚拖到的新位置
+  // —— 这就是手机端"拖完回弹"的直接原因。
+  const scrubRef = useRef(createScrubState());
   const { user, offline } = useAuth();
   const { downloadedCopy } = useServerDownloads();
   const userId = user?.id || 0;
@@ -120,12 +132,22 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
       nowPlayingRef.current = snapshot.song;
       setNowPlaying(snapshot.song);
       if (changed || snapshot.isPlaying) recordStartedSong(snapshot.song);
+      // 原生切歌(自动续播/锁屏上一首)时上一首的闸门必须清掉。
+      if (changed) resetScrubState(scrubRef.current);
     }
-    setProgress(snapshot.progress);
+    // 拖动中或跳转尚未到位时,原生的 positionMs 是"旧位置",写进去就是回弹。
+    // 但时长不受闸门影响(它只跟这首歌有关,拖动不会改变它)。
+    const progressApplies = shouldApplyProgressReport(scrubRef.current, snapshot.progress.cur);
+    if (progressApplies) {
+      setProgress(snapshot.progress);
+    } else {
+      setProgress((current) => ({ cur: current.cur, dur: snapshot.progress.dur || current.dur }));
+    }
     setIsPaused(snapshot.isPaused);
 
+    // 快照只存已落到界面的位置,否则回弹前的旧值会被持久化。
     const now = Date.now();
-    if (now - lastSavedAtRef.current >= 5000 || snapshot.isPaused) {
+    if (progressApplies && (now - lastSavedAtRef.current >= 5000 || snapshot.isPaused)) {
       lastSavedAtRef.current = now;
       savePlayback(snapshot.progress.cur);
     }
@@ -249,8 +271,25 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
   const seek = useCallback((seconds) => {
     const value = Math.max(0, Number(seconds) || 0);
     setProgress((current) => ({ ...current, cur: value }));
+    // 立刻立闸:原生 seekTo 是异步 IPC,而插件每 500ms 还会报一次旧位置,
+    // 不压住的话下一次轮询就把拇指位置顶掉(手机端回弹的主因)。
+    armSeekTarget(scrubRef.current, value);
     NativePlayback.seekTo({ positionMs: value * 1000 }).catch((error) => setNotice(`跳转进度失败：${error?.message || error}`));
   }, []);
+
+  // 进度条拖动句柄:与 Web 端同一套语义(拖动中只认拇指)。
+  const scrubHandlers = useMemo(() => ({
+    onPointerDown: () => beginScrub(scrubRef.current),
+    onPointerUp: () => endScrub(scrubRef.current),
+    onPointerCancel: () => endScrub(scrubRef.current),
+    onBlur: () => endScrub(scrubRef.current),
+    onKeyDown: (event) => {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+        beginScrub(scrubRef.current);
+      }
+    },
+    onKeyUp: () => endScrub(scrubRef.current),
+  }), []);
 
   const setMode = useCallback((nextValue) => {
     setModeState((current) => {
@@ -377,6 +416,7 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
       handleLoadedMetadata: noop,
       savePlayback,
       cycleMode,
+      scrubHandlers,
       usesNativePlayback: true,
     }}>
       {children}
