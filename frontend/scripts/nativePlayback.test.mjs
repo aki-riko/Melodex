@@ -70,4 +70,46 @@ const measuredSnapshot = nativePlaybackSnapshot({
 }, songs);
 assert.equal(measuredSnapshot.progress.dur, 175.5, '原生实测时长必须优先于歌曲元数据');
 
+// ---- 时长仲裁:原生小值不得劫持时间轴 ----
+//
+// 2026-11 真实故障:手机拖到 2 分钟(约 45%),服务端却只收到 570053 字节的请求。
+// 该文件 27,065,496 字节、时长 269 秒,570053 仅占 2.1% ≈ 5.7 秒 —— 差约 20 倍。
+// 根因是 ExoPlayer 对流式 FLAC 在 prepare 早期报了一个远小于真实值的 duration,
+// 而旧逻辑"只要 >0 就采信",于是进度条 max 被压小,拖动比例换算全错。
+{
+  const streamed = nativePlaybackSnapshot({
+    currentIndex: 1, positionMs: 0, durationMs: 31_000, mediaItemCount: 2,
+  }, songs);
+  assert.equal(
+    streamed.progress.dur,
+    180,
+    '原生报的时长与歌曲元数据差 10% 以上时必须用元数据 —— 否则进度条 max 被压小,'
+    + '用户拖到中间只会算出几秒,seek 位置差一个数量级',
+  );
+}
+
+// 原生值接近元数据(10% 内)时仍采信原生 —— 保留"实测更准能纠正刮削"的能力。
+{
+  const close = nativePlaybackSnapshot({
+    currentIndex: 1, positionMs: 0, durationMs: 168_000, mediaItemCount: 2,
+  }, songs);
+  assert.equal(close.progress.dur, 168, '差异在容差内应以原生实测为准(元数据 180 秒 -6.7%)');
+}
+
+// 元数据缺失时退回原生值(不能因为没元数据就报 0)。
+{
+  const noMeta = nativePlaybackSnapshot({
+    currentIndex: 0, positionMs: 0, durationMs: 200_000, mediaItemCount: 2,
+  }, [{ ...songs[0], duration: 0 }, songs[1]]);
+  assert.equal(noMeta.progress.dur, 200, '歌曲元数据缺失时应采信原生时长');
+}
+
+// 两边都没有时给 0,由界面自行处理(不能出现 NaN)。
+{
+  const none = nativePlaybackSnapshot({
+    currentIndex: 0, positionMs: 0, durationMs: 0, mediaItemCount: 2,
+  }, [{ ...songs[0], duration: 0 }, songs[1]]);
+  assert.equal(none.progress.dur, 0);
+}
+
 console.log('nativePlayback tests passed');
