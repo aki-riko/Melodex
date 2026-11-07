@@ -38,18 +38,14 @@ export const nativePlaybackSnapshot = (state, queue) => {
   const index = Math.max(0, Math.min(Number(state?.currentIndex) || 0, Math.max(0, list.length - 1)));
   const song = list[index] || null;
   const reportedDuration = Math.max(0, Number(state?.durationMs) || 0) / 1000;
-  // ExoPlayer 在 prepare 完成前 duration 是 C.TIME_UNSET(原生侧已折成 0)。
-  // 若直接把 0 当时长,界面上那条 `<input type="range" max=0>` 会把拇指永远
-  // 压在最左边 —— 用户拖完看到"跳回开头",与回弹是同一个观感。所以用队列里
-  // 已知的歌曲时长兜底,等原生的真实时长回来后自然接管。
   // 注意:queue 里是歌曲模型,duration 单位是**秒**(不是 durationMs)。
-  const fallbackDuration = Math.max(0, Number(song?.duration) || 0);
+  const songDuration = Math.max(0, Number(song?.duration) || 0);
   return {
     index,
     song,
     progress: {
       cur: Math.max(0, Number(state?.positionMs) || 0) / 1000,
-      dur: reportedDuration > 0 ? reportedDuration : fallbackDuration,
+      dur: resolvePlaybackDuration(reportedDuration, songDuration),
     },
     isPaused: !Boolean(state?.isPlaying),
     isPlaying: Boolean(state?.isPlaying),
@@ -57,4 +53,29 @@ export const nativePlaybackSnapshot = (state, queue) => {
     playbackState: Number(state?.playbackState) || 0,
     mediaItemCount: Math.max(0, Number(state?.mediaItemCount) || 0),
   };
+};
+
+// 决定进度条该用多少秒做 max —— 这个值直接决定拖动位置能不能换算对。
+//
+// 2026-11 修「手机拖到 2 分钟,ExoPlayer 却只请求了 2% 处的字节」:
+// 旧逻辑是 `reportedDuration > 0 ? reportedDuration : songDuration`,只要原生
+// 报了个正数就无条件采信。但 ExoPlayer 对流式源(FLAC/HTTP)在 prepare 早期
+// 会报一个远小于真实值的 duration(只算已解析部分),于是 max 被压得很小,
+// 用户拖到条的 45% 实际只算出几秒 —— seek 位置于是差了二十倍。
+//
+// 判据:歌曲元数据里的时长(来自服务端,可信)与原生值相差在 10% 以内才采信
+// 原生值;否则一律用元数据。元数据缺失(<=0)时才退回原生值。
+// 这样既保留了"原生实测时长更准"的能力(刮削不准时能被纠正),又不会让
+// 一个明显错误的小值劫持整条时间轴。
+export const DURATION_TRUST_RATIO = 0.1;
+
+export const resolvePlaybackDuration = (reportedSeconds, songSeconds) => {
+  const reported = Number(reportedSeconds);
+  const song = Number(songSeconds);
+  const hasReported = Number.isFinite(reported) && reported > 0;
+  const hasSong = Number.isFinite(song) && song > 0;
+  if (!hasSong) return hasReported ? reported : 0;
+  if (!hasReported) return song;
+  const diff = Math.abs(reported - song);
+  return diff <= song * DURATION_TRUST_RATIO ? reported : song;
 };
