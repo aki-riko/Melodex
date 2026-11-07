@@ -43,6 +43,14 @@ import {
 } from './playerMediaSource.js';
 import NativePlayerProvider from './NativePlayerProvider.js';
 import { isNativeAndroidPlayback } from './nativePlayback.js';
+import {
+  armSeekTarget,
+  beginScrub,
+  createScrubState,
+  endScrub,
+  resetScrubState,
+  shouldApplyProgressReport,
+} from './playerScrub.js';
 import { useBackLayer } from './backNavigation.js';
 import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
@@ -134,6 +142,10 @@ const WebPlayerProvider = ({ children }) => {
   const prefetchSeqRef = useRef(0);
   const seekRequestRef = useRef(0);
   const seekTimerRef = useRef(null);
+  // 拖动进度条的仲裁状态(见 playerScrub.js):拖动中只认拇指,跳转后压住旧位置。
+  // 这是「拖动进度条会回弹」的正面修复——此前 seek() 只写 React state,而音频
+  // 真实位置还在原处,下一次 timeupdate 就把界面拽回去。
+  const scrubRef = useRef(createScrubState());
   const recoveredUnexpectedPauseSeqRef = useRef('');
   const continuousPlaybackRef = useRef(null);
   const continuousTrackChangeRef = useRef(() => {});
@@ -663,6 +675,8 @@ const WebPlayerProvider = ({ children }) => {
     const nextSong = normalizeSong(song);
     resumeRef.current = null;
     seekRestartMarkerRef.current = '';
+    // 换歌必须清掉上一首的拖动/跳转闸门,否则新歌进度会被旧目标压住。
+    resetScrubState(scrubRef.current);
     seekRequestRef.current += 1;
     if (seekTimerRef.current != null) {
       globalThis.clearTimeout(seekTimerRef.current);
@@ -892,6 +906,10 @@ const WebPlayerProvider = ({ children }) => {
     const target = Math.max(0, Math.min(Number(sec || 0), upperBound));
     setProgress((current) => ({ cur: target, dur: current.dur || duration }));
     resumeRef.current = null;
+    // 跳转闸门:从现在起,播放器报来的旧位置一律丢弃,直到它报到目标附近或超时。
+    // 不加这一层时,下面写进 state 的目标会被同一次拖动期间到达的 timeupdate
+    // 用它仍在报的旧时间覆盖 → 拇指一松进度条就弹回去(用户报的正是这个)。
+    armSeekTarget(scrubRef.current, target);
 
     seekRequestRef.current += 1;
     const request = seekRequestRef.current;
@@ -959,7 +977,10 @@ const WebPlayerProvider = ({ children }) => {
       cur = local.cur;
       dur = local.dur;
     }
-    setProgress({ cur, dur });
+    // 拖动/跳转仲裁:播放器还在报旧位置时,绝不能用它覆盖界面上刚拖到的目标。
+    // 注意心跳(下面睡眠定时那段)不受影响 —— 它只关心"还在走",与显示位置无关。
+    const applyReport = shouldApplyProgressReport(scrubRef.current, cur);
+    if (applyReport) setProgress({ cur, dur });
     // 后台标签页会把 setInterval 限流到每分钟甚至冻结,而音频 timeupdate 仍在正常触发。
     // 睡眠定时「到点立刻停播」这条路径必须靠这个心跳兜住,否则页面被挂到后台就不停了。
     // 只在真正到点时推进:reconcile 会写 sleepRemainingMs,而 timeupdate 每秒 4 次,
@@ -968,6 +989,8 @@ const WebPlayerProvider = ({ children }) => {
     if (sleepTimerNow && getSleepTimerRemainingMs(sleepTimerNow) <= 0) {
       sleepReconcileRef.current?.();
     }
+    // 旧位置的报时也不能写进播放快照,否则刷新后会恢复到回弹前的位置。
+    if (!applyReport) return;
     const now = Date.now();
     if (now - lastSaveRef.current > 5000) {
       lastSaveRef.current = now;
@@ -991,7 +1014,13 @@ const WebPlayerProvider = ({ children }) => {
       return;
     }
     const dur = audio.duration || 0;
-    setProgress({ cur: audio.currentTime, dur });
+    // 重建管线后元数据会重新加载一次,此刻 audio.currentTime 是 0;
+    // 若刚拖过进度,这个 0 会把拇指位置打回去 —— 同样要过一遍仲裁。
+    if (shouldApplyProgressReport(scrubRef.current, audio.currentTime)) {
+      setProgress({ cur: audio.currentTime, dur });
+    } else {
+      setProgress((current) => ({ cur: current.cur, dur }));
+    }
     if (resumeRef.current != null && isFinite(resumeRef.current)) {
       const t = Math.min(resumeRef.current, dur > 0 ? dur - 1 : resumeRef.current);
       if (t > 0) { try { audio.currentTime = t; } catch { /* ignore */ } }
@@ -1328,6 +1357,23 @@ const WebPlayerProvider = ({ children }) => {
   }, [progress.cur, progress.dur]);
 
 
+  // 进度条拖动句柄:拖动期间只认拇指(见 playerScrub.js),松手/失焦都要复位。
+  // 这几个 handler 直接挂到三处真实进度条的 onPointerDown/Up/Cancel 上。
+  const scrubHandlers = useMemo(() => ({
+    onPointerDown: () => beginScrub(scrubRef.current),
+    onPointerUp: () => endScrub(scrubRef.current),
+    onPointerCancel: () => endScrub(scrubRef.current),
+    // 触摸滑动的兜底:某些 WebView 在拖动中会丢失 pointerup,失焦/取消时也要复位。
+    onBlur: () => endScrub(scrubRef.current),
+    onKeyDown: (event) => {
+      // 键盘左右键同样是"用户要跳转",期间不许播放器报时插队。
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+        beginScrub(scrubRef.current);
+      }
+    },
+    onKeyUp: () => endScrub(scrubRef.current),
+  }), []);
+
   return (
     <PlayerContext.Provider value={{
       nowPlaying, play, audioRef, notice, isPaused, progress, mode, setMode,
@@ -1340,6 +1386,7 @@ const WebPlayerProvider = ({ children }) => {
       next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent, setIsPaused, setProgress,
       handleTimeUpdate, handleLoadedMetadata, savePlayback,
       cycleMode,
+      scrubHandlers,
       usesNativePlayback: false,
     }}>
       {children}
@@ -1503,6 +1550,7 @@ export const PlayerBar = () => {
     cachedCoverUrl,
     usesNativePlayback,
     handleTimeUpdate, handleLoadedMetadata, savePlayback,
+    scrubHandlers,
   } = usePlayer();
 
   const [queueOpen, setQueueOpen] = useState(false);
@@ -1719,6 +1767,7 @@ export const PlayerBar = () => {
                 <input
                   type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
                   onChange={(e) => seek(Number(e.target.value))}
+                  {...scrubHandlers}
                   className="w-full min-w-0 accent-primary cursor-pointer" aria-label="播放进度"
                 />
                 {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
@@ -1927,6 +1976,7 @@ export const PlayerBar = () => {
               <input
                 type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
                 onChange={(e) => seek(Number(e.target.value))}
+                {...scrubHandlers}
                 className="w-full accent-primary cursor-pointer" aria-label="播放进度"
               />
               {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
@@ -2037,6 +2087,7 @@ export const PlayerBar = () => {
               <div className="relative flex-grow flex items-center">
                 <input type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
                   onChange={(e) => seek(Number(e.target.value))}
+                  {...scrubHandlers}
                   className="w-full accent-primary cursor-pointer" aria-label="播放进度" />
                 {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
               </div>
