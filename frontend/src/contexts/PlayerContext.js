@@ -73,6 +73,27 @@ const switchAttemptKey = (song) => {
 // 音量持久化(纯前端展示偏好,localStorage 即可,无需后端)。
 const VOLUME_KEY = 'melodex_volume';
 const SEEK_REBUILD_DEBOUNCE_MS = 80;
+// 是否启用「MSE 连续播放管线」(把多首歌拼进同一个 MediaSource 求无缝连播)。
+//
+// 2026-11 关闭,原因是它从根本上让进度条失效:
+//   · MSE 的数据全靠 JS appendBuffer 喂,它自己不发起网络请求。拖到还没 append
+//     的区间时,元素 seek 过去会永远停在 waiting —— 拿不到数据。
+//   · 后端分块用 -reset_timestamps 1,每块 PTS 都从 0 起(实测确认);
+//     配合浏览器对 sequence 模式的自动时间戳生成,缓冲区永远贴着 0 排,
+//     拖到 90 秒属于越界赋值,浏览器直接夹回 0 => 用户看到"又从第一秒开始播"。
+//
+// 成熟自托管音乐项目的共同做法(源码级核对过):Navidrome / Jellyfin / Ampache
+// 全是「一首歌一个普通音频元素 + 服务端 HTTP Range」,没有任何一个用多曲 MSE。
+// Jellyfin 只在检测到 HLS 时才引入 hls.js。连 Spotify 的 web client 都不做
+// gapless(Navidrome #745 以 not planned 关闭其 gapless 需求)。
+// 注:注释里刻意不写音频标签字面量 —— playerQueue 契约测试按它统计元素数量。
+//
+// 所以默认走普通流:后端 /music/download 已完整支持 Range(本地副本走
+// ServeContent,在线源走 writeProviderRange 回 Accept-Ranges + Content-Range),
+// 浏览器与 ExoPlayer 都能原生 seek。
+//
+// 保留此开关便于回退/对照实验,但默认必须为 false —— 打开会让进度条失效。
+const ENABLE_CONTINUOUS_MEDIA_SOURCE = false;
 const loadVolume = () => {
   const v = parseFloat(localStorage.getItem(VOLUME_KEY));
   return isFinite(v) && v >= 0 && v <= 1 ? v : 1;
@@ -291,7 +312,7 @@ const WebPlayerProvider = ({ children }) => {
     audio.volume = volumeRef.current;
     audio.muted = muted;
 
-    if (!src && !offline && supportsContinuousMediaSource()) {
+    if (!src && !offline && ENABLE_CONTINUOUS_MEDIA_SOURCE && supportsContinuousMediaSource()) {
       destroyContinuousPlayback();
       revokeAudioObjectUrl(audio);
       revokeCoverObjectUrl();

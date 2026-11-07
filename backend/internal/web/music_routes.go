@@ -454,6 +454,20 @@ func proxyProviderAudio(c *gin.Context, request mediaDownloadRequest, settings c
 	} else {
 		setDownloadHeader(c, filename)
 	}
+	// 只有在真拿到上游的 Range 响应(206 + Content-Range)时才声明可分段。
+	//
+	// 2026-11(修「拖动进度条完全不生效」):这条回退路径会把上游的状态码原样透传。
+	// 若上游对 Range 请求回了 200(不带 Content-Range),而我们已经对浏览器宣称
+	// Accept-Ranges: bytes,浏览器会以为能随便跳 —— 实际每次 seek 都变成从头重下,
+	// 表现为"拖了又回开头"。所以把支持性如实告知:拿不到分段就明确说 none,
+	// 让浏览器禁用拖动而不是假装可以。这也是 Navidrome 的做法(可 seek 才发 206,
+	// 不可 seek 的流转码流显式 Accept-Ranges: none)。
+	rangeSatisfied := response.StatusCode == http.StatusPartialContent && response.Header.Get("Content-Range") != ""
+	if request.requestedRange != "" && rangeSatisfied {
+		c.Header("Accept-Ranges", "bytes")
+	} else {
+		c.Header("Accept-Ranges", "none")
+	}
 	c.Status(response.StatusCode)
 	clearWriteDeadline(c)
 	if _, err := io.Copy(c.Writer, response.Body); err != nil {
