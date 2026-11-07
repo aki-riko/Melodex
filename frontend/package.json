@@ -49,6 +49,8 @@
     "test:collection-route": "node scripts/collectionRoute.test.mjs",
     "test:credential": "node scripts/credentialExpiry.test.mjs",
     "test:theme": "node scripts/themeContract.test.mjs && node scripts/themeContrast.test.mjs && node scripts/fluentMotion.test.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "test:icons": "node scripts/build-icons.mjs --check",
     "preview": "vite preview"
   },
   "devDependencies": {

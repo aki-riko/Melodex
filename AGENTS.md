@@ -167,6 +167,31 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - 固定构建/部署目录为 `%LOCALAPPDATA%\Melodex\desktop-build` 与 `%LOCALAPPDATA%\Melodex\desktop-deploy`。脚本会把配置指定的同一 PrismQML SDK 同步到纯 ASCII 的 `prism-sdk-cache`，CMake 和运行时必须使用这一份，禁止通过 `PRISMQML_QML_DIR` 临时切换到其他版本。
 - 禁止再创建带时间戳或功能名的 `melodex-*build*`、`melodex-*deploy*` QA 目录；验证完成的客户端必须从固定部署目录启动。需要升级 SDK 时只修改本机配置并继续运行同一入口。
 
+## 品牌图标:单一矢量为源(2026-11 重画)
+
+**所有图标产物都由 `frontend/scripts/build-icons.mjs` 从一个 SVG 图形定义生成**,禁止再手放 PNG / 手写矢量。
+
+- 命令:`cd frontend && npm run icons`(写文件)/ `npm run test:icons`(只校验,不一致退 1)。
+- 产物三平台共 24 个:Web-PWA(`public/icon.svg`、`icon-maskable.svg`、`logo192/512`、`maskable512`、`favicon-32`)、
+  Android(`mipmap-<density>/ic_launcher(_round).png` 五档位图回退 + `mipmap-anydpi-v26/ic_launcher(_round).xml` 自适应 +
+  `drawable/ic_launcher_foreground.xml` 矢量 + `values/ic_launcher_background.xml`)、桌面 Tauri(`icons/icon-{32,128,256}.png` + `icon.ico`)。
+- **图形**:两根符干 + 顶端 M 形横梁 + 两个倾斜符头 —— 同时读成字母 M 和连音符。底色 `#0E1E17`,绿渐变 `#6BF7AA→#2FD982→#0FA45F`。
+
+### 坑(都实际踩过,改之前必读)
+1. **渐变必须 `gradientUnits="userSpaceOnUse"`**。默认的 `objectBoundingBox` 在路径是**竖直线段**时包围盒宽度为 0,
+   渐变无法解析 → 整条线**完全不渲染**,自查时连续两轮只渲染出一个空底。
+2. **小尺寸必须用加粗变体,不能靠 512 缩下去**。`stroke-width=46` 在 32px 只剩 2.875 个像素且非整数,
+   抗锯齿把横梁与符干糊成一团(nearest 放大逐像素确认)。现在 `size ≤ 48` 自动换加粗档(笔画 72、符干内收、符头放大),
+   ICO 也是**每个尺寸单独选档**渲染,不是一张大图缩放。
+3. **清单必须 `android:icon="@mipmap/ic_launcher"`**。此前是 `@drawable/ic_melodex`,那样 `mipmap-anydpi-v26` 的自适应图标
+   **根本不会被使用**(等于白做);旧的 `ic_melodex.xml` 已删除——同一图形留两份必然分叉,正是这次重画要消灭的问题。
+4. **VectorDrawable 里 `strokeWidth` 是普通浮点属性**,不能包进 `<aapt:attr>`(空 `<attr/>` 会被 aapt2 判非法);
+   只有渐变色 `strokeColor`/`fillColor` 才需要 `aapt:attr` 包裹。Android 不支持 `<ellipse>`,由 `ellipsePath()` 转成贝塞尔 path。
+5. Android 矢量统一用**加粗档**:自适应图标在桌面多以 48~108dp 显示,不用加粗会和位图回退的观感割裂。
+
+验证:`npm run build`(产物进 build/)+ `npm run test:icons` + `cd android && ./gradlew :app:processDebugResources`
+(后者是确认 `aapt:attr` 渐变 / 自适应图标引用真正合法的唯一可靠手段,不能只看 XML 顺眼)。
+
 ## 开发运行
 
 ```bash

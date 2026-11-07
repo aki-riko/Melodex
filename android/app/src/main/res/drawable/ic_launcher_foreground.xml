@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 frontend/scripts/build-icons.mjs 生成,勿手改。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <!-- 自适应图标安全区:512 视图里只有中心 72% 保证可见 -->
+    <group android:translateX="71.68" android:translateY="71.68"
+           android:scaleX="0.72" android:scaleY="0.72">
+
+        <!-- 左符干 -->
+        <path android:pathData="M188 328V138"
+            android:strokeWidth="72" android:strokeLineCap="round">
+
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="linear"
+                    android:startX="130" android:startY="110"
+                    android:endX="382" android:endY="400"
+                    android:startColor="#6BF7AA"
+                    android:centerColor="#2FD982"
+                    android:endColor="#0FA45F" />
+            </aapt:attr>
+        </path>
+
+        <!-- 右符干 -->
+        <path android:pathData="M324 328V138"
+            android:strokeWidth="72" android:strokeLineCap="round">
+
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="linear"
+                    android:startX="130" android:startY="110"
+                    android:endX="382" android:endY="400"
+                    android:startColor="#6BF7AA"
+                    android:centerColor="#2FD982"
+                    android:endColor="#0FA45F" />
+            </aapt:attr>
+        </path>
+
+        <!-- M 形横梁 -->
+        <path android:pathData="M188 138l68 84 68 -84"
+            android:strokeWidth="72" android:strokeLineCap="round"
+            android:strokeLineJoin="round">
+
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="linear"
+                    android:startX="130" android:startY="110"
+                    android:endX="382" android:endY="400"
+                    android:startColor="#6BF7AA"
+                    android:centerColor="#2FD982"
+                    android:endColor="#0FA45F" />
+            </aapt:attr>
+        </path>
+
+        <!-- 两个符头(倾斜椭圆) -->
+        <path android:pathData="M83.36 355.81C76.36 331.39 96.94 304.07 129.32 294.78C161.70 285.50 193.63 297.77 200.64 322.19C207.64 346.61 187.06 373.93 154.68 383.22C122.30 392.50 90.37 380.23 83.36 355.81Z">
+
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear"
+                    android:startX="130" android:startY="110"
+                    android:endX="382" android:endY="400"
+                    android:startColor="#6BF7AA"
+                    android:centerColor="#2FD982"
+                    android:endColor="#0FA45F" />
+            </aapt:attr>
+        </path>
+        <path android:pathData="M311.36 355.81C304.36 331.39 324.94 304.07 357.32 294.78C389.70 285.50 421.63 297.77 428.64 322.19C435.64 346.61 415.06 373.93 382.68 383.22C350.30 392.50 318.37 380.23 311.36 355.81Z">
+
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear"
+                    android:startX="130" android:startY="110"
+                    android:endX="382" android:endY="400"
+                    android:startColor="#6BF7AA"
+                    android:centerColor="#2FD982"
+                    android:endColor="#0FA45F" />
+            </aapt:attr>
+        </path>
+    </group>
+</vector>
