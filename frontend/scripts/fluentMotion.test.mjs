@@ -104,18 +104,32 @@ const layoutProps = /(?:^|\s|\{)(width|height|top|left|right|bottom|margin)\s*:/
   }
 }
 
-// ---- 5. 时长上限 ----
-// 超过 300ms 的进入动效会让"每次切页都要等"。marquee/vinyl 这类无限循环不算。
-const motionDecls = [...css.matchAll(/animation\s*:\s*fluent-[a-z-]+\s+([^;]+);/g)].map((m) => m[1]);
-for (const decl of motionDecls) {
+// ---- 5. 时长上限(分两类,不能一刀切)----
+//
+// 原来统一限 300ms,但那条规则的**动机**是"每次切页都要等" ——
+// 它针对的是**交互反馈类**动效(切页、浮层、按下),不是列表展示类。
+//
+// 列表项恰恰相反:用户明确要求"慢一点、有层次",420ms 才看得清"划入"的过程。
+// 把两类混在一起会产生矛盾(self-conflict):为了让列表慢下来就得放宽上限,
+// 而放宽上限又会让切页变得拖沓。所以分开校验。
+const INTERACTIVE_MAX = 300;   // 反馈类:超过就有"等"的感觉
+const SHOWCASE_MAX = 600;      // 展示类:可慢,但不能拖沓
+
+// 展示类白名单:这些动画靠"过程"传达信息(列表依次划入),允许更长
+const SHOWCASE = new Set(['fluent-list-item-in']);
+
+const motionDecls = [...css.matchAll(/animation\s*:\s*(fluent-[a-z-]+)\s+([^;]+);/g)]
+  .map((m) => ({ name: m[1], decl: m[2] }));
+for (const { name, decl } of motionDecls) {
   const match = decl.match(/(\d+)ms/);
-  if (match) {
-    assert.ok(
-      Number(match[1]) <= 300,
-      `Fluent 进入动效 ${decl.trim()} 超过 300ms —— 切页会有明显等待感`,
-    );
-  }
-  // 用 token 的写法(如 var(--motion-base)=180ms)天然在范围内,不额外校验。
+  if (!match) continue; // 用 token 的(如 var(--motion-base)=180ms)天然在范围内
+  const ms = Number(match[1]);
+  const limit = SHOWCASE.has(name) ? SHOWCASE_MAX : INTERACTIVE_MAX;
+  assert.ok(
+    ms <= limit,
+    `${name} 时长 ${ms}ms 超过上限 ${limit}ms` +
+    (SHOWCASE.has(name) ? '(展示类可慢,但 >600ms 会明显拖沓)' : '(交互反馈类 >300ms 会让用户觉得"每次都要等")'),
+  );
 }
 
 // ---- 6. 页面切换必须是**错峰淡入**,且看得出 ----
@@ -230,22 +244,64 @@ for (const decl of motionDecls) {
     '缺少 .space-y-0.5 > * 的动画规则 —— 歌曲列表拿不到效果',
   );
 
-  // 必须封顶:第 12 项起延迟固定,不得继续累加
-  const capped = css.match(/\.space-y-0\\\.5\s*>\s*\*:nth-child\(n\s*\+\s*12\)\s*\{\s*animation-delay:\s*(\d+)ms/);
+  // 必须封顶,且封顶必须**紧接最后一条单项规则**(不能留空档)
+  //
+  // 踩过的坑:单项写到 nth-child(9),封顶却写成 `n + 12`,
+  // 于是第 10、11 项拿不到任何 delay → 按 0ms 立刻出现,比第 2 项还早,
+  // 列表顺序整个乱掉。所以这里断言封顶的起始下标 == 单项规则数 + 1。
+  const singles = [...css.matchAll(/\.space-y-0\\\.5\s*>\s*\*:nth-child\((\d+)\)\s*\{\s*animation-delay:\s*(\d+)ms/g)]
+    .map((m) => ({ n: Number(m[1]), delay: Number(m[2]) }))
+    .sort((a, b) => a.n - b.n);
+  assert.ok(singles.length >= 5, '单项延迟规则太少,列表层次感不足');
+
+  const capped = css.match(/\.space-y-0\\\.5\s*>\s*\*:nth-child\(n\s*\+\s*(\d+)\)\s*\{\s*animation-delay:\s*(\d+)ms/);
   assert.ok(
     capped,
-    '缺少封顶规则(:nth-child(n+12))。不封顶时 100 首的列表最后一行要等 2 秒以上,看着像卡死',
+    '缺少封顶规则(:nth-child(n+N))。不封顶时 100 首的列表最后一行要等 2 秒以上,看着像卡死',
+  );
+  const capStart = Number(capped[1]);
+  const capDelay = Number(capped[2]);
+  const lastSingle = singles[singles.length - 1];
+
+  assert.strictEqual(
+    capStart,
+    lastSingle.n + 1,
+    `封顶从第 ${capStart} 项开始,但单项规则只写到第 ${lastSingle.n} 项 —— ` +
+    `第 ${lastSingle.n + 1}~${capStart - 1} 项拿不到 delay,会按 0ms 立刻出现,列表顺序会乱`,
+  );
+  assert.ok(
+    capDelay > lastSingle.delay,
+    `封顶延迟(${capDelay}ms)必须大于最后一条单项(${lastSingle.delay}ms),否则后段会"抢跑"`,
   );
 
-  // 逐项递增且间隔合理:22ms 一档,总量不超过 300ms
-  const stagger = css.match(/\.space-y-0\\\.5\s*>\s*\*:nth-child\(2\)\s*\{\s*animation-delay:\s*(\d+)ms/);
-  assert.ok(stagger, '缺少第 2 项的延迟(错峰的基础)');
-  assert.ok(Number(stagger[1]) > 0, '逐项延迟必须 > 0');
-  assert.ok(Number(stagger[1]) <= 40, `单项间隔 ${stagger[1]}ms 太大,列表会出现明显排队感`);
+  // 逐项递增,间隔要够大才看得出层次(用户反馈"太快了"后从 22ms 提到 90ms)
+  for (let i = 1; i < singles.length; i += 1) {
+    const step = singles[i].delay - singles[i - 1].delay;
+    assert.ok(
+      step > 0,
+      `第 ${singles[i].n} 项的延迟(${singles[i].delay}ms)没有大于上一项 —— 递进关系断了`,
+    );
+    assert.ok(
+      step >= 50,
+      `相邻两项只差 ${step}ms —— 这个间隔下"依次出现"会被看成"整片一起淡入"(用户实测 22ms 即如此)`,
+    );
+    assert.ok(step <= 120, `相邻两项差 ${step}ms 太大,列表会出现明显排队感`);
+  }
+
+  // 总量封顶:最后一批出现的时刻不应超过 1.5s
   assert.ok(
-    Number(capped[1]) <= 300,
-    `封顶延迟 ${capped[1]}ms 过大 —— 列表末尾要等太久`,
+    capDelay <= 1500,
+    `封顶延迟 ${capDelay}ms 过大 —— 列表末尾要等太久`,
   );
+
+  // 单项动画时长:太短会"一闪而过"(用户反馈"太快")
+  const durationMatch = css.match(/\.space-y-0\\\.5\s*>\s*\*\s*\{[^}]*animation:\s*fluent-list-item-in\s+(\d+)ms/);
+  assert.ok(durationMatch, '列表项动画应写明毫秒时长(便于校验)');
+  assert.ok(
+    Number(durationMatch[1]) >= 300,
+    `列表项动画只有 ${durationMatch[1]}ms —— 用户实测这个速度下看不清"划入"的过程,建议 ≥400ms`,
+  );
+  assert.ok(Number(durationMatch[1]) <= 600, `列表项动画 ${durationMatch[1]}ms 过慢,会有拖沓感`);
 }
 
 console.log('fluentMotion tests passed');
