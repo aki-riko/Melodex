@@ -58,3 +58,7 @@ android/signing.properties
 
 # 本地性能基准脚手架(含测试用 settings.db,不入库)
 .bench/
+
+# 真机诊断截图(临时产物,不进仓库)
+frontend/*.png
+!frontend/public/**/*.png
