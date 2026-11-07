@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 由 frontend/scripts/build-icons.mjs 生成,勿手改。-->
+    <color name="ic_launcher_background">#0E1E17</color>
+</resources>
