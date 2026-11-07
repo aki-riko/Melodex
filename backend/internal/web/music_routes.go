@@ -280,6 +280,16 @@ func resolveOwnedServerCopy(c *gin.Context, track *model.Track) (string, bool) {
 
 // serveOwnedServerCopyPath 把已解析出的副本按本地文件发流。
 func serveOwnedServerCopyPath(c *gin.Context, relativePath string) {
+	// 诊断:服务器副本走 ServeContent(Go 内部处理 Range),不会打印区间日志,
+	// 而手机端「已下载」的歌走的正是这条路径 —— 不记录就看不到它的 seek 行为。
+	if c.Query("stream") == "1" {
+		var size int64 = -1
+		if info, err := os.Stat(filepath.Join(localMusicDownloadDir(), relativePath)); err == nil {
+			size = info.Size()
+		}
+		log.Printf("[stream-range] server-copy rel=%q size=%d range=%q",
+			relativePath, size, c.GetHeader("Range"))
+	}
 	c.Header("X-Melodex-Playback-Source", "server")
 	serveLocalMusicDownload(c, encodeLocalMusicID(relativePath), false)
 }
@@ -415,6 +425,17 @@ func serveProviderTrack(c *gin.Context, request mediaDownloadRequest, settings c
 }
 
 func writeProviderRange(c *gin.Context, request mediaDownloadRequest, settings core.WebSettings, fetch *core.SourceRangeFetch) {
+	// 诊断:把"客户端要的区间"与"整首歌的总字节数"记在一起。
+	//
+	// 2026-11 排查手机端拖动:日志已确认 ExoPlayer 确实发了带偏移的 Range,
+	// 但偏移量(570053)远小于"拖到 2 分钟"应有的位置。要判断到底是
+	// ① JS 算错了秒数,还是 ② 服务端/上游给的总长度不对导致播放器换算错误,
+	// 必须同时看到 requested 的 start 与 total。有了这两个数,
+	// 用 start/total*时长 就能反推出播放器以为的目标秒数。
+	if request.stream {
+		log.Printf("[stream-range] resolved source=%q id=%q start=%d end=%d total=%d ext=%q range=%q",
+			request.track.Source, request.track.ID, fetch.Start, fetch.End, fetch.Total, fetch.Ext, request.requestedRange)
+	}
 	extension := firstAudioExtension(fetch.Ext, request.track.Ext, "mp3")
 	filename := core.BuildDownloadFilename(request.track, extension, settings.DownloadFilenameTemplate)
 	if request.stream {

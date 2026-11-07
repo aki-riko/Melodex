@@ -115,7 +115,16 @@ class NativePlaybackPlugin : Plugin() {
 
     @PluginMethod
     fun seekTo(call: PluginCall) = withController(call) { player ->
-        player.seekTo((call.getLong("positionMs", 0L) ?: 0L).coerceAtLeast(0L))
+        val requestedMs = (call.getLong("positionMs", 0L) ?: 0L).coerceAtLeast(0L)
+        // 诊断:记录 JS 请求的目标位置 vs ExoPlayer 实际时长/当前位置。
+        //
+        // 2026-11 排查「手机拖到 2 分钟,服务端却只收到约 14 秒处的 Range 请求」:
+        // 需要区分两种可能 —— ① JS 算错了秒数(positionMs 本身就偏小);
+        // ② JS 传对了,但 ExoPlayer 的 duration 与实际不符,seek 被夹到别处。
+        // 只有把这三者(请求值/duration/currentPosition)记在一起才能判断。
+        Log.w(TAG, "seekTo requested=${requestedMs}ms duration=${player.duration}ms " +
+            "before=${player.currentPosition}ms index=${player.currentMediaItemIndex}")
+        player.seekTo(requestedMs)
         call.resolve(stateObject(player))
     }
 
