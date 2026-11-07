@@ -849,16 +849,25 @@
    SongRow 是行组件,它同时用于搜索结果、歌单、最近播放、本地库等场景,
    加类要改 7 处调用点;而这个容器类是这些列表的共同特征,一处 CSS 即可覆盖。
 
-   ---- 参数的两个硬约束 ----
-   ① **必须封顶**:每项 22ms、最多 12 项(≈264ms 全部出现)。
-      不封顶时 100 首的列表最后一行要等 2.2 秒,看着像卡死;
-      封顶后第 13 项起与第 12 项同时出现,视觉上仍然连贯。
-   ② **位移要小**:从右往左 24px 足够看出"划入",再大就变成"飞进来",
-      在长列表上会让人眼花。 */
+   ---- 参数:慢而有层次(2026-11 调过一轮)----
+   用户反馈「动画太快了,要有层次的慢一点的」。上一版是
+   **动画 180ms + 每项间隔 22ms** —— 10 行总共只铺开 180+198=378ms,
+   肉眼基本分不出先后,看着就是"整片一起淡进来"。
+
+   现在的取值与理由:
+   ① **单项时长 420ms**:足够看清"从右划入"这个过程本身。
+      低于 300ms 时位移过程会被压缩成一跳,只剩淡入感。
+   ② **每项间隔 90ms**:相邻两行错开接近一整个动画时长的 1/4,
+      前一行划到七成后下一行才起步 —— 这才有"依次"的层次。
+   ③ **封顶 10 项(第 10 项起固定)**:总时长 420+9×90=1230ms。
+      再往后若继续累加,20 行就要 2.1s,用户会觉得"列表还没加载完"。
+      封顶后第 11 行起与第 10 行同时出现,视觉上仍连贯。
+   ④ **位移 32px**:比 24 更明确,但仍不夸张;**不叠加缩放** ——
+      长列表上每行都缩一下会显得抖。 */
 @keyframes fluent-list-item-in {
   from {
     opacity: 0;
-    transform: translateX(24px);
+    transform: translateX(32px);
   }
   to {
     opacity: 1;
@@ -866,27 +875,29 @@
   }
 }
 
-/* 直接子元素统一上动画 */
+/* 直接子元素统一上动画。时长直接写 420ms 而不复用 --motion-base(180ms):
+   列表项的"依次划入"是展示型动效,和控件反馈不是同一档节奏。 */
 .space-y-0\.5 > * {
-  animation: fluent-list-item-in var(--motion-base) var(--ease-emphasized) both;
+  animation: fluent-list-item-in 420ms var(--ease-emphasized) both;
 }
 
-/* 依次延迟:第 1 项 0ms,第 n 项 (n-1)×22ms,封顶到第 12 项。
+/* 依次延迟:第 n 项 (n-1)×90ms,第 10 项起封顶。
    逐条写出来而不是用 CSS 变量累加 —— 后者需要给每个元素单独 style,
-   又会回到"改 7 处调用点"的老路。这里 12 条规则换来零侵入,值得。 */
+   又会回到"改 7 处调用点"的老路。10 条规则换来零侵入,值得。 */
 .space-y-0\.5 > *:nth-child(1) { animation-delay: 0ms; }
-.space-y-0\.5 > *:nth-child(2) { animation-delay: 22ms; }
-.space-y-0\.5 > *:nth-child(3) { animation-delay: 44ms; }
-.space-y-0\.5 > *:nth-child(4) { animation-delay: 66ms; }
-.space-y-0\.5 > *:nth-child(5) { animation-delay: 88ms; }
-.space-y-0\.5 > *:nth-child(6) { animation-delay: 110ms; }
-.space-y-0\.5 > *:nth-child(7) { animation-delay: 132ms; }
-.space-y-0\.5 > *:nth-child(8) { animation-delay: 154ms; }
-.space-y-0\.5 > *:nth-child(9) { animation-delay: 176ms; }
-.space-y-0\.5 > *:nth-child(10) { animation-delay: 198ms; }
-.space-y-0\.5 > *:nth-child(11) { animation-delay: 220ms; }
-/* 第 12 项起全部落在同一档(264ms 封顶)—— 之后的行一起出现,不再继续累加 */
-.space-y-0\.5 > *:nth-child(n + 12) { animation-delay: 242ms; }
+.space-y-0\.5 > *:nth-child(2) { animation-delay: 90ms; }
+.space-y-0\.5 > *:nth-child(3) { animation-delay: 180ms; }
+.space-y-0\.5 > *:nth-child(4) { animation-delay: 270ms; }
+.space-y-0\.5 > *:nth-child(5) { animation-delay: 360ms; }
+.space-y-0\.5 > *:nth-child(6) { animation-delay: 450ms; }
+.space-y-0\.5 > *:nth-child(7) { animation-delay: 540ms; }
+.space-y-0\.5 > *:nth-child(8) { animation-delay: 630ms; }
+.space-y-0\.5 > *:nth-child(9) { animation-delay: 720ms; }
+/* 第 10 项起全部落在 810ms 封顶。
+   用 `n + 10` 一条覆盖第 10 项及之后**所有**行 ——
+   注意不能只写 `n + 12`:那会漏掉第 10、11 项,它们拿不到 delay 就按 0ms
+   立刻出现,反而比第 2 项还早,列表顺序全乱。 */
+.space-y-0\.5 > *:nth-child(n + 10) { animation-delay: 810ms; }
 
 /* 旧类保留(其他地方可能引用),与上面同一动画 */
 .fluent-item-enter {
