@@ -900,9 +900,9 @@
 .space-y-0\.5 > *:nth-child(n + 10) { animation-delay: 810ms; }
 
 /* 旧类保留(其他地方可能引用),与上面同一动画 */
-.fluent-item-enter {
-  animation: fluent-list-item-in var(--motion-base) var(--ease-emphasized) both;
-}
+/* 注意:.fluent-item-enter 已删除 —— 它与 `[class*="space-y-"] > *` 全局规则
+   完全重复,且没有任何组件引用(测试 #10 会拦这种死代码)。
+   需要列表错峰的话直接用 space-y-* 容器即可,不必加类。 */
 
 /* ---- 浮层弹出 ----
    已有 .animate-pop-in(见 tailwind 配置),但它的位移是 -4px(从上往下),
@@ -1021,8 +1021,19 @@
   .fluent-pressable:active:not(:disabled) {
     transform: none;
   }
-  .marquee__inner {
-    padding-left: 0;
+  /* 文件末尾"全局交互反馈"节的降级:reduced-motion 下全站不位移不缩放 */
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active,
+  a[href]:active,
+  summary:active {
+    transform: none !important;
+  }
+  [class*="space-y-"] > *,
+  .skeleton {
+    animation: none !important;
+  }
+  .lift-on-hover:hover {
+    transform: none !important;
   }
   .tonearm {
     transition: none;
@@ -1037,3 +1048,87 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ===== 全局交互反馈(2026-11 补齐全站) =====
+   用户要求「给其他所有操作都加上动画」。
+
+   为什么用全局选择器而不是逐个加类:全站有 149 个 <button>、170 个 onClick,
+   逐个加类既易漏又难维护。这里对**原生可交互元素**统一兜底 ——
+   组件里已经显式写了过渡的(如 ui/Button.js 的 transition-[...])不受影响,
+   因为它自己的声明优先级更高且更精确。
+
+   覆盖范围与取舍:
+   · button / [role=button] / a[href] / summary —— 按下缩放反馈;
+   · input / select / textarea —— 只做颜色与边框过渡(输入时不缩放,否则光标会抖);
+   · 所有过渡都用 transform + 颜色,**不动 width/height/top/left**(逐帧重排会掉帧)。
+
+   为什么按下只缩 0.97 而不是 0.9:列表行、按钮、卡片尺寸差异很大,
+   统一百分比在大卡片上会显得夸张。0.97 在 44px 按钮上是 1.3px,刚好可感。 */
+button,
+[role="button"],
+a[href],
+summary {
+  transition-property: background-color, border-color, color, filter, opacity, transform;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-standard);
+}
+
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active,
+a[href]:active,
+summary:active {
+  transform: scale(0.97);
+}
+
+/* 输入类:只过渡颜色/边框。输入框焦点时若缩放,光标位置会跟着抖。 */
+input,
+select,
+textarea {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-standard);
+}
+
+/* 禁用态不给按下反馈 —— 点了没反应还缩放,会让人以为操作成功了 */
+button:disabled,
+[aria-disabled="true"] {
+  transform: none;
+}
+
+/* ---- 列表/网格的通用进入:接管所有 space-y-* 容器 ----
+   歌曲列表用 space-y-0.5(已有专门规则),但其他列表用 space-y-1/2/3 等,
+   同样需要"依次出现"。这里用属性选择器一次性覆盖,新增列表无需配合。 */
+[class*="space-y-"] > *:not([data-no-anim]) {
+  animation: fluent-list-item-in 320ms var(--ease-emphasized) both;
+}
+[class*="space-y-"] > *:nth-child(1) { animation-delay: 0ms; }
+[class*="space-y-"] > *:nth-child(2) { animation-delay: 60ms; }
+[class*="space-y-"] > *:nth-child(3) { animation-delay: 120ms; }
+[class*="space-y-"] > *:nth-child(4) { animation-delay: 180ms; }
+[class*="space-y-"] > *:nth-child(5) { animation-delay: 240ms; }
+[class*="space-y-"] > *:nth-child(6) { animation-delay: 300ms; }
+[class*="space-y-"] > *:nth-child(n + 7) { animation-delay: 360ms; }
+
+/* ---- 卡片:悬停轻微抬起 ----
+   只在有精确指针的设备上启用(hover: hover)—— 触屏上 hover 会"粘住",
+   手指移开后卡片停在抬起状态,看起来像坏了。
+
+   **自动命中,不需要给组件加类**:全站卡片/封面按钮大多带 `hover:shadow-*`。
+   为什么不用自定义类:本鱼第一版写了个 .lift-on-hover,但**没有任何组件引用它**,
+   等于写了个不起作用的规则。改成属性选择器后自动覆盖,不会再有这种死代码。 */
+@media (hover: hover) {
+  button[class*="hover:shadow"],
+  a[class*="hover:shadow"] {
+    transition: transform var(--motion-base) var(--ease-emphasized),
+                box-shadow var(--motion-base) var(--ease-standard);
+  }
+  button[class*="hover:shadow"]:hover,
+  a[class*="hover:shadow"]:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* ---- 加载骨架的行级错峰 ----
+   骨架屏本身已有(.loading-shimmer,见 LoadingState.js),这里只补"逐行出现"。
+   为什么不在 LoadingState.js 里加类:那个组件已经在用 space-y-2 容器,
+   上面 `[class*="space-y-"] > *` 的通用规则会自动接管,无需改组件。 */

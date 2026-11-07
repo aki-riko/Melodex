@@ -29,9 +29,9 @@ const walk = (dir, out = []) => {
 const sources = walk(srcRoot).map((f) => readFileSync(f, 'utf8')).join('\n');
 
 // ---- 1. 定义在 CSS 里的 Fluent 动效类,必须真的被用到 ----
+// fluent-item-enter 已移除(与 [class*="space-y-"] > * 全局规则重复且无人引用)
 const fluentMotionClasses = [
   'fluent-page-enter',
-  'fluent-item-enter',
   'fluent-flyout-in',
   'fluent-pressable',
 ];
@@ -302,6 +302,61 @@ for (const { name, decl } of motionDecls) {
     `列表项动画只有 ${durationMatch[1]}ms —— 用户实测这个速度下看不清"划入"的过程,建议 ≥400ms`,
   );
   assert.ok(Number(durationMatch[1]) <= 600, `列表项动画 ${durationMatch[1]}ms 过慢,会有拖沓感`);
+}
+
+// ---- 9. 全站交互反馈必须兜底 ----
+//
+// 用户要求「给其他所有操作都加上动画」。全站 149 个 button、170 个 onClick,
+// 逐个加类必漏,所以用全局选择器兜底。这条锁住那些兜底规则不被删掉。
+{
+  assert.ok(
+    /button[^{]*\{[^}]*transition-property/.test(css),
+    '缺少原生 button 的过渡兜底 —— 原生按钮点了会没有任何动效',
+  );
+  assert.ok(
+    /button:not\(:disabled\):active[^{]*\{[^}]*transform:\s*scale/.test(css),
+    '缺少按下缩放反馈(button:active)',
+  );
+  assert.ok(
+    /input,\s*select,\s*textarea\s*\{/.test(css),
+    '缺少输入框的过渡 —— 聚焦时边框/底色会硬切',
+  );
+
+  // 禁用态不能有按下反馈:点了没反应还缩放,会让人误以为操作成功
+  assert.ok(
+    /button:disabled,[\s\S]{0,120}transform:\s*none/.test(css),
+    '禁用态必须取消按下缩放(点了没反应却还在动,是误导)',
+  );
+
+  // 加载骨架:项目用的是 .loading-shimmer(见 LoadingState.js)。
+  // 注意断言组件里的是**类名本身**(前面是空格或引号),不是带点的 CSS 选择器写法 ——
+  // JSX 里写成 className="... loading-shimmer",没有点号。
+  assert.ok(
+    /\.loading-shimmer\s*\{/.test(css),
+    '缺少加载骨架的微光样式(.loading-shimmer)',
+  );
+  assert.ok(
+    /\bloading-shimmer\b/.test(sources),
+    '.loading-shimmer 必须在组件里被引用(否则骨架屏是死样式)',
+  );
+}
+
+// ---- 10. 不允许存在"没人用的动效类"(死代码) ----
+//
+// 真实教训:本鱼曾写了 .lift-on-hover,但没有任何组件引用 ——
+// 看起来"加了动效",实际一点作用都没有,而且很难发现。
+// 这条扫描 CSS 里自定义的动效类,要求它们至少在某个组件里出现。
+{
+  const componentText = sources;
+  const customAnimClasses = [...css.matchAll(/^\.((?:fluent|lift|skeleton)[a-z-]*)\s*[{,:]/gm)]
+    .map((m) => m[1]);
+  const unique = [...new Set(customAnimClasses)];
+  const orphans = unique.filter((cls) => !componentText.includes(cls));
+  assert.deepStrictEqual(
+    orphans,
+    [],
+    `这些动效类在 CSS 里定义了但没有任何组件引用(等于白写):${orphans.join(', ')}`,
+  );
 }
 
 console.log('fluentMotion tests passed');
