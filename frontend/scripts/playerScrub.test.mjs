@@ -162,4 +162,27 @@ assert.match(nativeSource, /from '\.\/playerScrub\.js'/, 'Android 原生播放�
 assert.match(nativeSource, /shouldApplyProgressReport\(/, '原生 500ms 状态轮询必须过仲裁,否则拖完必回弹');
 assert.match(nativeSource, /armSeekTarget\(/, '原生 seekTo 必须建立跳转闸门');
 
+// ---- 10. 架构闸门:不许再悄悄启用「多曲 MSE 拼接」 ----
+//
+// 这是本次排查最贵的教训:进度条失效的根因不是某个 if 写错,而是**架构选错**。
+// MSE 的数据全靠 appendBuffer 喂,自己不发起网络请求;拖到未 append 的区间拿不到
+// 数据,而后端分块又都是 PTS=0 起,缓冲区永远贴着 0 排 → 拖到 90 秒越界被夹回 0。
+//
+// 源码级核对过 Navidrome / Jellyfin / Ampache:三家全是普通音频元素 + HTTP Range,
+// 没有一家用多曲 MSE;连 Spotify web 都不做 gapless。所以这里把"默认关闭"锁死,
+// 防止以后有人为了"无缝连播"再把它打开,又让进度条坏掉。
+const enableFlag = webSource.match(/const ENABLE_CONTINUOUS_MEDIA_SOURCE = (true|false);/);
+assert.ok(enableFlag, '必须保留 ENABLE_CONTINUOUS_MEDIA_SOURCE 开关(便于回退与对照实验)');
+assert.equal(
+  enableFlag[1],
+  'false',
+  '多曲 MSE 拼接必须默认关闭 —— 它会让拖动进度条失效(拖到未缓冲区间拿不到数据,'
+  + '且分块 PTS 全为 0 导致越界夹回 0)。成熟自托管音乐项目都用普通音频元素 + HTTP Range。',
+);
+assert.match(
+  webSource,
+  /supportsContinuousMediaSource\(\)/,
+  'MSE 分支的判断函数应保留,但必须与上面的开关同时成立才生效',
+);
+
 console.log('playerScrub tests passed');
