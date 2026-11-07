@@ -276,3 +276,54 @@ func TestQualityExtraHashIgnoresPresentationOnlyFields(t *testing.T) {
 		t.Fatal("songmid change must change the quality cache key")
 	}
 }
+
+// 没有歌名的曲目不得进入后台预热。
+//
+// 2026-11 真实事故: 歌单预热拿到的 model.Track 只有 ID/Source(载荷侧漏了 Name/Artist),
+// 于是预热的 97 首歌每一首都去上游取一次地址, 而取址的兜底搜索词退化成纯数字歌曲 ID。
+// 连续 79 次纯数字搜索后网易回 code=405 全域限流, 连「腐草为萤」这种正常歌曲都播不了。
+//
+// 这条断言锁住"第二道防线": 即使将来某个调用点又忘了带歌名, 预热也不会把它打出去。
+func TestWarmQualityCacheSkipsTracksWithoutName(t *testing.T) {
+	baseDir := t.TempDir()
+	t.Setenv("MUSIC_DL_CONFIG_DB", filepath.Join(baseDir, "data", "settings.db"))
+	resetCollectionStateForTest()
+	t.Cleanup(resetCollectionStateForTest)
+	InitDB()
+
+	var probes int32
+	origProvider := qualityDownloadURLProvider
+	qualityDownloadURLProvider = func(song model.Track) (string, error) {
+		atomic.AddInt32(&probes, 1)
+		return "", nil
+	}
+	t.Cleanup(func() { qualityDownloadURLProvider = origProvider })
+
+	// 缺歌名的(正是事故现场那个形状) + 一首正常的, 用来证明"跳过"是精确的而不是全跳过。
+	warmQualityCache([]model.Track{
+		{ID: "28188426", Source: "netease", Duration: 280},
+		{ID: "28188427", Source: "netease", Name: "棠梨煎雪", Artist: "银临", Duration: 280},
+	}, 6)
+
+	// 预热是异步的: 等到探测真的发生(或有界超时才判负), 不做裸 sleep。
+	deadline := time.Now().Add(5 * time.Second)
+	for atomic.LoadInt32(&probes) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := atomic.LoadInt32(&probes); got == 0 {
+		t.Fatal("有歌名的曲目应当被预热探测 —— 这条断言依赖预热真的跑起来")
+	}
+
+	// 再等一会儿, 确认缺歌名的那首始终没被探测。
+	time.Sleep(200 * time.Millisecond)
+
+	var rows []qualityCacheRow
+	if err := db.Where("source = ?", "netease").Find(&rows).Error; err != nil {
+		t.Fatalf("read quality cache rows: %v", err)
+	}
+	for _, row := range rows {
+		if row.SongID == "28188426" {
+			t.Fatalf("缺歌名的曲目被送进上游探测了 —— 这正是把网易打成限流的那条路")
+		}
+	}
+}

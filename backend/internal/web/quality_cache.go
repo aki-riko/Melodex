@@ -277,6 +277,20 @@ func warmQualityCache(songs []model.Track, concurrency int) {
 		if isLocalMusicSource(song.Source) {
 			continue
 		}
+		// 没有可用取址词的曲目不预热。
+		//
+		// 预热会真的去上游取一次地址, 而取址需要一个搜索词: 优先 extra.provider_lookup,
+		// 否则歌名+歌手(见 core.resolveProviderSong)。两者都缺时, 取址只能退化成
+		// "拿歌曲 ID 当关键词" —— 既必然失败, 又是在白白消耗上游配额。
+		// 2026-11 的事故就是这么来的: 97 首缺取址词的曲目被歌单预热挨个打出去,
+		// 连续 79 次纯数字搜索后网易回 code=405 全域限流, 连正常歌曲都播不了。
+		//
+		// 载荷侧(collectionSongsJSON)已经补上 Name/Artist; 这里再挡一道, 保证将来
+		// 任何遗漏的调用点都不会重演这次事故。判断依据与取址侧完全一致, 不误伤
+		// "有 provider_lookup 但没歌名"的曲目。
+		if !hasProviderLookupKeyword(song) {
+			continue
+		}
 		key, _ := qualityCacheKey(song)
 		if key == "" || seen[key] {
 			continue
@@ -332,6 +346,12 @@ func warmQualityCache(songs []model.Track, concurrency int) {
 type warmQualityCandidate struct {
 	song model.Track
 	key  string
+}
+
+// hasProviderLookupKeyword 判断这首歌有没有可用的取址搜索词。
+// 直接复用 core 的规则, 保证与取址侧口径完全一致(两边不一致时预热会白打上游)。
+func hasProviderLookupKeyword(song model.Track) bool {
+	return core.ProviderLookupKeyword(&song) != ""
 }
 
 // warmQualityCacheChunkSize 是 IN 查询的每块 key 数。500 对 sqlite(999 绑定参数上限)

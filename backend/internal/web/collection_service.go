@@ -198,8 +198,14 @@ func collectionSongsJSON(collection *Collection) ([]gin.H, error) {
 		if point, ok := chorusPoints[chorusSourceKey(row.Source, row.SongID)]; ok && point.Valid() {
 			applyChorusToExtraMap(extra, point)
 		}
+		// 必须带上 Name/Artist: 只给 ID/Source 会让下游的取址兜底词退化成纯数字
+		// 歌曲 ID(见 core.resolveProviderSong)。网易上那等于用一串数字去搜歌名 ——
+		// 既搜不到目标曲, 又是对上游搜索接口的额外爆破, 会直接把自己打成限流
+		// (2026-11 真实事故: 79 次纯数字搜索后网易全域 405,「腐草为萤」播放 502)。
+		// Name/Artist 是这里唯一可靠的取址兜底词来源, 下游没有别处能补回来。
 		warmTracks = append(warmTracks, model.Track{
-			ID: row.SongID, Source: row.Source, Duration: row.Duration, Extra: extra,
+			ID: row.SongID, Source: row.Source, Name: row.Name, Artist: row.Artist,
+			Duration: row.Duration, Extra: extra,
 		})
 		response = append(response, savedCollectionSongJSON(*row, extra))
 	}
