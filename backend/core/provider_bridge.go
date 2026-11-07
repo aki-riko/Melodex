@@ -119,7 +119,7 @@ func searchProviderSongsWithType(source, keyword, cookie string, searchType int)
 		SearchType: searchType,
 	})
 	if err != nil {
-		return nil, err
+		return nil, normalizeProviderSearchError(err)
 	}
 	songs := result.Songs
 	// sidecar 自动续期了该源 cookie(QQ musickey 3 天到期): 立刻落库, 否则下次请求又用旧的。
@@ -155,13 +155,15 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 		return cached, nil
 	}
 
-	keyword := strings.TrimSpace(song.Extra["provider_lookup"])
-	if keyword == "" {
-		keyword = strings.TrimSpace(strings.Join([]string{song.Name, song.Artist}, " "))
-	}
-	if keyword == "" {
-		keyword = strings.TrimSpace(song.ID)
-	}
+	// 绝不能把歌曲 ID 当成搜索关键词。
+	//
+	// 历史坑(2026-11 真实事故): 这里原先有一行 `keyword = song.ID` 兜底。对网易这种
+	// 纯数字 ID 的源, 那等于拿一串数字去搜歌名 —— 既永远搜不到目标曲(白白消耗一次
+	// 上游搜索), 又会在歌单预热时被放大成"每首缺 provider_lookup 的歌打一次搜索"。
+	// 实测: 打开几个歌单后连续发出 79 次纯数字关键词的网易搜索, 直接把网易打成
+	// code=405 全域限流, 之后连「腐草为萤」这种正常歌曲的播放都 502。
+	// 对 QQ 这种 songmid(ID 是字母数字串)同样搜不到东西, 只是不会触发限流。
+	keyword := ProviderLookupKeyword(song)
 	if keyword == "" {
 		return providermodel.Track{}, errors.New("missing provider lookup data")
 	}
@@ -174,7 +176,7 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 		Source: source, Keyword: keyword, Limit: providerSearchLimit(), Cookie: cookie,
 	})
 	if err != nil {
-		return providermodel.Track{}, err
+		return providermodel.Track{}, normalizeProviderSearchError(err)
 	}
 	persistRefreshedCookie(source, cookie, result.RefreshedCookie)
 	candidates := result.Songs
@@ -226,6 +228,48 @@ var (
 // 避免上层去匹配错误字符串。
 func IsProviderRateLimited(err error) bool { return errors.Is(err, ErrProviderRateLimited) }
 func IsProviderPaidOnly(err error) bool   { return errors.Is(err, ErrProviderPaidOnly) }
+
+// normalizeProviderSearchError 把 sidecar 报上来的"被上游限流"归一化成哨兵错误。
+//
+// 为什么必须在这一层做: sidecar 的 /v1/search 在限流时返回非 2xx + {"error": "..."},
+// 而 Client 只会把它变成一个**普通 error**。上层(internal/web)拿到的就是一句
+// "netease search rate limited: 网易搜索被限流: 操作频繁，请稍候再试" —— 它
+// errors.Is 匹配不到任何哨兵, 于是掉进兜底分支, 用户看到含糊的「音频源暂时不可用」。
+//
+// 2026-11 真实事故:「腐草为萤」播放 502, 界面长期只显示"音频源暂时不可用", 而真因
+// 是网易 code=405 限流(等一会儿就好)。这次把判定收敛到 core 这一处, 上层不再按文案猜。
+// ProviderLookupKeyword 返回取址时可用的搜索词; 空串表示"没有可用信息"。
+//
+// 规则只有一处实现, 因为**取址**和**预热前的准入判断**必须用同一套口径 ——
+// 两边口径不一致时, 预热会放进去一批取址必然失败的曲目, 每个都白打一次上游。
+//
+// 绝不能退回 song.ID(见 resolveProviderSong 上的事故注释): 拿歌曲 ID 当关键词搜,
+// 网易上连发几十次就打成了 code=405 全域限流。
+func ProviderLookupKeyword(song *providermodel.Track) string {
+	if song == nil {
+		return ""
+	}
+	keyword := strings.TrimSpace(song.Extra["provider_lookup"])
+	if keyword == "" {
+		keyword = strings.TrimSpace(strings.Join([]string{song.Name, song.Artist}, " "))
+	}
+	// 判断"关键词是否就是 ID 本身"比判断"是不是纯数字"更稳: 两边的 ID 拿来搜都是错。
+	if keyword == "" || keyword == strings.TrimSpace(song.ID) {
+		return ""
+	}
+	return keyword
+}
+
+func normalizeProviderSearchError(err error) error {	if err == nil || IsProviderRateLimited(err) || IsProviderPaidOnly(err) {
+		return err
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "rate limited") || strings.Contains(message, "rate_limited") {
+		// 保留原始信息便于日志排查, 同时保证 errors.Is 能命中哨兵。
+		return fmt.Errorf("%w: %v", ErrProviderRateLimited, err)
+	}
+	return err
+}
 
 func providerDownloadURL(source string, song *providermodel.Track) (string, error) {
 	media, err := ResolveProviderMedia(song)

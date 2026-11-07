@@ -24,6 +24,20 @@ from provider_bridge import app as bridge_app
 from provider_bridge import netease_source
 
 
+def setUpModule():
+    """模块级复位限流冷却窗。
+
+    冷却是 provider_bridge.netease_source 里的**模块级全局状态**: 任何一个用例撞上
+    code=405 都会开窗, 随后所有用例的搜索都会在"冷却中"直接抛错而不打上游
+    (实测就是这么连锁失败的)。它属于跨用例的隐式依赖, 必须在模块边界清掉。
+    """
+    netease_source.reset_rate_limit_cooldown()
+
+
+def tearDownModule():
+    netease_source.reset_rate_limit_cooldown()
+
+
 SEARCH_PAYLOAD = {
     "code": 200,
     "result": {
@@ -600,6 +614,14 @@ class RateLimitTests(unittest.TestCase):
     真实原因(限流)在整个链路里完全不可见。
     """
 
+    def setUp(self):
+        # 冷却窗是模块级全局状态: 不清掉会让"前一个用例撞了 405"影响到后面的用例
+        # (实测就是这么连锁失败的)。这里把它当成每个用例的独立前置条件。
+        netease_source.reset_rate_limit_cooldown()
+
+    def tearDown(self):
+        netease_source.reset_rate_limit_cooldown()
+
     def test_search_raises_on_rate_limit_instead_of_returning_empty(self):
         session = FakeSession(search=RATE_LIMIT_PAYLOAD)
         with self.assertLogs("provider_bridge.netease_source", level="WARNING") as captured:
@@ -627,6 +649,42 @@ class RateLimitTests(unittest.TestCase):
         session = FakeSession(search=RATE_LIMIT_PAYLOAD)
         with self.assertRaises(netease_source.NeteaseRateLimited):
             netease_source.search_by_lyric("都 是勇敢的", 6, session=session)
+
+    def test_rate_limit_opens_cooldown_so_retries_stop_hitting_upstream(self):
+        """命中 405 后必须进冷却窗, 窗内的请求不再打上游。
+
+        现场(2026-11): 前端 MSE 对同一块重试 6 次, 每次都是一次独立的搜索, 20 多秒里
+        又追加 6 次请求 —— 而上游那时只需要安静一会儿。冷却窗把这条放大链切断。
+        注意冷却期内的请求**仍要抛 NeteaseRateLimited**(不能返回空), 否则真实原因又丢了。
+        """
+        self.addCleanup(netease_source.reset_rate_limit_cooldown)
+        netease_source.reset_rate_limit_cooldown()
+
+        session = FakeSession(search=RATE_LIMIT_PAYLOAD)
+        with self.assertRaises(netease_source.NeteaseRateLimited):
+            netease_source.search_songs("爱情讯息 郭静", 20, session=session)
+
+        remaining = netease_source.status().get("rate_limit_cooldown_remaining_seconds")
+        self.assertIsNotNone(remaining, "限流后 /health 要能看到还要等多久")
+        self.assertGreater(remaining, 0)
+
+        # 冷却期内再来一次: 直接抛错, 绝不能真的打上游。
+        healthy = FakeSession(search=CLOUDSEARCH_PAYLOAD)
+        with self.assertRaises(netease_source.NeteaseRateLimited):
+            netease_source.search_songs("爱情讯息 郭静", 20, session=healthy)
+        self.assertEqual(len(healthy.calls), 0, "冷却期内不应再请求上游搜索接口")
+
+    def test_cooldown_can_be_disabled(self):
+        self.addCleanup(netease_source.reset_rate_limit_cooldown)
+        netease_source.reset_rate_limit_cooldown()
+        with mock.patch.dict("os.environ", {"MELODEX_NETEASE_RATE_LIMIT_COOLDOWN": "0"}):
+            self.assertEqual(netease_source.rate_limit_cooldown_seconds(), 0.0)
+            session = FakeSession(search=RATE_LIMIT_PAYLOAD)
+            with self.assertRaises(netease_source.NeteaseRateLimited):
+                netease_source.search_songs("爱情讯息 郭静", 20, session=session)
+            self.assertNotIn(
+                "rate_limit_cooldown_remaining_seconds", netease_source.status()
+            )
 
 
 class CloudsearchPayloadShapeTests(unittest.TestCase):

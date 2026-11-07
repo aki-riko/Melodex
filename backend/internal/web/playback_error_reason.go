@@ -29,8 +29,12 @@ func classifyPlaybackOpenError(err error) (reason string, retryable bool) {
 	}
 
 	// 优先用哨兵错误判断(不依赖错误文案, 最可靠)。
+	// 限流(含网易 code=405 "操作频繁")由 core 层统一归一化成 ErrProviderRateLimited,
+	// 见 core.normalizeProviderSearchError —— 不要把文案匹配散落在这里。
 	if core.IsProviderRateLimited(err) {
-		return "音乐源正在限流", true
+		// 明确给"等一会儿"的预期: sidecar 命中 405 后会开一个冷却窗, 立刻再点必然还失败。
+		// 只说"正在限流"会让用户一秒内连点十几次, 把窗口期越拖越长。
+		return "音乐源正在限流，请等一分钟左右再试", true
 	}
 	if core.IsProviderPaidOnly(err) {
 		// 这个哨兵叫 PaidOnly, 但它覆盖的是"拿不到可播放地址"的整类情况,

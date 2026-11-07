@@ -209,6 +209,11 @@ func TestWarmQualityCacheUsesBatchedCachedCheck(t *testing.T) {
 		song := model.Track{
 			ID:       fmt.Sprintf("warm-%04d", i),
 			Source:   "qq",
+			// 必须带歌名: warmQualityCache 会跳过没有可用取址词的曲目(2026-11 网易
+			// 限流事故后加的第二道防线), 没有歌名就进不了候选队列, 本用例将测不到
+			// "批量已缓存判断"这个目标(实测会得到 0 条 SQL 而不是期望的 3 条)。
+			Name:     fmt.Sprintf("测试歌曲 %d", i),
+			Artist:   "测试艺人",
 			Duration: 200,
 		}
 		key, extraHash := qualityCacheKey(song)

@@ -47,6 +47,68 @@ class NeteaseRateLimited(RuntimeError):
     """网易搜索接口限流(上游用 code=405 表达, 而非 HTTP 状态码)。"""
 
 
+# 限流熔断(2026-11 新增)。
+#
+# 背景: 上游一旦回 405, 继续打只会把窗口期越拖越长。真实事故里前端 MSE 管线对同一块
+# 重试 6 次(1+2+4+5+5s), Go 侧每次都是一次**独立的**搜索 → 20 多秒内又追加 6 次请求,
+# 而那时上游本来只需要安静一会儿。
+#
+# 所以命中限流后开一个冷却窗, 窗内的请求**直接抛 NeteaseRateLimited 而不打上游**。
+# 对外语义完全不变(仍然是"被限流"), 只是不再雪上加霜。
+RATE_LIMIT_COOLDOWN_ENV = "MELODEX_NETEASE_RATE_LIMIT_COOLDOWN"
+DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
+
+_cooldown_lock = threading.Lock()
+_cooldown_until = 0.0
+
+
+def rate_limit_cooldown_seconds() -> float:
+    """冷却窗长度(秒); 空值/非法值回退默认 60s, 0 表示关闭熔断。"""
+    raw = os.environ.get(RATE_LIMIT_COOLDOWN_ENV, "").strip()
+    if not raw:
+        return DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS
+    return max(0.0, value)
+
+
+def _trip_rate_limit_cooldown() -> None:
+    global _cooldown_until
+    seconds = rate_limit_cooldown_seconds()
+    if seconds <= 0:
+        return
+    with _cooldown_lock:
+        _cooldown_until = max(_cooldown_until, time.time() + seconds)
+
+
+def _remaining_cooldown() -> float:
+    with _cooldown_lock:
+        return max(0.0, _cooldown_until - time.time())
+
+
+def reset_rate_limit_cooldown() -> None:
+    """清空冷却窗(供测试与巡检脚本使用)。"""
+    global _cooldown_until
+    with _cooldown_lock:
+        _cooldown_until = 0.0
+
+
+def _assert_not_cooling_down(keyword: str) -> None:
+    """冷却期内直接抛错, 不再打上游。
+
+    注意这里**必须**抛 NeteaseRateLimited 而不是返回空列表: 返回空会让调用方以为
+    "这个关键词没货", 又把真实原因(限流)丢掉。
+    """
+    remaining = _remaining_cooldown()
+    if remaining <= 0:
+        return
+    raise NeteaseRateLimited(
+        f"网易搜索被限流: 冷却中, 还需等待 {remaining:.0f} 秒"
+    )
+
+
 # 最近一次网易搜索的观测快照, 供 /health 暴露。限流和"真的没有这首歌"在日志里
 # 长得完全不一样, 但都需要能在不进容器翻日志的情况下被巡检看到。
 _status_lock = threading.Lock()
@@ -56,13 +118,25 @@ _status: dict[str, Any] = {}
 def _record_status(**fields: Any) -> None:
     with _status_lock:
         _status.update(fields)
+        # rate_limited 是"最近一次请求是否被限流"的结论性字段, 每次请求都要显式重写。
+        # 只 update 不重置的话, 一旦撞过一次 405 就会永久显示 rate_limited=True,
+        # 后面明明搜成功 /health 还在报限流 —— 巡检会被这条假信号带偏。
+        _status.setdefault("rate_limited", False)
+        if "rate_limited" not in fields:
+            _status["rate_limited"] = False
         _status["updated_at"] = int(time.time())
 
 
 def status() -> dict[str, Any]:
     """返回最近一次网易搜索/取地址的观测快照(未发生过请求时为空字典)。"""
     with _status_lock:
-        return dict(_status)
+        snapshot = dict(_status)
+    # 冷却窗是"现在还能不能搜"的实时状态, 与最近一次请求结果分开暴露:
+    # 巡检时先看这里, 就不必去翻日志确认该等多久。
+    remaining = _remaining_cooldown()
+    if remaining > 0:
+        snapshot["rate_limit_cooldown_remaining_seconds"] = round(remaining, 1)
+    return snapshot
 
 
 # 搜索接口: 必须用 cloudsearch(pc)。旧的 /api/search/get/web 已对**几乎所有调用方**
@@ -239,6 +313,7 @@ def fetch_lyric(song_id: str, *, cookie: str = "", session: Any | None = None) -
 
 
 def _search(client: PlatformHTTP, keyword: str, limit: int, search_type: int) -> list[dict[str, Any]]:
+    _assert_not_cooling_down(keyword)
     payload = client.post_form(
         SEARCH_URL,
         {"s": keyword, "type": search_type, "limit": limit, "offset": 0},
@@ -247,6 +322,8 @@ def _search(client: PlatformHTTP, keyword: str, limit: int, search_type: int) ->
     if isinstance(payload, dict) and _integer(payload.get("code")) == RATE_LIMIT_CODE:
         # 上游把"限流"也塞进 200 响应里(旧端点尤其如此)。这里必须显式抛出去:
         # 静默返回 [] 会和"真的没这首歌"混成一个日志, 让人误判成搜索/匹配逻辑坏了。
+        # 同时开启冷却窗, 阻止紧接着的重试继续消耗上游配额。
+        _trip_rate_limit_cooldown()
         raise NeteaseRateLimited(
             f"网易搜索被限流: {_string(payload.get('msg')) or '操作频繁'}"
         )
@@ -504,14 +581,17 @@ __all__ = [
     "FALLBACK_REQUEST_LEVELS",
     "NETEASE_QUALITY_LADDER",
     "NeteaseRateLimited",
+    "RATE_LIMIT_COOLDOWN_ENV",
     "REQUEST_LEVEL_ENV",
     "build_payload",
     "fetch_lyric",
     "lyric_matches",
     "native_search_enabled",
     "playable_ratio",
+    "rate_limit_cooldown_seconds",
     "request_level",
     "request_levels",
+    "reset_rate_limit_cooldown",
     "resolve_play_url",
     "search_by_lyric",
     "search_songs",

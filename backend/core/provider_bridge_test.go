@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -245,8 +246,78 @@ func TestSearchSkipsPersistenceWhenCookieUnchanged(t *testing.T) {
 	}
 }
 
-func resetProviderBridgeStateForTest() {
-	providerBridgeClientMu.Lock()
+// 歌单预热只带 ID/Source, 会让取址的兜底搜索词退化成纯数字歌曲 ID。
+//
+// 2026-11 真实事故: 打开几个歌单 → 连续 79 次"用数字 ID 当关键词"的网易搜索
+// → 网易回 code=405 全域限流 → 「腐草为萤」播放 502, 界面只显示"音频源暂时不可用"。
+//
+// 这条测试锁两件事:
+//  1. 没有可用取址词时必须立刻拒绝, **绝不能**退化成用 ID 去搜;
+//  2. 拒绝要发生在打上游之前 —— 否则限流问题会原样复发。
+func TestResolveProviderSongNeverSearchesWithSongID(t *testing.T) {
+	resetProviderBridgeStateForTest()
+	defer resetProviderBridgeStateForTest()
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"songs": []providermodel.Track{{ID: "28188426", Source: "netease", Name: "腐草为萤"}},
+		})
+	}))
+	defer server.Close()
+	t.Setenv(providerBridgeURLEnv, server.URL)
+
+	// 只有 ID, 没有歌名/歌手 —— 正是 collectionSongsJSON 曾经构造出来的那个形状。
+	song := providermodel.Track{ID: "28188426", Source: "netease"}
+	_, err := resolveProviderSong("netease", &song, "")
+	if err == nil {
+		t.Fatal("只有歌曲 ID 时不该解析成功")
+	}
+	if !strings.Contains(err.Error(), "missing provider lookup data") {
+		t.Fatalf("err = %v, 期望 missing provider lookup data", err)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("打了 %d 次上游搜索, 期望 0 次 —— 禁止用歌曲 ID 当搜索词", got)
+	}
+}
+
+// 搜索链路把 sidecar 的限流错误归一化成哨兵, 上层才可能说对人话。
+//
+// 事故现场: sidecar 返回 400 + {"error":"netease search rate limited: 网易搜索被限流: 操作频繁"}
+// 时, 它只是个普通 error → classifyPlaybackOpenError 匹配不到任何哨兵 → 落到兜底分支
+// → 用户看到含糊的"音频源暂时不可用", 与实际(等一会儿就好)不符。
+func TestProviderSearchErrorNormalizesRateLimitSentinel(t *testing.T) {
+	resetProviderBridgeStateForTest()
+	defer resetProviderBridgeStateForTest()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "netease search rate limited: 网易搜索被限流: 操作频繁，请稍候再试",
+		})
+	}))
+	defer server.Close()
+	t.Setenv(providerBridgeURLEnv, server.URL)
+
+	searchFn := GetSearchFunc("netease")
+	if searchFn == nil {
+		t.Fatal("GetSearchFunc(netease) 返回 nil")
+	}
+	_, err := searchFn("腐草为萤 银临")
+	if err == nil {
+		t.Fatal("限流时搜索应当报错")
+	}
+	if !IsProviderRateLimited(err) {
+		t.Fatalf("err = %v, 未被归一化成 ErrProviderRateLimited", err)
+	}
+	// 原始信息必须保留下来, 否则日志里再也看不出是谁限的流。
+	if !strings.Contains(err.Error(), "netease") {
+		t.Fatalf("归一化后丢失了原始信息: %v", err)
+	}
+}
+
+func resetProviderBridgeStateForTest() {	providerBridgeClientMu.Lock()
 	providerBridgeClientURL = ""
 	providerBridgeClient = nil
 	providerBridgeClientMu.Unlock()
