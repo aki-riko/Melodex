@@ -11,7 +11,7 @@
            android:scaleX="0.72" android:scaleY="0.72">
 
         <!-- 左符干 -->
-        <path android:pathData="M188 328V138"
+        <path android:pathData="M204 312V148"
             android:strokeWidth="72" android:strokeLineCap="round">
 
             <aapt:attr name="android:strokeColor">
@@ -25,7 +25,7 @@
         </path>
 
         <!-- 右符干 -->
-        <path android:pathData="M324 328V138"
+        <path android:pathData="M386 312V148"
             android:strokeWidth="72" android:strokeLineCap="round">
 
             <aapt:attr name="android:strokeColor">
@@ -39,7 +39,7 @@
         </path>
 
         <!-- M 形横梁 -->
-        <path android:pathData="M188 138l68 84 68 -84"
+        <path android:pathData="M204 148L295 222L386 148"
             android:strokeWidth="72" android:strokeLineCap="round"
             android:strokeLineJoin="round">
 
@@ -54,7 +54,7 @@
         </path>
 
         <!-- 两个符头(倾斜椭圆) -->
-        <path android:pathData="M83.36 355.81C76.36 331.39 96.94 304.07 129.32 294.78C161.70 285.50 193.63 297.77 200.64 322.19C207.64 346.61 187.06 373.93 154.68 383.22C122.30 392.50 90.37 380.23 83.36 355.81Z">
+        <path android:pathData="M95.98 368.57C86.54 342.62 106.65 311.48 140.90 299.02C175.15 286.55 210.58 297.48 220.02 323.43C229.46 349.38 209.35 380.52 175.10 392.98C140.85 405.45 105.42 394.52 95.98 368.57Z">
 
             <aapt:attr name="android:fillColor">
                 <gradient android:type="linear"
@@ -65,7 +65,7 @@
                     android:endColor="#0FA45F" />
             </aapt:attr>
         </path>
-        <path android:pathData="M311.36 355.81C304.36 331.39 324.94 304.07 357.32 294.78C389.70 285.50 421.63 297.77 428.64 322.19C435.64 346.61 415.06 373.93 382.68 383.22C350.30 392.50 318.37 380.23 311.36 355.81Z">
+        <path android:pathData="M277.98 368.57C268.54 342.62 288.65 311.48 322.90 299.02C357.15 286.55 392.58 297.48 402.02 323.43C411.46 349.38 391.35 380.52 357.10 392.98C322.85 405.45 287.42 394.52 277.98 368.57Z">
 
             <aapt:attr name="android:fillColor">
                 <gradient android:type="linear"

@@ -71,26 +71,57 @@ const GRADIENT = `
  *
  * 两档共用同一套构造参数,避免以后改一处忘另一处。
  */
-/** 两档几何参数 —— SVG 与 Android VectorDrawable 都从这里取,避免手抄坐标走样。 */
-const GEO_STANDARD = { stroke: 46, stemIn: 176, headY: 344, headRx: 52, headRy: 39 };
-const GEO_SMALL = { stroke: 72, stemIn: 188, headY: 339, headRx: 61, headRy: 46 };
+/**
+ * 两档几何参数 —— SVG 与 Android VectorDrawable 都从这里取,避免手抄坐标走样。
+ *
+ * 构造(按乐谱里"符干朝上的连音符"的真实写法):
+ *   - 两个符头都在各自符干的**左下方**,符干从符头右上沿长出。
+ *     旧版右符头挂在右符干外侧,看着像一个鼓包,而且左右不对称地"往外撇"。
+ *   - 由于符头偏左,整体视觉中心在符干中点左侧;stemL + stemR 取 590 而不是 512,
+ *     让"左符头左缘 ~ 右符干右缘"这个包围盒落在画布正中。
+ *   - 顶部 M 形横梁 = 连音符的符杠,中间下凹 notch 形成字母 M。
+ */
+const GEO_STANDARD = {
+  stroke: 46, stemL: 200, stemR: 390, top: 142, notch: 86,
+  headDx: 44, headY: 348, headRx: 58, headRy: 42, headRot: -20,
+};
+const GEO_SMALL = {
+  stroke: 72, stemL: 204, stemR: 386, top: 148, notch: 74,
+  headDx: 46, headY: 346, headRx: 66, headRy: 50, headRot: -20,
+};
+
+/** 由几何参数算出各部件的路径数据(SVG 与 VectorDrawable 共用)。 */
+function glyphParts(g) {
+  const { stemL, stemR, top, notch, headDx, headY, headRx, headRy, headRot } = g;
+  const mid = (stemL + stemR) / 2;
+  // 符干下端藏进符头内部,保证接缝处是一整块,不露圆头
+  // (实测 headY-10 时圆头会从符头右上沿露出一个小鼓包,收到 -34 刚好藏住)
+  const stemBottom = headY - 34;
+  return {
+    stems: [`M${stemL} ${stemBottom}V${top}`, `M${stemR} ${stemBottom}V${top}`],
+    beam: `M${stemL} ${top}L${mid} ${top + notch}L${stemR} ${top}`,
+    heads: [
+      { cx: stemL - headDx, cy: headY, rx: headRx, ry: headRy, rot: headRot },
+      { cx: stemR - headDx, cy: headY, rx: headRx, ry: headRy, rot: headRot },
+    ],
+  };
+}
 
 function glyph(g = GEO_STANDARD) {
-  const { stroke, stemIn, headY, headRx, headRy } = g;
-  // 横梁是相对路径 l(beam) 84 (beam) -84:从 stemIn 走到中线 256 再走到对称位置,
-  // 所以单段水平位移 = 256 - stemIn(不是 512-2*stemIn,那是总跨度)。
-  const beam = 256 - stemIn;
+  const { stems, beam, heads } = glyphParts(g);
   return `
     <g stroke="url(#melodexGreen)" fill="none"
        stroke-linecap="round" stroke-linejoin="round">
-      <path d="M${stemIn} 328V138" stroke-width="${stroke}"/>
-      <path d="M${512 - stemIn} 328V138" stroke-width="${stroke}"/>
-      <path d="M${stemIn} 138l${beam} 84 ${beam} -84" stroke-width="${stroke}"/>
-    </g>
-    <ellipse cx="142" cy="${headY}" rx="${headRx}" ry="${headRy}"
-             fill="url(#melodexGreen)" transform="rotate(-16 142 ${headY})"/>
-    <ellipse cx="370" cy="${headY}" rx="${headRx}" ry="${headRy}"
-             fill="url(#melodexGreen)" transform="rotate(-16 370 ${headY})"/>`;
+      <path d="${stems[0]}" stroke-width="${g.stroke}"/>
+      <path d="${stems[1]}" stroke-width="${g.stroke}"/>
+      <path d="${beam}" stroke-width="${g.stroke}"/>
+    </g>${heads
+      .map(
+        (h) => `
+    <ellipse cx="${h.cx}" cy="${h.cy}" rx="${h.rx}" ry="${h.ry}"
+             fill="url(#melodexGreen)" transform="rotate(${h.rot} ${h.cx} ${h.cy})"/>`
+      )
+      .join('')}`;
 }
 
 /** 常规档:≥64px 的产物。 */
@@ -286,8 +317,8 @@ const AAPT_GRADIENT = (stopTag = 'android:strokeColor') => `
  * "有的启动器用矢量有的用位图,粗细不一致"的割裂)。
  */
 function androidGlyphVector({ geo = GEO_SMALL } = {}) {
-  const { stroke, stemIn, headY, headRx, headRy } = geo;
-  const beam = 256 - stemIn;
+  const { stroke } = geo;
+  const { stems, beam, heads } = glyphParts(geo);
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- 由 frontend/scripts/build-icons.mjs 生成,勿手改。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -301,31 +332,32 @@ function androidGlyphVector({ geo = GEO_SMALL } = {}) {
            android:scaleX="0.72" android:scaleY="0.72">
 
         <!-- 左符干 -->
-        <path android:pathData="M${stemIn} 328V138"
+        <path android:pathData="${stems[0]}"
             android:strokeWidth="${stroke}" android:strokeLineCap="round">
 ${AAPT_GRADIENT('android:strokeColor')}
         </path>
 
         <!-- 右符干 -->
-        <path android:pathData="M${512 - stemIn} 328V138"
+        <path android:pathData="${stems[1]}"
             android:strokeWidth="${stroke}" android:strokeLineCap="round">
 ${AAPT_GRADIENT('android:strokeColor')}
         </path>
 
         <!-- M 形横梁 -->
-        <path android:pathData="M${stemIn} 138l${beam} 84 ${beam} -84"
+        <path android:pathData="${beam}"
             android:strokeWidth="${stroke}" android:strokeLineCap="round"
             android:strokeLineJoin="round">
 ${AAPT_GRADIENT('android:strokeColor')}
         </path>
 
         <!-- 两个符头(倾斜椭圆) -->
-        <path android:pathData="${ellipsePath(142, headY, headRx, headRy, -16)}">
+${heads
+  .map(
+    (h) => `        <path android:pathData="${ellipsePath(h.cx, h.cy, h.rx, h.ry, h.rot)}">
 ${AAPT_GRADIENT('android:fillColor')}
-        </path>
-        <path android:pathData="${ellipsePath(370, headY, headRx, headRy, -16)}">
-${AAPT_GRADIENT('android:fillColor')}
-        </path>
+        </path>`
+  )
+  .join('\n')}
     </group>
 </vector>
 `;

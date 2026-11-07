@@ -11,12 +11,12 @@
   
     <g stroke="url(#melodexGreen)" fill="none"
        stroke-linecap="round" stroke-linejoin="round">
-      <path d="M176 328V138" stroke-width="46"/>
-      <path d="M336 328V138" stroke-width="46"/>
-      <path d="M176 138l80 84 80 -84" stroke-width="46"/>
+      <path d="M200 314V142" stroke-width="46"/>
+      <path d="M390 314V142" stroke-width="46"/>
+      <path d="M200 142L295 228L390 142" stroke-width="46"/>
     </g>
-    <ellipse cx="142" cy="344" rx="52" ry="39"
-             fill="url(#melodexGreen)" transform="rotate(-16 142 344)"/>
-    <ellipse cx="370" cy="344" rx="52" ry="39"
-             fill="url(#melodexGreen)" transform="rotate(-16 370 344)"/>
+    <ellipse cx="156" cy="348" rx="58" ry="42"
+             fill="url(#melodexGreen)" transform="rotate(-20 156 348)"/>
+    <ellipse cx="346" cy="348" rx="58" ry="42"
+             fill="url(#melodexGreen)" transform="rotate(-20 346 348)"/>
 </svg>
