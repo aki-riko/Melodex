@@ -101,6 +101,13 @@ jobs:
         working-directory: frontend
         run: npm run test:ux
 
+      # 锁死 minified React error #300(hook 顺序)。构建与其它单测都不检查这个,
+      # 2026-11 首页点歌单整站崩溃正是漏在这儿。
+      - name: Hook order guard (React error #300)
+        if: steps.scope.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm run test:hooks
+
       - name: Frontend contract tests
         if: steps.scope.outputs.frontend == 'true'
         working-directory: frontend

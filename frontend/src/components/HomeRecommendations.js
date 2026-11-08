@@ -318,11 +318,6 @@ export default function HomeRecommendations() {
     if (metadata?.id && metadata?.source) setSelectedPlaylist(metadata);
   }), []);
 
-  if (selectedPlaylist) {
-    // 不要再套一层 max-w/p-4:外层 AppShell 已经给了 max-w-6xl + px-4/6 py-6。
-    return <PlaylistSongs meta={selectedPlaylist} onBack={() => setSelectedPlaylist(null)} />;
-  }
-
   const { data, isError, isLoading, isFetching, refetch } = recommendationQuery;
 
   const openPlaylist = (playlist) => setSelectedPlaylist({
@@ -335,6 +330,17 @@ export default function HomeRecommendations() {
   const { mixed, groups } = useMemo(() => aggregateTabs(tabs), [data]);
   const totalCount = mixed.length;
   const okSourceCount = groups.length;
+
+  // ⚠️ 所有 hook 必须在这行「提前返回」之前调用完。
+  // 这里踩过 minified React error #300(Rendered fewer hooks than expected):
+  // 下面这个分支最初写在 useMemo 之前,于是「首页」(5 个 hook)与「点开歌单详情」(4 个 hook)
+  // 两副渲染的 hook 数量不一致,React 直接抛错 —— 整棵树被卸载,用户看到的是全局错误边界。
+  // 结论:只要组件可能在渲染间切换分支,分支判断就必须放在全部 hook 调用之后
+  // (derive 出来的 mixed/groups 在详情页是白算的,但绝不能为省这点计算把 hook 挪到分支外)。
+  if (selectedPlaylist) {
+    // 不要再套一层 max-w/p-4:外层 AppShell 已经给了 max-w-6xl + px-4/6 py-6。
+    return <PlaylistSongs meta={selectedPlaylist} onBack={() => setSelectedPlaylist(null)} />;
+  }
 
   return (
     <div>
