@@ -169,28 +169,33 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 
 ## 品牌图标:单一矢量为源(2026-11 重画)
 
-**所有图标产物都由 `frontend/scripts/build-icons.mjs` 从一个 SVG 图形定义生成**,禁止再手放 PNG / 手写矢量。
+**所有图标产物都由 `frontend/scripts/build-icons.mjs` 从一个矢量图形派生**,禁止再手放 PNG / 手写矢量。
+图形本身在 `frontend/scripts/icon-glyph.mjs`(唯一矢量源);`build-icons.mjs` 只负责缩放、居中、加底、出各平台格式。
 
 - 命令:`cd frontend && npm run icons`(写文件)/ `npm run test:icons`(只校验,不一致退 1)。
 - 产物三平台共 24 个:Web-PWA(`public/icon.svg`、`icon-maskable.svg`、`logo192/512`、`maskable512`、`favicon-32`)、
   Android(`mipmap-<density>/ic_launcher(_round).png` 五档位图回退 + `mipmap-anydpi-v26/ic_launcher(_round).xml` 自适应 +
   `drawable/ic_launcher_foreground.xml` 矢量 + `values/ic_launcher_background.xml`)、桌面 Tauri(`icons/icon-{32,128,256}.png` + `icon.ico`)。
-- **图形**:两根符干 + 顶端 M 形横梁 + 两个倾斜符头 —— 同时读成字母 M 和连音符。底色 `#0E1E17`,绿渐变 `#6BF7AA→#2FD982→#0FA45F`。
+  `desktop-prismqml` 直接引用 `frontend/public/logo512.png`,随之一起更新。
+- **图形(2026-11 换)**:五根柱子 + 一条上扬的飘带(柱状图 + 声波),纯色 `#7B3AED`,白底 `#FFFFFF`。
+  按用户提供的 2000px 位图**逐列测量后重绘**(不是自动矢量化),坐标系保持 2000×2000;与原图二值化逐像素差异 2.73%。
 
 ### 坑(都实际踩过,改之前必读)
-1. **渐变必须 `gradientUnits="userSpaceOnUse"`**。默认的 `objectBoundingBox` 在路径是**竖直线段**时包围盒宽度为 0,
-   渐变无法解析 → 整条线**完全不渲染**,自查时连续两轮只渲染出一个空底。
-2. **小尺寸必须用加粗变体,不能靠 512 缩下去**。`stroke-width=46` 在 32px 只剩 2.875 个像素且非整数,
-   抗锯齿把横梁与符干糊成一团(nearest 放大逐像素确认)。现在 `size ≤ 48` 自动换加粗档(笔画 72、符干内收、符头放大),
-   ICO 也是**每个尺寸单独选档**渲染,不是一张大图缩放。
-3. **清单必须 `android:icon="@mipmap/ic_launcher"`**。此前是 `@drawable/ic_melodex`,那样 `mipmap-anydpi-v26` 的自适应图标
-   **根本不会被使用**(等于白做);旧的 `ic_melodex.xml` 已删除——同一图形留两份必然分叉,正是这次重画要消灭的问题。
-4. **VectorDrawable 里 `strokeWidth` 是普通浮点属性**,不能包进 `<aapt:attr>`(空 `<attr/>` 会被 aapt2 判非法);
-   只有渐变色 `strokeColor`/`fillColor` 才需要 `aapt:attr` 包裹。Android 不支持 `<ellipse>`,由 `ellipsePath()` 转成贝塞尔 path。
-5. Android 矢量统一用**加粗档**:自适应图标在桌面多以 48~108dp 显示,不用加粗会和位图回退的观感割裂。
+1. **柱顶要整段当一条连续轮廓画**(左圆角 + 顶边 + 右圆角)。分三段拼接时即使切线对上,曲率突变,
+   接缝处仍能看出折角(用户一眼指出"右边柱顶不平滑")。现在的路径是从柱内中心放射取样后平滑得到的。
+2. **每侧竖边只能用一个位置**。柱顶曲线端点用实测墙位置、竖边却用另一个 x,差 1~2px,样条会把这个台阶放大成侧面鼓包。
+3. **自适应图标的安全圆会切掉飘带尖端**。最远的墨迹是飘带右上尖端(2000 坐标 (1488,608),离中心 618.9),
+   108dp 画布只保证中心直径 66dp 可见,换算后图形宽度占比上限 **0.669**。所以 Android 前景矢量用常规档 0.66,
+   **不能**用小尺寸档 0.80(那样半径 187 > 安全 156,圆形启动器上尖端被裁)。改图形后必须重新量这个半径。
+4. **小尺寸(≤48px)靠放大占比,不靠描边**。按 0.66 缩到 16px 柱子只剩 1~2px;加描边又会把柱间缝隙填死。
+   现在 `size ≤ 48` 用 0.80 占比,ICO 也是**每个尺寸单独选档**渲染,不是一张大图缩放。16px 下飘带基本看不清,这是已知取舍。
+5. **清单必须 `android:icon="@mipmap/ic_launcher"`**。此前是 `@drawable/ic_melodex`,那样 `mipmap-anydpi-v26` 的自适应图标
+   **根本不会被使用**;旧的 `ic_melodex.xml` 已删除——同一图形留两份必然分叉。
+6. 若以后重新引入渐变:**必须 `gradientUnits="userSpaceOnUse"`**,默认 `objectBoundingBox` 在竖直线段上包围盒宽度为 0,
+   整条线不渲染;VectorDrawable 里渐变色要包进 `<aapt:attr>`,`strokeWidth` 这类普通浮点属性不能包。
 
 验证:`npm run build`(产物进 build/)+ `npm run test:icons` + `cd android && ./gradlew :app:processDebugResources`
-(后者是确认 `aapt:attr` 渐变 / 自适应图标引用真正合法的唯一可靠手段,不能只看 XML 顺眼)。
+(后者是确认 VectorDrawable 路径 / 自适应图标引用真正合法的唯一可靠手段,不能只看 XML 顺眼)。
 
 ## 开发运行
 

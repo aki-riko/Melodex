@@ -25,17 +25,19 @@
  *   ../desktop/src-tauri/icons/icon-{32,128,256}.png + icon.ico
  *
  * 图形设计要点(改之前读一遍,别把好不容易修好的地方改回去):
- *   - 渐变必须 gradientUnits="userSpaceOnUse"。默认的 objectBoundingBox 在
- *     路径是**竖直线段**时包围盒宽度为 0,渐变无法解析,整条线直接不渲染
- *     (自查时连踩两次:图标只剩个空底)。
+ *   - 图形本身(五根柱子 + 飘带)在 scripts/icon-glyph.mjs,是唯一矢量源;
+ *     这里只负责缩放、居中、加底、派生各平台格式。
+ *   - 纯色填充,不用渐变。若以后要加渐变:必须 gradientUnits="userSpaceOnUse",
+ *     默认的 objectBoundingBox 在竖直线段上包围盒宽度为 0,整条线不渲染(踩过两次)。
  *   - 主体必须落在 maskable 安全圆(r = 40% 边长)以内,否则被系统裁圆角切边。
- *   - 小尺寸靠**笔画粗细一致性**分辨,不靠细节。图标本身已按这个原则设计:
- *     只有粗笔画 + 两个符头,没有细线装饰,所以 16px 也不会糊成噪点。
+ *   - 小尺寸(≤48px)把图形放大到底板宽度的 80%,不加描边。实测(nearest 放大逐像素看):
+ *     按 66% 缩到 16px 柱子只剩 1~2px,描边加粗又会把柱间缝隙填死,放大占比两边都不伤。
  */
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { GLYPH_BOX, GLYPH_COLOR, GLYPH_PATHS } from './icon-glyph.mjs';
 
 const require = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'));
 const sharp = require('sharp');
@@ -49,89 +51,39 @@ const TAURI_ICONS = resolve(ROOT, 'desktop/src-tauri/icons');
 
 const CHECK = process.argv.includes('--check');
 
-/** 品牌底色与绿色(与旧版同一色系,保持品牌连续性)。 */
-const BASE = '#0E1E17';
-/** 视觉中心:符干+横梁构成的 M 融合形。 */
-const GRADIENT = `
-    <linearGradient id="melodexGreen" gradientUnits="userSpaceOnUse"
-                    x1="130" y1="110" x2="382" y2="400">
-      <stop offset="0" stop-color="#6BF7AA"/>
-      <stop offset="0.55" stop-color="#2FD982"/>
-      <stop offset="1" stop-color="#0FA45F"/>
-    </linearGradient>`;
+/** 底板为白色,图形为品牌紫(GLYPH_COLOR),与用户提供的原图一致。 */
+const BASE = '#FFFFFF';
 
 /**
- * 图形主体(512 坐标系),两档笔画。
- *
- * 为什么要两档:512 视图里 stroke-width=46 缩到 32px 只剩 2.875 个像素,
- * 且不是整数 → 抗锯齿把笔画糊成软边,M 的横梁与两根符干粘连,小图标读不出字形。
- * 实测(nearest 放大逐像素比对)base46 在 32px 已糊成一团,bold72 仍清楚。
- * 所以 ≤48px 的产物改用加粗版:笔画 72、符干内收、符头放大,
- * 保证 16px 下"两根竖 + 中间尖"三个特征都还分得开。
- *
- * 两档共用同一套构造参数,避免以后改一处忘另一处。
+ * 图形在 512 底板上的宽度占比。图形外框 975×765(见 GLYPH_BOX),
+ * 0.66 时外框约 338×265,四周留白均匀;小尺寸改 0.80,原因见文件头。
  */
-/** 两档几何参数 —— SVG 与 Android VectorDrawable 都从这里取,避免手抄坐标走样。 */
-const GEO_STANDARD = { stroke: 46, stemIn: 176, headY: 344, headRx: 52, headRy: 39 };
-const GEO_SMALL = { stroke: 72, stemIn: 188, headY: 339, headRx: 61, headRy: 46 };
+const FILL_STANDARD = 0.66;
+const FILL_SMALL = 0.8;
 
-function glyph(g = GEO_STANDARD) {
-  const { stroke, stemIn, headY, headRx, headRy } = g;
-  // 横梁是相对路径 l(beam) 84 (beam) -84:从 stemIn 走到中线 256 再走到对称位置,
-  // 所以单段水平位移 = 256 - stemIn(不是 512-2*stemIn,那是总跨度)。
-  const beam = 256 - stemIn;
+/** 把 2000 坐标系的图形缩放并居中到 512 视图的变换参数(SVG 与 VectorDrawable 共用)。 */
+function glyphTransform(fill) {
+  const scale = (512 * fill) / GLYPH_BOX.width;
+  const cx = GLYPH_BOX.x + GLYPH_BOX.width / 2;
+  const cy = GLYPH_BOX.y + GLYPH_BOX.height / 2;
+  return { scale, tx: 256 - cx * scale, ty: 256 - cy * scale };
+}
+
+function glyph(fill) {
+  const { scale, tx, ty } = glyphTransform(fill);
   return `
-    <g stroke="url(#melodexGreen)" fill="none"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M${stemIn} 328V138" stroke-width="${stroke}"/>
-      <path d="M${512 - stemIn} 328V138" stroke-width="${stroke}"/>
-      <path d="M${stemIn} 138l${beam} 84 ${beam} -84" stroke-width="${stroke}"/>
-    </g>
-    <ellipse cx="142" cy="${headY}" rx="${headRx}" ry="${headRy}"
-             fill="url(#melodexGreen)" transform="rotate(-16 142 ${headY})"/>
-    <ellipse cx="370" cy="${headY}" rx="${headRx}" ry="${headRy}"
-             fill="url(#melodexGreen)" transform="rotate(-16 370 ${headY})"/>`;
+    <g transform="translate(${tx.toFixed(3)} ${ty.toFixed(3)}) scale(${scale.toFixed(6)})" fill="${GLYPH_COLOR}">
+${GLYPH_PATHS.map((d) => `      <path d="${d}"/>`).join('\n')}
+    </g>`;
 }
 
 /** 常规档:≥64px 的产物。 */
-const GLYPH = glyph(GEO_STANDARD);
+const GLYPH = glyph(FILL_STANDARD);
 
-/** 加粗档:≤48px 的产物(原理见上)。 */
-const GLYPH_SMALL = glyph(GEO_SMALL);
+/** 小尺寸档:≤48px 的产物(原理见文件头)。 */
+const GLYPH_SMALL = glyph(FILL_SMALL);
 
-/**
- * 椭圆 → pathData(Android VectorDrawable 不支持 <ellipse>,只认 path)。
- * 用四段三次贝塞尔画闭合椭圆:圆角半径系数 0.5522847498 是 90° 弧的标准近似,
- * 误差 <0.03%,在小图标上完全看不出来。
- * rotation 为绕中心的旋转角(度),整体对每个点做旋转。
- */
-function ellipsePath(cx, cy, rx, ry, rotation = 0) {
-  const k = 0.5522847498;
-  const rad = (rotation * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  // 先按未旋转坐标算点,再绕中心旋转
-  const rot = (x, y) => {
-    const dx = x - cx;
-    const dy = y - cy;
-    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
-  };
-  const f = (x, y) => {
-    const [px, py] = rot(x, y);
-    return `${px.toFixed(2)} ${py.toFixed(2)}`;
-  };
-  const krx = k * rx;
-  const kry = k * ry;
-  return (
-    `M${f(cx - rx, cy)}` +
-    `C${f(cx - rx, cy - kry)} ${f(cx - krx, cy - ry)} ${f(cx, cy - ry)}` +
-    `C${f(cx + krx, cy - ry)} ${f(cx + rx, cy - kry)} ${f(cx + rx, cy)}` +
-    `C${f(cx + rx, cy + kry)} ${f(cx + krx, cy + ry)} ${f(cx, cy + ry)}` +
-    `C${f(cx - krx, cy + ry)} ${f(cx - rx, cy + kry)} ${f(cx - rx, cy)}Z`
-  );
-}
-
-/** 小于此边长的位图一律用加粗档。 */
+/** 小于等于此边长的位图一律用小尺寸档。 */
 const SMALL_CUTOFF = 48;
 const glyphFor = (size) => (size <= SMALL_CUTOFF ? GLYPH_SMALL : GLYPH);
 
@@ -140,23 +92,10 @@ const SAFE_SCALE = 0.72;
 const scaled = (body) =>
   `<g transform="translate(256 256) scale(${SAFE_SCALE}) translate(-256 -256)">${body}</g>`;
 
-/** 圆角版(Web favicon / 桌面)。size 决定用哪一档笔画。 */
+/** 圆角版(Web favicon / 桌面)。body 决定用哪一档。 */
 function roundedSvg(body = GLYPH) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>${GRADIENT}
-  </defs>
   <rect width="512" height="512" rx="116" fill="${BASE}"/>
-  ${body}
-</svg>
-`;
-}
-
-/** 圆形底版 —— Android 圆形启动器图标用。 */
-function roundSvg(body = GLYPH) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>${GRADIENT}
-  </defs>
-  <circle cx="256" cy="256" r="256" fill="${BASE}"/>
   ${body}
 </svg>
 `;
@@ -165,8 +104,6 @@ function roundSvg(body = GLYPH) {
 /** 满底版 —— 给 maskable 用,图形缩进安全区,系统裁任意形状都不切主体。 */
 function maskableSvg(body = GLYPH) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>${GRADIENT}
-  </defs>
   <rect width="512" height="512" fill="${BASE}"/>
   ${scaled(body)}
 </svg>
@@ -182,8 +119,8 @@ function put(path, content) {
 
 /**
  * 渲染 PNG。
- * 关键:按目标尺寸挑笔画档(≤48px 用加粗档),而不是先画 512 再缩小 ——
- * 后者在小尺寸必糊(原因见 glyph 的注释)。
+ * 关键:按目标尺寸挑档位(≤48px 用小尺寸档),而不是先画 512 再缩小 ——
+ * 后者在小尺寸柱子只剩 1~2px(原因见文件头)。
  * 同时用高 density 光栅化,让 16/24px 这类尺寸也能拿到干净的抗锯齿结果。
  */
 async function renderPng(svg, size, { background = null } = {}) {
@@ -205,7 +142,6 @@ async function renderPng(svg, size, { background = null } = {}) {
 /** 按目标尺寸选好档位的完整图标 SVG。 */
 function iconSvgFor(size, colors = {}) {
   const body = glyphFor(size);
-  if (colors.round) return roundSvg(body);
   if (colors.maskable) return maskableSvg(body);
   return roundedSvg(body);
 }
@@ -214,7 +150,7 @@ function iconSvgFor(size, colors = {}) {
  * ICO 容器(Windows 桌面图标)。
  * sharp 不产 .ico,这里按 ICO 目录格式手工封装多张 PNG。
  * 每张都当"独立 PNG 条目"(ImageType 2),Vista 起广泛支持。
- * 每个尺寸各自选笔画档 —— 用一张 256 缩到 16 会糊。
+ * 每个尺寸各自选档位 —— 用一张 256 缩到 16 会糊。
  */
 async function buildIco(sizes) {
   const pngs = [];
@@ -251,8 +187,8 @@ async function buildIco(sizes) {
 /**
  * Android 自适应图标(API 26+)。
  * 前景由 ic_launcher_foreground.xml 提供(已缩进安全区),背景是纯色。
- * 故意不放 <monochrome>:主题图标要求单色剪影,而这里的前景是渐变色块,
- * 硬塞进去会得到一团实心方块。
+ * 暂不放 <monochrome>(Android 13 主题图标):需要单独确认在系统取色下的观感,
+ * 这次只换图形,不扩大范围。
  */
 function androidAdaptiveXml() {
   return `<?xml version="1.0" encoding="utf-8"?>
@@ -264,34 +200,23 @@ function androidAdaptiveXml() {
 `;
 }
 
-/** 同一渐变在 VectorDrawable 里的写法(<gradient> 塞进 aapt:attr)。 */
-const AAPT_GRADIENT = (stopTag = 'android:strokeColor') => `
-            <aapt:attr name="${stopTag}">
-                <gradient android:type="linear"
-                    android:startX="130" android:startY="110"
-                    android:endX="382" android:endY="400"
-                    android:startColor="#6BF7AA"
-                    android:centerColor="#2FD982"
-                    android:endColor="#0FA45F" />
-            </aapt:attr>`;
-
 /**
  * Android 矢量图(前景层)。
- * VectorDrawable 的 strokeWidth 是普通浮点属性;**不是** color 类属性,
- * 不能包在 <aapt:attr> 里(写成空 <attr/> 会被 aapt2 直接判非法)。
- * 只有渐变色的 strokeColor/fillColor 才需要 aapt:attr 包裹。
+ * 纯色填充,直接用 android:fillColor,不需要 aapt:attr。
+ * pathData 原样沿用 2000 坐标系的路径(含 A 圆弧指令,VectorDrawable 支持),
+ * 缩放与居中交给内层 <group>,与 SVG 用的是同一组 glyphTransform 参数。
  *
- * 用哪一档:自适应图标在桌面上通常以 48~108dp 显示,栅格化后接近小图标,
- * 所以统一用**加粗档**,与位图回退的观感保持一致(不这么做会出现
- * "有的启动器用矢量有的用位图,粗细不一致"的割裂)。
+ * 用哪一档:只能用常规档 0.66,**不能**用小尺寸档 0.80。
+ * 自适应图标只保证中心直径 66dp(108dp 画布)可见,圆形启动器会裁掉其余部分。
+ * 实测图形离中心最远的墨迹是飘带右上尖端(2000 坐标 (1488,608),半径 618.9),
+ * 换算后安全圆允许的最大占比是 0.669:0.66 时半径 154.5 / 安全 156.4,
+ * 0.80 时 187.2,尖端会被切掉。改图形后要重新量这个半径。
  */
-function androidGlyphVector({ geo = GEO_SMALL } = {}) {
-  const { stroke, stemIn, headY, headRx, headRy } = geo;
-  const beam = 256 - stemIn;
+function androidGlyphVector(fill = FILL_STANDARD) {
+  const { scale, tx, ty } = glyphTransform(fill);
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- 由 frontend/scripts/build-icons.mjs 生成,勿手改。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="512"
@@ -299,33 +224,11 @@ function androidGlyphVector({ geo = GEO_SMALL } = {}) {
     <!-- 自适应图标安全区:512 视图里只有中心 72% 保证可见 -->
     <group android:translateX="71.68" android:translateY="71.68"
            android:scaleX="0.72" android:scaleY="0.72">
-
-        <!-- 左符干 -->
-        <path android:pathData="M${stemIn} 328V138"
-            android:strokeWidth="${stroke}" android:strokeLineCap="round">
-${AAPT_GRADIENT('android:strokeColor')}
-        </path>
-
-        <!-- 右符干 -->
-        <path android:pathData="M${512 - stemIn} 328V138"
-            android:strokeWidth="${stroke}" android:strokeLineCap="round">
-${AAPT_GRADIENT('android:strokeColor')}
-        </path>
-
-        <!-- M 形横梁 -->
-        <path android:pathData="M${stemIn} 138l${beam} 84 ${beam} -84"
-            android:strokeWidth="${stroke}" android:strokeLineCap="round"
-            android:strokeLineJoin="round">
-${AAPT_GRADIENT('android:strokeColor')}
-        </path>
-
-        <!-- 两个符头(倾斜椭圆) -->
-        <path android:pathData="${ellipsePath(142, headY, headRx, headRy, -16)}">
-${AAPT_GRADIENT('android:fillColor')}
-        </path>
-        <path android:pathData="${ellipsePath(370, headY, headRx, headRy, -16)}">
-${AAPT_GRADIENT('android:fillColor')}
-        </path>
+        <!-- 把 2000 坐标系的图形缩放并居中到 512 视图 -->
+        <group android:translateX="${tx.toFixed(3)}" android:translateY="${ty.toFixed(3)}"
+               android:scaleX="${scale.toFixed(6)}" android:scaleY="${scale.toFixed(6)}">
+${GLYPH_PATHS.map((d) => `            <path android:fillColor="${GLYPH_COLOR}" android:pathData="${d}" />`).join('\n')}
+        </group>
     </group>
 </vector>
 `;
