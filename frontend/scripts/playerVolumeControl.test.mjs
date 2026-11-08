@@ -221,4 +221,35 @@ assert.ok(
   "openUp 分支必须用 bottom-full(向上弹)",
 );
 
+// ---- 15. 源码契约:音量按钮与队列按钮必须同尺寸 ----
+//
+// 来自用户真机截图反馈「这俩对齐啊」:喇叭图标比右边的队列图标高一点点。
+// 逐像素量过(2323×1443 截图,播放条内 y[1376,1412]):
+//   上一首 / 下一首 / 播放模式 cy≈1393.5  ← 播放条的真实基线
+//   音量喇叭        cy≈1394.5  (+1.0)
+//   队列            cy≈1389.0  (-4.5) ← 偏得最多
+// 根因不是图标本身,而是**按钮盒子没有高度**:盒高 == 图标高(18~23px),
+// 父级 items-center 只能把这坨矮盒子居中,与其他 44px 控件对不齐。
+// 修法是把两个按钮都改成 44×44(h-11 w-11,仓库里图标按钮的通行尺寸)。
+{
+  assert.match(
+    componentCode,
+    /className="[^"]*\bh-11\b[^"]*\bw-11\b|className="[^"]*\bw-11\b[^"]*\bh-11\b/,
+    '音量触发按钮必须有固定 44×44 盒子(h-11 w-11)——否则盒高只有图标高,与相邻控件对不齐',
+  );
+
+  // 队列按钮在 PlayerContext 里,必须同尺寸
+  const queueButton = playerSource.match(/aria-label="播放队列"[\s\S]{0,80}/);
+  assert.ok(queueButton, '找不到播放队列按钮(文案改过?请同步更新本断言)');
+  const queueChunk = playerSource.slice(
+    Math.max(0, playerSource.indexOf('aria-label="播放队列"') - 400),
+    playerSource.indexOf('aria-label="播放队列"'),
+  );
+  assert.match(
+    queueChunk,
+    /\bh-11\b[\s\S]{0,60}\bw-11\b|\bw-11\b[\s\S]{0,60}\bh-11\b/,
+    '队列按钮也必须 h-11 w-11 —— 它与音量按钮相邻,两者盒高不同就会错位(用户已截图反馈)',
+  );
+}
+
 console.log('playerVolumeControl tests passed');

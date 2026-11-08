@@ -191,7 +191,12 @@ const VolumeControl = ({
       <button
         type="button"
         onClick={onToggleMute}
-        className="flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+        // 44×44 是仓库里图标按钮的通行尺寸(见播放条其它按钮),也是触控下限。
+        // 尺寸写死在这里不是形式主义:相邻的「播放队列」按钮同样是 44×44,
+        // 两者盒高一致才能保证图标中心落在同一条基线上 —— 之前这里没有尺寸,
+        // 盒子只有图标那么高(18px),与旁边的 44px 盒子错开 2px,
+        // 肉眼看就是「喇叭比队列图标高一点点」。
+        className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         title={muted ? '取消静音' : '静音'}
         aria-label={muted ? '取消静音' : '静音'}
         aria-expanded={open}

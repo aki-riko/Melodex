@@ -1805,10 +1805,13 @@ export const PlayerBar = () => {
                 openUp
               />
             </div>
-            {/* 播放队列:音量键右侧 */}
+            {/* 播放队列:音量键右侧。
+                这里也必须给 44×44 的盒子:左侧 VolumeControl 的喇叭是 44×44,
+                两个盒子同高,图标中心才会落在同一条基线上(此前两者都只有
+                图标那么高,实测中心差 2px,看起来「喇叭高了一点点」)。 */}
             <div className="relative flex-shrink-0">
               <button onClick={() => setQueueOpen((o) => !o)}
-                className={`transition-colors ${queueOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${queueOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                 title="播放队列" aria-label="播放队列">
                 <ListMusic size={18} />
               </button>
