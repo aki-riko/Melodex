@@ -41,6 +41,16 @@ var allowedPlaybackDiagnosticEvents = map[string]struct{}{
 	"stalled":                    {},
 	"suspend":                    {},
 	"waiting":                    {},
+	// 原生 seek 取证(2026-11 排查「手机拖动进度条无效」)。
+	//
+	// 为什么要专门两个事件:上一轮排查把「服务端收到的 Range 偏移」当成了
+	// 「用户拖到的位置」,于是 570053 被换算成 5.7 秒,推出了"seek 差 20 倍"的
+	// 错误方向。实际上 570053 是 FLAC 元数据区结束、第一个音频帧的偏移,
+	// 它等价于「从 0 秒开始」。所以真正缺的不是"差多少倍",而是
+	// 「JS 请求了多少毫秒 / ExoPlayer 认不认这首歌能 seek / 它报的时长是多少」。
+	// 这三件事只有原生侧知道,必须由 Kotlin 回填后经此通道落到服务端日志。
+	"seek_requested": {},
+	"seek_settled":   {},
 }
 
 type playbackDiagnosticRequest struct {
@@ -74,6 +84,15 @@ type playbackDiagnosticRequest struct {
 	ActivationEver      bool    `json:"user_activation_has_been_active"`
 	PageElapsedMS       float64 `json:"page_elapsed_ms"`
 	DeviceInfo          string  `json:"device_info"`
+	// ---- 原生 seek 取证字段(2026-11) ----
+	// 只允许原生侧回填,均为数字/短文本,不承接任意大对象。
+	// 单位统一为毫秒,与 ExoPlayer 的 API 一致,避免前端/原生来回换算出错。
+	SeekRequestedMs int64  `json:"seek_requested_ms"` // JS 传下来的目标位置
+	SeekAppliedMs   int64  `json:"seek_applied_ms"`   // 原生 seek 之后 player.currentPosition
+	SeekDurationMs  int64  `json:"seek_duration_ms"`  // 此刻 player.duration(TIME_UNSET 折 0)
+	SeekPositionMs  int64  `json:"seek_position_ms"`  // seek 之前的 currentPosition
+	Seekable        string `json:"seekable"`          // "true"/"false"/"" 未知;false 时 seekTo 会退化
+	MediaItemType   string `json:"media_item_type"`   // "audio/flac"/"audio/mp4a|mp4a.40.2"...判断容器格式
 }
 
 func cleanPlaybackDiagnosticText(value string, max int) string {
@@ -104,7 +123,7 @@ func RegisterPlaybackDiagnosticRoutes(api *gin.RouterGroup) {
 		}
 
 		log.Printf(
-			"player-diagnostic user_id=%d event=%s page_id=%s bundle=%s audio_slot=%s active_slot=%s standby_slot=%s media_state=%s discarded=%t activation_supported=%t activation_active=%t activation_ever=%t page_elapsed_ms=%.0f device=%s source=%s song_id=%s next_source=%s next_song_id=%s seq=%s source_kind=%s visibility=%s reason=%s mode=%s queue=%d time=%.1f/%.1f buffered_end=%.1f paused=%t ended=%t ready=%d network=%d ua=%s",
+			"player-diagnostic user_id=%d event=%s page_id=%s bundle=%s audio_slot=%s active_slot=%s standby_slot=%s media_state=%s discarded=%t activation_supported=%t activation_active=%t activation_ever=%t page_elapsed_ms=%.0f device=%s source=%s song_id=%s next_source=%s next_song_id=%s seq=%s source_kind=%s visibility=%s reason=%s mode=%s queue=%d time=%.1f/%.1f buffered_end=%.1f paused=%t ended=%t ready=%d network=%d seek_req_ms=%d seek_applied_ms=%d seek_dur_ms=%d seek_pos_ms=%d seekable=%s item_type=%s ua=%s",
 			currentUserID(c),
 			req.Event,
 			cleanPlaybackDiagnosticText(req.PageID, 80),
@@ -136,6 +155,12 @@ func RegisterPlaybackDiagnosticRoutes(api *gin.RouterGroup) {
 			req.Ended,
 			req.ReadyState,
 			req.NetworkState,
+			req.SeekRequestedMs,
+			req.SeekAppliedMs,
+			req.SeekDurationMs,
+			req.SeekPositionMs,
+			cleanPlaybackDiagnosticText(req.Seekable, 8),
+			cleanPlaybackDiagnosticText(req.MediaItemType, 24),
 			cleanPlaybackDiagnosticText(c.Request.UserAgent(), 180),
 		)
 		c.Status(http.StatusNoContent)

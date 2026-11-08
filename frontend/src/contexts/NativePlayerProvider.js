@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getStreamUrl, coverProxyUrl, recordPlayHistory, saveToServer, serverSaveSucceeded } from '../services/musicdl.js';
+import { getStreamUrl, coverProxyUrl, recordPlayHistory, reportPlaybackDiagnostic, saveToServer, serverSaveSucceeded } from '../services/musicdl.js';
 import { normalizeSong } from '../utils/songFields.js';
 import { songIdentityKey } from '../utils/songIdentity.js';
 import { useAuth } from './AuthContext.js';
@@ -24,6 +24,7 @@ import {
   NativePlayback,
   buildNativeQueue,
   nativePlaybackSnapshot,
+  nativeSeekDiagnostic,
 } from './nativePlayback.js';
 
 const VOLUME_KEY = 'melodex_volume';
@@ -274,7 +275,26 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
     // 立刻立闸:原生 seekTo 是异步 IPC,而插件每 500ms 还会报一次旧位置,
     // 不压住的话下一次轮询就把拇指位置顶掉(手机端回弹的主因)。
     armSeekTarget(scrubRef.current, value);
-    NativePlayback.seekTo({ positionMs: value * 1000 }).catch((error) => setNotice(`跳转进度失败：${error?.message || error}`));
+    const requestedMs = value * 1000;
+    NativePlayback.seekTo({ positionMs: requestedMs })
+      .then((result) => {
+        // 取证:把「请求位置 / 播放器认不认 seek / 实际落点」一起送到服务端日志。
+        // 失败绝不能影响播放,所以先构造再单独 catch。
+        try {
+          const song = nowPlayingRef.current;
+          reportPlaybackDiagnostic({
+            event: 'seek_requested',
+            source: song?.source || '',
+            song_id: song?.id ? String(song.id) : '',
+            current_time: value,
+            duration: Number(result?.seekDurationMs) > 0 ? Number(result.seekDurationMs) / 1000 : 0,
+            ...nativeSeekDiagnostic(requestedMs, result),
+          });
+        } catch (error) {
+          console.debug('seek 诊断上报失败', error);
+        }
+      })
+      .catch((error) => setNotice(`跳转进度失败：${error?.message || error}`));
   }, []);
 
   // 进度条拖动句柄:与 Web 端同一套语义(拖动中只认拇指)。

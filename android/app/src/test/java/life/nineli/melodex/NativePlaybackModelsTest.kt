@@ -194,4 +194,62 @@ class NativePlaybackModelsTest {
         assertFalse(isWithinEvidenceWindow(10_000L, 9_999L, 2_000L))
         assertFalse(isWithinEvidenceWindow(10_000L, 12_001L, 2_000L))
     }
+
+    // ---- 2026-11 修「手机拖动进度条无效」的核心回归 ----
+    //
+    // 真因:Capacitor 的 PluginCall.getLong() 只认 `value instanceof Long`,
+    // 其它类型(JSON 整数常被解析成 Integer,浮点被解析成 Double)**一律返回默认值**。
+    // 因此 `call.getLong("positionMs", 0L)` 会得到 0 → player.seekTo(0) → 从头播,
+    // 用户看到的就是「拖了还是从 0 开始」,服务端也只收到第一个音频帧处的 Range。
+    // 这些用例锁死"任何数值形态都必须被正确换算",防止再退回类型敏感的实现。
+    @Test
+    fun millisOptionAcceptsEveryNumericShapeTheBridgeMaySend() {
+        // 最关键的四个:Int(JSON 小整数)、Long、Double(带小数或 .0)、数字字符串。
+        assertEquals(120_000L, readMillisOption(120_000))
+        assertEquals(120_000L, readMillisOption(120_000L))
+        assertEquals(120_000L, readMillisOption(120_000.0))
+        assertEquals(120_000L, readMillisOption("120000"))
+
+        // 拖动步进是 0.5s → 500ms,浮点必须能落到毫秒。
+        assertEquals(120_500L, readMillisOption(120_500.0))
+        // 非整毫秒向下取整(ExoPlayer 只接受 Long,不能四舍五入到下一毫秒导致越界)。
+        assertEquals(120_500L, readMillisOption(120_500.6))
+
+        assertEquals(180_000L, readMillisOption(180_000.0f))
+        assertEquals(7L, readMillisOption(7.toShort()))
+        assertEquals(9L, readMillisOption(9.toByte()))
+    }
+
+    @Test
+    fun millisOptionFallsBackOnlyWhenValueIsTrulyUnusable() {
+        // 缺失/无法解析才用 fallback;注意 0 是合法值(用户拖到最左),不能被当成缺失。
+        assertEquals(0L, readMillisOption(null))
+        assertEquals(0L, readMillisOption("not-a-number"))
+        assertEquals(5_000L, readMillisOption(null, fallback = 5_000L))
+        assertEquals(5_000L, readMillisOption("abc", fallback = 5_000L))
+
+        // 0 必须原样返回,而不是被 fallback 顶掉。
+        assertEquals(0L, readMillisOption(0))
+        assertEquals(0L, readMillisOption(0.0))
+        assertEquals(0L, readMillisOption("0", fallback = 5_000L))
+    }
+
+    @Test
+    fun millisOptionRejectsNonFiniteAndNegativeValues() {
+        // NaN/Infinity 转 Long 在 JVM 上是 0 或 Long.MAX,必须显式挡掉。
+        assertEquals(0L, readMillisOption(Double.NaN))
+        assertEquals(0L, readMillisOption(Double.POSITIVE_INFINITY))
+        assertEquals(0L, readMillisOption(Float.NEGATIVE_INFINITY))
+        // 负值钳到 0:seekTo 不接受负位置。
+        assertEquals(0L, readMillisOption(-1_000))
+        assertEquals(0L, readMillisOption(-1_000.0))
+    }
+
+    @Test
+    fun coerceToLongMsDistinguishesMissingFromZero() {
+        // 这两者必须可区分:null = 字段缺失,0 = 明确的 0 毫秒。
+        assertEquals(null, coerceToLongMs(null))
+        assertEquals(0L, coerceToLongMs(0))
+        assertEquals(0L, coerceToLongMs(0.0))
+    }
 }
