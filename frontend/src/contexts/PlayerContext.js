@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Volume2, Volume1, VolumeX, ListMusic, ChevronDown, Heart } from 'lucide-react';
+import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart } from 'lucide-react';
 import DesktopLyricsBridge from '../components/DesktopLyricsBridge';
 import SleepTimerControl from '../components/SleepTimerControl';
+import VolumeControl from '../components/VolumeControl';
 import { getStreamUrl, getPlaybackSegmentUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
@@ -1702,13 +1703,9 @@ export const PlayerBar = () => {
   // 播放模式图标(自定义 SVG,圆角风格统一):顺序/列表循环/单曲循环/随机
   const modeIcon = <PlayModeIcon mode={mode} size={20} />;
 
-  // 音量图标:静音/0 → X,低 → Volume1,高 → Volume2
-  const effectiveVol = muted ? 0 : volume;
-  const volIcon = effectiveVol === 0
-    ? <VolumeX size={18} />
-    : effectiveVol < 0.5
-      ? <Volume1 size={18} />
-      : <Volume2 size={18} />;
+  // 音量图标/百分比/滚轮一律由 VolumeControl 内部处理
+  // (档位规则见 contexts/playerVolumeControl.js 的 volumeIconTier)。
+
   const sleepTimerControlProps = {
     active: Boolean(sleepTimer),
     pendingEndOfTrack: Boolean(sleepTimer?.pendingEndOfTrack),
@@ -1795,17 +1792,17 @@ export const PlayerBar = () => {
               </div>
               <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
             </div>
-            {/* 音量: 仅桌面。窄屏(md)隐藏 —— 那里空间不够, 且大多用系统音量。 */}
-            <div className="hidden lg:flex items-center gap-1.5 flex-shrink-0" style={{ width: 120 }}>
-              <button onClick={toggleMute}
-                className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-                title={muted ? '取消静音' : '静音'} aria-label="静音">
-                {volIcon}
-              </button>
-              <input
-                type="range" min={0} max={1} step="0.01" value={effectiveVol}
-                onChange={(e) => setVolume(Number(e.target.value))}
-                className="flex-grow min-w-0 accent-primary cursor-pointer" aria-label="音量"
+            {/* 音量: 仅桌面。窄屏(md)隐藏 —— 那里空间不够, 且大多用系统音量。
+                2026-11:水平短条 → 悬停弹出的垂直长条 + 滚轮微调(见 VolumeControl.js)。
+                点击图标仍然是静音切换,原有肌肉记忆不变。 */}
+            <div className="hidden lg:flex items-center flex-shrink-0">
+              <VolumeControl
+                volume={volume}
+                muted={muted}
+                onVolumeChange={setVolume}
+                onToggleMute={toggleMute}
+                iconSize={18}
+                openUp
               />
             </div>
             {/* 播放队列:音量键右侧 */}
@@ -2133,12 +2130,16 @@ export const PlayerBar = () => {
               <button onClick={next} className="text-foreground hover:scale-110 transition-transform" aria-label="下一首">
                 <SkipForward size={30} fill="currentColor" />
               </button>
-              <div className="flex items-center gap-2" style={{ width: 130 }}>
-                <button onClick={toggleMute} className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0" aria-label="静音">{volIcon}</button>
-                <input type="range" min={0} max={1} step="0.01" value={effectiveVol}
-                  onChange={(e) => setVolume(Number(e.target.value))}
-                  className="flex-grow accent-primary cursor-pointer" aria-label="音量" />
-              </div>
+              {/* 全屏播放页同样改成垂直条:这里空间更宽,弹出方向朝上。
+                  与底部条共用同一个组件,手感一致。 */}
+              <VolumeControl
+                volume={volume}
+                muted={muted}
+                onVolumeChange={setVolume}
+                onToggleMute={toggleMute}
+                iconSize={22}
+                openUp
+              />
             </div>
           </div>
         </div>

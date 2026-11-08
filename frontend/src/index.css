@@ -1132,3 +1132,34 @@ button:disabled,
    骨架屏本身已有(.loading-shimmer,见 LoadingState.js),这里只补"逐行出现"。
    为什么不在 LoadingState.js 里加类:那个组件已经在用 space-y-2 容器,
    上面 `[class*="space-y-"] > *` 的通用规则会自动接管,无需改组件。 */
+
+/* ===== 垂直音量滑块(2026-11) =====
+   组件:src/components/VolumeControl.js。
+
+   为什么用 writing-mode 而不是 rotate(90deg):
+   rotate 会把控件放进独立图层,布局仍按**水平**尺寸占位 —— 放在弹出面板里
+   会撑出一条横向空隙,还要靠负 margin 补偿,父容器一改就错位。
+   writing-mode 是浏览器原生支持的垂直表单控件方案(MDN《Creating vertical
+   form controls》),控件本身真的变成竖向,布局也按竖向算。
+
+   方向:配合 direction: rtl 才是"底部最小、顶部最大"。
+   若只写 writing-mode: vertical-lr,默认 ltr 会让**顶部是最小值** ——
+   用户往上拖反而变小,这是最容易写反的一处。
+   浏览器兼容:CSS 层面 vertical-lr 支持很久;把 range 画成竖条这一能力
+   在 2024 年才进齐浏览器。老浏览器退化成一条横的窄条,仍可拖动,
+   不会变成不可用控件。 */
+.volume-slider-vertical {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  /* flex 子项默认不收缩;给固定高度才有可拖的行程(见组件里的面板高度) */
+  height: 7.5rem;
+  width: 1.25rem;
+  accent-color: hsl(var(--primary));
+}
+/* 触屏/窄屏不该悬停弹面板(悬停态在触摸上会"粘住"),组件本身只在
+   lg 断点被渲染,这里只兜底保证竖条在极短屏幕上不超出面板。 */
+@media (max-height: 520px) {
+  .volume-slider-vertical {
+    height: 4.5rem;
+  }
+}
