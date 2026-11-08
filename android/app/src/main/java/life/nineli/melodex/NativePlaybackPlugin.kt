@@ -75,7 +75,8 @@ class NativePlaybackPlugin : Plugin() {
             return
         }
         val startIndex = (call.getInt("startIndex", 0) ?: 0).coerceIn(0, queue.lastIndex)
-        val positionMs = (call.getLong("positionMs", 0L) ?: 0L).coerceAtLeast(0L)
+        // 同上:getLong 只认 Long,改用容错取值,否则"恢复上次进度"会静默变成 0。
+        val positionMs = readMillisOption(call.data.opt("positionMs"))
         withController(call) { mediaController ->
             PlaybackRuntime.cookieHeader = firstCookieForURLs(queue.map(NativeQueueItem::url)) { url ->
                 CookieManager.getInstance().getCookie(url)
@@ -115,17 +116,39 @@ class NativePlaybackPlugin : Plugin() {
 
     @PluginMethod
     fun seekTo(call: PluginCall) = withController(call) { player ->
-        val requestedMs = (call.getLong("positionMs", 0L) ?: 0L).coerceAtLeast(0L)
+        // 必须用 readMillisOption 而不是 call.getLong():
+        // Capacitor 的 getLong 只认 `instanceof Long`,JSON 里的整数常被解析成
+        // Integer、带小数的被解析成 Double,两者都会让 getLong 静默返回默认值 0,
+        // 于是 seekTo(0) —— 表现正是"拖了还是从 0 开始"。详见 NativePlaybackModels.kt。
+        val rawPosition = call.data.opt("positionMs")
+        val requestedMs = readMillisOption(rawPosition)
         // 诊断:记录 JS 请求的目标位置 vs ExoPlayer 实际时长/当前位置。
-        //
-        // 2026-11 排查「手机拖到 2 分钟,服务端却只收到约 14 秒处的 Range 请求」:
-        // 需要区分两种可能 —— ① JS 算错了秒数(positionMs 本身就偏小);
-        // ② JS 传对了,但 ExoPlayer 的 duration 与实际不符,seek 被夹到别处。
-        // 只有把这三者(请求值/duration/currentPosition)记在一起才能判断。
-        Log.w(TAG, "seekTo requested=${requestedMs}ms duration=${player.duration}ms " +
-            "before=${player.currentPosition}ms index=${player.currentMediaItemIndex}")
+        val beforeMs = player.currentPosition
+        val durationMs = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L } ?: 0L
+        val seekable = try {
+            player.isCurrentMediaItemSeekable
+        } catch (_: Exception) {
+            false
+        }
+        // rawType 记录桥接层实际给到的 Java 类型 —— 这是本次根因的判定依据,
+        // 万一将来 Capacitor 改了 getLong 的实现,这行日志能立刻指出差异。
+        Log.w(TAG, "seekTo requested=${requestedMs}ms duration=${durationMs}ms " +
+            "before=${beforeMs}ms index=${player.currentMediaItemIndex} seekable=$seekable " +
+            "rawType=${rawPosition?.javaClass?.simpleName ?: "null"}")
         player.seekTo(requestedMs)
-        call.resolve(stateObject(player))
+        val appliedMs = player.currentPosition
+        Log.w(TAG, "seekTo applied requested=${requestedMs}ms applied=${appliedMs}ms " +
+            "delta=${appliedMs - requestedMs}ms")
+        call.resolve(
+            stateObject(player)
+                .put("seekRequestedMs", requestedMs)
+                .put("seekAppliedMs", appliedMs)
+                .put("seekDurationMs", durationMs)
+                .put("seekPositionMs", beforeMs)
+                .put("seekable", seekable)
+                .put("seekRawType", rawPosition?.javaClass?.simpleName ?: "null")
+                .put("mediaItemType", currentItemFormatLabel(player)),
+        )
     }
 
     @PluginMethod
@@ -150,7 +173,7 @@ class NativePlaybackPlugin : Plugin() {
 
     @PluginMethod
     fun setSleepTimer(call: PluginCall) {
-        val deadlineMs = call.getLong("deadlineMs", 0L) ?: 0L
+        val deadlineMs = readMillisOption(call.data.opt("deadlineMs"))
         val mode = try {
             sleepTimerMode(call.getString("mode", "immediate"))
         } catch (error: IllegalArgumentException) {
@@ -241,6 +264,13 @@ class NativePlaybackPlugin : Plugin() {
 
     private fun stateObject(player: Player): JSObject {
         val duration = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L } ?: 0L
+        // seekable 随每次状态上报一起带出去:这样"这首歌能不能拖"一眼可见,
+        // 不必再等到用户拖了才从 seekTo 里取一次。
+        val seekable = try {
+            player.isCurrentMediaItemSeekable
+        } catch (_: Exception) {
+            false
+        }
         return JSObject()
             .put("currentIndex", player.currentMediaItemIndex.coerceAtLeast(0))
             .put("positionMs", player.currentPosition.coerceAtLeast(0L))
@@ -249,6 +279,7 @@ class NativePlaybackPlugin : Plugin() {
             .put("playWhenReady", player.playWhenReady)
             .put("playbackState", player.playbackState)
             .put("mediaItemCount", player.mediaItemCount)
+            .put("seekable", seekable)
     }
 
     private fun notifyControllerFailure(error: Exception) {
@@ -272,6 +303,30 @@ class NativePlaybackPlugin : Plugin() {
 
     private fun JSONObject.optStringOrNull(key: String): String? =
         optString(key, "").trim().takeIf(String::isNotEmpty)
+
+    // 当前正在播放的音频轨的实际容器/编解码摘要(如 "audio/flac"、"audio/mp4a|mp4a.40.2")。
+    //
+    // 为什么要记这个:seek 能否精确生效与**实际容器**强相关,而扩展名经常骗人。
+    // 服务端日志只能看到 "某个 source/id + 某个字节偏移",看不到播放器把它解成了
+    // 什么格式 —— 若 HTTP 的 Content-Type 与真实字节不一致(网易很常见),
+    // ExoPlayer 会按错误的提取器建 seek map,于是"能播但拖不动"。
+    // 取 currentTracks 里音频组第一个格式,而不是靠扩展名猜。
+    private fun currentItemFormatLabel(player: Player): String {
+        return try {
+            for (group in player.currentTracks.groups) {
+                if (group.type != C.TRACK_TYPE_AUDIO) continue
+                for (index in 0 until group.length) {
+                    val format = group.getTrackFormat(index)
+                    val mime = format.sampleMimeType ?: continue
+                    val codecs = format.codecs
+                    return if (codecs.isNullOrBlank()) mime else "$mime|$codecs"
+                }
+            }
+            ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
 
     private companion object {
         const val EVENT_STATE = "playbackState"

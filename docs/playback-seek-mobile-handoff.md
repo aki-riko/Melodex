@@ -1,163 +1,231 @@
 # 手机端拖动进度条无效 —— 排查交接文档
 
-> 状态:**未解决**。PWA 已修好,Android 客户端仍无法拖动进度条。
-> 接手前请先读完本文,尤其是「已验证的事实」和「不要重复的弯路」两节。
+> 状态:**根因已定位并修复,待真机验证**。
+> 前两版的核心推论**都错了**(见 §2 与 §4),本版基于可复现证据重写。
+> 接手前读完 §1 和 §2 即可,不要沿用旧结论。
 
-## 一、用户可见现象
+## 一、一句话根因
 
-Android 客户端(APK,`life.nineli.melodex`)拖动播放进度条:
+**Capacitor 的 `PluginCall.getLong()` 只接受 `instanceof Long`,其它数值类型一律静默返回默认值。**
+JS 传过来的 `positionMs` 在桥接层常被解析成 `Integer` 或 `Double`,于是
+`call.getLong("positionMs", 0L)` 恒得 **0** → `player.seekTo(0)` → **每次拖动都回到开头**。
 
-- **拖动时**拇指会跟着走(界面层有反应)
-- **松手后**从上一次的位置继续播,或从头播
-- **声音从不跳到拖动目标位置**
+用户原话「拖动进度是过去了,但是播放还是从 **0** 开始」是**字面意义上的准确**。
 
-用户的准确描述:「拖动进度是过去了,但是播放还是从 0 开始」「拖了还是不行」。
+## 二、证据链(每一条都可复现)
 
-PWA(浏览器)上同类问题**已修复**,可正常拖动。
+### 2.1 Capacitor 的类型陷阱(直接根因)
 
-## 二、已验证的事实(带证据,可直接采信)
+`node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/PluginCall.java:196-206`:
 
-### 2.1 服务端 Range 完全正常
-
-生产日志可见 206 与正确区间:
-
-```
-[GIN] 200  GET /music/download?id=...&stream=1     ← 首次无 Range
-[GIN] 206  GET /music/download?id=...&stream=1     ← 后续分段
-```
-
-`[stream-range]` 诊断日志(e01d42e 起)记录到:
-
-```
-02:23:23  range=""                                    ← 首次加载
-02:24:18  range="bytes=570053-"                       ← 用户第 1 次拖动
-02:24:20  range="bytes=570053-"
-02:24:21  range="bytes=570053-"
-02:24:39  range="bytes=570053-"                       ← 用户第 2 次拖动(间隔 18 秒)
-02:24:41  range="bytes=570053-"
+```java
+public Long getLong(String name, @Nullable Long defaultValue) {
+    Object value = this.data.opt(name);
+    if (value == null) return defaultValue;
+    if (value instanceof Long) return (Long) value;
+    return defaultValue;          // ← Integer / Double / String 全部落到这里
+}
 ```
 
-**两次拖动请求的字节位置完全相同(570053)。** 若 seek 真生效,不同位置应请求不同偏移。
+对比同文件的 `getDouble`(237-254)与 `getFloat`(213-230):它们都做了
+`instanceof Double / Float / Integer` 的多路兼容。**只有 `getInt`/`getLong` 是类型敏感的。**
 
-该歌曲:文件 `冬眠 - 司南.flac`,大小 **27,065,496 字节**,时长 **269 秒**。
-570053 / 27065496 ≈ **2.1% ≈ 5.7 秒**。用户拖到的是约 2 分钟处。
+实测复刻该逻辑(本机 Go,与 Java 语义等价):
 
-### 2.2 时长认知正确
-
-Android 系统媒体面板日志显示 `269583`(毫秒),即 269.5 秒 —— **播放器知道正确时长**。所以"duration 被压小导致换算错误"这条假设可以排除。
-
-### 2.3 原生 `seekTo` 的日志一条都没出现
-
-e01d42e 在 `NativePlaybackPlugin.seekTo()` 里加了:
-
-```kotlin
-Log.w(TAG, "seekTo requested=${requestedMs}ms duration=${player.duration}ms before=${player.currentPosition}ms ...")
+```
+JSON 小整数 (常解析成 Integer)   -> positionMs=0        ← 坏
+JSON 长整型                      -> positionMs=120000   ← 好
+JSON 浮点 (带小数或 .0)          -> positionMs=0        ← 坏
+JSON 字符串                      -> positionMs=0        ← 坏
 ```
 
-APK 已重新构建并安装(`app-release.apk`,2026-11-08 02:15,签名 SHA256 `5f28d565...faa2ba78`),
-`adb logcat -d -s MelodexNativePlayback` **无任何输出**。
+### 2.2 这个根因能解释**每一个**观察到的现象
 
-**这是目前最硬的线索:`seekTo` 很可能根本没被调用。**
+| 观察 | 解释 |
+|---|---|
+| 用户看到进度条拇指跟手 | `seek()` 里 `setProgress` 是纯 JS,不受影响 |
+| 松手后从 0 播 / 从头播 | `seekTo(0)` 就是真的 0 |
+| 服务端只收到 `bytes=570053-` | 见 2.3,570053 = 第一个音频帧 = 时间 0 |
+| 两条不同时间的拖动偏移完全相同 | 因为目标**恒为 0**,不是"两次拖到同一处" |
+| `.catch` 没抓到错误 | `seekTo` 成功返回了,只是参数是 0 —— 不报错 |
+| PWA 正常 | Web 走 `audio.currentTime = target`,没有桥接层 |
 
-### 2.4 WebView 的 JS 资源请求在服务端日志中查不到
+### 2.3 「570053」的真实含义(纠正旧文档最误导的一条)
 
-`capacitor.config.json` 的 `server.url` 指向 `https://music.9li.life`,
-理论上 WebView 会从线上拉 JS。但服务端日志里**没有任何 `/assets/index-*.js` 请求记录**,
-说明 WebView 用的是本地/磁盘缓存。
+旧文档写:`570053 / 27065496 ≈ 2.1% ≈ 5.7 秒`。**错。**
 
-**因此:APK 里跑的 JS 是否包含最新改动,未经验证。** 这是当前最大的未知数。
+该 FLAC 逐块解析(本机 node 独立复算 + `verifier` 用 `ffprobe`/整片解码交叉验证):
 
-## 三、已做过的修改(按时间顺序,含被推翻的)
-
-| commit | 内容 | 结论 |
+| FLAC 元数据块 | 长度 | 起止偏移 |
 |---|---|---|
-| `a44f044` | 加 `playerScrub.js` 拖动仲裁:拖动中只认拇指、seek 后压住旧位置 3 秒 | **只修表象**。把拇指按在目标位置而音频仍在原处,反而制造"条与声音不一致"。保留但非根因。 |
-| `dd1374c` | 关闭多曲 MSE 拼接(`ENABLE_CONTINUOUS_MEDIA_SOURCE = false`),主路径回普通流 + Range;**PWA 由此修好** | 正确,保留 |
-| `dd1374c` | `proxyProviderAudio` 的 `Accept-Ranges` 声明 | 第一版写错(拿不到分段时写 `none`),已在 `f43da3d` 修正 |
-| `f43da3d` | 修正 `Accept-Ranges`:仅真拿到 206+Content-Range 才声明 `bytes` | 正确,保留 |
-| `e01d42e` | 补 `[stream-range]` 诊断(区间/总长/UA)+ 原生 `seekTo` 日志 | 诊断用 |
-| 未提交 | `nativePlayback.js` 新增 `resolvePlaybackDuration`,原生时长与元数据差 >10% 时用元数据 | 正确性加固,**但按 2.2 已证实时长本就正确,与本次故障无关**;含 4 条测试 |
+| `fLaC` 魔数 | 4 | 0 – 4 |
+| STREAMINFO (type 0) | 34 | 4 – 42 |
+| **PICTURE (type 6, 内嵌 JPEG 封面)** | **561,690** | 42 – 561,736 |
+| VORBIS_COMMENT (type 4) | 117 | 561,736 – 561,857 |
+| PADDING (type 1, last) | 8,192 | 561,857 – **570,053** |
+| **第一个音频帧 `FF F8`** | — | **570,053** |
 
-## 四、被证伪的假设(不要重复)
+`570053` 处字节 = `FF F8 A9 18`,是合法 FLAC 帧头。**决定性佐证**:把
+`fLaC + STREAMINFO(last=1) + bytes[570053:]` 重组成裸帧文件整片解码,
+PCM md5 与原文件整片解码**逐字节相同** → 570053 就是第 0 帧。
 
-1. ❌ **"MSE sequence 模式让 timestampOffset 失效"** —— 规范原文:
-   `sequence` 模式下设 `timestampOffset` 正是"把分片放到时间轴指定位置"的官方手段
+所以 `Range: bytes=570053-` 在播放器语义下 = **offset 0 = 时间轴 0 秒**。
+旧文档把 621KB 的封面当成了音频来按比例换算,才得出"5.7 秒"。
+
+> 附带纠正:`12047707`(拖到 2 分钟)只是线性估算,`verifier` 实测该时刻包偏移
+> 是 **11,169,339**(线性低估 7.3%)。5.7 秒实测是 **855,521** —— 与 570053 差 30 万字节,
+> 根本不是同一位置。
+
+### 2.4 服务端与 ExoPlayer 都不是根因(已排除,有反证)
+
+- **`Content-Disposition: attachment` 不是原因**。本鱼实测 `http.ServeContent`:
+  加不加该头,`206` + `Content-Range` + `Accept-Ranges` 行为**完全一致**。
+- **media3 压根不读这两个头**。`stream-auditor` 解包了 media3 1.11.1 全部 4 个 aar,
+  扫描所有 class 字符串常量:`Content-Disposition` / `Accept-Ranges` **零引用**。
+  ExoPlayer 的 seek 能力只取自容器内解析出的 `SeekMap`。
+- **能产生 570053 这种 Range 恰恰证明 ExoPlayer 认为该曲可 seek**
+  (若 `Unseekable`,请求会是 `0`/无 Range,与观测不符)。
+- 服务端 Range 支持本身正常(日志可见 206 与正确区间,`broken pipe` 属拖动中断的正常现象)。
+
+### 2.5 「seekTo 日志一条都没有」不能用来说明 seekTo 没被调用
+
+旧文档由此推出"JS 没发 seekTo"。两条硬伤:
+
+1. `adb logcat -d` 只 dump 当前环形缓冲区,长会话早先日志会被滚掉;
+2. 项目有**两个 TAG**:插件 `MelodexNativePlayback`、服务(`PlaybackService`)
+
+而且事实上 **seekTo 是被调用的** —— 它只是拿到了 0。这也是为什么必须换成
+`/music/playback_diagnostics` 落服务端日志(本轮已接上,见 §5)。
+
+### 2.6 「APK 跑的是旧 JS」已排除
+
+`app-release.apk` 的 `assets/public/` 只有 `cordova.js`(0B)、`cordova_plugins.js`(0B)、
+`index.html`(731B),**无任何 JS 产物** → WebView 必然从 `server.url` 拉线上资源。
+线上 `index-DGVHLqwT.js` 中可查到 `seekTarget`/`seekDeadline`/`dragStartedAt`/`dragging`
+与 `armSeekTarget`/`seekTo` 调用,a44f044 的仲裁确实在线上。
+
+> 核查坑:用 `Select-String` 搜 minified bundle 会**假阴性**(实测连 `seekTo` 都报 0 次)。
+> 用 `[regex]::Matches($text, [regex]::Escape($k)).Count`。
+
+## 三、本轮修复(未提交)
+
+### 3.1 核心修复:替换类型敏感的 `getLong`
+
+- `android/.../NativePlaybackModels.kt` 新增:
+  - `coerceToLongMs(value: Any?): Long?` —— 兼容 `Long/Int/Short/Byte/Double/Float/Number/String`,
+    非有限值与非法值返回 `null`(可与"明确的 0"区分);
+  - `readMillisOption(raw: Any?, fallback: Long): Long` —— 钳到非负。
+- `NativePlaybackPlugin.kt` 的 3 处 `getLong` 全部改为 `readMillisOption(call.data.opt(...))`:
+  - `seekTo` 的 `positionMs` ← **本次故障点**
+  - `setQueue` 的 `positionMs`(恢复上次进度,同样会静默变 0)
+  - `setSleepTimer` 的 `deadlineMs`(同源风险,一并消除)
+
+### 3.2 取证(让下次不必再猜)
+
+- Kotlin `seekTo`:`call.resolve()` 额外带出
+  `seekRequestedMs / seekAppliedMs / seekDurationMs / seekPositionMs / seekable / seekRawType / mediaItemType`,
+  并各自打 `Log.w`。**`seekRawType` 直接记录桥接层给的 Java 类型**,
+  将来 Capacitor 若改实现,这一项会立刻暴露差异。
+- Kotlin `stateObject()`:每次 500ms 上报都带 `seekable`(不必等用户拖)。
+- JS `nativePlayback.js` 新增 `nativeSeekDiagnostic()`:整理原生返回,`seekable` 三态处理
+  (未知留空,不伪造 `false`)。
+- JS `NativePlayerProvider.seek`:`seekTo` 成功后上报 `event: 'seek_requested'`。
+- 后端 `playback_diagnostics.go`:白名单加 `seek_requested`/`seek_settled`,
+  新增 6 个字段(`seek_requested_ms`/`seek_applied_ms`/`seek_duration_ms`/`seek_position_ms`/
+  `seekable`/`media_item_type`)并打进日志。
+
+### 3.3 门禁
+
+| 门禁 | 结果 |
+|---|---|
+| `gradlew :app:testDebugUnitTest` | **17 tests, 0 failures**(新增 4 条锁死数值换算) |
+| `npm run test:player` | **11/11 passed** |
+| `go build ./...` | 通过 |
+| `go test ./internal/web/ ./core/` | 通过 |
+
+新增测试的关键用例:
+- `millisOptionAcceptsEveryNumericShapeTheBridgeMaySend` —— Int/Long/Double/String/Float/Short/Byte 全覆盖
+- `millisOptionFallsBackOnlyWhenValueIsTrulyUnusable` —— 明确区分"缺失"与"0"
+- `millisOptionRejectsNonFiniteAndNegativeValues` —— NaN/Infinity/负数
+- `coerceToLongMsDistinguishesMissingFromZero`
+- 前端 `nativePlayback.test.mjs` 增加源码契约:必须真调 `reportPlaybackDiagnostic`、
+  后端白名单必须放行 `seek_requested`
+
+## 四、已证伪的假设(不要重复)
+
+1. ❌ **"570053 ≈ 5.7 秒,所以 seek 差 20 倍"** —— 见 §2.3。把元数据区当音频算了。
+2. ❌ **"seekTo 没被调用"** —— 被调用了,参数是 0。见 §2.5。
+3. ❌ **"手机跑的是旧 bundle"** —— 见 §2.6。
+4. ❌ **"`Content-Disposition: attachment` 让 ExoPlayer 判不可 seek"** —— 见 §2.4,
+   ServeContent 行为不变,且 media3 零引用该头。
+5. ❌ **"服务端 `Accept-Ranges` / 响应头导致 seek 退化"** —— 同上,两条发流路径对 seek 关键头等价。
+6. ❌ **"MSE sequence 模式让 timestampOffset 失效"** —— 规范原文:`sequence` 模式下设
+   `timestampOffset` 正是把分片放到时间轴指定位置的官方手段
    ([MSE §5.1](https://w3c.github.io/media-source/#dom-appendmode-sequence))。
-   注意 `abort()` 会把 `[[group start timestamp]]` 冲成 `[[group end timestamp]]`,之后旧 offset 会失效。
+7. ❌ **"seek 到 buffered 外会被重置为 0"** —— 无权威依据;规范是钳到 `seekable` 最近点。
+8. ❌ **"分块 PTS 全为 0 是根因"** —— 那是 MSE 路径问题,关掉 MSE 后与手机端无关。
+9. ❌ **"duration 被压小导致 positionMs 算错"** —— 媒体面板 269583ms 与 ffprobe 269.583220 一致。
 
-2. ❌ **"seek 到 buffered 外会被重置为 0"** —— 任何权威文本都不支持。
-   规范是"钳到 `seekable` 最近点"或"卡在 waiting 等 append"。
-
-3. ❌ **"这些分块 PTS 全为 0 是根因"** —— 已用 ffmpeg 实测确认 `-reset_timestamps 1` 下
-   四块 `first_pts` 确实全为 0,但那是 MSE 路径的问题;关掉 MSE 后与手机端无关。
-
-4. ❌ **"duration 被压小导致 positionMs 算错"** —— 见 2.2,时长正确。
-
-## 五、下一步该查什么(按优先级)
-
-### 5.1 最高优先:确认手机里跑的 JS 版本
-
-这是唯一能解释"改了 JS 但行为不变"的原因。
+## 五、验证步骤(需要真机)
 
 ```powershell
-# 1. 看 APK 里打包的 web 资源(注意 server.url 存在时,webDir 可能不生效)
-cd android; unzip -l app\build\outputs\apk\release\app-release.apk | Select-String "assets/public"
+# 1. 构建并签名安装(必须 JDK 21)
+cd android
+$env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"
+.\scripts\verify-local-release.ps1 -Tag v0.2.1-rc.6 -JavaHome $env:JAVA_HOME
 
-# 2. 用 chrome://inspect 连 WebView 看实际加载的 bundle
-#    需要先在 capacitor.config.json 打开 webContentsDebuggingEnabled: true 并重打包
+# 2. 后端也要更新(诊断字段新增),否则 seek 字段被丢弃
+#    生产走 GHCR:打 tag 触发 docker-publish.yml,或本地构建部署
+
+# 3. 手机上拖到约 2 分钟,然后看服务端日志
+ssh root@192.168.1.99 "docker logs melodex --since 5m 2>&1 | grep -E 'seek_req_ms|stream-range'"
 ```
 
-若确认是旧 bundle,修法:清 App 数据(`adb shell pm clear life.nineli.melodex`)后重装,
-或检查 Capacitor 的缓存策略。
+**验收标准**:
+- `seek_req_ms` ≈ 120000(不再是 0);
+- 紧随其后的 `[stream-range]` 偏移落在**中段**(约 1.1e7 量级),**不再是恒定的 570053**;
+- 耳朵听到从拖动位置继续。
 
-### 5.2 其次:确认拖动时 JS 是否调了 seekTo
-
-打开 WebView 调试后,在 Console 里看拖动时:
-
-- `onChange` 是否触发
-- `NativePlayerProvider.seek()` 是否被调用
-- `NativePlayback.seekTo()` 的 Promise 是否 reject(当前 `.catch` 只 `setNotice`,错误被吞)
-
-代码位置:`frontend/src/contexts/NativePlayerProvider.js` 的 `seek`(约 L271)。
-
-### 5.3 也要排除:进度条事件被抢
-
-`scrubHandlers` 绑了 `onPointerDown/Up/Cancel`。
-Android WebView 的触摸事件在某些机型上可能只触发 touch 系列而非 pointer 系列,
-导致 `beginScrub` 一直为 true、或事件未到达 `onChange`。
-检查 `frontend/src/contexts/playerScrub.js` 的 `MAX_SCRUB_DURATION_MS`(30 秒)兜底是否生效。
+**若仍有问题**,按 `seekRawType` / `seekable` / `seek_applied_ms` 三项判读:
+- `seekRawType` 仍是意外类型 → 桥接层还有别的路径没覆盖;
+- `seekable=false` → 才轮到查 FLAC seektable(`metaflac --list | grep -A2 SEEKTABLE`);
+- `seek_applied_ms≈0` 而 `seek_req_ms=120000` → ExoPlayer 钳位,查该曲 seektable/容器。
 
 ## 六、关键文件
 
 | 文件 | 作用 |
 |---|---|
-| `frontend/src/contexts/NativePlayerProvider.js` | 手机端播放器 Provider,`seek` 在此 |
-| `frontend/src/contexts/nativePlayback.js` | 快照映射 + 时长仲裁 |
-| `frontend/src/contexts/playerScrub.js` | 拖动仲裁纯函数(含单测契约) |
-| `android/.../NativePlaybackPlugin.kt` | Capacitor 插件,`seekTo` 在此 |
-| `android/.../PlaybackService.kt` | ExoPlayer + MediaSession |
-| `backend/internal/web/music_routes.go` | `/music/download`,含 `[stream-range]` 诊断日志 |
+| `android/.../NativePlaybackModels.kt` | **`coerceToLongMs` / `readMillisOption`(本次修复核心)** |
+| `android/.../NativePlaybackPlugin.kt` | Capacitor 插件,`seekTo` 与取证字段 |
+| `android/.../PlaybackService.kt` | ExoPlayer + MediaSession(TAG `MelodexPlayback`) |
+| `frontend/src/contexts/NativePlayerProvider.js` | 手机端 Provider,`seek` 在此 |
+| `frontend/src/contexts/nativePlayback.js` | 快照映射 + 时长仲裁 + `nativeSeekDiagnostic` |
+| `frontend/src/contexts/playerScrub.js` | 拖动仲裁纯函数 |
+| `backend/internal/web/playback_diagnostics.go` | 诊断通道(事件白名单 + 字段) |
+| `backend/internal/web/music_routes.go` | `/music/download`,含 `[stream-range]` 日志 |
+| `backend/internal/web/local_media_files.go` | `serveLocalMusicDownload`(副本路径发流) |
 
 ## 七、环境信息(已踩过的坑)
 
-- **构建必须用 JDK 21**。`JAVA_HOME` 在本机指向 17,直接跑会报「无效的源发行版: 21」。
+- **构建必须用 JDK 21**。`JAVA_HOME` 本机指向 17,直接跑报「无效的源发行版: 21」。
   ```powershell
   $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"
   ```
-- **签名不用手动配**。仓库自带 `android/scripts/verify-local-release.ps1`,
-  凭据是 Windows DPAPI 加密的,位于 `我的文档\Melodex\AndroidRelease\`
-  (`melodex-release.jks` / `credentials.dpapi` / `certificate.txt`)。
-  ```powershell
-  cd android
-  .\scripts\verify-local-release.ps1 -Tag v0.2.1-rc.5 -JavaHome $env:JAVA_HOME
-  ```
-  若 `:app:clean FAILED`(文件被占用),先 `.\gradlew.bat --stop`。
-- **本机有两台设备**:`3B656W00MPC00000`(真机 PKG110)与 `emulator-5554`。装真机要加 `-s`。
-- **不要读 `.env`**,含真实凭据。生产在 NAS `192.168.1.99`,容器名 `melodex`。
-- 生产日志里 `broken pipe` 是拖动中断旧请求的正常现象,不是错误。
+- **签名不用手动配**:`android/scripts/verify-local-release.ps1`,凭据经 Windows DPAPI 加密,
+  位于 `我的文档\Melodex\AndroidRelease\`。`:app:clean FAILED` 时先 `.\gradlew.bat --stop`。
+- **本机两台设备**:`3B656W00MPC00000`(真机 PKG110)与 `emulator-5554`。装真机要加 `-s`。
+  2026-11-08 08:00 复核:真机不在线,模拟器未装 `life.nineli.melodex`。
+- **不要读 `.env`**,含真实凭据。生产 NAS `192.168.1.99`,容器 `melodex`。
+- **容器内没有 python3**,有 `ffprobe/ffmpeg/od/dd/base64`。
+  取字节:`od -An -v -tx1 -j <off> -N <n> "<file>"`(BusyBox od 支持 -j/-N)。
+- 生产日志里 `broken pipe` 是拖动中断旧请求的正常现象。
+- **minified bundle 搜索**:`Select-String` 假阴性,用 `[regex]::Matches` + `Escape`。
 
 ## 八、当前生产状态
 
-- 生产镜像: `ghcr.io/aki-riko/melodex:edge`,已含 `e01d42e` 的诊断日志
-- PWA: 拖动正常
-- Android: **仍不正常**,已装 2026-11-08 02:15 构建的 rc.5 包
+- 生产镜像:`ghcr.io/aki-riko/melodex:edge`,含 `e01d42e` 的诊断日志
+- 线上前端 bundle:`index-DGVHLqwT.js`(562,378 字节;**非 HEAD**,约落后 01299eb 一个提交)
+- PWA:拖动正常
+- Android:**仍不正常**。真机最后安装的是 2026-11-08 02:15 构建的 rc.5 包
+  (签名 SHA256 `5f28d565...faa2ba78`)
+- **本轮修复尚未提交、尚未部署、尚未装机**

@@ -95,3 +95,39 @@ internal fun playerCommandName(command: Int): String = when (command) {
     Player.COMMAND_STOP -> "stop"
     else -> "command"
 }
+
+// ---- 健壮的 JSON 数值取值(2026-11 修「手机拖动进度条无效」的直接根因) ----
+//
+// 事故链条(有实测证据,别再踩):
+//   1. JS 传 `{ positionMs: value * 1000 }`,经 JSON.stringify 过桥;
+//   2. Capacitor 的 PluginCall.getLong() 实现只认 `value instanceof Long`,
+//      其它类型(Android 的 JSONTokener 常把小整数给成 Integer,浮点给成 Double)
+//      **一律返回 defaultValue**;
+//   3. 于是 `call.getLong("positionMs", 0L)` 得到 0 → `player.seekTo(0)` → 从头播;
+//   4. 服务端于是只看到「从第一个音频帧开始」的 Range(570053),而不是中段的偏移。
+// 这解释了用户原话「拖动进度是过去了,但是播放还是从 0 开始」——
+// 是字面意义上的 0,不是"偏小"。
+//
+// 注意睡眠定时的 deadlineMs 也走 getLong,但它是 `Date.now()+n*60000`,
+// 量级 1.7e12 必然被序列化成 Double/长整型以外的形态? 不 —— 它一旦成功过就说明
+// 那条路径的数值恰好落在 Long 上。这里不做基于偶然的假设:所有 getLong 调用点
+// 一律改用下面的容错取值,消除「取决于 JSON 解析器心情」的不确定性。
+internal fun coerceToLongMs(value: Any?): Long? {
+    return when (value) {
+        null -> null
+        is Long -> value
+        is Int -> value.toLong()
+        is Short -> value.toLong()
+        is Byte -> value.toLong()
+        is Double -> if (value.isFinite()) value.toLong() else null
+        is Float -> if (value.isFinite()) value.toLong() else null
+        is Number -> value.toLong()
+        is String -> value.trim().toDoubleOrNull()?.takeIf { it.isFinite() }?.toLong()
+        else -> null
+    }
+}
+
+// 从 PluginCall 的原始 data 里取毫秒值,容忍 Integer/Double/String 等各种形态。
+// fallback 只在"字段缺失或完全无法解析"时使用;解析出 0 是合法值(用户拖到最左)。
+internal fun readMillisOption(raw: Any?, fallback: Long = 0L): Long =
+    coerceToLongMs(raw)?.coerceAtLeast(0L) ?: fallback

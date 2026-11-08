@@ -79,3 +79,34 @@ export const resolvePlaybackDuration = (reportedSeconds, songSeconds) => {
   const diff = Math.abs(reported - song);
   return diff <= song * DURATION_TRUST_RATIO ? reported : song;
 };
+
+// 把原生 seekTo 的返回值整理成一条可上报的诊断。
+//
+// 为什么必须上报而不是只在 logcat 里看(2026-11 的教训):
+// 上一轮把「服务端收到的 Range 偏移」直接当成「用户拖到的位置」,
+// 于是 `bytes=570053-` 被换算成 5.7 秒,推出"seek 差了 20 倍"的错误方向。
+// 实际上 570053 是 FLAC 元数据区结束、第一个音频帧的偏移,它等价于**从 0 秒开始**。
+// 要判断 seek 到底被谁吃掉了,只有三个数缺一不可:
+//   ① JS 请求了多少毫秒(本函数入参);
+//   ② ExoPlayer 认不认这首歌能 seek(seekable=false 时 seekTo 会退化成重新 prepare 到窗口起点,
+//      表现正是"拖了还是从 0 开始");
+//   ③ seek 之后 currentPosition 实际落在哪里。
+// adb logcat 的环形缓冲区会滚掉,所以走已有的 /music/playback_diagnostics 通道落服务端日志。
+export const nativeSeekDiagnostic = (requestedMs, nativeResult) => {
+  const requested = Math.max(0, Number(requestedMs) || 0);
+  const result = nativeResult || {};
+  const applied = Number(result.seekAppliedMs);
+  const asMs = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+  };
+  return {
+    seek_requested_ms: Math.round(requested),
+    seek_applied_ms: Number.isFinite(applied) ? Math.max(0, Math.round(applied)) : 0,
+    seek_duration_ms: asMs(result.seekDurationMs),
+    seek_position_ms: asMs(result.seekPositionMs),
+    // 三态:true/false 是原生明确回答,"" 表示这次响应里没有该字段(旧插件)。
+    seekable: typeof result.seekable === 'boolean' ? String(result.seekable) : '',
+    media_item_type: typeof result.mediaItemType === 'string' ? result.mediaItemType : '',
+  };
+};
