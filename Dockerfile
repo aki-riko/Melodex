@@ -10,8 +10,13 @@ ARG IMAGE_PREFIX=docker.1ms.run/library
 # ===== 阶段1:构建 React 前端 =====
 FROM ${IMAGE_PREFIX}/node:20-alpine AS frontend
 WORKDIR /fe
+# npm registry 可覆盖:默认官方源(境外/CI 用),国内环境传
+#   --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+# 否则 npm ci 会卡在直连 registry.npmjs.org 上(实测 NAS 上 20 分钟仍未装完,
+# CPU 时间几乎不涨 —— 是在等网络,不是真在装包)。
+ARG NPM_REGISTRY=https://registry.npmjs.org
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --registry=${NPM_REGISTRY}
 COPY frontend/ ./
 # 同源部署:不设 VITE_MUSICDL_API,API 走相对路径
 RUN npm run build
