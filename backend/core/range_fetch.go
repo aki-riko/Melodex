@@ -13,9 +13,21 @@ import (
 	"time"
 )
 
+// Range 分块参数。
+//
+// initialRangeChunkSize 决定第一个 Range 块多大,也就决定播放器多久能拿到足以起播的数据。
+// 2026-11 之前它是 32 * 1024,而 32KB 对高码率无损音频(FLAC/ALAC 1400~1600kbps,约 180~200KB/s)
+// 来说不足 0.2 秒音频数据:首块写满即 flush,播放器拿到的可播数据极少就起播,后续消费速度
+// 超过剩余块到达速度,于是表现成「下一首播了几秒就停、等后续块补齐才继续」。生产 NAS 日志:
+// /music/download?stream=1 响应耗时 1.48s / 2.90s / 3.47s / 10.94s(qq 与 netease 源),
+// 播放器 diagnostics 里 seq=5 的歌 buffered_end 仅 7.6s(总长 291.5s)就开始播。
+// 现与 regularRangeChunkSize 对齐成 256KB,首屏缓冲回到 1 秒以上,不再一开播就断供。
+//
+// 注意:这只改变分块粒度,transferRange 仍严格按 index 顺序写出,输出字节与 Range 语义完全不变;
+// 整首歌不足 256KB 时自然只有一块(此前是 32KB 首块 + 若干常规块),请求数为 1 也更省。
 const (
 	rangeProbeEnd         int64 = 15
-	initialRangeChunkSize int64 = 32 * 1024
+	initialRangeChunkSize int64 = 256 * 1024
 	regularRangeChunkSize int64 = 256 * 1024
 	maximumRangeWorkers         = 16
 	rangeChunkAttempts          = 3

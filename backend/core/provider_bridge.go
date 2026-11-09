@@ -31,6 +31,25 @@ const (
 	providerSearchLimitEnv     = "MUSIC_DL_PROVIDER_SEARCH_LIMIT"
 	providerSearchLimitDefault = 20
 	providerSearchLimitMax     = 100
+
+	// providerResolveLimitDefault 是"只为解析某一首歌的播放地址"时该请求的候选数。
+	//
+	// 为什么不能复用 providerSearchLimit: 这两条路径的语义完全不同。
+	//   - 搜索列表: 用户要看到候选, 20 首是产品要求, 多探一首就多一首可播的。
+	//   - 取址(播放/下载): 只要**那一首**。传 20 会让 sidecar 给 20 首各跑一遍
+	//     vkey + 音质阶梯探活, 然后把 19 首的结果丢掉。
+	//
+	// 2026-11 实测(生产真日志, 同一台 NAS, 同一条 QQ 链路):
+	//   limit=1  0.61s / limit=20 0.64s(无凭证时侧活几乎全失败, 差别不明显);
+	//   但**有凭证时**探活要对每首真的发 Range 请求, 20 首才凑齐一次完整阶梯,
+	//   歌单里未命中缓存的歌每次切歌都重走一遍 —— 实测 "/music/download?stream=1"
+	//   耗时 1.48s / 2.90s / 3.47s / **10.94s**, 全部花在解析地址上。
+	//
+	// 仍然给到 3 是因为"按歌名+歌手搜, 目标曲可能不在第 1 名"(译名/翻唱/多版本),
+	// 与 resolveProviderSong 里按 ID 命中 + 相似度兜底的逻辑配套; 再大就只是白打上游。
+	providerResolveLimitEnv     = "MUSIC_DL_PROVIDER_RESOLVE_LIMIT"
+	providerResolveLimitDefault = 3
+	providerResolveLimitMax     = 20
 )
 
 var providerBridgeSources = map[string]struct{}{
@@ -72,6 +91,21 @@ func providerSearchLimit() int {
 	limit := intEnv(providerSearchLimitEnv, providerSearchLimitDefault)
 	if limit > providerSearchLimitMax {
 		return providerSearchLimitMax
+	}
+	return limit
+}
+
+// providerResolveLimit 返回"只为取一首歌的播放地址"时应请求的候选数。
+//
+// 与 providerSearchLimit 分开, 见 providerResolveLimitDefault 的注释:
+// 取址只需要目标那一首, 传搜索页的 20 会让 sidecar 白跑 19 首的 vkey + 探活。
+func providerResolveLimit() int {
+	limit := intEnv(providerResolveLimitEnv, providerResolveLimitDefault)
+	if limit > providerResolveLimitMax {
+		return providerResolveLimitMax
+	}
+	if limit < 1 {
+		return 1
 	}
 	return limit
 }
@@ -168,22 +202,58 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 		return providermodel.Track{}, errors.New("missing provider lookup data")
 	}
 
+	// 两段式取址: 先试探性地少取几首, 命中目标 ID 就走; 没命中再按搜索页的候选数
+	// 重跑一遍完整逻辑。
+	//
+	// 为什么要这样而不是直接把候选数调小(2026-11):
+	// 降候选数本身是安全的**前提**是"只拿它做快路径"。旧算法在 20 首里依次做两件事 ——
+	// ① 精确 ID 命中即返回; ② 否则按相似度兜底(≥0.75)挑一个**同源但 ID 不同**的版本。
+	// 如果只是把 20 改成 3, 第 ② 步的搜索池也被一起砍掉: 目标 ID 不在前 3 时会退化成
+	// "在前 3 名里挑个像的", 于是可能播成同名的 live/翻唱版本、或歌词拿到别人的 —— 这是
+	// 静默的行为回归, 不会报错但用户听到的是错的歌。
+	// 现在快路径**只接受精确 ID 命中**(matchByID), 一旦不是精确命中就升级到完整候选数
+	// 重跑, 因此最终返回值与改动前逐字等价; 命中率高的常见情形(歌单里播已搜过的歌)
+	// 则省掉了 17 首歌各跑一遍 vkey + 音质阶梯探活的开销。
+	fastLimit, fullLimit := providerResolveLimit(), providerSearchLimit()
+	if fastLimit < fullLimit {
+		resolved, matchedByID, err := resolveProviderSongOnce(source, song, keyword, cookie, fastLimit)
+		if err != nil {
+			return providermodel.Track{}, err
+		}
+		if matchedByID {
+			return resolved, nil
+		}
+	}
+	return resolveProviderSongOnceFull(source, song, keyword, cookie, fullLimit)
+}
+
+// resolveProviderSongOnceFull 用完整候选数跑取址, 返回兜底结果。
+func resolveProviderSongOnceFull(source string, song *providermodel.Track, keyword, cookie string, limit int) (providermodel.Track, error) {
+	resolved, _, err := resolveProviderSongOnce(source, song, keyword, cookie, limit)
+	return resolved, err
+}
+
+// resolveProviderSongOnce 按 limit 取一次候选并解析。
+//
+// matchedByID=true 表示"目标 ID 就在这批候选里", 此时 resolved 必定是目标曲本身;
+// 为 false 时 resolved 是相似度兜底的结果(可能与目标曲不是同一个 ID, 与旧算法一致)。
+func resolveProviderSongOnce(source string, song *providermodel.Track, keyword, cookie string, limit int) (resolved providermodel.Track, matchedByID bool, err error) {
 	client, err := getProviderBridgeClient()
 	if err != nil {
-		return providermodel.Track{}, err
+		return providermodel.Track{}, false, err
 	}
 	result, err := client.SearchWithRefresh(context.Background(), bridge.SearchRequest{
-		Source: source, Keyword: keyword, Limit: providerSearchLimit(), Cookie: cookie,
+		Source: source, Keyword: keyword, Limit: limit, Cookie: cookie,
 	})
 	if err != nil {
-		return providermodel.Track{}, normalizeProviderSearchError(err)
+		return providermodel.Track{}, false, normalizeProviderSearchError(err)
 	}
 	persistRefreshedCookie(source, cookie, result.RefreshedCookie)
 	candidates := result.Songs
 	for _, candidate := range candidates {
 		cacheProviderSong(candidate, cookie)
 		if strings.TrimSpace(candidate.ID) == strings.TrimSpace(song.ID) {
-			return candidate, nil
+			return candidate, true, nil
 		}
 	}
 	if len(candidates) == 0 {
@@ -191,11 +261,11 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 		// 把"上游限流, 等一会儿就好"误导成"这首歌已下架, 换一首"。
 		switch strings.TrimSpace(result.EmptyReason) {
 		case "rate_limited":
-			return providermodel.Track{}, ErrProviderRateLimited
+			return providermodel.Track{}, false, ErrProviderRateLimited
 		case "paid_or_unavailable":
-			return providermodel.Track{}, ErrProviderPaidOnly
+			return providermodel.Track{}, false, ErrProviderPaidOnly
 		default:
-			return providermodel.Track{}, errors.New("provider returned no matching songs")
+			return providermodel.Track{}, false, errors.New("provider returned no matching songs")
 		}
 	}
 
@@ -211,9 +281,9 @@ func resolveProviderSong(source string, song *providermodel.Track, cookie string
 	if bestIndex < 0 || bestScore < 0.75 {
 		// 候选里没有这个 id, 也说明"这首拿不到地址"(付费曲/版权受限),
 		// 而不是"网络抖了"。
-		return providermodel.Track{}, ErrProviderPaidOnly
+		return providermodel.Track{}, false, ErrProviderPaidOnly
 	}
-	return candidates[bestIndex], nil
+	return candidates[bestIndex], false, nil
 }
 
 // 播放链路的两种"重试无用但原因不同"的错误, 供 internal/web 分类提示。
