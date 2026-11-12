@@ -351,8 +351,24 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 
 - 代码在 NAS `/mnt/cache/appdata/melodex-src`,Docker compose 运行,端口 **8329**。
 - 访问 `https://music.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
-- **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@192.168.1.99:28022/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:22-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)。
-- 部署流程:NAS 上 `git pull origin master` → `docker build --pull=false --build-arg GOPROXY=https://goproxy.cn,direct -t melodex:latest .` → `docker compose up -d`。
+- **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@192.168.1.99:28022/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:20-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)⑤ `npm ci` 直连官方源会卡死,传 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com`。
+- **生产现状(2026-11-12 核实)**:应用镜像是 **NAS 本地构建的 `melodex:latest`**,不是 GHCR 预构建镜像(下面「镜像发布」节的 2026-10-25 记录已过时);provider 仍用 `ghcr.io/aki-riko/melodex-provider:edge`。
+  NAS `.env` 第 7 行已改为 `MELODEX_IMAGE=melodex:latest`(此前写着 `ghcr.io/aki-riko/melodex:v0.2.1`,与实际运行不符 ——
+  直接 `docker compose up -d` 会把生产悄悄退回 v0.2.1),改前备份 `.env.bak_20261112_214413`。
+- **部署流程(应用镜像,provider 与 postgres 不动)**:
+  1. `cd /mnt/cache/appdata/melodex-src && git pull --ff-only origin master`
+  2. 先给当前镜像打回退标签:`docker tag melodex:latest melodex:rollback-<旧提交短哈希>`
+  3. `docker build --pull=false --build-arg IMAGE_PREFIX=docker.io/library --build-arg GOPROXY=https://goproxy.cn,direct --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t melodex:latest .`
+  4. `docker compose up -d --no-build --no-deps melodex`(只重建应用容器)
+  5. 验证:`docker exec melodex wget -qO- http://127.0.0.1:8329/api/v1/healthz` 应为 `{"app":"melodex","status":"ok"}`;
+     改了前端静态资源时,再比对 `docker exec melodex wget -qO- http://127.0.0.1:8329/logo512.png | sha256sum` 与本地文件。
+  - **为什么传 `IMAGE_PREFIX=docker.io/library`**:Dockerfile 默认前缀是 `docker.1ms.run/library`,
+    2026-11-12 该镜像站 CDN 中途断连(`failed to copy: httpReadSeeker ... EOF`),构建在拉 `alpine:3.22` 元数据时失败。
+    NAS 本地已有按原名 retag 的 `alpine:3.22` / `node:20-alpine` / `golang:1.25`,换成 `docker.io/library` 前缀 + `--pull=false`
+    就完全不联网拉基础镜像。基础镜像本地没有时,才需要先按 ② 从镜像站拉再 retag。
+  - **开发机 SSH 到 NAS 要用 Windows 自带的 OpenSSH**(`/c/Windows/System32/OpenSSH/ssh.exe`):`~/.ssh/config` 里 NAS 的
+    `IdentityFile` 指向 `.pub`,私钥在 Windows SSH agent 里;Git Bash 自带的 ssh 连不上这个 agent,报
+    `Load key ".../nas_unraid.pub": error in libcrypto: unsupported` 后被拒。
 - **音乐下载位置可自定义**:compose 里 `- ${MELODEX_DOWNLOAD_DIR:-./data/downloads}:/home/appuser/data/downloads`
   —— 默认值与现状一致(宿主 `./data/downloads` ↔ 容器 `/home/appuser/data/downloads`,实测 741 个文件两边一致、
   目录属 `1000:1000`);在 `.env` 设 `MELODEX_DOWNLOAD_DIR=/宿主/绝对路径` 就能换地方(如 Plex/Navidrome 扫的媒体目录)。
@@ -384,6 +400,33 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   - **搜索延迟相关 env**:`MUSIC_DL_SEARCH_SOURCE_BUDGET`(默认 12s,compose 里已配)—— 只是安全网,
     正常情况"主力源(qq/netease)齐了就返回",实测端到端 2~3s;想多等一会儿多收几个源就调大它。
     `MELODEX_NETEASE_NATIVE_SEARCH=0` 可让网易退回快照实现(慢 130 倍,不建议)。
+
+## 安卓打包与装机(2026-11-12 实测)
+
+APK 是外壳(`server.url = https://music.9li.life`),页面内容随 NAS 部署更新;**启动器图标、原生插件**等改动必须重新装 APK。
+
+- **本地打包**:`pwsh -NoProfile -File android/build.ps1`(默认跑 `testDebugUnitTest` + `assembleDebug`),两个前提缺一不可:
+  1. **必须用 PowerShell 7(`pwsh`),不能用 Windows 自带的 `powershell.exe`(5.1)**:5.1 按 GBK 读这个 UTF-8 脚本,
+     中文字符串变乱码,脚本在语法解析阶段就报 `UnexpectedToken`,根本没进 Gradle。
+  2. **必须用 JDK 21**:开发机 `JAVA_HOME` 是 JDK 17,编译 `:capacitor-android:compileDebugJavaWithJavac` 时报
+     「无效的源发行版:21」。脚本支持只对本次生效的覆盖:`MELODEX_JAVA_HOME='C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot'`,不用改系统设置。
+- **本地 debug 包装不到用户手机上**:手机上装的是 CI 发的**正式签名包**(`CN=Melodex, OU=Release`,
+  证书 SHA-256 `5f28d565…`),本地包是 Android 默认调试证书,且不传 `-PmelodexVersionCode` 时版本号默认是 **2**。
+  `adb install -r` 会以 `INSTALL_FAILED_VERSION_DOWNGRADE` / 签名不一致失败;唯一的绕过是先卸载,**会清空 App 数据(登录态、本地设置)**,
+  必须先征得用户同意。本机没有正式签名所需的 `ANDROID_KEYSTORE_*` 环境变量。
+- **要更新用户手机 → 打标签走 CI**:推 `vX.Y.Z` 或 `vX.Y.Z-rc.N` 标签触发 `android-release.yml`(同时也会触发 `docker-publish.yml`)。
+  版本号由 `android/scripts/resolve-release-version.mjs` 算:`major*1000000 + minor*10000 + patch*100 + (rc 或 99)`,
+  例 `v0.2.2-rc.1` → 20201;新标签的版本号必须大于手机上已装的才能覆盖安装。
+  - 发版 job 在 **`android-release` 环境等人工审批**(审批人 aki-riko;只允许 `v*` 标签部署)。网页上要点 Review deployments →
+    勾选 `android-release` → **Approve and deploy**,只勾选不确认不会生效。曾有 4 次发版(`v0.2.1-rc.6`~`v0.2.1`)在这里挂了四天没人批,
+    2026-11-12 已取消。用户明确同意时也可以命令行批准单个运行:
+    `gh api -X POST repos/aki-riko/Melodex/actions/runs/<run_id>/pending_deployments -F 'environment_ids[]=<env_id>' -f state=approved -f comment='…'`
+    (`env_id` 从同一路径的 GET 里取)。审批是用户设的门槛,不要未经同意替用户批。
+  - 装机前核对:Release 附带的 `.sha256` 与下载的文件一致;`aapt2 dump badging` 看 versionCode/versionName;
+    `apksigner verify --print-certs` 看签名证书与手机上原版一致。
+  - **核对图标别比字节哈希**:正式包会重新压缩 PNG 并把资源改名(如 `res/o-.png`),要先用 `aapt2 dump resources` 找到
+    `mipmap/ic_launcher (xxxhdpi)` 对应的文件,再**逐像素**比对(2026-11-12 实测字节哈希不同、147456 个通道值完全一致)。
+  - 装机:`adb install -r <apk>`,覆盖安装保留 App 数据;装完 `adb shell dumpsys package life.nineli.melodex | grep -E "versionCode|versionName|lastUpdateTime"` 确认。
 
 ## 镜像发布(GHCR,2026-09 新增)
 
@@ -417,7 +460,7 @@ dispatch → `edge,sha-…`(extra_tag 空也回退 `edge`);owner 大写会被转
   > (`curl -o /dev/null -w '%{speed_download} B/s'` 打一个 blob),别引用这条旧数字。
   注意区分两台机器的代理端口:**NAS 是 7890**,开发机(Windows)是 `7897`;
   别拿本机端口去测 NAS,反之亦然。registry 匿名可取 token/manifest/blob(均为公开包)。
-- **生产已切预构建镜像(2026-10-25)**:NAS `.env` 第 7-8 行设为
+- **(历史记录,已过时 —— 当前生产状态见「部署」节)生产曾切预构建镜像(2026-10-25)**:NAS `.env` 第 7-8 行设为
   `MELODEX_IMAGE=ghcr.io/aki-riko/melodex:edge` / `MELODEX_PROVIDER_IMAGE=ghcr.io/aki-riko/melodex-provider:edge`,
   `docker compose up -d --no-build` 生效;当时对应提交 `d1b0203`,镜像 digest
   `melodex@sha256:dcb1fd76…` / `melodex-provider@sha256:e05f74b4…`。
