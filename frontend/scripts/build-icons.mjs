@@ -25,19 +25,20 @@
  *   ../desktop/src-tauri/icons/icon-{32,128,256}.png + icon.ico
  *
  * 图形设计要点(改之前读一遍,别把好不容易修好的地方改回去):
- *   - 图形本身(五根柱子 + 飘带)在 scripts/icon-glyph.mjs,是唯一矢量源;
- *     这里只负责缩放、居中、加底、派生各平台格式。
- *   - 纯色填充,不用渐变。若以后要加渐变:必须 gradientUnits="userSpaceOnUse",
+ *   - 图形本身(折纸播放)在 scripts/icon-glyph.mjs,是唯一矢量源;
+ *     这里只负责缩放、居中、裁边、派生各平台格式。
+ *   - 纸面就是底板:圆角版的纸面铺满 512 画布,maskable/自适应版纸面满底,
+ *     三角和折线一起收进安全区(SAFE_SCALE),折线仍画到画布边缘。
+ *   - 三角按外框居中(中心 = 画布中心),不是按重心居中 —— 用户要求"完全居中"。
+ *   - 纯色填充,不用渐变、阴影、滤镜。若以后要加渐变:必须 gradientUnits="userSpaceOnUse",
  *     默认的 objectBoundingBox 在竖直线段上包围盒宽度为 0,整条线不渲染(踩过两次)。
  *   - 主体必须落在 maskable 安全圆(r = 40% 边长)以内,否则被系统裁圆角切边。
- *   - 小尺寸(≤48px)把图形放大到底板宽度的 80%,不加描边。实测(nearest 放大逐像素看):
- *     按 66% 缩到 16px 柱子只剩 1~2px,描边加粗又会把柱间缝隙填死,放大占比两边都不伤。
  */
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GLYPH_BOX, GLYPH_COLOR, GLYPH_PATHS } from './icon-glyph.mjs';
+import { COLORS, CORNER, LINES, LINE_WIDTH, PLAY } from './icon-glyph.mjs';
 
 const require = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'));
 const sharp = require('sharp');
@@ -51,61 +52,70 @@ const TAURI_ICONS = resolve(ROOT, 'desktop/src-tauri/icons');
 
 const CHECK = process.argv.includes('--check');
 
-/** 底板为白色,图形为品牌紫(GLYPH_COLOR),与用户提供的原图一致。 */
-const BASE = '#FFFFFF';
+/** 底板就是纸面颜色:位图压底色、Android 自适应背景都用它。 */
+const BASE = COLORS.paper;
+
+/** 512 视图下的几何:纸面铺满画布,三角外框中心 = 画布中心。 */
+const S = 512;
+const R = CORNER * S;
+const fmt = (v) => (Math.round(v * 100) / 100).toString();
 
 /**
- * 图形在 512 底板上的宽度占比。图形外框 975×765(见 GLYPH_BOX),
- * 0.66 时外框约 338×265,四周留白均匀;小尺寸改 0.80,原因见文件头。
+ * 三角与三条折线(不含纸面)。k 为绕画布中心的缩放:圆角版 1,maskable/自适应版 SAFE_SCALE。
+ * 折线从顶点出发,按方向一直画到画布边缘(射线与 [0,512] 方框求交),
+ * 圆角版再由纸面 clipPath 裁掉圆角外的部分。三角最后画,盖住折线起点。
  */
-const FILL_STANDARD = 0.66;
-const FILL_SMALL = 0.8;
-
-/** 把 2000 坐标系的图形缩放并居中到 512 视图的变换参数(SVG 与 VectorDrawable 共用)。 */
-function glyphTransform(fill) {
-  const scale = (512 * fill) / GLYPH_BOX.width;
-  const cx = GLYPH_BOX.x + GLYPH_BOX.width / 2;
-  const cy = GLYPH_BOX.y + GLYPH_BOX.height / 2;
-  return { scale, tx: 256 - cx * scale, ty: 256 - cy * scale };
+function playParts(k) {
+  const w = PLAY.width * S * k, h = PLAY.height * S * k, c = S / 2;
+  const v = {
+    topLeft: [c - w / 2, c - h / 2],
+    right: [c + w / 2, c],
+    bottomLeft: [c - w / 2, c + h / 2],
+  };
+  const lines = LINES.map(({ from, dir }) => {
+    const [px, py] = v[from];
+    const len = Math.hypot(dir[0], dir[1]);
+    const [ux, uy] = [dir[0] / len, dir[1] / len];
+    // 射线 p + t·u 走出 [0,S]×[0,S] 时的 t
+    const tx = ux > 0 ? (S - px) / ux : ux < 0 ? -px / ux : Infinity;
+    const ty = uy > 0 ? (S - py) / uy : uy < 0 ? -py / uy : Infinity;
+    const t = Math.min(tx, ty);
+    return [[px, py], [px + ux * t, py + uy * t]];
+  });
+  const tri = [v.topLeft, v.right, v.bottomLeft];
+  return { lines, tri, lineWidth: LINE_WIDTH * S };
 }
 
-function glyph(fill) {
-  const { scale, tx, ty } = glyphTransform(fill);
-  return `
-    <g transform="translate(${tx.toFixed(3)} ${ty.toFixed(3)}) scale(${scale.toFixed(6)})" fill="${GLYPH_COLOR}">
-${GLYPH_PATHS.map((d) => `      <path d="${d}"/>`).join('\n')}
-    </g>`;
-}
-
-/** 常规档:≥64px 的产物。 */
-const GLYPH = glyph(FILL_STANDARD);
-
-/** 小尺寸档:≤48px 的产物(原理见文件头)。 */
-const GLYPH_SMALL = glyph(FILL_SMALL);
-
-/** 小于等于此边长的位图一律用小尺寸档。 */
-const SMALL_CUTOFF = 48;
-const glyphFor = (size) => (size <= SMALL_CUTOFF ? GLYPH_SMALL : GLYPH);
-
-/** 安全区缩放:maskable/自适应图标把主体收到中心 ~72%。 */
+/** 安全区缩放:maskable/自适应图标把三角和折线收到中心 72%。 */
 const SAFE_SCALE = 0.72;
-const scaled = (body) =>
-  `<g transform="translate(256 256) scale(${SAFE_SCALE}) translate(-256 -256)">${body}</g>`;
 
-/** 圆角版(Web favicon / 桌面)。body 决定用哪一档。 */
-function roundedSvg(body = GLYPH) {
+/** 折线与三角的 SVG 片段。 */
+function playSvg(k) {
+  const { lines, tri, lineWidth } = playParts(k);
+  const seg = ([a, b]) => `<path d="M${fmt(a[0])} ${fmt(a[1])}L${fmt(b[0])} ${fmt(b[1])}"/>`;
+  return `<g stroke="${COLORS.line}" stroke-width="${fmt(lineWidth)}">
+    ${lines.map(seg).join('\n    ')}
+  </g>
+  <path d="M${tri.map((p) => `${fmt(p[0])} ${fmt(p[1])}`).join('L')}Z" fill="${COLORS.play}"/>`;
+}
+
+/** 圆角版(Web favicon / 桌面):纸面就是整块圆角方块,折线被圆角裁掉。 */
+function roundedSvg() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="116" fill="${BASE}"/>
-  ${body}
+  <defs><clipPath id="paper"><rect width="512" height="512" rx="${fmt(R)}"/></clipPath></defs>
+  <g clip-path="url(#paper)">
+  <rect width="512" height="512" fill="${COLORS.paper}"/>
+  ${playSvg(1)}
+  </g>
 </svg>
 `;
 }
 
-/** 满底版 —— 给 maskable 用,图形缩进安全区,系统裁任意形状都不切主体。 */
-function maskableSvg(body = GLYPH) {
+/** 满底版 —— 给 maskable 用,三角与折线收进安全区,折线仍画到边缘。 */
+function maskableSvg() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="${BASE}"/>
-  ${scaled(body)}
+  <rect width="512" height="512" fill="${COLORS.paper}"/>
+  ${playSvg(SAFE_SCALE)}
 </svg>
 `;
 }
@@ -119,9 +129,9 @@ function put(path, content) {
 
 /**
  * 渲染 PNG。
- * 关键:按目标尺寸挑档位(≤48px 用小尺寸档),而不是先画 512 再缩小 ——
- * 后者在小尺寸柱子只剩 1~2px(原因见文件头)。
- * 同时用高 density 光栅化,让 16/24px 这类尺寸也能拿到干净的抗锯齿结果。
+ * 每个尺寸都直接从矢量光栅化,不是先画 512 再缩小;用高 density 让 16/24px 也有干净的抗锯齿。
+ * 不再分小尺寸档:图形只有一个大三角,小尺寸照样清楚;折线在 ≤64px 时不足 1px,
+ * 自然淡到看不见,这是可接受的(主体是三角)。
  */
 async function renderPng(svg, size, { background = null } = {}) {
   const img = sharp(Buffer.from(svg), { density: 900 });
@@ -139,18 +149,16 @@ async function renderPng(svg, size, { background = null } = {}) {
     .toBuffer();
 }
 
-/** 按目标尺寸选好档位的完整图标 SVG。 */
+/** 完整图标 SVG。size 参数保留给调用处标注用途,各尺寸用同一份矢量。 */
 function iconSvgFor(size, colors = {}) {
-  const body = glyphFor(size);
-  if (colors.maskable) return maskableSvg(body);
-  return roundedSvg(body);
+  return colors.maskable ? maskableSvg() : roundedSvg();
 }
 
 /**
  * ICO 容器(Windows 桌面图标)。
  * sharp 不产 .ico,这里按 ICO 目录格式手工封装多张 PNG。
  * 每张都当"独立 PNG 条目"(ImageType 2),Vista 起广泛支持。
- * 每个尺寸各自选档位 —— 用一张 256 缩到 16 会糊。
+ * 每个尺寸各自从矢量光栅化 —— 用一张 256 缩到 16 会糊。
  */
 async function buildIco(sizes) {
   const pngs = [];
@@ -201,19 +209,15 @@ function androidAdaptiveXml() {
 }
 
 /**
- * Android 矢量图(前景层)。
- * 纯色填充,直接用 android:fillColor,不需要 aapt:attr。
- * pathData 原样沿用 2000 坐标系的路径(含 A 圆弧指令,VectorDrawable 支持),
- * 缩放与居中交给内层 <group>,与 SVG 用的是同一组 glyphTransform 参数。
- *
- * 用哪一档:只能用常规档 0.66,**不能**用小尺寸档 0.80。
- * 自适应图标只保证中心直径 66dp(108dp 画布)可见,圆形启动器会裁掉其余部分。
- * 实测图形离中心最远的墨迹是飘带右上尖端(2000 坐标 (1488,608),半径 618.9),
- * 换算后安全圆允许的最大占比是 0.669:0.66 时半径 154.5 / 安全 156.4,
- * 0.80 时 187.2,尖端会被切掉。改图形后要重新量这个半径。
+ * Android 矢量图(前景层)。背景层是纸面纯色(ic_launcher_background)。
+ * 与 maskable 版同一套几何:三角收进 SAFE_SCALE,折线画到画布边缘
+ * (自适应图标外圈本来就会被系统按启动器形状裁掉,折线跟着纸面一起被裁,观感一致)。
+ * 安全区核对:离中心最远的是三角两个左侧顶点,512 视图里半径 = hypot(w/2, h/2)×0.72 ≈ 119.6,
+ * 小于 66dp/108dp 安全圆半径 156.4。改三角尺寸后要重算。
  */
-function androidGlyphVector(fill = FILL_STANDARD) {
-  const { scale, tx, ty } = glyphTransform(fill);
+function androidGlyphVector() {
+  const { lines, tri, lineWidth } = playParts(SAFE_SCALE);
+  const p = (pt) => `${fmt(pt[0])} ${fmt(pt[1])}`;
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- 由 frontend/scripts/build-icons.mjs 生成,勿手改。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -221,15 +225,8 @@ function androidGlyphVector(fill = FILL_STANDARD) {
     android:height="108dp"
     android:viewportWidth="512"
     android:viewportHeight="512">
-    <!-- 自适应图标安全区:512 视图里只有中心 72% 保证可见 -->
-    <group android:translateX="71.68" android:translateY="71.68"
-           android:scaleX="0.72" android:scaleY="0.72">
-        <!-- 把 2000 坐标系的图形缩放并居中到 512 视图 -->
-        <group android:translateX="${tx.toFixed(3)}" android:translateY="${ty.toFixed(3)}"
-               android:scaleX="${scale.toFixed(6)}" android:scaleY="${scale.toFixed(6)}">
-${GLYPH_PATHS.map((d) => `            <path android:fillColor="${GLYPH_COLOR}" android:pathData="${d}" />`).join('\n')}
-        </group>
-    </group>
+${lines.map(([a, b]) => `    <path android:strokeColor="${COLORS.line}" android:strokeWidth="${fmt(lineWidth)}" android:pathData="M${p(a)}L${p(b)}" />`).join('\n')}
+    <path android:fillColor="${COLORS.play}" android:pathData="M${tri.map(p).join('L')}Z" />
 </vector>
 `;
 }
@@ -242,7 +239,7 @@ ${GLYPH_PATHS.map((d) => `            <path android:fillColor="${GLYPH_COLOR}" a
 
 async function main() {
   // ---- Web / PWA ----
-  // 矢量源用常规档(它会在各尺寸被浏览器重新栅格化,favicon 由 PNG 兜底)。
+  // 矢量源会在各尺寸被浏览器重新栅格化,favicon 由 PNG 兜底。
   put(resolve(PUBLIC, 'icon.svg'), roundedSvg());
   put(resolve(PUBLIC, 'icon-maskable.svg'), maskableSvg());
 
@@ -286,7 +283,7 @@ async function main() {
   put(resolve(TAURI_ICONS, 'icon-32.png'), await renderPng(iconSvgFor(32), 32));
   put(resolve(TAURI_ICONS, 'icon-128.png'), await renderPng(iconSvgFor(128), 128));
   put(resolve(TAURI_ICONS, 'icon-256.png'), await renderPng(iconSvgFor(256), 256));
-  // ICO 每个尺寸单独选档,不能整体用一张大图缩
+  // ICO 每个尺寸单独从矢量光栅化,不能整体用一张大图缩
   put(resolve(TAURI_ICONS, 'icon.ico'), await buildIco([16, 24, 32, 48, 64, 128, 256]));
 
   // ---- 落盘 / 校验 ----

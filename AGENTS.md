@@ -170,28 +170,31 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 ## 品牌图标:单一矢量为源(2026-11 重画)
 
 **所有图标产物都由 `frontend/scripts/build-icons.mjs` 从一个矢量图形派生**,禁止再手放 PNG / 手写矢量。
-图形本身在 `frontend/scripts/icon-glyph.mjs`(唯一矢量源);`build-icons.mjs` 只负责缩放、居中、加底、出各平台格式。
+图形本身在 `frontend/scripts/icon-glyph.mjs`(唯一矢量源,只有颜色/尺寸比例/折线方向);`build-icons.mjs` 只负责缩放、居中、裁边、出各平台格式。
 
 - 命令:`cd frontend && npm run icons`(写文件)/ `npm run test:icons`(只校验,不一致退 1)。
 - 产物三平台共 24 个:Web-PWA(`public/icon.svg`、`icon-maskable.svg`、`logo192/512`、`maskable512`、`favicon-32`)、
   Android(`mipmap-<density>/ic_launcher(_round).png` 五档位图回退 + `mipmap-anydpi-v26/ic_launcher(_round).xml` 自适应 +
   `drawable/ic_launcher_foreground.xml` 矢量 + `values/ic_launcher_background.xml`)、桌面 Tauri(`icons/icon-{32,128,256}.png` + `icon.ico`)。
   `desktop-prismqml` 直接引用 `frontend/public/logo512.png`,随之一起更新。
-- **图形(2026-11 换)**:五根柱子 + 一条上扬的飘带(柱状图 + 声波),纯色 `#7B3AED`,白底 `#FFFFFF`。
-  按用户提供的 2000px 位图**逐列测量后重绘**(不是自动矢量化),坐标系保持 2000×2000;与原图二值化逐像素差异 2.73%。
+- **图形(2026-11 换为「折纸播放」)**:纯色纸面 `#F6F1EE`(圆角 = 边长 × 220/1540),正中一个等腰播放三角 `#2F2C29`,
+  三条折线 `#D9D3CF` 分别从三角三个顶点引到纸面边缘。按用户提供的 2000px 折纸位图测量后,
+  **按用户要求规整**:三角改等腰并按外框完全居中、去掉颜色略深的折瓣与原有折痕、去掉全部阴影。
+  (同月更早换过一版紫色柱状图 `b4d9c79`,已被这一版取代。)
 
 ### 坑(都实际踩过,改之前必读)
-1. **柱顶要整段当一条连续轮廓画**(左圆角 + 顶边 + 右圆角)。分三段拼接时即使切线对上,曲率突变,
-   接缝处仍能看出折角(用户一眼指出"右边柱顶不平滑")。现在的路径是从柱内中心放射取样后平滑得到的。
-2. **每侧竖边只能用一个位置**。柱顶曲线端点用实测墙位置、竖边却用另一个 x,差 1~2px,样条会把这个台阶放大成侧面鼓包。
-3. **自适应图标的安全圆会切掉飘带尖端**。最远的墨迹是飘带右上尖端(2000 坐标 (1488,608),离中心 618.9),
-   108dp 画布只保证中心直径 66dp 可见,换算后图形宽度占比上限 **0.669**。所以 Android 前景矢量用常规档 0.66,
-   **不能**用小尺寸档 0.80(那样半径 187 > 安全 156,圆形启动器上尖端被裁)。改图形后必须重新量这个半径。
-4. **小尺寸(≤48px)靠放大占比,不靠描边**。按 0.66 缩到 16px 柱子只剩 1~2px;加描边又会把柱间缝隙填死。
-   现在 `size ≤ 48` 用 0.80 占比,ICO 也是**每个尺寸单独选档**渲染,不是一张大图缩放。16px 下飘带基本看不清,这是已知取舍。
+1. **"居中"指三角外框中心 = 画布中心**,不是重心居中。原图的三角右顶点比左边中点低约 4px、纸面也不是正方形
+   (实测 1537×1544),用户明确要求"完全居中",所以规整成等腰 + 正方形。logo512.png 实测外框中心偏移 dx=-0.5 / dy=0
+   (半像素是抗锯齿取整,坐标本身精确居中)。
+2. **折线是射线,不是固定长度的线段**:`playParts()` 从顶点沿方向求到 [0,512] 画布边界的交点,
+   圆角版再用纸面 clipPath 裁掉圆角外的部分。maskable/自适应版三角收进安全区(×0.72),但折线仍画到画布边缘 ——
+   否则缩进后的折线会停在纸面中间,不像折痕。
+3. **安全区**:离中心最远的是三角两个左侧顶点,512 视图半径 hypot(w/2,h/2)×0.72 ≈ 119.6,
+   小于 maskable 安全圆 204.8 与自适应 66dp 安全圆 156.4。改三角尺寸后要重算。
+4. **小尺寸不再分档**:只有一个大三角,16px 照样清楚;折线 1px 宽,≤64px 时自然淡到看不见,这是已知取舍(主体是三角)。
 5. **清单必须 `android:icon="@mipmap/ic_launcher"`**。此前是 `@drawable/ic_melodex`,那样 `mipmap-anydpi-v26` 的自适应图标
    **根本不会被使用**;旧的 `ic_melodex.xml` 已删除——同一图形留两份必然分叉。
-6. 若以后重新引入渐变:**必须 `gradientUnits="userSpaceOnUse"`**,默认 `objectBoundingBox` 在竖直线段上包围盒宽度为 0,
+6. 若以后引入渐变:**必须 `gradientUnits="userSpaceOnUse"`**,默认 `objectBoundingBox` 在竖直线段上包围盒宽度为 0,
    整条线不渲染;VectorDrawable 里渐变色要包进 `<aapt:attr>`,`strokeWidth` 这类普通浮点属性不能包。
 
 验证:`npm run build`(产物进 build/)+ `npm run test:icons` + `cd android && ./gradlew :app:processDebugResources`
