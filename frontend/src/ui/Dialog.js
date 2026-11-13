@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from './cn';
+import Portal from './Portal';
 import { useBackLayer } from '../contexts/backNavigation.js';
 
 // 统一对话框基础件。
@@ -169,52 +170,59 @@ export default function Dialog({
     xl: 'max-w-4xl',
   };
 
+  // ⚠ 必须 Portal 到 body,理由见 ./Portal.js:
+  // 这里的容器是 `fixed inset-0 z-modal`,本意是盖住整个视口。
+  // 但页面 header / 列表行带着动画残留的 transform(fill-mode:both 的 translateY(0)),
+  // 会成为 position:fixed 的 containing block —— 于是 inset-0 只铺满那个祖先,
+  // 遮罩盖不住整屏,点击浮层外部也关不掉。挂 body 后才是真正的全屏遮罩。
   return (
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center overlay p-4 animate-fade-in"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && dismissable) onClose?.();
-      }}
-    >
+    <Portal>
       <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy || (title ? titleIdRef.current : undefined)}
-        aria-label={!labelledBy && !title ? '对话框' : undefined}
-        tabIndex={-1}
-        className={cn(
-          'w-full rounded-lg border border-border bg-popover text-popover-foreground shadow-dialog',
-          'max-h-[85dvh] overflow-y-auto scroll-area',
-          'fluent-flyout-in focus:outline-none',
-          SIZES[size],
-          className,
-          panelClassName,
-        )}
+        className="fixed inset-0 z-modal flex items-center justify-center overlay p-4 animate-fade-in"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget && dismissable) onClose?.();
+        }}
       >
-        {(title || showClose) && (
-          <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-            <div className="min-w-0">
-              {title && (
-                <h2 id={labelledBy || titleIdRef.current} className="type-section text-foreground">
-                  {title}
-                </h2>
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={labelledBy || (title ? titleIdRef.current : undefined)}
+          aria-label={!labelledBy && !title ? '对话框' : undefined}
+          tabIndex={-1}
+          className={cn(
+            'w-full rounded-lg border border-border bg-popover text-popover-foreground shadow-dialog',
+            'max-h-[85dvh] overflow-y-auto scroll-area',
+            'fluent-flyout-in focus:outline-none',
+            SIZES[size],
+            className,
+            panelClassName,
+          )}
+        >
+          {(title || showClose) && (
+            <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+              <div className="min-w-0">
+                {title && (
+                  <h2 id={labelledBy || titleIdRef.current} className="type-section text-foreground">
+                    {title}
+                  </h2>
+                )}
+              </div>
+              {showClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="关闭"
+                  className="-mr-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
+                >
+                  <X size={18} />
+                </button>
               )}
             </div>
-            {showClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="关闭"
-                className="-mr-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
-              >
-                <X size={18} />
-              </button>
-            )}
-          </div>
-        )}
-        <div className="p-4">{children}</div>
+          )}
+          <div className="p-4">{children}</div>
+        </div>
       </div>
-    </div>
+    </Portal>
   );
 }
