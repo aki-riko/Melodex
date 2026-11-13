@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from './cn';
+import Portal from './Portal';
 import { computeMenuPosition, pickBoundary, VIEWPORT_MARGIN } from './menuPosition';
 
 // 弹出菜单基础件(行内"更多操作"、侧栏"+"、播放模式等)。
@@ -151,25 +152,33 @@ export function MenuPopover({
 
   if (!open) return null;
 
+  // ⚠ 必须挂到 body(Portal)再定位,原因见 ./Portal.js 的注释:
+  // 页面 header / 列表行带 page-enter / item-enter 动画残留的 `transform: translateY(0)`
+  // (fill-mode:both 会让它永久生效),它们会成为 position:fixed 的 containing block。
+  // 这里的 top/left 是 computeMenuPosition 算出的**视口坐标**,一旦被祖先的坐标系
+  // 接管就会整体偏移 —— 用户实测:「更多」菜单跑到按钮右下几百像素外。
+  // 挂 body 之后没有任何祖先能改坐标系,fixed 永远相对视口,与计算口径一致。
   return (
-    <div
-      ref={panelRef}
-      role="menu"
-      style={{
-        position: 'fixed',
-        top: pos.top,
-        left: pos.left,
-        transform: pos.placement === 'up' ? 'translateY(-100%)' : undefined,
-      }}
-      className={cn(
-        'z-popover overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-popover',
-        width,
-        'fluent-flyout-in',
-        className,
-      )}
-    >
-      {children}
-    </div>
+    <Portal>
+      <div
+        ref={panelRef}
+        role="menu"
+        style={{
+          position: 'fixed',
+          top: pos.top,
+          left: pos.left,
+          transform: pos.placement === 'up' ? 'translateY(-100%)' : undefined,
+        }}
+        className={cn(
+          'z-popover overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-popover',
+          width,
+          'fluent-flyout-in',
+          className,
+        )}
+      >
+        {children}
+      </div>
+    </Portal>
   );
 }
 
