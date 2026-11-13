@@ -42,10 +42,6 @@ const OVERLAY_PORTAL_ALLOWLIST = new Map([
     'contexts/FeedbackContext.js',
     'FeedbackProvider 包住 AuthedApp,弹出层与 AppShell 同级,无 transform 祖先',
   ],
-  [
-    'components/Settings.js',
-    '已知债务:扫码/手填 Cookie 两个遮罩渲染在页面树内,同源 bug(fixed inset-0 当前只盖住 header),待单独修复',
-  ],
 ]);
 
 const walk = (dir, out = []) => {

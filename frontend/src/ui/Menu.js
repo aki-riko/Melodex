@@ -165,9 +165,13 @@ export function MenuPopover({
         role="menu"
         style={{
           position: 'fixed',
+          // top 是面板真实上边缘(向上展开时 computeMenuPosition 已减掉面板高度)。
+          // 这里**刻意不写 transform 参与定位**:CSS 动画(animation origin)的优先级
+          // 高于内联 style,而 .fluent-flyout-in 的 fill-mode:both 会让终态
+          // translateY(0) 永久覆盖内联值 —— 曾经就是靠 translateY(-100%) 顶上去的,
+          // 结果向上展开时面板反而按 top 往下铺、整块盖住按钮。
           top: pos.top,
           left: pos.left,
-          transform: pos.placement === 'up' ? 'translateY(-100%)' : undefined,
         }}
         className={cn(
           'z-popover overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-popover',

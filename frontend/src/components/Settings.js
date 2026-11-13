@@ -22,6 +22,7 @@ import {
 import LoadingState from './LoadingState';
 import DesktopLyricsSettings from './DesktopLyricsSettings';
 import AppearanceSettings from './AppearanceSettings';
+import Portal from '../ui/Portal';
 
 const SOURCE_NOTES = {
   qq: 'QQ 音乐客户端强登录入口，用于换取 qm_keyst/qqmusic_key 等强凭证。',
@@ -423,6 +424,11 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
       </div>
 
       {session && (
+        // 必须 Portal 到 body:本页在 .fluent-page-enter 容器内,页面各块带着
+        // 动画残留的 transform(fill-mode:both 的 translateY(0))会成为
+        // position:fixed 的 containing block —— 遮罩 fixed inset-0 只盖住那一块,
+        // 盖不满整屏、点外部也关不掉。理由详见 ui/Portal.js。
+        <Portal>
         <div className="fixed inset-0 z-modal flex items-center justify-center overlay p-4" onClick={closeQRSession}>
           <div className="w-full max-w-sm rounded-lg border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -519,9 +525,12 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {showManual && manualSupported && (
+        // 同上:手填 Cookie 遮罩也要 Portal,否则只盖住页面里的一块。
+        <Portal>
         <div className="fixed inset-0 z-modal flex items-center justify-center overlay p-4" onClick={() => setShowManual(false)}>
           <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-lg border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -565,6 +574,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </>
   );
