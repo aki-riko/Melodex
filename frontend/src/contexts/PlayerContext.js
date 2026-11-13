@@ -54,6 +54,7 @@ import {
 } from './playerScrub.js';
 import { useBackLayer } from './backNavigation.js';
 import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
+import { karaokeFillPercent, lyricScrollBehavior, prefersReducedMotion, sheetExitDelay } from './playerSheetMotion.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
 
 const PlayerContext = createContext(null);
@@ -1509,35 +1510,35 @@ const currentLyricIndex = (lines, cur) => {
 
 // 卡拉OK式当前行:逐字按播放进度填色。已唱字全亮,正在唱的字按时间比例渐变填充,
 // 未唱字暗。无字级时间戳(words=null)则整行高亮。
+//
+// 填色靠移动 background-position(见 index.css .karaoke-word),而不是每次改渐变断点:
+// 进度只有 timeupdate 的 4Hz,直接改断点会一格一格跳;位置属性可以过渡,
+// 配一个与上报间隔等长的 linear 过渡,填色就是连续扫过去的。
 const KaraokeLine = ({ line, cur }) => {
   if (!line.words) {
-    return <span className="text-primary font-semibold">{line.text}</span>;
+    return <span className="text-primary">{line.text}</span>;
   }
   return (
     <span className="inline">
-      {line.words.map((w, i) => {
-        let ratio = 0;
-        if (cur >= w.end) ratio = 1;
-        else if (cur > w.t && w.end > w.t) ratio = (cur - w.t) / (w.end - w.t);
-        const pct = Math.max(0, Math.min(1, ratio)) * 100;
-        return (
-          <span
-            key={i}
-            style={{
-              backgroundImage: `linear-gradient(90deg, hsl(var(--primary)) ${pct}%, hsl(var(--muted-foreground)) ${pct}%)`,
-              WebkitBackgroundClip: 'text',
-              backgroundClip: 'text',
-              color: 'transparent',
-              fontWeight: 600,
-            }}
-          >
-            {w.s}
-          </span>
-        );
-      })}
+      {line.words.map((w, i) => (
+        <span
+          key={i}
+          className="karaoke-word"
+          style={{ backgroundPosition: `${100 - karaokeFillPercent(w, cur)}% 0` }}
+        >
+          {w.s}
+        </span>
+      ))}
     </span>
   );
 };
+
+// 播放/暂停图标:换图标时重新挂载,触发 .fluent-icon-swap 的缩放淡入(原来是硬切)。
+const PlayPauseIcon = ({ paused, size }) => (
+  <span key={paused ? 'play' : 'pause'} className="fluent-icon-swap inline-flex">
+    {paused ? <Play size={size} fill="currentColor" /> : <Pause size={size} fill="currentColor" />}
+  </span>
+);
 
 // 副歌标记:进度条上的一根可点小竖条,点击跳到副歌起点。
 //
@@ -1609,7 +1610,11 @@ export const PlayerBar = () => {
 
   // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
   const [favorited, setFavorited] = useState(false);
+  // 心形弹跳只在**用户亲手点亮**时播放:用计数器做 key 让图标重新挂载。
+  // 不能直接按 favorited 加类 —— 那样每次换到一首已收藏的歌、或打开播放页,都会无故跳一下。
+  const [favPulse, setFavPulse] = useState(0);
   useEffect(() => {
+    setFavPulse(0);
     let cancelled = false;
     if (!nowPlaying || offline) { setFavorited(false); return; }
     getFavoriteStatus(nowPlaying).then((f) => { if (!cancelled) setFavorited(f); });
@@ -1620,6 +1625,7 @@ export const PlayerBar = () => {
     if (!nowPlaying || offline) return;
     const prev = favorited;
     setFavorited(!prev); // 乐观更新
+    if (!prev) setFavPulse((n) => n + 1);
     try {
       const f = await toggleFavorite(nowPlaying);
       setFavorited(f);
@@ -1635,14 +1641,36 @@ export const PlayerBar = () => {
 
   // 收起播放页(带动画)。历史条目现在由统一的返回栈管理(backNavigation.js),
   // 这里不再自己 pushState/back —— 旧写法与其它弹层各管各的,必然互相顶掉。
+  // 收起时长与 CSS 的对应关系见 playerSheetMotion.mjs 的 SHEET_EXIT_MS。
+  // reduced-motion 下直接卸载:动画已被压成 1ms,再等 260ms 只是让一块看不见的层多拦一会儿点击。
+  const collapseTimerRef = useRef(null);
   const collapseExpanded = useCallback(() => {
+    if (!expandedRef.current) return; // 已在收起中:重复触发(双击收起/返回键连按)不再排第二个定时器
     expandedRef.current = false;
+    const delay = sheetExitDelay(prefersReducedMotion());
+    if (delay === 0) {
+      setExpanded(false);
+      setClosing(false);
+      return;
+    }
     setClosing(true);
-    setTimeout(() => { setExpanded(false); setClosing(false); }, 260);
+    collapseTimerRef.current = setTimeout(() => {
+      collapseTimerRef.current = null;
+      setExpanded(false);
+      setClosing(false);
+    }, delay);
   }, []);
+  useEffect(() => () => { if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current); }, []);
 
   // 展开播放页:只改状态,历史哨兵由返回栈统一维护。
   const openExpanded = useCallback(() => {
+    // 收起动画还没播完就又展开:取消待卸载的定时器,否则它会在展开后把播放页关掉。
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+    expandedRef.current = true;
+    setClosing(false);
     setExpanded(true);
   }, []);
 
@@ -1685,20 +1713,32 @@ export const PlayerBar = () => {
   const artistSourceText = nowPlaying ? `${nowPlaying.artist}${nowPlaying.source ? ` · ${songSourceText(nowPlaying)}` : ''}` : '';
 
   // 歌词自动滚动:当前行变化时滚到视图中央。
+  // 平滑还是瞬移由 lyricScrollBehavior 决定(刚出现/换歌瞬移,同一首里逐行才平滑)。
+  // 快照里的 key 带上歌词行数:换歌时歌词是先清空、异步拉回再填上的,
+  // 只比歌曲 key 的话"填上"那一刻会被当成同一首里的逐行推进,从第一行一路滑到当前行。
+  const lyricSnapshotKey = `${curKey}#${lrc.length}`;
   const activeLyricRef = useRef(null);
+  const mobileLyricSnapRef = useRef(null);
   useEffect(() => {
-    if (showLyric && activeLyricRef.current) {
-      activeLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const snap = { songKey: lyricSnapshotKey, visible: expanded && showLyric };
+    const behavior = lyricScrollBehavior(mobileLyricSnapRef.current, snap);
+    mobileLyricSnapRef.current = snap;
+    if (behavior && activeLyricRef.current) {
+      activeLyricRef.current.scrollIntoView({ behavior, block: 'center' });
     }
-  }, [lyricIdx, showLyric]);
+  }, [lyricIdx, showLyric, expanded, lyricSnapshotKey]);
 
   // 桌面全屏页歌词常驻显示(不走 showLyric 开关),用独立 ref + effect 自动滚动。
   const desktopLyricRef = useRef(null);
+  const desktopLyricSnapRef = useRef(null);
   useEffect(() => {
-    if (expanded && desktopLyricRef.current) {
-      desktopLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const snap = { songKey: lyricSnapshotKey, visible: expanded };
+    const behavior = lyricScrollBehavior(desktopLyricSnapRef.current, snap);
+    desktopLyricSnapRef.current = snap;
+    if (behavior && desktopLyricRef.current) {
+      desktopLyricRef.current.scrollIntoView({ behavior, block: 'center' });
     }
-  }, [lyricIdx, expanded]);
+  }, [lyricIdx, expanded, lyricSnapshotKey]);
 
   // 播放模式图标(自定义 SVG,圆角风格统一):顺序/列表循环/单曲循环/随机
   const modeIcon = <PlayModeIcon mode={mode} size={20} />;
@@ -1754,7 +1794,7 @@ export const PlayerBar = () => {
             <button onClick={togglePlay}
               className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
               title="播放/暂停" aria-label="播放/暂停">
-              {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
+              <PlayPauseIcon paused={isPaused} size={20} />
             </button>
             <button onClick={next} className="text-muted-foreground hover:text-foreground transition-colors" title="下一首" aria-label="下一首">
               <SkipForward size={20} fill="currentColor" />
@@ -1884,13 +1924,15 @@ export const PlayerBar = () => {
           {/* 收藏: 窄屏(<=380px)隐藏收藏按钮 —— 封面 + 3 个 44px 按钮在该宽度下会挤到
               歌名只剩两三个字。收藏仍可在展开的全屏播放页里点。 */}
           <button onClick={onToggleFavorite} disabled={offline} className="hidden min-[381px]:flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="收藏">
-            <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
+            <span key={favPulse} className={`inline-flex ${favPulse ? 'fluent-heart-pop' : ''}`}>
+              <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
+            </span>
           </button>
           {/* 播放/暂停 */}
           <button onClick={togglePlay}
             className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground flex-shrink-0"
             aria-label="播放/暂停">
-            {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
+            <PlayPauseIcon paused={isPaused} size={20} />
           </button>
           {/* 播放列表 */}
           <button onClick={() => { openExpanded(); setQueueOpen(true); }} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground" aria-label="播放列表">
@@ -1954,9 +1996,8 @@ export const PlayerBar = () => {
                   lrc.map((line, i) => (
                     <p key={i}
                       ref={i === lyricIdx ? activeLyricRef : null}
-                      className={`py-1.5 px-2 leading-relaxed ${
-                        i === lyricIdx ? 'text-base' : 'text-muted-foreground text-sm'
-                      }`}>
+                      data-active={i === lyricIdx ? 'true' : undefined}
+                      className="player-lyric-line player-lyric-line--center py-1.5 px-2 text-base leading-relaxed">
                       {i === lyricIdx ? <KaraokeLine line={line} cur={progress.cur} /> : line.text}
                     </p>
                   ))
@@ -1988,7 +2029,9 @@ export const PlayerBar = () => {
               <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
             </div>
             <button onClick={onToggleFavorite} disabled={offline} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="收藏">
-              <Heart size={28} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
+              <span key={favPulse} className={`inline-flex ${favPulse ? 'fluent-heart-pop' : ''}`}>
+                <Heart size={28} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
+              </span>
             </button>
           </div>
           {/* 进度 */}
@@ -2020,7 +2063,7 @@ export const PlayerBar = () => {
             <button onClick={togglePlay}
               className="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground"
               aria-label="播放/暂停">
-              {isPaused ? <Play size={30} fill="currentColor" /> : <Pause size={30} fill="currentColor" />}
+              <PlayPauseIcon paused={isPaused} size={30} />
             </button>
             <button onClick={next} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="下一首">
               <SkipForward size={32} fill="currentColor" />
@@ -2091,9 +2134,8 @@ export const PlayerBar = () => {
                 lrc.map((line, i) => (
                   <p key={i}
                     ref={i === lyricIdx ? desktopLyricRef : null}
-                    className={`py-2 leading-relaxed transition-all ${
-                      i === lyricIdx ? 'text-xl font-semibold' : 'text-muted-foreground/70 text-base'
-                    }`}>
+                    data-active={i === lyricIdx ? 'true' : undefined}
+                    className="player-lyric-line py-2 text-xl leading-relaxed">
                     {i === lyricIdx ? <KaraokeLine line={line} cur={progress.cur} /> : line.text}
                   </p>
                 ))
@@ -2116,7 +2158,9 @@ export const PlayerBar = () => {
             </div>
             <div className="flex items-center justify-center gap-8">
               <button onClick={onToggleFavorite} disabled={offline} className="p-1 disabled:opacity-50" aria-label="收藏" title={offline ? '离线状态无法同步收藏' : '收藏'}>
-                <Heart size={24} className={favorited ? 'text-primary' : 'text-muted-foreground hover:text-foreground transition-colors'} fill={favorited ? 'currentColor' : 'none'} />
+                <span key={favPulse} className={`inline-flex ${favPulse ? 'fluent-heart-pop' : ''}`}>
+                  <Heart size={24} className={favorited ? 'text-primary' : 'text-muted-foreground hover:text-foreground transition-colors'} fill={favorited ? 'currentColor' : 'none'} />
+                </span>
               </button>
               <button onClick={cycleMode}
                 className={`${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'} transition-colors`}
@@ -2128,7 +2172,7 @@ export const PlayerBar = () => {
               <button onClick={togglePlay}
                 className="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform"
                 aria-label="播放/暂停">
-                {isPaused ? <Play size={30} fill="currentColor" /> : <Pause size={30} fill="currentColor" />}
+                <PlayPauseIcon paused={isPaused} size={30} />
               </button>
               <button onClick={next} className="text-foreground hover:scale-110 transition-transform" aria-label="下一首">
                 <SkipForward size={30} fill="currentColor" />
