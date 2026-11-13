@@ -1049,14 +1049,68 @@
   box-shadow: 0 1px 3px rgba(0,0,0,0.5);
 }
 
-/* ===== 迷你条歌名跑马灯(内容超宽才滚动) ===== */
+/* ===== 迷你条歌名跑马灯(内容超宽才滚动) =====
+   两份文字首尾相接,每轮位移恰好 = 一份文字宽 + 间距(--marquee-distance,组件实测写入),
+   所以第 2 份滚到起点时与第 1 份完全重合,循环无缝。
+   每轮前 18% 停在起点:先让人读到歌名开头再开始滚(比例与 playerMiniSwipe.mjs 的 MARQUEE_PAUSE_RATIO 对应)。
+   时长由组件按固定速度算出写进 animation-duration,这里的 12s 只是兜底。 */
 .marquee { overflow: hidden; white-space: nowrap; }
-.marquee__inner { display: inline-block; padding-left: 100%; animation: marquee-scroll 9s linear infinite; }
-.marquee:hover .marquee__inner { animation-play-state: paused; }
-@keyframes marquee-scroll {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-100%); }
+.marquee--scrolling {
+  /* 右侧渐隐:提示"后面还有字",也避免文字在边缘被一刀切断 */
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent);
 }
+.marquee__track {
+  display: inline-block;
+  will-change: transform;
+  animation: marquee-loop 12s linear infinite;
+}
+.marquee:hover .marquee__track { animation-play-state: paused; }
+@keyframes marquee-loop {
+  0%, 18% { transform: translateX(0); }
+  100%    { transform: translateX(calc(-1 * var(--marquee-distance, 0px))); }
+}
+
+/* ===== 移动迷你播放条(2026-11) ===== */
+/* 首次出现(开始播放第一首歌):轻轻上浮淡入,不再凭空冒出来 */
+@keyframes player-mini-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.player-mini-enter { animation: player-mini-enter var(--motion-slow) var(--ease-emphasized) both; }
+
+/* 顶部细进度条:scaleX 由组件写入,250ms linear 对应 timeupdate 约 4Hz 的上报间隔 */
+.mini-progress-fill {
+  transform-origin: left center;
+  transition: transform 250ms linear;
+  will-change: transform;
+}
+
+/* 滑动切歌。拖动中(无类)内容直接跟手;松手弹回 / 滑出时才带过渡。 */
+.mini-track { will-change: transform; }
+.mini-track--settle {
+  transition: transform var(--motion-base) var(--ease-emphasized),
+              opacity var(--motion-base) var(--ease-standard);
+}
+/* 这个按钮本身不做全局的按下缩放:手指按住开始拖时整块先缩一下,和跟手位移叠在一起很怪 */
+.mini-track-hitbox:not(:disabled):active { transform: none; }
+
+/* 换歌入场:滑动切的按方向滑入(下一首从右边来、上一首从左边来),其他方式换歌淡入 */
+@keyframes mini-track-in-next {
+  from { opacity: 0; transform: translate3d(36px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes mini-track-in-prev {
+  from { opacity: 0; transform: translate3d(-36px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes mini-track-in-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.mini-track-enter-next { animation: mini-track-in-next var(--motion-slow) var(--ease-emphasized) both; }
+.mini-track-enter-prev { animation: mini-track-in-prev var(--motion-slow) var(--ease-emphasized) both; }
+.mini-track-enter-fade { animation: mini-track-in-fade var(--motion-base) var(--ease-standard) both; }
 
 /* ===== 减少动效(系统偏好) =====
    早先只覆盖了 3 个加载动画,黑胶 18s 无限旋转、跑马灯 9s 无限滚动、
@@ -1070,7 +1124,11 @@
   .loading-bar-indeterminate::after,
   .song-row-equalizer span,
   .vinyl-disc,
-  .marquee__inner,
+  .marquee__track,
+  .player-mini-enter,
+  .mini-track-enter-next,
+  .mini-track-enter-prev,
+  .mini-track-enter-fade,
   .player-sheet-enter,
   .player-sheet-exit,
   .player-mini-lyric,
@@ -1086,8 +1144,15 @@
   .player-lyric-line {
     transform: none !important;
   }
-  .karaoke-word {
+  .karaoke-word,
+  .mini-progress-fill,
+  .mini-track--settle {
     transition: none !important;
+  }
+  /* 跑马灯停在起点:歌名开头可读,超出部分与第二份文字都被 overflow 裁掉;去掉渐隐免得像没显示全 */
+  .marquee--scrolling {
+    -webkit-mask-image: none;
+    mask-image: none;
   }
   /* 按下反馈也随之取消:reduced-motion 用户要的是"别动",不是"动得更快" */
   .fluent-pressable:active:not(:disabled) {

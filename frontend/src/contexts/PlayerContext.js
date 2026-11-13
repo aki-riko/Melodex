@@ -55,6 +55,9 @@ import {
 import { useBackLayer } from './backNavigation.js';
 import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
 import { karaokeFillPercent, lyricScrollBehavior, prefersReducedMotion, sheetExitDelay } from './playerSheetMotion.mjs';
+import {
+  TAP_SLOP_PX, dragOffset, lockSwipeAxis, marqueeDurationSec, miniEnterKind, resolveSwipe,
+} from './playerMiniSwipe.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
 
 const PlayerContext = createContext(null);
@@ -1478,22 +1481,53 @@ const PlayModeIcon = ({ mode, size = 20 }) => {
 };
 
 // 跑马灯:文字超出容器宽度才滚动,否则静态显示(避免短标题也无谓滚动)。
+//
+// 2026-11 重写,修掉旧版三个问题:
+//   ① 旧版靠 padding-left:100% 从容器外滑进来,每轮开头都有一段空白,用户先看到的是"没有字";
+//      现在两份文字首尾相接无缝循环,每轮开头停顿一下,先让人读到歌名开头;
+//   ② 旧版只在 text 变化时测一次,而且测的是 inline <span> 的 scrollWidth(按规范恒为 0),
+//      进入滚动态后再换短标题就回不来;现在测 inline-block 的真实宽度,并用 ResizeObserver 跟随容器;
+//   ③ 旧版固定 9s 一轮,长标题飞快、短标题慢吞吞;现在按固定速度算时长(marqueeDurationSec)。
+const MARQUEE_GAP_PX = 40;
 const Marquee = ({ text, className }) => {
   const wrapRef = useRef(null);
   const textRef = useRef(null);
-  const [scroll, setScroll] = useState(false);
+  const [distance, setDistance] = useState(0); // 0 = 不需要滚动
   useEffect(() => {
-    const w = wrapRef.current, t = textRef.current;
-    if (w && t) setScroll(t.scrollWidth > w.clientWidth + 2);
+    const wrap = wrapRef.current;
+    const measure = () => {
+      const w = wrapRef.current;
+      const t = textRef.current;
+      if (!w || !t) return;
+      const textWidth = t.offsetWidth;
+      // 容器宽为 0(所在断点被隐藏)时不判滚动,等它显示出来再测
+      const overflow = w.clientWidth > 0 && textWidth > w.clientWidth + 2;
+      setDistance(overflow ? textWidth + MARQUEE_GAP_PX : 0);
+    };
+    measure();
+    if (!wrap || typeof ResizeObserver !== 'function') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrap);
+    return () => ro.disconnect();
   }, [text]);
+  const scrolling = distance > 0;
   return (
-    <div ref={wrapRef} className={`marquee ${className || ''}`}>
-      {scroll ? (
-        <span className="marquee__inner"><span ref={textRef}>{text}</span></span>
-      ) : (
-        <span ref={textRef}>{text}</span>
-      )}
-    </div>
+    // 根节点用 span(block):它放在 <button> 里,button 的内容只允许行内级元素。
+    <span ref={wrapRef} className={`marquee block ${scrolling ? 'marquee--scrolling' : ''} ${className || ''}`}>
+      <span
+        key={scrolling ? 'loop' : 'still'}
+        className={scrolling ? 'marquee__track' : 'block truncate'}
+        style={scrolling ? {
+          '--marquee-distance': `${distance}px`,
+          animationDuration: `${marqueeDurationSec(distance)}s`,
+        } : undefined}
+      >
+        <span ref={textRef} className="inline-block">{text}</span>
+        {scrolling && (
+          <span aria-hidden="true" className="inline-block" style={{ marginLeft: MARQUEE_GAP_PX }}>{text}</span>
+        )}
+      </span>
+    </span>
   );
 };
 
@@ -1740,6 +1774,120 @@ export const PlayerBar = () => {
     }
   }, [lyricIdx, expanded, lyricSnapshotKey]);
 
+  // ===== 移动迷你条:左右滑动切歌 =====
+  // 规则(阈值、方向、轴锁定)全在 playerMiniSwipe.mjs,这里只做事件接线与动画状态。
+  //
+  // 动画三段:
+  //   drag   拖动中,内容跟手(无过渡);
+  //   settle 松手未达阈值 → 带过渡弹回原位;
+  //   hold   达阈值 → 内容停在滑出方向,同时切歌;新歌挂载时按方向滑入(miniEnterKind)。
+  // startPlay 会同步更新 nowPlaying(见 playerPlayback.beginPlaybackTransition),
+  // 所以 hold 通常只持续一帧;切不动(队列只有一首等)时由兜底定时器弹回。
+  const [miniDrag, setMiniDrag] = useState({ x: 0, phase: 'idle', key: '' });
+  const miniGestureRef = useRef(null);
+  const miniSuppressClickRef = useRef(false);
+  const miniPendingSwipeRef = useRef(null);
+  const miniHoldTimerRef = useRef(null);
+
+  // 当前曲目变化时决定入场动画。在渲染期同步算出(而不是 effect),否则新歌会先无动画地闪一帧。
+  const miniEnterRef = useRef({ key: curKey, kind: 'none' });
+  if (miniEnterRef.current.key !== curKey) {
+    const prevKey = miniEnterRef.current.key;
+    const kind = prevKey ? miniEnterKind(miniPendingSwipeRef.current, prevKey, Date.now()) : 'none';
+    miniPendingSwipeRef.current = null;
+    miniEnterRef.current = { key: curKey, kind };
+  }
+  const miniEnterKindValue = miniEnterRef.current.kind;
+
+  // 换歌后回到原位(入场动画的 fill-mode 会盖住这一帧的 transform,不会闪)
+  useEffect(() => {
+    if (miniHoldTimerRef.current) {
+      clearTimeout(miniHoldTimerRef.current);
+      miniHoldTimerRef.current = null;
+    }
+    setMiniDrag({ x: 0, phase: 'idle', key: '' });
+  }, [curKey]);
+  useEffect(() => () => { if (miniHoldTimerRef.current) clearTimeout(miniHoldTimerRef.current); }, []);
+
+  const onMiniPointerDown = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    miniSuppressClickRef.current = false;
+    miniGestureRef.current = {
+      id: e.pointerId,
+      x0: e.clientX,
+      y0: e.clientY,
+      t0: performance.now(),
+      axis: null,
+      width: e.currentTarget.clientWidth || 1,
+    };
+  };
+  const onMiniPointerMove = (e) => {
+    const g = miniGestureRef.current;
+    if (!g || g.id !== e.pointerId) return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (!g.axis) {
+      g.axis = lockSwipeAxis(dx, dy);
+      if (!g.axis) return;
+      if (g.axis === 'y') { miniGestureRef.current = null; return; }
+      miniSuppressClickRef.current = true;
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 指针已释放,忽略 */ }
+    }
+    setMiniDrag({ x: dragOffset(dx, g.width), phase: 'drag', key: curKey });
+  };
+  const endMiniGesture = (e, cancelled) => {
+    const g = miniGestureRef.current;
+    miniGestureRef.current = null;
+    if (!g || g.id !== e.pointerId || g.axis !== 'x') return;
+    const dx = e.clientX - g.x0;
+    // 队列只有一首时"切歌"只会重播本曲,不如弹回 —— 用户能明白"没有下一首了"
+    const swipe = cancelled || queue.length <= 1
+      ? null
+      : resolveSwipe({ dx, elapsedMs: performance.now() - g.t0, width: g.width });
+    if (!swipe) {
+      setMiniDrag({ x: 0, phase: 'settle', key: curKey });
+      return;
+    }
+    const fromKey = curKey;
+    miniPendingSwipeRef.current = { fromKey, direction: swipe, at: Date.now() };
+    setMiniDrag({ x: swipe === 'next' ? -g.width : g.width, phase: 'hold', key: fromKey });
+    if (swipe === 'next') next(); else prev();
+    // 兜底:正常情况下上面的 [curKey] effect 早已复位;没换成(pickNext 返回空)才会走到这里
+    miniHoldTimerRef.current = setTimeout(() => {
+      miniHoldTimerRef.current = null;
+      if (miniEnterRef.current.key === fromKey) {
+        miniPendingSwipeRef.current = null;
+        setMiniDrag({ x: 0, phase: 'settle', key: fromKey });
+      }
+    }, 350);
+  };
+  const miniSwipeHandlers = {
+    onPointerDown: onMiniPointerDown,
+    onPointerMove: onMiniPointerMove,
+    onPointerUp: (e) => endMiniGesture(e, false),
+    onPointerCancel: (e) => endMiniGesture(e, true),
+    // 拖动过就不再是点击:吞掉松手后浏览器补发的 click,否则会顺带展开播放页
+    onClickCapture: (e) => {
+      if (miniSuppressClickRef.current) {
+        miniSuppressClickRef.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+  };
+  // 拖动状态只对它所属的那首歌有效:换歌后的第一帧 effect 还没跑,
+  // 若沿用上一首的 hold(opacity 0),新歌会隐身一帧再出现。
+  const miniPhase = miniDrag.key === curKey ? miniDrag.phase : 'idle';
+  const miniTrackStyle = miniPhase === 'idle' ? undefined : {
+    transform: `translate3d(${miniDrag.x}px, 0, 0)`,
+    opacity: miniPhase === 'hold' ? 0 : Math.max(0.35, 1 - Math.abs(miniDrag.x) / 220),
+  };
+  const miniTrackClass = [
+    'mini-track',
+    miniPhase === 'settle' || miniPhase === 'hold' ? 'mini-track--settle' : '',
+    miniPhase === 'idle' && miniEnterKindValue !== 'none' ? `mini-track-enter-${miniEnterKindValue}` : '',
+  ].join(' ');
+
   // 播放模式图标(自定义 SVG,圆角风格统一):顺序/列表循环/单曲循环/随机
   const modeIcon = <PlayModeIcon mode={mode} size={20} />;
 
@@ -1895,12 +2043,17 @@ export const PlayerBar = () => {
 
       {/* ===== 移动端:迷你条(封面+名+播放),点击展开全屏播放页 ===== */}
       {nowPlaying && (
-      <div className="lg:hidden fixed left-0 right-0 bg-card border-t border-border z-bar surface-dock"
+      <div className="lg:hidden fixed left-0 right-0 bg-card border-t border-border z-bar surface-dock player-mini-enter"
         style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
         {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
-        {/* 顶部细进度条 */}
-        <div className="relative h-0.5 bg-secondary">
-          <div className="h-full bg-primary" style={{ width: progress.dur ? `${(progress.cur / progress.dur) * 100}%` : '0%' }} />
+        {/* 顶部细进度条:用 scaleX 而不是 width —— 进度每秒更新 4 次,改 width 每次都重排且一格一格跳;
+            transform 走合成层,配 250ms linear 过渡连续前进。按曲目 key 重新挂载,换歌时不会从旧进度"倒退"回 0。 */}
+        <div className="relative h-0.5 bg-secondary overflow-hidden">
+          <div
+            key={curKey}
+            className="mini-progress-fill h-full w-full bg-primary"
+            style={{ transform: `scaleX(${progress.dur ? Math.min(1, Math.max(0, progress.cur / progress.dur)) : 0})` }}
+          />
           {/* 这条只有 2px 高,放可点标记必然点不中(还会跟迷你条本身的"点击展开"抢事件),
               所以这里只画一根不可点的视觉指示;点击跳转只在真实进度条上提供。 */}
           {showChorusMarker && (
@@ -1912,14 +2065,25 @@ export const PlayerBar = () => {
           )}
         </div>
         <div className="flex items-center gap-2 px-3 py-2">
-          <button className="flex items-center gap-3 min-w-0 flex-grow text-left" onClick={openExpanded} aria-label="展开播放页">
-            {coverUrl
-              ? <img src={coverUrl} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
-              : <div className="w-11 h-11 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></div>}
-            <div className="min-w-0">
-              <Marquee text={nowPlaying?.name || ''} className="font-semibold text-sm" />
-              <p className="text-muted-foreground text-xs truncate">{nowPlaying?.artist}</p>
-            </div>
+          {/* 封面 + 歌名:点击展开播放页;左右滑动切歌(左滑下一首、右滑上一首)。
+              touch-action: pan-y 让竖向滑动仍交给浏览器,横向由我们接管。
+              overflow-hidden:滑动中的内容不能压到右侧的收藏/播放按钮上。 */}
+          <button
+            className="mini-track-hitbox flex min-w-0 flex-grow overflow-hidden text-left"
+            style={{ touchAction: 'pan-y' }}
+            onClick={openExpanded}
+            {...miniSwipeHandlers}
+            aria-label="展开播放页(左右滑动切歌)"
+          >
+            <span key={curKey} className={`${miniTrackClass} flex min-w-0 flex-grow items-center gap-3`} style={miniTrackStyle}>
+              {coverUrl
+                ? <img src={coverUrl} alt="" draggable={false} className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
+                : <span className="w-11 h-11 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></span>}
+              <span className="min-w-0 flex-grow">
+                <Marquee text={nowPlaying?.name || ''} className="font-semibold text-sm" />
+                <span className="block text-muted-foreground text-xs truncate">{nowPlaying?.artist}</span>
+              </span>
+            </span>
           </button>
           {/* 收藏: 窄屏(<=380px)隐藏收藏按钮 —— 封面 + 3 个 44px 按钮在该宽度下会挤到
               歌名只剩两三个字。收藏仍可在展开的全屏播放页里点。 */}
