@@ -32,6 +32,16 @@ export function pickBoundary({ clippingRect, viewport, panelWidth, margin = VIEW
 
 /**
  * 计算菜单的 fixed 定位。
+ *
+ * ⚠ 返回的 top 是面板的**真实上边缘**,向上展开时已经减去了面板高度。
+ * 早期版本向上展开只返回 `anchorRect.top - margin`,靠调用方那句内联
+ * `transform: translateY(-100%)` 把面板顶上去 —— 那条路是坏的,原因:
+ *   CSS 动画的优先级**高于内联 style**(动画走 animation origin,盖过普通作者声明)。
+ *   面板带着 `.fluent-flyout-in` 动画且 fill-mode 是 `both`,终态
+ *   `transform: scale(1) translateY(0)` 会永久覆盖掉内联的 translateY(-100%)。
+ * 结果:判定"向上"时面板实际按 top 向下铺开,**整块盖住锚点按钮和下方内容**。
+ * 现在改为纯坐标计算,不再依赖 transform 参与定位(动画只负责缩放淡入)。
+ *
  * @param {object} p
  * @param {{top:number,bottom:number,left:number,right:number}} p.anchorRect 锚点矩形
  * @param {{top:number,bottom:number,left:number,right:number}} p.boundary 可摆放区域
@@ -69,6 +79,14 @@ export function computeMenuPosition({
   const maxLeft = Math.max(minLeft, bound.right - panelWidth - margin);
   left = Math.max(minLeft, Math.min(left, maxLeft));
 
-  const top = placement === 'up' ? anchorRect.top - margin : anchorRect.bottom + margin;
+  // 向上展开:面板底边贴在锚点上边缘上方 margin 处,所以上边缘要再减去面板高度。
+  // 同时不得越过容器上边缘 —— 上方空间不足时优先保住可见性(宁可盖住锚点一小截,
+  // 也不要出现半截在容器外的菜单)。这点与原来的行为一致(bound.top 未参与计算),
+  // 这里显式 clamp 只是为了不再依赖 transform 后语义更明确。
+  const rawTop = placement === 'up'
+    ? anchorRect.top - margin - panelHeight
+    : anchorRect.bottom + margin;
+  const top = Math.max(bound.top + margin, rawTop);
+
   return { top, left, placement };
 }

@@ -123,12 +123,34 @@ const anchorInMain = { top: 200, bottom: 232, left: 600, right: 636 };
 }
 
 // ---- 7. 上下翻转 ----
+// ⚠ 回归重点(2026-11 修):panelHeight=260,向上展开时 top 必须是**面板真实上边缘**
+// (`锚点 top - margin - 面板高`),不能再返回 `锚点 top - margin` 然后指望
+// 内联 `transform: translateY(-100%)` 把它顶上去 ——
+// CSS 动画优先级高于内联 style,`.fluent-flyout-in` 的终态 translateY(0)
+// 会把那句内联 transform 永久盖掉,面板实际按 top 向下铺开、整块盖住按钮。
 {
   const boundary = { top: 0, bottom: 545, left: 0, right: 792 };
   const nearBottom = { top: 480, bottom: 512, left: 100, right: 136 };
-  const pos = computeMenuPosition({ anchorRect: nearBottom, boundary, panelWidth: 192, panelHeight: 260, align: 'end' });
+  const PANEL_H = 260;
+  const pos = computeMenuPosition({ anchorRect: nearBottom, boundary, panelWidth: 192, panelHeight: PANEL_H, align: 'end' });
   check(pos.placement === 'up', '底部空间不足时应向上展开', `got ${pos.placement}`);
-  check(pos.top === 480 - VIEWPORT_MARGIN, '向上展开时 top = 锚点 top - 边距', `got ${pos.top}`);
+  check(
+    pos.top === nearBottom.top - VIEWPORT_MARGIN - PANEL_H,
+    '向上展开时 top 必须是面板真实上边缘 = 锚点 top - 边距 - 面板高'
+    + '(不能依赖 transform 顶上去,动画会覆盖它)',
+    `got ${pos.top}, want ${nearBottom.top - VIEWPORT_MARGIN - PANEL_H}`,
+  );
+  // 面板底边必须仍在锚点上方,且与锚点之间正好留 margin
+  check(
+    pos.top + PANEL_H === nearBottom.top - VIEWPORT_MARGIN,
+    '向上展开时面板底边应贴在锚点上边缘上方 margin 处',
+    `面板底边=${pos.top + PANEL_H}, 锚点top=${nearBottom.top}`,
+  );
+  check(
+    pos.top + PANEL_H <= nearBottom.top,
+    '向上展开的面板绝不能盖住锚点按钮 —— 这正是 transform 被覆盖时出现的症状',
+    `面板底边=${pos.top + PANEL_H} 与按钮top=${nearBottom.top} 重叠`,
+  );
 }
 {
   const boundary = { top: 0, bottom: 545, left: 0, right: 792 };
@@ -136,6 +158,22 @@ const anchorInMain = { top: 200, bottom: 232, left: 600, right: 636 };
   const pos = computeMenuPosition({ anchorRect: middle, boundary, panelWidth: 192, panelHeight: 260, align: 'end' });
   check(pos.placement === 'down', '中间位置应向下展开', `got ${pos.placement}`);
   check(pos.top === 232 + VIEWPORT_MARGIN, '向下展开时 top = 锚点 bottom + 边距', `got ${pos.top}`);
+}
+// ---- 7b. 上方也放不下时,面板不得被顶出容器上沿 ----
+// 构造:容器很矮(0~300),锚点在 250 附近 → 下方放不下;上方 250 > 下方 50 → up。
+// 但面板高 260,250 - 8 - 260 = -18 < 0,必须被 clamp 到容器上沿之内。
+{
+  const shortBound = { top: 0, bottom: 300, left: 0, right: 792 };
+  const lowAnchor = { top: 250, bottom: 282, left: 100, right: 136 };
+  const pos = computeMenuPosition({
+    anchorRect: lowAnchor, boundary: shortBound, panelWidth: 192, panelHeight: 260, align: 'end',
+  });
+  check(pos.placement === 'up', '下方不足且上方更大时应向上', `got ${pos.placement}`);
+  check(
+    pos.top >= shortBound.top + VIEWPORT_MARGIN,
+    '上方空间不足时 top 必须被 clamp 在容器内(不能算出负数、把菜单顶到看不见的地方)',
+    `got ${pos.top}`,
+  );
 }
 
 // ---- 8. 必须用实测面板宽度 ----
