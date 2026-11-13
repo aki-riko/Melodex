@@ -610,7 +610,8 @@
   transition: opacity var(--motion-base) var(--ease-standard),
     transform var(--motion-base) var(--ease-standard),
     background-color var(--motion-base) var(--ease-standard);
-  box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+  /* 用主题的浮层阴影:原先写死 rgba(0,0,0,0.4),浅色主题下是一团很脏的黑影 */
+  box-shadow: var(--elevation-flyout);
 }
 .media-card:hover .media-card__play,
 .media-card:focus-within .media-card__play { opacity: 1; transform: translateY(0); }
@@ -674,7 +675,7 @@
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  animation: player-mini-lyric-fade 0.18s ease-out;
+  animation: player-mini-lyric-fade var(--motion-base) var(--ease-standard);
 }
 
 @keyframes player-mini-lyric-fade {
@@ -694,7 +695,7 @@
   align-items: center;
   justify-content: center;
   opacity: 1;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--motion-fast) var(--ease-standard);
 }
 .song-row-cover-action:hover .song-row-playing-cover,
 .song-row-cover-action:focus-within .song-row-playing-cover {
@@ -742,7 +743,7 @@
 
 /* 封面 / 歌词 切换淡入 */
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-.fade-in { animation: fade-in 0.25s ease; }
+.fade-in { animation: fade-in var(--motion-base) var(--ease-standard); }
 
 /* 黑胶外观:黑色胶片 + 中心封面 */
 .vinyl-wrap {
@@ -765,6 +766,8 @@
   from { transform: translateY(0); }
   to   { transform: translateY(100%); }
 }
+/* ⚠ 0.26s 与 PlayerContext.js 收起时的 setTimeout(..., 260) 一一对应:定时器到点才卸载播放页。
+   只改这里不改那里,会出现"滑出后空等"或"没滑完就消失"。 */
 .player-sheet-exit { animation: player-slide-down 0.26s var(--ease-exit) forwards; }
 
 /* ===== Fluent 动效系统 =====
@@ -1098,35 +1101,26 @@ button:disabled,
 /* ---- 列表/网格的通用进入:接管所有 space-y-* 容器 ----
    歌曲列表用 space-y-0.5(已有专门规则),但其他列表用 space-y-1/2/3 等,
    同样需要"依次出现"。这里用属性选择器一次性覆盖,新增列表无需配合。 */
-[class*="space-y-"] > *:not([data-no-anim]) {
+/* ⚠ 必须排除两类容器(2026-11 修,之前一直在悄悄覆盖):
+     · .space-y-0.5 歌曲列表 —— 它有专门的 420ms/90ms 节奏(用户要求的"慢而有层次")。
+       这条通用规则写在后面且特异性相同,不排除就会把歌曲列表压回 320ms/60ms,
+       上面那组精心调过的规则等于死代码;
+     · 页面根节点(.fluent-page-enter > *)—— 如 Download 的 space-y-6、首页的 space-y-7。
+       不排除时这些页面的各 section 会从右侧划入,而其他页面是错峰淡入,切页手感不一致。 */
+[class*="space-y-"]:not(.space-y-0\.5):not(.fluent-page-enter > *) > *:not([data-no-anim]) {
   animation: fluent-list-item-in 320ms var(--ease-emphasized) both;
 }
-[class*="space-y-"] > *:nth-child(1) { animation-delay: 0ms; }
-[class*="space-y-"] > *:nth-child(2) { animation-delay: 60ms; }
-[class*="space-y-"] > *:nth-child(3) { animation-delay: 120ms; }
-[class*="space-y-"] > *:nth-child(4) { animation-delay: 180ms; }
-[class*="space-y-"] > *:nth-child(5) { animation-delay: 240ms; }
-[class*="space-y-"] > *:nth-child(6) { animation-delay: 300ms; }
-[class*="space-y-"] > *:nth-child(n + 7) { animation-delay: 360ms; }
+[class*="space-y-"]:not(.space-y-0\.5):not(.fluent-page-enter > *) > *:nth-child(2) { animation-delay: 60ms; }
+[class*="space-y-"]:not(.space-y-0\.5):not(.fluent-page-enter > *) > *:nth-child(3) { animation-delay: 120ms; }
+[class*="space-y-"]:not(.space-y-0\.5):not(.fluent-page-enter > *) > *:nth-child(4) { animation-delay: 180ms; }
+[class*="space-y-"]:not(.space-y-0\.5):not(.fluent-page-enter > *) > *:nth-child(5) { animation-delay: 240ms; }
+[class*="space-y-"]:not(.space-y-0\.5):not(.fluent-page-enter > *) > *:nth-child(6) { animation-delay: 300ms; }
+[class*="space-y-"]:not(.space-y-0\.5):not(.fluent-page-enter > *) > *:nth-child(n + 7) { animation-delay: 360ms; }
 
-/* ---- 卡片:悬停轻微抬起 ----
-   只在有精确指针的设备上启用(hover: hover)—— 触屏上 hover 会"粘住",
-   手指移开后卡片停在抬起状态,看起来像坏了。
-
-   **自动命中,不需要给组件加类**:全站卡片/封面按钮大多带 `hover:shadow-*`。
-   为什么不用自定义类:本鱼第一版写了个 .lift-on-hover,但**没有任何组件引用它**,
-   等于写了个不起作用的规则。改成属性选择器后自动覆盖,不会再有这种死代码。 */
-@media (hover: hover) {
-  button[class*="hover:shadow"],
-  a[class*="hover:shadow"] {
-    transition: transform var(--motion-base) var(--ease-emphasized),
-                box-shadow var(--motion-base) var(--ease-standard);
-  }
-  button[class*="hover:shadow"]:hover,
-  a[class*="hover:shadow"]:hover {
-    transform: translateY(-2px);
-  }
-}
+/* 注意:原先这里有一段 `button[class*="hover:shadow"]` 悬停抬起规则,已删除(2026-11)。
+   全站没有任何 button/a 带 hover:shadow-* 类,它从未命中过;而且它的 `transition`
+   简写会覆盖上面全局兜底的 transition-property,真命中时反而让背景/颜色悬停变成硬切。
+   卡片悬停反馈由 .media-card 的背景过渡 + 播放钮浮现提供。 */
 
 /* ---- 加载骨架的行级错峰 ----
    骨架屏本身已有(.loading-shimmer,见 LoadingState.js),这里只补"逐行出现"。

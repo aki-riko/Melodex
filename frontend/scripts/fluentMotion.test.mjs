@@ -304,6 +304,30 @@ for (const { name, decl } of motionDecls) {
   assert.ok(Number(durationMatch[1]) <= 600, `列表项动画 ${durationMatch[1]}ms 过慢,会有拖沓感`);
 }
 
+// ---- 8b. 通用 space-y-* 规则不得覆盖歌曲列表与页面根节点 ----
+//
+// 真实事故(2026-11 发现):通用规则 `[class*="space-y-"] > *:nth-child(n)` 与
+// `.space-y-0\.5 > *:nth-child(n)` 特异性相同(0,2,0),且写在文件后面 → 后者整组失效,
+// 歌曲列表实际跑的是 320ms/60ms,第 8 节断言的 420ms/90ms 只是"写在 CSS 里的数字"。
+// 同时 Download(space-y-6)/首页(space-y-7)的页面根节点被当成列表,各 section 从右侧划入,
+// 与其他页面的错峰淡入不一致。这里要求每条通用规则都显式排除这两类容器。
+{
+  const genericRules = [...css.matchAll(/^(\[class\*="space-y-"\][^{]*)\{/gm)]
+    // 只取顶格书写的规则;reduced-motion 块里的降级规则带缩进,不会被 ^ 命中(它要的就是全覆盖)
+    .map((m) => m[1]);
+  assert.ok(genericRules.length > 0, '找不到通用 [class*="space-y-"] 列表规则');
+  for (const sel of genericRules) {
+    assert.ok(
+      sel.includes(':not(.space-y-0\\.5)'),
+      `通用规则 ${sel.trim()} 没排除 .space-y-0.5 —— 会以相同特异性覆盖歌曲列表的专用节奏`,
+    );
+    assert.ok(
+      sel.includes(':not(.fluent-page-enter > *)'),
+      `通用规则 ${sel.trim()} 没排除页面根节点 —— 页面各 section 会从右侧划入,与其他页面的淡入不一致`,
+    );
+  }
+}
+
 // ---- 9. 全站交互反馈必须兜底 ----
 //
 // 用户要求「给其他所有操作都加上动画」。全站 149 个 button、170 个 onClick,
