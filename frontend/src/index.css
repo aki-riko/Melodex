@@ -741,9 +741,69 @@
 .vinyl-disc { animation: vinyl-spin 18s linear infinite; }
 .vinyl-disc.paused { animation-play-state: paused; }
 
-/* 封面 / 歌词 切换淡入 */
-@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-.fade-in { animation: fade-in var(--motion-base) var(--ease-standard); }
+/* 封面 / 歌词 切换:淡入 + 极轻的放大(0.98→1)。
+   只淡入时唱片与歌词像是"闪"了一下;加一点缩放,读起来才是"换了一层内容"。 */
+@keyframes fade-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.fade-in { animation: fade-in var(--motion-slow) var(--ease-emphasized); }
+
+/* ===== 全屏播放页歌词行(2026-11) =====
+   原先当前行靠换字号放大(text-base → text-xl)、桌面端还挂了 transition-all:
+   字号变化每次都触发整列重排,行高跟着跳,scrollIntoView 算出的居中位置也随之偏移 ——
+   看起来就是"歌词一卡一卡地往上蹭"。
+   现在所有行字号、字重固定,当前行只用 transform: scale + opacity 强调:
+   不重排、可合成,换行时是一次连续的放大与提亮。 */
+.player-lyric-line {
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+  opacity: 0.7;
+  transform: scale(0.86);
+  transform-origin: left center;
+  transition: transform var(--motion-slow) var(--ease-emphasized),
+              opacity var(--motion-slow) var(--ease-standard),
+              color var(--motion-base) var(--ease-standard);
+}
+.player-lyric-line--center { transform-origin: center; }
+.player-lyric-line[data-active="true"] {
+  color: hsl(var(--foreground));
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 逐字填色:双色渐变铺成 200% 宽,靠 background-position 从右往左移动来"填"。
+   位置 100% = 全是暗色(未唱),0% = 全是主色(唱完)。
+   250ms linear 对应 timeupdate 约 4Hz 的上报间隔 —— 每次上报的新位置刚好在下一次上报前过渡到位,
+   填色因此是连续扫过,而不是每 250ms 跳一格。 */
+.karaoke-word {
+  background-image: linear-gradient(90deg, hsl(var(--primary)) 50%, hsl(var(--muted-foreground)) 50%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: background-position 250ms linear;
+}
+
+/* 播放/暂停图标切换:新图标从 0.6 放大淡入(组件里按状态换 key 触发)。 */
+@keyframes fluent-icon-swap-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.fluent-icon-swap {
+  animation: fluent-icon-swap-in var(--motion-base) var(--ease-emphasized) both;
+}
+
+/* 收藏点亮:心形弹一下。只在用户亲手点亮时播放(组件里用计数器做 key),
+   换歌、打开播放页时即便已收藏也不会跳。 */
+@keyframes fluent-heart-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.fluent-heart-pop {
+  animation: fluent-heart-pop 280ms var(--ease-emphasized) both;
+}
 
 /* 黑胶外观:黑色胶片 + 中心封面 */
 .vinyl-wrap {
@@ -766,8 +826,8 @@
   from { transform: translateY(0); }
   to   { transform: translateY(100%); }
 }
-/* ⚠ 0.26s 与 PlayerContext.js 收起时的 setTimeout(..., 260) 一一对应:定时器到点才卸载播放页。
-   只改这里不改那里,会出现"滑出后空等"或"没滑完就消失"。 */
+/* ⚠ 0.26s 与 contexts/playerSheetMotion.mjs 的 SHEET_EXIT_MS(260)一一对应:定时器到点才卸载播放页。
+   只改这里不改那里,会出现"滑出后空等"或"没滑完就消失"。playerSheetMotion.test.mjs 会比对两处。 */
 .player-sheet-exit { animation: player-slide-down 0.26s var(--ease-exit) forwards; }
 
 /* ===== Fluent 动效系统 =====
@@ -1017,8 +1077,17 @@
   .fluent-page-enter,
   .fluent-item-enter,
   .fluent-flyout-in,
+  .fluent-icon-swap,
+  .fluent-heart-pop,
   .fade-in {
     animation: none !important;
+  }
+  /* 歌词当前行不缩放,只保留提亮;逐字填色直接跳到位(不扫) */
+  .player-lyric-line {
+    transform: none !important;
+  }
+  .karaoke-word {
+    transition: none !important;
   }
   /* 按下反馈也随之取消:reduced-motion 用户要的是"别动",不是"动得更快" */
   .fluent-pressable:active:not(:disabled) {
