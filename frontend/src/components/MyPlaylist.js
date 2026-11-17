@@ -9,6 +9,7 @@ import { useFeedback } from '../contexts/FeedbackContext';
 import { onOpenPlaylist } from '../services/playlistBus';
 import { getCollectionSongs, removeSongFromCollection } from '../services/collections';
 import { songIdentityKey } from '../utils/songIdentity';
+import { findSongIndexInList, insertSongIntoList, isFavoriteCollection, removeSongFromList } from '../utils/favoriteList';
 import {
   collectionSongsQueryKey,
   mergeCollectionSelection,
@@ -142,6 +143,28 @@ export default function MyPlaylist() {
       else queryClient.setQueryData(queryKey, prev);
       feedback.error(`移除失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
     }
+  };
+
+  // 行内心形 / 菜单「取消收藏」→ 本页列表同步。
+  //
+  // SongRow 只知道自己那一行;「我喜欢」是一张**由收藏集合驱动的列表**,
+  // 所以收藏态一变,列表本身就必须跟着增删,否则用户看到"心灭了,歌还在"。
+  // 走乐观更新(先改缓存再发请求),失败由 SongRow 广播回滚值,这里再插回原位。
+  // 自建歌单不参与:在自建歌单里收藏/取消收藏不该让歌从该歌单消失。
+  const handleRowFavoriteChange = async (song, favorited) => {
+    if (collectionId == null || !isFavoriteCollection(collectionKind)) return;
+    const previous = queryClient.getQueryData(queryKey);
+    const removedAt = findSongIndexInList(previous, song);
+
+    if (!favorited) {
+      if (removedAt < 0) return;
+      await queryClient.cancelQueries(queryKey);
+      queryClient.setQueryData(queryKey, (old) => removeSongFromList(old, song));
+      return;
+    }
+
+    // 收藏(加回「我喜欢」):按原下标插回,没有原位置就追加到末尾。
+    queryClient.setQueryData(queryKey, (old) => insertSongIntoList(old, song, removedAt >= 0 ? removedAt : undefined));
   };
 
   const handleShowLyric = async (song) => {
@@ -296,6 +319,7 @@ export default function MyPlaylist() {
                 onTogglePlayback={togglePlay}
                 onShowLyric={handleShowLyric}
                 onRemove={handleRemove}
+                onFavoriteChange={handleRowFavoriteChange}
                 removeTitle={rowRemoveTitle}
                 removeHint={rowRemoveHint}
               />

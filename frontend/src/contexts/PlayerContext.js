@@ -53,6 +53,12 @@ import {
   shouldApplyProgressReport,
 } from './playerScrub.js';
 import { useBackLayer } from './backNavigation.js';
+import {
+  favoriteChangeSequence,
+  onFavoriteChange,
+  publishFavoriteChange,
+  readFavoriteStatus,
+} from '../services/favoriteStatus';
 import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
 import { karaokeFillPercent, lyricScrollBehavior, prefersReducedMotion, sheetExitDelay } from './playerSheetMotion.mjs';
 import {
@@ -1643,30 +1649,58 @@ export const PlayerBar = () => {
   }, [chorusRange, seek]);
 
   // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
+  //
+  // 三方同步:收藏是**同一件事**,但界面里有三处呈现 —— 行内的心形、这里(播放条/播放页)、
+  // 以及「我喜欢」歌单列表。谁改都必须广播(publishFavoriteChange),否则另外两处不知情:
+  // 播放条取消收藏后列表里那首还在、列表里取消后播放条的心还亮着。此前正是各自为政。
   const [favorited, setFavorited] = useState(false);
+  const { user } = useAuth();
+  const favUserId = user?.id || 0;
   // 心形弹跳只在**用户亲手点亮**时播放:用计数器做 key 让图标重新挂载。
   // 不能直接按 favorited 加类 —— 那样每次换到一首已收藏的歌、或打开播放页,都会无故跳一下。
   const [favPulse, setFavPulse] = useState(0);
   useEffect(() => {
     setFavPulse(0);
+    if (!nowPlaying || offline) { setFavorited(false); return undefined; }
+
+    // 别的入口(列表心形/歌单页「取消喜欢」)改了当前这首歌 → 这里立刻跟上。
+    const unsubscribe = onFavoriteChange((detail) => {
+      if (!nowPlaying || detail.userId !== String(favUserId)) return;
+      if (detail.song?.source !== nowPlaying.source || detail.song?.id !== nowPlaying.id) return;
+      setFavorited(!!detail.favorited);
+    });
+
+    const cached = readFavoriteStatus(nowPlaying, favUserId);
+    if (cached != null) { setFavorited(cached); return unsubscribe; }
+
     let cancelled = false;
-    if (!nowPlaying || offline) { setFavorited(false); return; }
-    getFavoriteStatus(nowPlaying).then((f) => { if (!cancelled) setFavorited(f); });
-    return () => { cancelled = true; };
-  }, [curKey, nowPlaying, offline]);
+    // 与 SongRow 同一条纪律:响应晚于用户亲手切换就必须丢弃,否则陈旧结论把心又点亮。
+    const seqAtRequest = favoriteChangeSequence();
+    getFavoriteStatus(nowPlaying).then((f) => {
+      if (cancelled || favoriteChangeSequence() !== seqAtRequest) return;
+      publishFavoriteChange({ song: nowPlaying, userId: favUserId, favorited: f });
+      setFavorited(f);
+    }).catch(() => {});
+    return () => { cancelled = true; unsubscribe(); };
+  }, [curKey, nowPlaying, offline, favUserId]);
 
   const onToggleFavorite = async () => {
     if (!nowPlaying || offline) return;
     const prev = favorited;
-    setFavorited(!prev); // 乐观更新
+    const optimistic = !prev;
+    setFavorited(optimistic); // 乐观更新
     if (!prev) setFavPulse((n) => n + 1);
+    publishFavoriteChange({ song: nowPlaying, userId: favUserId, favorited: optimistic });
     try {
       const f = await toggleFavorite(nowPlaying);
       setFavorited(f);
+      publishFavoriteChange({ song: nowPlaying, userId: favUserId, favorited: f });
       // 收藏(加入「我喜欢」)时后台静默下载到 NAS,与"加歌单即下载"一致;取消收藏不下载。
       if (f) saveToServer(nowPlaying).catch(() => {});
     } catch {
       setFavorited(prev); // 失败回滚
+      // 回滚也必须广播:列表已按乐观结果把歌摘掉了,不还回去就变成了"歌被吞了"。
+      publishFavoriteChange({ song: nowPlaying, userId: favUserId, favorited: prev });
     }
   };
 
@@ -1993,6 +2027,22 @@ export const PlayerBar = () => {
                 openUp
               />
             </div>
+            {/* 收藏:放在播放队列左侧(两个都是 44×44 的图标盒,图标中心才会落在同一基线)。
+                此前桌面播放条**没有**收藏入口 —— 想在播放时收藏只能去列表行或展开播放页,
+                用户实测反馈「播放栏位缺少收藏按钮」。
+                在移动端全屏页/迷你条已有同一动作,这里复用同一个 handler,状态经统一广播同步。 */}
+            <button
+              onClick={onToggleFavorite}
+              disabled={offline}
+              className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40 ${favorited ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title={offline ? '离线状态无法同步收藏' : favorited ? '取消收藏' : '收藏到「我喜欢」'}
+              aria-label={favorited ? '取消收藏' : '收藏'}
+              aria-pressed={favorited}
+            >
+              <span key={favPulse} className={`inline-flex ${favPulse ? 'fluent-heart-pop' : ''}`}>
+                <Heart size={18} fill={favorited ? 'currentColor' : 'none'} />
+              </span>
+            </button>
             {/* 播放队列:音量键右侧。
                 这里也必须给 44×44 的盒子:左侧 VolumeControl 的喇叭是 44×44,
                 两个盒子同高,图标中心才会落在同一条基线上(此前两者都只有

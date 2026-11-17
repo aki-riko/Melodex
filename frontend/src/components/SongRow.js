@@ -23,6 +23,13 @@ import {
   inspectQuality,
 } from '../services/musicdl';
 import { cacheSong, canCacheSong, isSongCached, offlineSongKey, OFFLINE_AUDIO_CHANGED } from '../services/offlineAudio';
+import {
+  favoriteChangeSequence,
+  favoriteStatusKey,
+  onFavoriteChange as subscribeFavoriteChange,
+  publishFavoriteChange,
+  readFavoriteStatus,
+} from '../services/favoriteStatus';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useServerDownloads } from '../contexts/ServerDownloadsContext';
@@ -73,8 +80,6 @@ const instrumentalLabelOf = (song) => {
   if (/伴奏/.test(text) || /off\s*vocal/i.test(text)) return '伴奏';
   return null;
 };
-
-const favoriteStatusCache = new Map();
 
 const CoverThumb = ({ song, size = 44 }) => {
   const [failed, setFailed] = useState(false);
@@ -182,6 +187,7 @@ const SongRow = ({
   onRemove,
   removeTitle = '从歌单移除',
   removeHint = '只从当前歌单移除',
+  onFavoriteChange,
 }) => {
   const rowSong = useMemo(() => normalizeSong(song), [song]);
   const instrumentalLabel = instrumentalLabelOf(rowSong);
@@ -213,7 +219,6 @@ const SongRow = ({
   );
   const rowKey = songIdentityKey(rowSong);
   const downloadedToServer = isDownloaded(rowSong);
-  const favoriteCacheKey = `${userId}:${rowKey}`;
   const albumTitle = rowSong.album || '—';
   const lyricMatch = rowSong.extra && typeof rowSong.extra === 'object' ? rowSong.extra.lyric_match : '';
   const isActivelyPlaying = isPlaying && !isPaused;
@@ -255,22 +260,40 @@ const SongRow = ({
     };
   }, [cacheable, inView, rowSong, userId]);
 
+  // 收藏态:自己挂载时查一次(带视口门闩),之后由统一广播驱动。
+  //
+  // 为什么必须是"订阅"而不只是"自己查":同一首歌可能同时出现在当前页和播放条上,
+  // 谁先切换收藏,另一边都必须立刻跟上。此前每行各自持有一份状态、谁也不通知谁,
+  // 于是「取消收藏后这一行的心灭了,可歌单列表里那首歌还在」——用户报的正是这个。
   useEffect(() => {
     if (offline || !rowSong.id || !rowSong.source) { setFavorited(false); return undefined; }
-    const cached = favoriteStatusCache.get(favoriteCacheKey);
-    if (cached != null) { setFavorited(cached); return undefined; }
+
+    // 广播:任何入口(本行心形/菜单、播放条、歌单页「取消喜欢」)改了收藏,这里同步。
+    const unsubscribe = subscribeFavoriteChange((detail) => {
+      const mine = favoriteStatusKey(rowSong, userId);
+      if (mine == null || detail.userId !== String(userId)) return;
+      if (favoriteStatusKey(detail.song, userId) !== mine) return;
+      setFavorited(!!detail.favorited);
+    });
+
+    const cached = readFavoriteStatus(rowSong, userId);
+    if (cached != null) { setFavorited(cached); return unsubscribe; }
     // 视口门闩:合批接口 offer 到 /music/favorites/status_batch,进视口才问。
     // 命中本地缓存的行(上面刚 return)不需要等 inView,收藏态本来就是对的。
-    if (!inView) return undefined;
+    if (!inView) return unsubscribe;
     let cancelled = false;
+    // 发请求前记下变更序号:若用户在响应回来之前亲手切换过收藏,
+    // 这次响应就是陈旧结论,必须丢弃 —— 否则会把刚点灭的心又点亮回去。
+    const seqAtRequest = favoriteChangeSequence();
     getFavoriteStatus(rowSong)
       .then((ok) => {
-        favoriteStatusCache.set(favoriteCacheKey, ok);
-        if (!cancelled) setFavorited(ok);
+        if (cancelled || favoriteChangeSequence() !== seqAtRequest) return;
+        publishFavoriteChange({ song: rowSong, userId, favorited: ok });
+        setFavorited(ok);
       })
       .catch(() => { if (!cancelled) setFavorited(false); });
-    return () => { cancelled = true; };
-  }, [favoriteCacheKey, inView, offline, rowSong]);
+    return () => { cancelled = true; unsubscribe(); };
+  }, [inView, offline, rowSong, userId]);
 
   const closeMenu = () => setOpenMenu(false);
 
@@ -345,13 +368,19 @@ const SongRow = ({
     e?.stopPropagation?.();
     if (offline || favBusy || !rowSong.id || !rowSong.source) return;
     const prev = favorited;
+    const optimistic = !prev;
     setFavBusy(true);
-    setFavorited(!prev);
-    favoriteStatusCache.set(favoriteCacheKey, !prev);
+    setFavorited(optimistic);
+    // 乐观:先广播「我把它改了」,让所在页面的列表与播放条立刻跟上。
+    // 只有广播出去,「我喜欢」页才能在取消收藏的瞬间把这首歌从列表里摘掉 ——
+    // 这正是用户报的「取消收藏后页面没有立刻刷新」。
+    publishFavoriteChange({ song: rowSong, userId, favorited: optimistic });
+    onFavoriteChange?.(rowSong, optimistic);
     try {
       const next = await toggleFavorite(rowSong);
       setFavorited(next);
-      favoriteStatusCache.set(favoriteCacheKey, next);
+      publishFavoriteChange({ song: rowSong, userId, favorited: next });
+      onFavoriteChange?.(rowSong, next);
       if (next && rowSong.source !== 'local') {
         // 收藏即静默存到服务器(与"加歌单即下载"一致);失败只在控制台留痕,
         // 因为用户主动作是"收藏",不该被下载失败打断。
@@ -361,7 +390,9 @@ const SongRow = ({
       }
     } catch (err) {
       setFavorited(prev);
-      favoriteStatusCache.set(favoriteCacheKey, prev);
+      // 回滚也要广播,否则列表已经按乐观结果摘掉了歌,却永远不还回去。
+      publishFavoriteChange({ song: rowSong, userId, favorited: prev });
+      onFavoriteChange?.(rowSong, prev);
       feedback.error(`收藏失败:${err?.response?.data?.error || err?.message || '请稍后重试'}`);
     } finally {
       setFavBusy(false);
