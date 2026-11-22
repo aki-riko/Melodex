@@ -174,6 +174,20 @@ body {
   will-change: transform, opacity;
 }
 
+/* 歌词文字的行内盒。
+ *
+ * ★ 长歌词必须缩字号，不能溢出——旧实现 WordFill.qml 有：
+ *     fontSizeMode: Text.Fit
+ *     minimumPixelSize: root.minimumPixelSize
+ *     elide: Text.ElideRight
+ *   即「先尝试整句放进宽度内，放不下就等比缩小字号；缩到最小仍放不下才省略号」。
+ *
+ * 本鱼最初只写了 text-overflow: ellipse + 固定字号，于是长句子直接冲出窗口
+ * 被窗口边缘硬切（用户截图：「Don't tell me you're too blind to see」糊出边界）。
+ *
+ * Web 侧等价做法：JS 测量实际文字宽度，按比例调小 font-size（见 fitLine）。
+ * 这里用 --line-font-scale 承载缩放系数，三个歌词层共用。
+ */
 .lyric-base,
 .lyric-active {
   margin: 0;
@@ -181,9 +195,17 @@ body {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-  -webkit-text-stroke: 1px var(--outline-color);
+  /* 字号 = 基础字号 × 适配系数（JS 写入，1 表示原始大小） */
+  font-size: calc(var(--lyric-font-size) * var(--line-font-scale, 1));
+  -webkit-text-stroke: calc(1px * var(--line-font-scale, 1)) var(--outline-color);
   paint-order: stroke fill;
   text-shadow: 0 1px 2px var(--shadow-color);
+}
+
+/* 副行的字号基数不同（主行 × 0.67），单独给 */
+.adjacent .lyric-base,
+.adjacent.lyric-line {
+  font-size: calc(var(--secondary-font-size, 24px) * var(--line-font-scale, 1));
 }
 
 /* 底层：未播放色 */
@@ -191,21 +213,37 @@ body {
   color: var(--unplayed-color);
 }
 
-/* 裁剪容器：宽度由 JS 按进度写入（--fill-ratio 0..1），超出部分隐藏 */
+/* 裁剪容器：复刻 WordFill.qml:56-60
+ *   Item { x: textLeft; width: textPaintedWidth * progress; clip: true }
+ *
+ * 两个关键量（WordFill.qml:24-25）：
+ *   textPaintedWidth = min(可用宽度, 文字实际宽度)
+ *   textLeft         = (可用宽度 - textPaintedWidth) / 2
+ * 即裁剪**从文字左边缘开始**，不是从行左边缘——否则短句（文字比行窄）会表现为
+ * 「填色从中偏左的地方才开始」。
+ *
+ * 这两个量由 JS 写入：
+ *   --text-left  文字左边缘相对行左边的偏移(px)
+ *   --text-width 文字实际渲染宽度(px)
+ */
 .lyric-clip {
   position: absolute;
   top: 0;
-  left: 0;
-  width: calc(100% * var(--fill-ratio, 0));
+  left: var(--text-left, 0px);
+  width: calc(var(--text-width, 100%) * var(--fill-ratio, 0));
   height: 100%;
   overflow: hidden;
   pointer-events: none;
 }
 
-/* 上层：已播放色。宽度必须等于整行，否则填色区里只显示被挤窄的文字 */
+/* 上层：已播放色。宽度必须等于整行（含居中留白），
+   否则裁剪区里文字会被挤压变形——这里给整行宽度，由外层 overflow 控制可见部分。 */
 .lyric-active {
   width: var(--line-width, 100%);
   color: var(--played-color);
+  /* 抵消裁剪容器的 left 偏移：让上层文字与底层文字严格对齐。
+     （上层以裁剪容器为参照，需要负偏移把它推回整行坐标原点。） */
+  margin-left: calc(-1 * var(--text-left, 0px));
 }
 
 /* 行切换动画已改为 progress 驱动（见上方 .current-wrap / .outgoing-wrap / .adjacent），

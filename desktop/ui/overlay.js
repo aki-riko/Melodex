@@ -34,6 +34,11 @@ const SECONDARY_MIN_PX = 16;
 // 不是 380。帧驱动动画（FrameAnimation）本身不设时长，300 只用于行切换过渡。
 const TRANSITION_MS = 300;
 
+// 歌词行左右内边距之和，必须与 overlay.css 里 .lyrics-shell 的
+// `padding: 12px 34px 14px`（左右各 34px）一致。
+// 缩字号时可用宽度 = 行宽 - 这个值，否则量出来的可容纳宽度偏大，仍会溢出。
+const LINE_HORIZONTAL_PADDING = 68;
+
 // 三层结构（复刻 DesktopLyricsWindow.qml:371-480）：
 //   outgoing = 旧行，current = 新行（从副行位置长上来），next = 副行
 const outgoingWrap = document.getElementById('outgoing-line');
@@ -225,8 +230,67 @@ const lineProgress = (line, position) => {
   return Math.max(0, Math.min(1, (position - start) / (end - start)));
 };
 
-/** 主行文本宽度缓存：同一行内宽度不变，避免每帧测量导致布局抖动。 */
-const currentLineWidthCache = { text: null, width: 0 };
+/** 字号适配测量用的隐藏 canvas（避免反复读 DOM 触发重排）。 */
+const measureCanvas = document.createElement('canvas');
+const measureCtx = measureCanvas.getContext('2d');
+
+/** 读当前歌词字体族（由设置写入 CSS 变量）。 */
+const lyricFontFamily = () => {
+  const family = getComputedStyle(document.documentElement)
+    .getPropertyValue('--lyric-font-family')
+    .trim();
+  return family || '"Microsoft YaHei UI"';
+};
+
+/**
+ * 用 canvas 量文字宽度。字体必须与渲染一致，否则量出来的宽度偏小/偏大。
+ * 主行是 DemiBold(600)；副行量的是 <span>，这里不需要。
+ */
+const measureText = (text, sizePx) => {
+  if (!text || !measureCtx) return 0;
+  measureCtx.font = `600 ${sizePx}px ${lyricFontFamily()}`;
+  return measureCtx.measureText(text).width;
+};
+
+/** 字号适配结果缓存：key = `${text}|${baseSize}|${availableWidth}` */
+const fitCache = new Map();
+const FIT_CACHE_LIMIT = 200;
+
+/**
+ * 计算让整行文字放进可用宽度所需的字号缩放系数（等价旧实现 Text.Fit）。
+ *
+ * 旧实现 WordFill.qml:37-41：
+ *     fontSizeMode: Text.Fit
+ *     minimumPixelSize: root.minimumPixelSize
+ *     elide: Text.ElideRight
+ * → 先按设定字号排版，放不下就**等比缩小字号**，缩到最小仍放不下才省略号。
+ *
+ * 本鱼最初只写 text-overflow:ellipsis + 固定字号，长句子直接冲出窗口被硬切，
+ * 而且因为 -webkit-text-stroke 的关系，被切掉的边缘还会糊成一片。
+ *
+ * @returns {number} 缩放系数（<1 表示需要缩小）；1 表示原始字号即可
+ */
+const fitScale = (text, baseSize, availableWidth) => {
+  if (!text || !availableWidth) return 1;
+
+  const key = `${text}|${baseSize}|${Math.round(availableWidth)}`;
+  const cached = fitCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const measured = measureText(text, baseSize);
+
+  let scale = 1;
+  if (measured > availableWidth && measured > 0) {
+    scale = availableWidth / measured;
+    // 旧实现有 minimumPixelSize 兜底（不无限缩小）。
+    // 主行最小 20px，相对默认 36px 约 0.55；这里取同一量级下限。
+    scale = Math.max(scale, FONT_SIZE_MIN / Math.max(1, baseSize));
+  }
+
+  if (fitCache.size > FIT_CACHE_LIMIT) fitCache.clear();
+  fitCache.set(key, scale);
+  return scale;
+};
 
 /**
  * 渲染主行：底层未播放色整行 + 上层已播放色被裁剪。
@@ -238,20 +302,30 @@ const renderCurrentLine = (line, position) => {
   if (currentBase.textContent !== text) {
     currentBase.textContent = text;
     currentLine.textContent = text;
-    // 换行后宽度缓存失效，下一帧重新测。
-    currentLineWidthCache.text = null;
   }
 
-  // 裁剪宽度 = 整行宽度 × 进度。用 CSS 变量驱动，避免每帧写 style.width。
   const ratio = lineProgress(line, position);
   currentClip.style.setProperty('--fill-ratio', String(ratio));
 
-  // 上层文字宽度必须等于整行实际宽度，否则填色区里文字会被挤压变形。
-  if (currentLineWidthCache.text !== text) {
-    currentLineWidthCache.text = text;
-    currentLineWidthCache.width = currentWrap.clientWidth;
-  }
-  currentLine.style.setProperty('--line-width', `${currentLineWidthCache.width}px`);
+  // ★ 复刻 WordFill.qml:24-25：
+  //     textPaintedWidth = min(可用宽度, 文字实际宽度)
+  //     textLeft         = (可用宽度 - textPaintedWidth) / 2
+  //   裁剪从**文字左边缘**开始，切掉的是"已经唱过的部分"，
+  //   而不是从行左边缘开始（后者对短句明显错位）。
+  const baseSize = clampFontSize(settings.font_size);
+  const rowWidth = currentWrap.clientWidth;
+  const available = Math.max(0, rowWidth - LINE_HORIZONTAL_PADDING);
+
+  // 先按基础字号量；超宽则缩字号，缩完重新量文字宽度。
+  const scale = fitScale(text, baseSize, available);
+  const scaledSize = baseSize * scale;
+  const textWidth = Math.min(available, measureText(text, scaledSize));
+  const textLeft = Math.max(0, (rowWidth - textWidth) / 2);
+
+  lyricsShell.style.setProperty('--line-font-scale', String(scale));
+  lyricsShell.style.setProperty('--text-left', `${textLeft}px`);
+  lyricsShell.style.setProperty('--text-width', `${textWidth}px`);
+  currentLine.style.setProperty('--line-width', `${rowWidth}px`);
 };
 
 /**
@@ -379,7 +453,6 @@ const render = () => {
     if (currentBase.textContent !== '') {
       currentBase.textContent = '';
       currentLine.textContent = '';
-      currentLineWidthCache.text = null;
     }
     nextLine.textContent = '';
     renderedLineIndex = -2;

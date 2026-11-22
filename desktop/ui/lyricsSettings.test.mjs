@@ -125,11 +125,12 @@ test('已播放/未播放必须双色：底层与上层用不同颜色变量', (
   // 用户实测反馈「已播放和未播放应该是不同色」——旧版 WordFill.qml 用
   // 两个 Label 叠加（restingColor + activeColor 裁剪容器），不是 CSS 渐变。
   // 渐变与 -webkit-text-stroke 叠加时描边会盖住渐变，两色看不出差别。
-  assert.match(overlayCss, /\.lyric-base\s*\{[^}]*color:\s*var\(--unplayed-color\)/s);
-  assert.match(overlayCss, /\.lyric-active\s*\{[^}]*color:\s*var\(--played-color\)/s);
-  assert.match(overlayCss, /\.lyric-clip\s*\{[^}]*width:\s*calc\(100% \* var\(--fill-ratio/s);
-  // 不允许回退到 background-clip 渐变方案（注释里会解释为什么不这么做，要排除）
   const cssCode = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(cssCode, /\.lyric-base\s*\{[^}]*color:\s*var\(--unplayed-color\)/s);
+  assert.match(cssCode, /\.lyric-active\s*\{[^}]*color:\s*var\(--played-color\)/s);
+  // 裁剪容器宽度 = 文字宽度 × 进度（细节见「填色裁剪从文字左边缘开始」那条）
+  assert.match(cssCode, /\.lyric-clip\s*\{[^}]*--fill-ratio/s);
+  // 不允许回退到 background-clip 渐变方案（注释里会解释为什么不这么做，要排除）
   assert.doesNotMatch(
     cssCode,
     /background-clip:\s*text/,
@@ -150,9 +151,11 @@ test('行切换动画时长 300ms（旧版 duration.slower），不是 380', () 
 });
 
 test('描边与阴影必须保留（白字压浅色壁纸的可见性）', () => {
-  assert.match(overlayCss, /-webkit-text-stroke:\s*1px var\(--outline-color\)/);
-  assert.match(overlayCss, /text-shadow:\s*0 1px 2px var\(--shadow-color\)/);
-  assert.match(overlayCss, /--outline-color:\s*rgba\(5, 6, 8, 0\.82\)/);
+  const cssCode = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  // 描边宽度随字号缩放（缩字号时描边也该跟着细，否则小字被描边糊住）
+  assert.match(cssCode, /-webkit-text-stroke:\s*calc\(1px \* var\(--line-font-scale/);
+  assert.match(cssCode, /text-shadow:\s*0 1px 2px var\(--shadow-color\)/);
+  assert.match(cssCode, /--outline-color:\s*rgba\(5, 6, 8, 0\.82\)/);
 });
 
 test('副行字号是主行 × 0.67 且最小 16px', () => {
@@ -314,6 +317,59 @@ test('设置广播只重刷样式，不重置渲染状态', () => {
   assert.doesNotMatch(applyFn[0], /renderedLineIndex\s*=/, 'applySettings 不得重置行号');
   assert.doesNotMatch(applyFn[0], /renderedActiveText\s*=/, 'applySettings 不得清空当前文本');
   assert.doesNotMatch(applyFn[0], /replaceChildren|textContent\s*=\s*''/, 'applySettings 不得清空 DOM');
+});
+
+test('长歌词必须缩字号，不能溢出窗口', () => {
+  // 旧实现 WordFill.qml:37-41 有 Text.Fit + minimumPixelSize + elide：
+  // 放不下就等比缩字号，缩到最小仍放不下才省略号。
+  // 本鱼最初只写 text-overflow:ellipsis + 固定字号，长句直接冲出窗口被硬切，
+  // 且因 -webkit-text-stroke 的关系边缘糊成一片（用户截图实证）。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+
+  // CSS：字号必须乘一个缩放系数
+  assert.match(css, /font-size:\s*calc\(var\(--lyric-font-size\) \* var\(--line-font-scale/);
+  // JS：必须用 canvas 或等价手段量文字宽度，并按比例算缩放
+  assert.match(js, /measureText/, '需要用测量结果判断是否超宽');
+  assert.match(js, /--line-font-scale/, '需要把缩放系数写进 CSS');
+  assert.match(js, /fitScale/, '需要有适配函数');
+  // 必须有下限，不能无限缩小（对应旧实现 minimumPixelSize）
+  assert.match(js, /FONT_SIZE_MIN \/ Math\.max\(1, baseSize\)/, '缩字号需要下限');
+});
+
+test('填色裁剪从文字左边缘开始，不是行左边缘', () => {
+  // WordFill.qml:24-25：
+  //   textPaintedWidth = min(width, paintedWidth)
+  //   textLeft         = (width - textPaintedWidth) / 2
+  // 裁剪容器 x = textLeft，所以短句的填色从文字左端开始。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const clipRule = css.match(/\.lyric-clip\s*\{[^}]*\}/s);
+  assert.ok(clipRule, '找不到 .lyric-clip 规则');
+  assert.match(clipRule[0], /left:\s*var\(--text-left/, '裁剪容器需从文字左边缘开始');
+  assert.match(
+    clipRule[0],
+    /width:\s*calc\(var\(--text-width[^)]*\)\s*\*\s*var\(--fill-ratio/,
+    '裁剪宽度 = 文字宽度 × 进度',
+  );
+
+  // JS 需要写入这两个量
+  assert.match(overlayJs, /--text-left/);
+  assert.match(overlayJs, /--text-width/);
+});
+
+test('行左右内边距常量与 CSS padding 一致', () => {
+  // 缩字号时可用宽度 = 行宽 - 左右 padding。两边不一致会算错。
+  const paddingMatch = overlayCss.match(/\.lyrics-shell\s*\{[^}]*padding:\s*\d+px\s+(\d+)px/s);
+  assert.ok(paddingMatch, '找不到 .lyrics-shell 的 padding');
+  const cssHorizontal = Number(paddingMatch[1]) * 2;
+
+  const jsMatch = overlayJs.match(/LINE_HORIZONTAL_PADDING\s*=\s*(\d+)/);
+  assert.ok(jsMatch, '找不到 LINE_HORIZONTAL_PADDING');
+  assert.equal(
+    Number(jsMatch[1]),
+    cssHorizontal,
+    `JS 常量 ${jsMatch[1]} 与 CSS 左右 padding 之和 ${cssHorizontal} 不一致`,
+  );
 });
 
 test('没有歌词时显示歌曲名/歌手名，而不是留空', () => {
