@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Melodex 桌面歌词本地窗口能力",
-  "windows": ["settings", "overlay"],
+  "identifier": "local-windows",
+  "description": "仅本地自绘窗口（歌词窗、配对设置窗）可调用本地命令。远程站点不在任何 capability 的 remote.urls 中，因此线上页面无法触达 IPC。",
+  "windows": ["overlay", "settings"],
   "permissions": ["core:default"]
 }
