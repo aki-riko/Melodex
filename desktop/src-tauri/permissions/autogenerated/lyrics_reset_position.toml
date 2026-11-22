@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lyrics-reset-position"
+description = "Enables the lyrics_reset_position command without any pre-configured scope."
+commands.allow = ["lyrics_reset_position"]
+
+[[permission]]
+identifier = "deny-lyrics-reset-position"
+description = "Denies the lyrics_reset_position command without any pre-configured scope."
+commands.deny = ["lyrics_reset_position"]

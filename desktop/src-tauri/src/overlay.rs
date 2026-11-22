@@ -3,6 +3,7 @@
 //! 行为与原 `desktop/src-tauri/src/main.rs` 一致：透明、无边框、置顶、跳过任务栏、
 //! 默认鼠标穿透，由托盘切换穿透状态。这里只把窗口创建与穿透控制拆成模块。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -10,6 +11,20 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::logging;
 
 pub const OVERLAY_WINDOW: &str = "overlay";
+
+/// 是否已有可显示的歌词状态。
+///
+/// 用来判断「设置里打开歌词」时该不该立刻显示窗口：没有歌曲在放就没有歌词，
+/// 此时显示只会闪一个空窗。由 `lyrics_push_state` 更新。
+static HAS_LYRICS_STATE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_has_lyrics_state(has: bool) {
+    HAS_LYRICS_STATE.store(has, Ordering::SeqCst);
+}
+
+pub fn has_lyrics_state(_app: &AppHandle) -> bool {
+    HAS_LYRICS_STATE.load(Ordering::SeqCst)
+}
 
 pub struct OverlayState {
     click_through: Mutex<bool>,

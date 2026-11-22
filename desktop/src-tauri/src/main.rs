@@ -11,6 +11,7 @@ mod commands;
 mod device;
 mod logging;
 mod lyrics_bridge;
+mod lyrics_settings;
 mod main_window;
 mod overlay;
 mod service_url;
@@ -42,6 +43,10 @@ fn main() {
             commands::get_click_through,
             commands::overlay_position,
             commands::set_overlay_position,
+            commands::lyrics_settings_get,
+            commands::lyrics_settings_update,
+            commands::lyrics_reset_position,
+            commands::lyrics_save_position,
             commands::lyrics_push_state,
             commands::lyrics_send_command,
         ])
@@ -55,6 +60,18 @@ fn main() {
                 "melodex desktop shell starting (autostart={})",
                 autostart_support::launched_by_autostart()
             ));
+
+            // 设置必须先于托盘加载：托盘勾选项用它的值初始化。
+            let settings = lyrics_settings::load(&handle);
+            logging::info(format!(
+                "lyrics settings loaded (visible={}, click_through={}, font={}, size={}, scheme={})",
+                settings.visible,
+                settings.click_through,
+                settings.font_preset,
+                settings.font_size,
+                settings.color_scheme
+            ));
+            app.manage(lyrics_settings::LyricsSettingsState::new(settings));
 
             tray::configure_platform(app)?;
             tray::setup_tray(app)?;

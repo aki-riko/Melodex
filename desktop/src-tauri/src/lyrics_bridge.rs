@@ -64,6 +64,16 @@ impl LyricsState {
 
 /// 把一条状态转发给歌词窗。
 pub fn forward_state<R: Runtime>(app: &AppHandle<R>, state: &LyricsState) {
+    // 记录「是否已有可显示歌词」，供设置变更时判断该不该立刻显示窗口。
+    let has_lyrics = state
+        .lyrics
+        .as_ref()
+        .and_then(|value| value.as_array())
+        .map(|lines| !lines.is_empty())
+        .unwrap_or(false)
+        && state.track.is_some();
+    overlay::set_has_lyrics_state(has_lyrics);
+
     let Some(overlay_window) = app.get_webview_window(overlay::OVERLAY_WINDOW) else {
         return;
     };

@@ -16,6 +16,7 @@ use tauri::{AppHandle, State};
 
 use crate::device::{self, DeviceConfig, PublicDeviceConfig};
 use crate::lyrics_bridge::{self, LyricsState};
+use crate::lyrics_settings::{self, LyricsSettingsPatch, LyricsSettingsState, LyricsSettingsView};
 use crate::overlay::{self, OverlayState};
 
 // ---------- A 档：仅本地窗口 ----------
@@ -67,6 +68,72 @@ pub fn get_click_through(state: State<'_, OverlayState>) -> Result<bool, String>
     overlay::get_click_through(&state)
 }
 
+// ---------- 歌词用户设置（本地窗口可读写） ----------
+
+/// 读取歌词设置（含可选项清单与解析后的色值/字体名）。
+#[tauri::command]
+pub fn lyrics_settings_get(state: State<'_, LyricsSettingsState>) -> LyricsSettingsView {
+    LyricsSettingsView::from(state.snapshot())
+}
+
+/// 局部更新歌词设置。只改传入的字段。
+///
+/// 写盘失败会返回错误且**不改变任何窗口状态**，让 UI 能如实回滚。
+#[tauri::command]
+pub fn lyrics_settings_update(
+    app: AppHandle,
+    state: State<'_, LyricsSettingsState>,
+    patch: LyricsSettingsPatch,
+) -> Result<LyricsSettingsView, String> {
+    let updated = lyrics_settings::apply_patch(&app, &state, &patch)?;
+    // 可见性/穿透属于「立即生效」项，改完要马上作用于窗口，
+    // 不能等下一次播放状态推送（推送只带歌词，不带设置）。
+    let _ = overlay::set_overlay_visible(&app, updated.visible && overlay::has_lyrics_state(&app));
+    if let Err(error) = overlay::apply_click_through(&app, updated.click_through) {
+        // 穿透切换失败不应让整次保存失败：设置已经落盘了。
+        crate::logging::warn(format!("应用歌词穿透状态失败：{error}"));
+    }
+    Ok(LyricsSettingsView::from(updated))
+}
+
+/// 把歌词窗位置重置为默认（水平居中、垂直 76%）并清除「已保存」标记。
+#[tauri::command]
+pub fn lyrics_reset_position(
+    app: AppHandle,
+    state: State<'_, LyricsSettingsState>,
+) -> Result<LyricsSettingsView, String> {
+    let mut patch = LyricsSettingsPatch {
+        position_set: Some(false),
+        ..Default::default()
+    };
+    if let Some((x, y)) = lyrics_settings::default_position(&app) {
+        patch.position_x = Some(x);
+        patch.position_y = Some(y);
+        if let Err(error) = overlay::set_overlay_position(&app, x, y) {
+            crate::logging::warn(format!("重置歌词窗位置失败：{error}"));
+        }
+    }
+    let updated = lyrics_settings::apply_patch(&app, &state, &patch)?;
+    Ok(LyricsSettingsView::from(updated))
+}
+
+/// 歌词窗拖动结束后保存位置（写入设置文件，供设置页显示与重启恢复）。
+#[tauri::command]
+pub fn lyrics_save_position(
+    app: AppHandle,
+    state: State<'_, LyricsSettingsState>,
+    x: i32,
+    y: i32,
+) -> Result<(), String> {
+    let patch = LyricsSettingsPatch {
+        position_set: Some(true),
+        position_x: Some(x),
+        position_y: Some(y),
+        ..Default::default()
+    };
+    lyrics_settings::apply_patch(&app, &state, &patch).map(|_| ())
+}
+
 /// 读取歌词窗当前物理位置，供前端做位置记忆。
 #[tauri::command]
 pub fn overlay_position(app: AppHandle) -> Result<(i32, i32), String> {
@@ -95,7 +162,12 @@ pub fn lyrics_push_state(app: AppHandle, state: LyricsState) -> Result<(), Strin
 
 /// 歌词窗把按钮动作转给主窗口页面。
 ///
-/// 命令走白名单（prev/toggle/next），其余一律拒绝。
+/// 命令走白名单，其余一律拒绝。
+///
+/// `prev`/`toggle`/`next` 转发给主窗口页面（播放控制在那边）；
+/// `lock`/`close` 是**歌词窗本地语义**（改本机设置），不经过页面，
+/// 由歌词窗直接调 `lyrics_settings_update` 完成——所以这里不接受它们，
+/// 避免出现两条改同一状态的路径。
 #[tauri::command]
 pub fn lyrics_send_command(app: AppHandle, command: String) -> Result<(), String> {
     match command.as_str() {

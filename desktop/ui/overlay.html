@@ -12,13 +12,40 @@
          旧实现里的 outgoingLyric 只用于行切换动画期间的上移淡出，
          不是常驻第三行——所以这里不设 "上一行" 元素。 -->
     <main id="lyrics-shell" class="lyrics-shell" aria-label="桌面歌词">
+      <!-- 控制条：212×38 胶囊卡片，5 个按钮，鼠标悬停才淡入。
+           数值来源 desktop-prismqml/qml/components/DesktopLyricsWindow.qml:286-368。 -->
+      <div id="controls" class="controls" role="toolbar" aria-label="播放控制">
+        <button type="button" data-command="prev" title="上一首" aria-label="上一首">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 3v10M13 3.6v8.8a.6.6 0 0 1-.92.5L5.7 8.5a.6.6 0 0 1 0-1l6.38-4.4a.6.6 0 0 1 .92.5Z" />
+          </svg>
+        </button>
+        <button id="toggle-button" type="button" data-command="toggle" class="primary" title="播放" aria-label="播放或暂停">
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="icon-play">
+            <path d="M5 3.2v9.6a.6.6 0 0 0 .92.5l7.1-4.8a.6.6 0 0 0 0-1l-7.1-4.8a.6.6 0 0 0-.92.5Z" />
+          </svg>
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="icon-pause">
+            <path d="M5 3h2.2v10H5zM8.8 3H11v10H8.8z" />
+          </svg>
+        </button>
+        <button type="button" data-command="next" title="下一首" aria-label="下一首">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M12 3v10M3 3.6v8.8a.6.6 0 0 0 .92.5l6.38-4.4a.6.6 0 0 0 0-1L3.92 3.1a.6.6 0 0 0-.92.5Z" />
+          </svg>
+        </button>
+        <button type="button" data-command="lock" title="锁定桌面歌词（可从托盘或设置解锁）" aria-label="锁定桌面歌词">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 1.6a3.2 3.2 0 0 1 3.2 3.2v1.6h.4a1.2 1.2 0 0 1 1.2 1.2v5.2a1.2 1.2 0 0 1-1.2 1.2H4.4a1.2 1.2 0 0 1-1.2-1.2V7.6a1.2 1.2 0 0 1 1.2-1.2h.4V4.8A3.2 3.2 0 0 1 8 1.6Zm0 1.4a1.8 1.8 0 0 0-1.8 1.8v1.6h3.6V4.8A1.8 1.8 0 0 0 8 3Z" />
+          </svg>
+        </button>
+        <button type="button" data-command="close" title="关闭桌面歌词" aria-label="关闭桌面歌词">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.4 3.5 8 7.1l3.6-3.6 1.2 1.2L9.2 8.3l3.6 3.6-1.2 1.2L8 9.5l-3.6 3.6-1.2-1.2 3.6-3.6-3.6-3.6z" />
+          </svg>
+        </button>
+      </div>
       <p id="current-line" class="lyric-line current"></p>
       <p id="next-line" class="lyric-line adjacent" aria-hidden="true"></p>
-      <div id="controls" class="controls" aria-label="播放控制">
-        <button type="button" data-command="prev" aria-label="上一首">◀◀</button>
-        <button id="toggle-button" type="button" data-command="toggle" aria-label="播放或暂停">Ⅱ</button>
-        <button type="button" data-command="next" aria-label="下一首">▶▶</button>
-      </div>
     </main>
     <script type="module" src="overlay.js"></script>
   </body>

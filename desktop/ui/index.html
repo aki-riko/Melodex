@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Melodex 桌面歌词配对</title>
+    <title>Melodex 桌面歌词设置</title>
     <link rel="stylesheet" href="settings.css" />
   </head>
   <body>
@@ -11,50 +11,82 @@
       <header>
         <div class="brand-mark" aria-hidden="true">M</div>
         <div>
-          <h1>Melodex 桌面歌词</h1>
-          <p>Windows / macOS 透明歌词助手</p>
+          <h1>桌面歌词设置</h1>
+          <p>调整歌词的显示、配色与位置</p>
         </div>
       </header>
 
-      <section class="card" aria-labelledby="pair-title">
-        <h2 id="pair-title">连接 Melodex</h2>
-        <p class="hint">先在 Web 设置页生成一次性配对码。服务地址只填站点根地址，不填 API 路径。</p>
-        <form id="pair-form">
-          <label for="service-url">Melodex 服务地址</label>
-          <input id="service-url" name="service-url" type="text" inputmode="url" autocomplete="url"
-            placeholder="https://你的-melodex-地址" required />
+      <!-- 与旧实现 SettingsPage.qml 的「桌面歌词」分组逐项对齐，共 6 项 -->
+      <section class="card" aria-labelledby="lyrics-title">
+        <h2 id="lyrics-title">桌面歌词</h2>
 
-          <label for="pair-code">一次性配对码</label>
-          <input id="pair-code" name="pair-code" type="text" autocomplete="one-time-code"
-            placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="32" required />
+        <div class="row">
+          <div class="row-text">
+            <span class="row-title">显示桌面歌词</span>
+            <span class="row-hint">播放时显示透明置顶歌词窗口</span>
+          </div>
+          <label class="switch">
+            <input id="setting-visible" type="checkbox" />
+            <span class="slider" aria-hidden="true"></span>
+          </label>
+        </div>
 
-          <button id="pair-button" class="primary" type="submit">配对并连接</button>
-        </form>
+        <div class="row">
+          <div class="row-text">
+            <span class="row-title">锁定桌面歌词</span>
+            <span class="row-hint">锁定后鼠标会穿透歌词；可从系统托盘或这里解锁</span>
+          </div>
+          <label class="switch">
+            <input id="setting-locked" type="checkbox" />
+            <span class="slider" aria-hidden="true"></span>
+          </label>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <span class="row-title">字体预设</span>
+            <span class="row-hint">从适合中文歌词显示的系统字体中选择</span>
+          </div>
+          <select id="setting-font" class="control"></select>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <span class="row-title">歌词字号</span>
+            <span class="row-hint" id="font-size-label">当前 36 px</span>
+          </div>
+          <input id="setting-size" class="control range" type="range" step="1" />
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <span class="row-title">配色方案</span>
+            <span class="row-hint">方案同时确定已播放与未播放歌词颜色</span>
+          </div>
+          <select id="setting-color" class="control"></select>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <span class="row-title">桌面歌词位置</span>
+            <span class="row-hint" id="position-label">解锁后拖动歌词窗口即可自动保存</span>
+          </div>
+          <button id="reset-position" class="secondary" type="button">重置位置</button>
+        </div>
+
         <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
-      </section>
-
-      <section class="card" aria-labelledby="device-title">
-        <div class="card-heading">
-          <h2 id="device-title">当前助手</h2>
-          <span id="connection-dot" class="status-dot" aria-hidden="true"></span>
-        </div>
-        <div id="device-empty" class="empty-state">尚未配对。完成配对后，浏览器播放时会自动显示歌词。</div>
-        <div id="device-info" class="device-info" hidden>
-          <strong id="device-name"></strong>
-          <span id="device-url"></span>
-          <button id="clear-button" class="secondary danger" type="button">清除本机配对</button>
-        </div>
       </section>
 
       <section class="tips">
         <h2>怎么用</h2>
         <ul>
           <li>歌词窗无边框、无标题、无背景，并始终置顶。</li>
-          <li>默认开启鼠标穿透；从系统托盘取消穿透后，可拖动窗口和使用播放按钮。</li>
-          <li>关闭此设置窗口不会退出助手；需要退出时使用系统托盘菜单。</li>
+          <li>鼠标悬停在歌词上会显示控制条：上一首 / 播放暂停 / 下一首 / 锁定 / 关闭。</li>
+          <li>默认锁定（鼠标穿透）；解除锁定后才能拖动窗口和点击控制条。</li>
+          <li>关闭歌词后可在这里或系统托盘重新打开；关闭此设置窗口不会退出客户端。</li>
         </ul>
       </section>
     </main>
-    <script src="settings.js"></script>
+    <script type="module" src="settings.js"></script>
   </body>
 </html>

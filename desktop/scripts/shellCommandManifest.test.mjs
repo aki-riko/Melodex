@@ -1,0 +1,151 @@
+// 桌面壳命令清单一致性门禁 —— 锁死「命令注册了却调不到」。
+//
+// ## 为什么要有
+//
+// `build.rs` 启用 `app_manifest` 后，tauri-build **只对声明过的命令**生成
+// `allow-*` 权限。漏一条的症状是：该命令在任何窗口都调不了，而且
+// **日志里什么都不报** —— 歌词窗不显示、设置改不动，却找不到原因。
+//
+// 靠人记住「两处都要改」必然会漏（历史上已经漏过），所以这里用机器比对三处：
+//   1. `main.rs` 的 `generate_handler![...]`   —— 实际注册的命令
+//   2. `build.rs` 的 `commands(&[...])`         —— 生成权限的依据
+//   3. `capabilities/*.json` 的 `allow-*` 条目  —— 实际授予窗口的权限
+//
+// 规则：
+//   - 1 与 2 必须**完全相等**（漏声明 = 调不到；多声明 = 权限白名单虚高）
+//   - 3 里的每个 `allow-<cmd>` 必须有对应命令（拼错就是永不生效的权限）
+//     `core:` 之类内置权限跳过
+//   - 每条命令必须至少被一个 capability 授予，否则等于没注册
+//
+// 运行: node scripts/shellCommandManifest.test.mjs
+
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const tauriRoot = resolve(scriptDir, '../../desktop/src-tauri');
+
+const read = (...parts) => readFileSync(join(tauriRoot, ...parts), 'utf8');
+
+// ---------- 1. main.rs 的 generate_handler! ----------
+
+const mainRs = read('src', 'main.rs');
+const handlerBlock = mainRs.match(/generate_handler!\s*\[([\s\S]*?)\]/);
+assert.ok(handlerBlock, 'main.rs 里找不到 generate_handler![...]');
+
+const registered = [...handlerBlock[1].matchAll(/commands::([a-z0-9_]+)/g)].map((m) => m[1]);
+assert.ok(registered.length > 0, 'generate_handler! 里没有解析到任何命令');
+assert.equal(
+  new Set(registered).size,
+  registered.length,
+  `generate_handler! 里有重复命令：${registered.join(', ')}`,
+);
+
+// ---------- 2. build.rs 的 commands([...]) ----------
+
+const buildRs = read('build.rs');
+const manifestBlock = buildRs.match(/\.commands\(\s*&\[([\s\S]*?)\]\s*\)/);
+assert.ok(manifestBlock, 'build.rs 里找不到 .commands(&[...])');
+
+const declared = [...manifestBlock[1].matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]);
+assert.ok(declared.length > 0, 'build.rs 的 commands() 里没有解析到任何命令');
+assert.equal(
+  new Set(declared).size,
+  declared.length,
+  `build.rs 的 commands() 里有重复项：${declared.join(', ')}`,
+);
+
+// 核心断言：两处必须完全相等（顺序无关，但集合必须一致）。
+const missingInManifest = registered.filter((cmd) => !declared.includes(cmd));
+const extraInManifest = declared.filter((cmd) => !registered.includes(cmd));
+
+assert.deepEqual(
+  missingInManifest,
+  [],
+  `这些命令在 main.rs 注册了但 build.rs 没声明，将「任何窗口都调不了」：${missingInManifest.join(', ')}`,
+);
+assert.deepEqual(
+  extraInManifest,
+  [],
+  `这些命令在 build.rs 声明了但 main.rs 没注册，权限白名单虚高：${extraInManifest.join(', ')}`,
+);
+
+// ---------- 3. capabilities/*.json 的 allow-* ----------
+
+/** 命令名 → 授予它的 capability 列表。 */
+const grantedBy = new Map();
+const unknownPermissions = [];
+
+for (const file of readdirSync(join(tauriRoot, 'capabilities')).filter((f) => f.endsWith('.json'))) {
+  const capability = JSON.parse(read('capabilities', file));
+  for (const permission of capability.permissions || []) {
+    // 内置权限（core:default 等）不是 app 命令，跳过。
+    if (!permission.startsWith('allow-')) continue;
+    // 约定：Tauri 把 snake_case 命令名转成 kebab-case 权限名。
+    const command = permission.slice('allow-'.length).replaceAll('-', '_');
+    if (!registered.includes(command)) {
+      unknownPermissions.push(`${file}: ${permission}`);
+      continue;
+    }
+    if (!grantedBy.has(command)) grantedBy.set(command, []);
+    grantedBy.get(command).push(file);
+  }
+}
+
+assert.deepEqual(
+  unknownPermissions,
+  [],
+  `这些 allow-* 权限找不到对应命令（拼错就永不生效）：\n  ${unknownPermissions.join('\n  ')}`,
+);
+
+const ungranted = registered.filter((cmd) => !grantedBy.has(cmd));
+assert.deepEqual(
+  ungranted,
+  [],
+  `这些命令没有授予任何窗口，等于没注册：${ungranted.join(', ')}`,
+);
+
+// ---------- 4. 安全边界：远程 origin 只能拿到歌词桥两条 ----------
+
+const bridge = JSON.parse(read('capabilities', 'lyrics-bridge.json'));
+assert.deepEqual(
+  bridge.windows,
+  ['main'],
+  'lyrics-bridge 只应覆盖主窗口',
+);
+assert.deepEqual(
+  (bridge.remote?.urls || []).length > 0,
+  true,
+  'lyrics-bridge 必须显式声明 remote.urls，否则等于没给远程页面开',
+);
+const bridgeCommands = (bridge.permissions || [])
+  .filter((p) => p.startsWith('allow-'))
+  .map((p) => p.slice('allow-'.length).replaceAll('-', '_'));
+assert.deepEqual(
+  [...bridgeCommands].sort(),
+  ['lyrics_push_state', 'lyrics_send_command'],
+  '远程 origin 只能拿到歌词桥两条命令（这是安全底线，禁止放宽）',
+);
+assert.equal(
+  (bridge.permissions || []).filter((p) => p.startsWith('core:')).length,
+  0,
+  '禁止给远程 origin 开 core:* 权限',
+);
+
+// 本地窗口专用命令不得出现在远程 capability 里。
+const localOnly = registered.filter(
+  (cmd) => !['lyrics_push_state', 'lyrics_send_command'].includes(cmd),
+);
+for (const cmd of localOnly) {
+  assert.ok(
+    !bridgeCommands.includes(cmd),
+    `${cmd} 是本地窗口命令，绝不能对远程 origin 开放`,
+  );
+}
+
+console.log(
+  `桌面壳命令清单一致：${registered.length} 条命令，main.rs / build.rs / capabilities 三处对齐；`
+    + `远程 origin 仅 ${bridgeCommands.length} 条（歌词桥）。`,
+);

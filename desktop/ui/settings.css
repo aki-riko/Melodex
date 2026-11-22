@@ -1,7 +1,15 @@
+/*
+ * 桌面歌词设置窗样式。
+ *
+ * 深色 Fluent 取向（与客户端主界面一致的观感），只服务于本地设置页。
+ * 注意：这一页不参与前端 theme 门禁（那是 Web 端 index.css 的规则），
+ * 但同样遵守「动效只动 transform/opacity、时长 ≤300ms」的纪律。
+ */
+
 :root {
   color-scheme: dark;
-  font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  background: #121212;
+  font-family: "Microsoft YaHei UI", Inter, "Segoe UI", "PingFang SC", sans-serif;
+  background: #1f1f1f;
   color: #f5f5f5;
 }
 
@@ -13,34 +21,34 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 90% 0%, rgba(30, 215, 96, 0.16), transparent 36%),
-    #121212;
+    radial-gradient(circle at 90% 0%, rgba(96, 205, 255, 0.12), transparent 38%),
+    #1f1f1f;
 }
 
 .settings-shell {
   width: min(100%, 620px);
   margin: 0 auto;
-  padding: 30px 28px 36px;
+  padding: 28px 26px 34px;
 }
 
 header {
   display: flex;
   align-items: center;
-  gap: 15px;
-  margin-bottom: 24px;
+  gap: 14px;
+  margin-bottom: 20px;
 }
 
 .brand-mark {
   display: grid;
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
   place-items: center;
-  border-radius: 14px;
-  background: #1ed760;
-  color: #102318;
-  font-size: 30px;
+  border-radius: 12px;
+  background: #60cdff;
+  color: #10232c;
+  font-size: 26px;
   font-weight: 900;
-  box-shadow: 0 10px 28px rgba(30, 215, 96, 0.2);
 }
 
 h1,
@@ -50,89 +58,156 @@ p {
 }
 
 h1 {
-  font-size: 23px;
-  letter-spacing: -0.02em;
-}
-
-header p,
-.hint,
-.tips,
-.device-info span,
-.empty-state {
-  color: #a8a8a8;
+  font-size: 21px;
+  letter-spacing: -0.01em;
 }
 
 header p {
-  margin-top: 4px;
+  margin-top: 3px;
+  color: #a9a9a9;
   font-size: 13px;
 }
 
 .card {
-  margin-top: 14px;
-  padding: 20px;
-  border: 1px solid #303030;
-  border-radius: 14px;
-  background: rgba(36, 36, 36, 0.93);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.2);
+  padding: 6px 20px 14px;
+  border: 1px solid #343434;
+  border-radius: 12px;
+  background: rgba(44, 44, 44, 0.94);
 }
 
 h2 {
-  font-size: 17px;
-}
-
-.hint {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-form {
-  display: grid;
-  gap: 9px;
-  margin-top: 18px;
-}
-
-label {
-  margin-top: 5px;
-  color: #d9d9d9;
-  font-size: 13px;
+  padding: 14px 0 10px;
+  color: #e8e8e8;
+  font-size: 16px;
   font-weight: 650;
 }
 
-input {
-  width: 100%;
-  height: 43px;
-  border: 1px solid #414141;
-  border-radius: 9px;
+/* 每一行 = 一项设置：左侧说明，右侧控件 */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 13px 0;
+  border-top: 1px solid #3a3a3a;
+}
+
+.row-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.row-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.row-hint {
+  color: #9d9d9d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.control {
+  flex-shrink: 0;
+  min-width: 148px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #4a4a4a;
+  border-radius: 7px;
   outline: none;
-  background: #181818;
-  color: #fff;
-  padding: 0 13px;
+  background: #2b2b2b;
+  color: #f0f0f0;
   font: inherit;
+  font-size: 13px;
 }
 
-input:focus {
-  border-color: #1ed760;
-  box-shadow: 0 0 0 3px rgba(30, 215, 96, 0.13);
+.control:focus-visible {
+  border-color: #60cdff;
+  box-shadow: 0 0 0 2px rgba(96, 205, 255, 0.28);
 }
 
-#pair-code {
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+.control.range {
+  width: 168px;
+  min-width: 168px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  accent-color: #60cdff;
+}
+
+select.control {
+  cursor: pointer;
+}
+
+/* 开关：纯 CSS，无脚本依赖 */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: #555;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.slider::before {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f5f5f5;
+  content: "";
+  transition: transform 140ms ease;
+}
+
+.switch input:checked + .slider {
+  background: #60cdff;
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(22px);
+}
+
+.switch input:focus-visible + .slider {
+  box-shadow: 0 0 0 2px rgba(96, 205, 255, 0.4);
 }
 
 button {
+  flex-shrink: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 7px;
   font: inherit;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
 }
 
 button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  filter: brightness(1.06);
+  filter: brightness(1.08);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 button:disabled {
@@ -140,98 +215,65 @@ button:disabled {
   opacity: 0.58;
 }
 
-.primary {
-  height: 43px;
-  margin-top: 8px;
-  background: #1ed760;
-  color: #102318;
-}
-
 .secondary {
-  align-self: flex-start;
-  margin-top: 14px;
   padding: 8px 13px;
-  background: #363636;
-  color: #e8e8e8;
-}
-
-.danger:hover {
-  color: #ff8e8e;
+  background: #3d3d3d;
+  color: #ececec;
 }
 
 .feedback {
-  min-height: 20px;
-  margin-top: 12px;
-  color: #a8a8a8;
-  font-size: 13px;
+  min-height: 18px;
+  padding-top: 6px;
+  color: #9d9d9d;
+  font-size: 12.5px;
 }
 
 .feedback.success {
-  color: #1ed760;
+  color: #6ede8a;
 }
 
 .feedback.error {
-  color: #ff8e8e;
-}
-
-.card-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.status-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #666;
-}
-
-.status-dot.active {
-  background: #1ed760;
-  box-shadow: 0 0 12px rgba(30, 215, 96, 0.75);
-}
-
-.empty-state {
-  margin-top: 14px;
-  font-size: 13px;
-}
-
-.device-info {
-  display: flex;
-  flex-direction: column;
-  margin-top: 14px;
-}
-
-.device-info strong {
-  font-size: 15px;
-}
-
-.device-info span {
-  margin-top: 4px;
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: #ff9b9b;
 }
 
 .tips {
-  padding: 22px 4px 0;
-  font-size: 13px;
+  padding: 18px 4px 0;
+  color: #9d9d9d;
+  font-size: 12.5px;
   line-height: 1.65;
 }
 
 .tips h2 {
-  color: #e8e8e8;
+  padding: 0;
+  color: #cfcfcf;
+  font-size: 14px;
 }
 
 .tips ul {
-  margin: 9px 0 0;
-  padding-left: 20px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slider,
+  .slider::before,
+  button {
+    transition: none !important;
+  }
 }
 
 @media (max-width: 520px) {
   .settings-shell {
-    padding: 22px 18px 28px;
+    padding: 22px 16px 28px;
+  }
+
+  .row {
+    flex-wrap: wrap;
+  }
+
+  .control,
+  .control.range {
+    width: 100%;
+    min-width: 0;
   }
 }

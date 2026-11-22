@@ -20,6 +20,11 @@ fn main() {
             "get_click_through",
             "overlay_position",
             "set_overlay_position",
+            // 歌词用户设置（本地窗口：歌词窗与设置页）
+            "lyrics_settings_get",
+            "lyrics_settings_update",
+            "lyrics_reset_position",
+            "lyrics_save_position",
             // 歌词壳内直连（唯一对远程页面开放的窄权限）
             "lyrics_push_state",
             "lyrics_send_command",

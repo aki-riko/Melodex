@@ -162,11 +162,12 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - `main.rs` 只管装配:注册单实例/自启/快捷键/更新插件、建三个窗口、接窗口事件。
 - `service_url.rs` **站点地址解析 + 导航白名单**(纯函数,改这里必须保持 11 个测试绿)。
 - `main_window.rs` 主窗口:加载线上站点、`on_navigation` 护栏、关闭拦截为隐藏。
-- `overlay.rs` 透明歌词窗;`settings_window.rs` 配对设置窗(关闭只隐藏)。
-- `tray.rs` 托盘菜单;`autostart_support.rs` 开机自启;
-  `shortcuts.rs` 全局快捷键;`updates.rs` 自动更新;`device.rs` 配对凭据。
+- `overlay.rs` 透明歌词窗;`settings_window.rs` 桌面歌词设置窗(关闭只隐藏)。
+- `tray.rs` 托盘菜单(**含歌词显示/锁定两个勾选项,与设置双向同步**);`autostart_support.rs` 开机自启;
+  `shortcuts.rs` 全局快捷键;`updates.rs` 自动更新;`device.rs` 配对凭据(历史保留)。
+- `lyrics_settings.rs` **歌词用户设置唯一真相源**(8 套配色/6 种字体/字号/显示/锁定/位置);
 - `commands.rs` 暴露给本地页的 IPC 命令;`logging.rs` 同时写 stderr 与文件。
-- 前端薄桥:`frontend/src/platform/desktopShell.js`(`npm run test:desktop-shell`,9 项契约测试)。
+- 前端薄桥:`frontend/src/platform/desktopShell.js`(`npm run test:desktop-shell`,17 项契约测试)。
 
 ### 桌面歌词:壳内直连(2026-11 重做,配对流程已删)
 
@@ -190,16 +191,43 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 启用 `build.rs` 的 `app_manifest` 后,**只对声明的命令生成 allow 权限**,
 漏掉的命令等于「任何窗口都调不了」,症状是歌词窗永远不显示。
 所以 `build.rs` 的 `commands()` 必须与 `main.rs` 的 `generate_handler!` **逐条对齐**,
-新增命令时两处都要改。当前 9 条:
+新增命令时两处都要改。当前 15 条:
 `public_device_config / connection_config / pair_device / clear_pairing /
-set_overlay_visible / start_overlay_drag / get_click_through / lyrics_push_state / lyrics_send_command`。
+set_overlay_visible / start_overlay_drag / get_click_through / overlay_position /
+set_overlay_position / lyrics_settings_get / lyrics_settings_update /
+lyrics_reset_position / lyrics_save_position / lyrics_push_state / lyrics_send_command`。
+
+**这条现在有机器门禁**:`npm run test:shell-commands`
+(`desktop/scripts/shellCommandManifest.test.mjs`)解析三处并要求集合相等:
+`generate_handler!` ↔ `commands()` ↔ `capabilities/*.json` 的 `allow-*`。
+漏一条立刻红并指名道姓;它同时守着「远程只能拿歌词桥两条、不得有 core:*」这条安全底线。
 
 **安全边界(两档)**:
-- `capabilities/default.json` → 只覆盖本地窗口(`overlay`/`settings`),含全部 7 条本地命令。
+- `capabilities/default.json` → 只覆盖本地窗口(`overlay`/`settings`),含全部 13 条本地命令。
 - `capabilities/lyrics-bridge.json` → 覆盖 `main` + `remote.urls: https://music.9li.life/*`,
   **只有** `lyrics_push_state` / `lyrics_send_command`。
   远程页面能做的唯一一件事就是把「在放什么歌」告诉本机歌词窗——本来就是它要显示的内容。
-- 配对设置窗**不再自动弹出**,需要时从托盘「桌面歌词配对…」打开(仅为兼容旧凭据查看/清除)。
+- 设置窗(原配对窗)**不自动弹出**,需从托盘「桌面歌词设置…」打开。
+  配对命令(`pair_device`/`clear_pairing` 等)为兼容历史凭据保留,但设置页已不再提供配对 UI。
+
+### 桌面歌词设置(2026-11 补齐,旧实现的 6 项)
+
+`lyrics_settings.rs` 是**唯一真相源**(落 `desktop-lyrics-settings.json`),三个窗口共用:
+
+```
+歌词窗/设置窗/托盘 ──invoke('lyrics_settings_update', {patch})──▶ Rust ──写盘 + emit──▶ 全部窗口同步
+```
+
+- **为什么不用 localStorage**:设置要被三个窗口同时用,窗口间不共享内存,
+  localStorage 会各写各的、还会随窗口销毁而丢。**不要再往 `overlay.js` 加 localStorage。**
+- 8 套配色 / 6 种字体清单只存在 Rust 侧(`COLOR_SCHEMES` / `FONT_PRESETS`),
+  有单测逐条对照 `desktop-prismqml/melodex_desktop/config.py`;**JS 侧不得再抄一份**。
+- 更新走**补丁语义**(只传改动字段),避免设置页各项互相覆盖、也避免以后加字段时被默默重置。
+- 写盘失败时**不改缓存、不广播**,让 UI 能如实回滚 —— 不许出现「界面改了、实际没保存」。
+- **「关闭歌词」必须走持久化开关**(`visible`),不能复用 `set_overlay_visible`:
+  后者每次播放状态推送都会被 `render()` 重设回 true,接上就是「关掉又自己弹出来」。
+- 托盘两个勾选项(显示桌面歌词 / 锁定桌面歌词)与设置**双向同步**;
+  关掉歌词后可从托盘或设置页重新打开(但旧 PrismQML 有同样的托盘项,别删)。
 
 ### 三条不可退让的规则
 1. **远程页面的 IPC 面只能到「歌词桥」这两条**。`capabilities/default.json` 只列
@@ -254,11 +282,14 @@ set_overlay_visible / start_overlay_drag / get_click_through / lyrics_push_state
 ```powershell
 cd desktop/src-tauri
 cargo fmt --check
-cargo test --locked          # 当前 14 项
+cargo test --locked          # 当前 33 项
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked
-cd ../ui; node lyricsCore.test.mjs
-cd ../../frontend; npm run test:desktop-shell   # 9 项
+cd ../ui; node lyricsSettings.test.mjs && node lyricsCore.test.mjs   # 20 项 + 核心
+cd ../../frontend
+npm run test:desktop-shell     # 17 项
+npm run test:desktop-lyrics    # 20 项（设置契约）
+npm run test:shell-commands    # 命令清单三处对齐 + 远程权限边界
 node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
 ```
 日志落 `%LOCALAPPDATA%\life.9li.melodex.desktoplyrics\logs\shell.log`;
@@ -266,11 +297,15 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
 
 阶段 0 的验证脚手架保留在 `desktop/prototype/`(可整目录删除,证据已摘录进方案文档)。
 
-### 未验证项(截至 2026-11-22,不要当成已修好)
+### 未验证项(截至 2026-11-23,不要当成已修好)
 - **开机自启**:插件与菜单已接好,但**没有真的勾选并重启系统验证**(需动注册表,留待用户本人确认)。
 - **自动更新的端到端**:清单 `latest.json` 未部署,「检查→下载→安装→版本号变化」未在真实发布上跑通。
   壳侧降级行为已验证(只记 WARN、不崩溃、不打扰)。
 - **SSO 全新登录**:壳内加载站点未跳 Authentik 已验证,但"全新机器首次登录"未覆盖,需用户人工走一遍。
+- **控制条/设置页的真机观感(2026-11 新增)**:代码、编译、Rust 33 项单测、20 项设置契约全过,
+  但**没有人眼看过实际渲染**。旧实现的数值(212×38 / 32×30 / 8 套配色)是照 QML 抄的,
+  而 WebView2 的字体渲染与 Qt 不完全一致 —— **像素级观感仍需用户目视确认后才算验收**。
+  同理「拖动能存位置」「关闭后从托盘能重新打开」这类交互，需真机走一遍。
 
 > 已澄清:**媒体键在真实站点页面成立**(第二轮取证),不再是未验证项。
 

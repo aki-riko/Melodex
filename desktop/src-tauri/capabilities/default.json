@@ -13,6 +13,10 @@
     "allow-start-overlay-drag",
     "allow-get-click-through",
     "allow-overlay-position",
-    "allow-set-overlay-position"
+    "allow-set-overlay-position",
+    "allow-lyrics-settings-get",
+    "allow-lyrics-settings-update",
+    "allow-lyrics-reset-position",
+    "allow-lyrics-save-position"
   ]
 }
