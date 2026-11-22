@@ -422,10 +422,18 @@
   background-color: hsl(var(--overlay));
 }
 
-/* .switch-knob —— 开关滑块。暗色主题是白滑块(压在深色轨道上);
-   浅色主题轨道变浅后,白滑块会"消失",所以改由 --switch-knob 给深色。 */
+/* .switch-knob —— 开关滑块。
+   未选中：轨道是 --secondary(浅灰/深灰)，滑块用 --switch-knob 反着给
+     (浅色主题深滑块、深色主题白滑块)，保证在浅轨道上看得见。
+   选中：轨道是 --primary。此时滑块**必须换成 --primary-foreground**，
+     否则浅色主题下是「深蓝轨道(#004F99) + 深灰滑块(25%)」= 深色叠深色，
+     用户实测反馈"这哪儿看得清啊"。WinUI 的 ToggleSwitch 也是选中后滑块反色。 */
 .switch-knob {
   background-color: hsl(var(--switch-knob));
+}
+
+.switch-knob[data-checked='true'] {
+  background-color: hsl(var(--primary-foreground));
 }
 
 /* ===== Mica 底色 =====

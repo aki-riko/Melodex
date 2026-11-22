@@ -673,7 +673,8 @@ const Settings = () => {
             title="播放时自动下载到服务器"
           >
             <span className={`switch-knob inline-block h-4 w-4 transform rounded-full transition-transform ${
-              autoDownloadOnPlay ? 'translate-x-6' : 'translate-x-1'}`} />
+              autoDownloadOnPlay ? 'translate-x-6' : 'translate-x-1'}`}
+              data-checked={autoDownloadOnPlay ? 'true' : 'false'} />
           </button>
         </div>
       </section>

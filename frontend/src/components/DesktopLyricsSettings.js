@@ -63,6 +63,7 @@ const Toggle = ({ checked, onChange, label, disabled }) => (
       className={`switch-knob inline-block h-4 w-4 transform rounded-full transition-transform ${
         checked ? 'translate-x-6' : 'translate-x-1'
       }`}
+      data-checked={checked ? 'true' : 'false'}
     />
   </button>
 );
