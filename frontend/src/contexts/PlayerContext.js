@@ -1415,38 +1415,6 @@ const WebPlayerProvider = ({ children }) => {
     });
   }, [next, pauseWithFade, prev, resumeWithFade]);
 
-  // 桌面壳：把当前歌词状态推给本机歌词窗（壳内直连，不需要配对）。
-  // 浏览器里 pushLyricsState 直接返回 false，不产生任何副作用。
-  // 只在壳内生效，且壳未打开歌词窗时也不影响播放。
-  useEffect(() => {
-    if (!isDesktopShell()) return;
-    const trackMessage = desktopLyricsTrackMessage({
-      track: nowPlaying,
-      lines: lrc,
-      position: progress.cur,
-      duration: progress.dur,
-      paused: isPaused,
-      currentIndex: lyricIdx,
-    });
-    pushLyricsState(trackMessage).catch(() => {});
-    // 切歌/歌词变化才推整包；进度用下面的定时器推。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nowPlaying?.id, nowPlaying?.source, lrc, lyricIdx]);
-
-  useEffect(() => {
-    if (!isDesktopShell()) return undefined;
-    const timer = window.setInterval(() => {
-      const message = desktopLyricsProgressMessage({
-        position: progress.cur,
-        duration: progress.dur,
-        paused: isPaused,
-        currentIndex: lyricIdx,
-      });
-      pushLyricsState(message).catch(() => {});
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [isPaused, lyricIdx, progress.cur, progress.dur]);
-
   // 桌面壳：接收歌词窗按钮发来的控制命令。
   useEffect(() => {
     return attachLyricsCommandBridge({
@@ -1864,6 +1832,44 @@ export const PlayerBar = () => {
   const activeLyricLine = lyricIdx >= 0 ? lrc[lyricIdx] : null;
   const miniLyricText = activeLyricLine?.text || '';
   const artistSourceText = nowPlaying ? `${nowPlaying.artist}${nowPlaying.source ? ` · ${songSourceText(nowPlaying)}` : ''}` : '';
+
+  // 桌面壳：把当前歌词状态推给本机歌词窗（壳内直连，不需要配对）。
+  //
+  // ★ 位置很关键（踩过）：这两个 effect 必须在 `lrc` / `lyricIdx` **定义之后**，
+  //   早期版本误放在它们之前，`const` 处于暂时性死区（TDZ），
+  //   结果是整个播放器渲染直接抛 `lrc is not defined`，界面白屏。
+  //   移动这两个 effect 时请确认 `lrc` 与 `lyricIdx` 已在作用域内。
+  //
+  // 浏览器里 pushLyricsState 直接返回 false，不产生任何副作用。
+  useEffect(() => {
+    if (!isDesktopShell()) return;
+    const trackMessage = desktopLyricsTrackMessage({
+      track: nowPlaying,
+      lines: lrc,
+      position: progress.cur,
+      duration: progress.dur,
+      paused: isPaused,
+      currentIndex: lyricIdx,
+    });
+    pushLyricsState(trackMessage).catch(() => {});
+    // 切歌/歌词变化才推整包；进度由下面的定时器推。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowPlaying?.id, nowPlaying?.source, lrc, lyricIdx]);
+
+  useEffect(() => {
+    if (!isDesktopShell()) return undefined;
+    const timer = window.setInterval(() => {
+      const message = desktopLyricsProgressMessage({
+        position: progress.cur,
+        duration: progress.dur,
+        paused: isPaused,
+        currentIndex: lyricIdx,
+      });
+      pushLyricsState(message).catch(() => {});
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [isPaused, lyricIdx, progress.cur, progress.dur]);
+
 
   // 歌词自动滚动:当前行变化时滚到视图中央。
   // 平滑还是瞬移由 lyricScrollBehavior 决定(刚出现/换歌瞬移,同一首里逐行才平滑)。

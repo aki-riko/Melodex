@@ -159,6 +159,15 @@ function iconSvgFor(size, colors = {}) {
  * sharp 不产 .ico,这里按 ICO 目录格式手工封装多张 PNG。
  * 每张都当"独立 PNG 条目"(ImageType 2),Vista 起广泛支持。
  * 每个尺寸各自从矢量光栅化 —— 用一张 256 缩到 16 会糊。
+ *
+ * ★ 为什么最小只到 32(2026-11 修正,踩过):
+ *   本图形的折线宽 = 边长 × 3/1540,在 16px 下只有 0.03px —— 被抗锯齿糊成一圈灰雾,
+ *   实测标题栏显示"三角边缘发毛、折线完全消失"。
+ *   而 Windows 会挑**最接近**的档再缩放:150% DPI 下标题栏约 24px,
+ *   有 16/24 档时会取它并**放大**,等于编造信息 → 必然发虚。
+ *   去掉 16/24 后只能取 32 档**缩小**,与 PWA(favicon 32→显示尺寸)同路径,观感一致。
+ *   实测三路对比:从32缩到24 边缘干净 / 从16放大到24 一圈灰雾 / 从256直缩 最锐利。
+ *   改回小档之前请先在同一台机器复验标题栏,不要只凭"规范里写了要有 16px"就加回来。
  */
 async function buildIco(sizes) {
   const pngs = [];
@@ -283,8 +292,9 @@ async function main() {
   put(resolve(TAURI_ICONS, 'icon-32.png'), await renderPng(iconSvgFor(32), 32));
   put(resolve(TAURI_ICONS, 'icon-128.png'), await renderPng(iconSvgFor(128), 128));
   put(resolve(TAURI_ICONS, 'icon-256.png'), await renderPng(iconSvgFor(256), 256));
-  // ICO 每个尺寸单独从矢量光栅化,不能整体用一张大图缩
-  put(resolve(TAURI_ICONS, 'icon.ico'), await buildIco([16, 24, 32, 48, 64, 128, 256]));
+  // ICO 每个尺寸单独从矢量光栅化,不能整体用一张大图缩。
+  // 最小 32:折线在小尺寸下是亚像素,16/24 档会被系统放大导致发虚(详见 buildIco 注释)。
+  put(resolve(TAURI_ICONS, 'icon.ico'), await buildIco([32, 48, 64, 128, 256]));
 
   // ---- 落盘 / 校验 ----
   const written = [];

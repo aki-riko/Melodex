@@ -39,6 +39,7 @@
     "build": "vite build",
     "test:ux": "node scripts/uxGuards.test.mjs",
     "test:hooks": "node scripts/hookOrder.test.mjs",
+    "test:tdz": "node scripts/tdzOrder.test.mjs",
     "test:quality": "node scripts/quality.test.mjs",
     "test:lyric-dedupe": "node scripts/lyricDedupe.test.mjs",
     "test:menu": "node scripts/menuPosition.test.mjs",
