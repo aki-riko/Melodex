@@ -2,6 +2,7 @@ import axios from 'axios';
 import { normalizeSong, normalizeSongs, songWritePayload } from '../utils/songFields';
 import { serverSaveSucceeded } from '../utils/serverDownloads';
 import { urlSafeExtraValue } from '../utils/songUrlExtra';
+import { decodePlaybackReason } from '../utils/playbackReason';
 
 export { serverSaveSucceeded };
 
@@ -311,7 +312,7 @@ export const probePlaybackAvailability = async (song, { signal } = {}) => {
       try { await response.body?.cancel?.(); } catch { /* ignore */ }
       return { ok: true };
     }
-    const headerReason = response.headers?.get?.('x-melodex-playback-reason') || '';
+    const headerReason = decodePlaybackReason(response.headers?.get?.('x-melodex-playback-reason') || '');
     const retryableHeader = response.headers?.get?.('x-melodex-playback-retryable');
     let retryable = true;
     if (retryableHeader === '0') retryable = false;

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/aki-riko/Melodex/backend/core"
@@ -74,4 +75,23 @@ func boolFlag(v bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+// encodePlaybackReasonHeader 把中文原因编码成纯 ASCII, 供响应头承载。
+//
+// 为什么必须编码(2026-11-23 用户截图「å½åæé³ä¹æº...」真实事故):
+// HTTP 响应头按规范只是一串**字节**, 前端 fetch 的 headers.get() 做的是
+// 「一个字节 → 一个码点」的同构解码(Fetch 规范要求 byte sequence), 不会按 UTF-8
+// 解码。于是 `当前音乐源...` 的 UTF-8 字节 e5 bd 93 被读成 U+00E5 U+00BD U+0093,
+// 也就是用户看到的 å½。同一条提示里由 JS 模板字符串拼出来的部分("正在自动换源…")
+// 显示正常, 只有从响应头读回的那截烂掉 —— 这正是该 bug 的指纹。
+//
+// 用 QueryEscape 而不是 base64/原文: 产出全部是可打印 ASCII(中文→%XX),
+// 前端 decodeURIComponent 一行即可还原; 而且对纯 ASCII 的原因不产生任何转义,
+// 老版本行为保持不变。
+func encodePlaybackReasonHeader(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return url.QueryEscape(reason)
 }

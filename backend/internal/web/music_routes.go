@@ -424,7 +424,9 @@ func serveStreamUnavailable(c *gin.Context, track *model.Track, err error) {
 			track.Source, track.ID, retryable, err, reason)
 	}
 	c.Header("X-Melodex-Playback-Retryable", boolFlag(retryable))
-	c.Header("X-Melodex-Playback-Reason", reason)
+	// 必须编码成纯 ASCII: 响应头里的中文会被前端 fetch 按"字节→码点"读成 å½ 这类乱码。
+	// 详见 encodePlaybackReasonHeader 的注释。
+	c.Header("X-Melodex-Playback-Reason", encodePlaybackReasonHeader(reason))
 	c.String(http.StatusNotFound, "Failed to get URL")
 }
 

@@ -232,11 +232,22 @@ class QrDispatchTests(unittest.TestCase):
         create.assert_called_once()
         check.assert_called_once_with("k", session=None)
 
-    def test_netease_path_unchanged(self):
-        with mock.patch.object(qr_module, "_request", return_value=({"unikey": "KEY1"}, {})):
+    def test_netease_returns_key_via_eapi(self):
+        """网易取 key 的**契约**没变(仍是 unikey + codekey URL), 但通道换成了 eapi。
+
+        2026-11-23: 网页版明文通道被风控(8821), 改走 eapi 加密 + 设备指纹
+        (见 provider_bridge/qr.py 模块注释)。这里锁两件事:
+          1. 对外契约不变 —— 调用方拿到的仍是 challenge.key + codekey URL;
+          2. 内部确实走 eapi(不是随手退回明文), 否则 8821 会复发。
+        """
+        with mock.patch.object(
+            qr_module, "_eapi_post", return_value=({"unikey": "KEY1"}, {})
+        ) as eapi_post:
             payload = qr_module.create({"source": "netease"})
         self.assertEqual(payload["challenge"]["key"], "KEY1")
         self.assertIn("codekey=KEY1", payload["challenge"]["url"])
+        eapi_post.assert_called_once()
+        self.assertEqual(eapi_post.call_args[0][0], "/api/login/qrcode/unikey")
 
     def test_unknown_source_still_rejected(self):
         for source in ("kugou", "soda", ""):

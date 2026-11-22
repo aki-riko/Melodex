@@ -96,7 +96,10 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 		c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		c.Header("Access-Control-Allow-Headers", "Origin, X-Requested-With, X-Melodex-Expected-User-ID, Content-Type, Accept, Authorization")
-		c.Header("Access-Control-Expose-Headers", "Content-Length, Cache-Control, Content-Language, Content-Type, X-Melodex-Playback-Source, X-Melodex-Chunk-Index, X-Melodex-Chunk-Duration, X-Melodex-Chunk-Final")
+		// 播放失败原因必须能被前端读出: 前端在播放报错时补一次探针, 靠这段中文告诉用户
+		// "是要会员还是能重试"。跨域(开发期 localhost:5173 -> 后端)时若不暴露, 前端
+		// 只能读到空字符串, 退化成笼统的"当前源无法播放"。
+		c.Header("Access-Control-Expose-Headers", "Content-Length, Cache-Control, Content-Language, Content-Type, X-Melodex-Playback-Source, X-Melodex-Playback-Reason, X-Melodex-Playback-Retryable, X-Melodex-Chunk-Index, X-Melodex-Chunk-Duration, X-Melodex-Chunk-Final")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
