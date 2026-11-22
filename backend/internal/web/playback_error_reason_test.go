@@ -132,8 +132,7 @@ func TestPaidOnlyWordingCoversDelistedNotJustVIP(t *testing.T) {
 
 // 核心回归:限流与付费曲的 retryable 必须相反。
 // 这条单独写,因为它是这次事故里最容易搞反、后果最直接的一点。
-func TestRateLimitedAndPaidOnlyAreOpposite(t *testing.T) {
-	_, rateLimitedRetryable := classifyPlaybackOpenError(core.ErrProviderRateLimited)
+func TestRateLimitedAndPaidOnlyAreOpposite(t *testing.T) {	_, rateLimitedRetryable := classifyPlaybackOpenError(core.ErrProviderRateLimited)
 	_, paidOnlyRetryable := classifyPlaybackOpenError(core.ErrProviderPaidOnly)
 	if !rateLimitedRetryable {
 		t.Fatal("限流必须是可重试 —— 等一会儿确实能播, 不许告诉用户换歌")
@@ -175,5 +174,46 @@ func TestClassifyPlaybackOpenErrorRealLogStrings(t *testing.T) {
 	}
 	if strings.Contains(reason, "已不可用") {
 		t.Fatalf("0 候选不得说成'已不可用'(实测 46 次 2001 限流就是这样), got %q", reason)
+	}
+}
+
+// 回归(2026-11-23 用户真实报告): 有会员却被告知"需要会员"。
+//
+// 现场: 「一万零一次沉溺 - 李十七」播不出, 提示
+//   「这首歌在当前音乐源已下架或需要会员才能播放」
+// 用户回复"我网易云有会员", 于是合理怀疑扫码登录/账号凭证坏了。
+//
+// 实测(生产 provider 内直连): 搜「一万零一次沉溺」返回 10 条、9 条可播,
+// 但**全是其他歌手的翻唱**(饼饼有礼/肥嘟嘟/棠声晚/枕寒月/迟叙...),
+// 「李十七」命中数 = 0。也就是说: 曲库里有这首歌的一堆版本, 唯独没有用户要的这一版。
+//
+// 这类情况升级会员毫无意义, 文案必须与"付费曲"分开, 否则就是把用户往错误方向推。
+func TestVersionGoneWordingIsNotAboutMembership(t *testing.T) {
+	reason, retryable := classifyPlaybackOpenError(core.ErrProviderVersionGone)
+	if retryable {
+		t.Fatalf("这一版没了不可重试, got %q", reason)
+	}
+	// 核心: 不能再说"需要会员" —— 用户有会员, 这么说等于怀疑他的账号。
+	if strings.Contains(reason, "会员") {
+		t.Fatalf("reason = %q, 这一版没了与会员无关, 提会员会让有会员的用户以为自己账号坏了", reason)
+	}
+	if !strings.Contains(reason, "下架") {
+		t.Fatalf("reason = %q, 必须说清是这一版已下架", reason)
+	}
+	// 必须给出可执行的下一步, 而不是只陈述事实。
+	if !strings.Contains(reason, "换源") && !strings.Contains(reason, "换一首") {
+		t.Fatalf("reason = %q, 必须给出换源/换歌这类可执行建议", reason)
+	}
+}
+
+// 两种"不可重试"必须产生**不同**文案, 否则分类就白做了。
+func TestVersionGoneAndPaidOnlyReadDifferently(t *testing.T) {
+	gone, _ := classifyPlaybackOpenError(core.ErrProviderVersionGone)
+	paid, _ := classifyPlaybackOpenError(core.ErrProviderPaidOnly)
+	if gone == paid {
+		t.Fatalf("两种原因文案相同(%q) —— 用户无法据此判断该升级会员还是该换源", gone)
+	}
+	if !strings.Contains(paid, "会员") {
+		t.Fatalf("付费/下架类仍必须提会员(付费曲确实存在), got %q", paid)
 	}
 }

@@ -279,25 +279,47 @@ func resolveProviderSongOnce(source string, song *providermodel.Track, keyword, 
 		}
 	}
 	if bestIndex < 0 || bestScore < 0.75 {
-		// 候选里没有这个 id, 也说明"这首拿不到地址"(付费曲/版权受限),
-		// 而不是"网络抖了"。
-		return providermodel.Track{}, false, ErrProviderPaidOnly
+		// 候选非空但没有这个 id, 也没有足够相似的版本 —— 说明**这一版**在曲库里没了,
+		// 而"拿不到地址"是另一回事(候选为空才走上面那条)。
+		//
+		// 必须与 ErrProviderPaidOnly 分开(2026-11-23 真实事故):「一万零一次沉溺 李十七」
+		// 在网易搜出 10 条、9 条可播, 但全是翻唱, 李十七那版一条都没有。旧实现报
+		// "下架或需要会员", 让有会员的用户以为账号出问题 —— 实际升级会员毫无意义。
+		return providermodel.Track{}, false, ErrProviderVersionGone
 	}
 	return candidates[bestIndex], false, nil
 }
 
-// 播放链路的两种"重试无用但原因不同"的错误, 供 internal/web 分类提示。
+// 播放链路的"重试无用但原因不同"的错误, 供 internal/web 分类提示。
 var (
 	// ErrProviderRateLimited: 上游限流(QQ code=2001)。稍等重试可能就好。
 	ErrProviderRateLimited = errors.New("provider rate limited the search")
 	// ErrProviderPaidOnly: 有候选但拿不到下载地址(付费曲/版权受限)。重试无用。
 	ErrProviderPaidOnly = errors.New("provider has no downloadable url for this song")
+	// ErrProviderVersionGone: 搜索有结果, 但**这一版**不在其中(同名的其他版本/翻唱有货)。
+	//
+	// 为什么必须与 ErrProviderPaidOnly 分开(2026-11-23 用户真实报告):
+	// 「一万零一次沉溺 - 李十七」在网易云上就是这种情况 —— 搜「一万零一次沉溺」
+	// 返回 10 条, 9 条可播, 但**全是翻唱**(饼饼有礼/肥嘟嘟/棠声晚/枕寒月...),
+	// 李十七那版一条都没有。旧实现把它归进 ErrProviderPaidOnly, 于是提示
+	// "这首歌在当前音乐源已下架或需要会员才能播放" —— 用户明明有会员, 却被告知
+	// 要会员, 于是怀疑自己的账号/凭证有问题(实际扫码登录是好的, MUSIC_U 也在)。
+	//
+	// 两者的处置建议完全不同:
+	//   付费/版权受限 → 提升账号等级(会员)有意义
+	//   这一版没了   → 升级账号毫无意义, 只能换源或换歌
+	// 所以必须分开。判据是"候选是否非空": 候选为空才是真·拿不到;
+	// 候选非空但目标版本不在其中 = 这一版没了。
+	ErrProviderVersionGone = errors.New("provider has other versions of this song but not this one")
 )
 
-// IsProviderRateLimited / IsProviderPaidOnly 供上层(web 层)判断错误类型,
+// IsProviderRateLimited / IsProviderPaidOnly / IsProviderVersionGone 供上层(web 层)判断错误类型,
 // 避免上层去匹配错误字符串。
 func IsProviderRateLimited(err error) bool { return errors.Is(err, ErrProviderRateLimited) }
 func IsProviderPaidOnly(err error) bool   { return errors.Is(err, ErrProviderPaidOnly) }
+func IsProviderVersionGone(err error) bool {
+	return errors.Is(err, ErrProviderVersionGone)
+}
 
 // normalizeProviderSearchError 把 sidecar 报上来的"被上游限流"归一化成哨兵错误。
 //

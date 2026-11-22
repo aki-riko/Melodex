@@ -527,7 +527,7 @@ func TestResolveProviderSongFallbackSurvivesSmallCandidateLimit(t *testing.T) {
 		}
 	})
 
-	t.Run("候选全不相似时仍报付费或不可用", func(t *testing.T) {
+	t.Run("候选全不相似时报这一版已下架(不是付费)", func(t *testing.T) {
 		candidates := []providermodel.Track{
 			{ID: "other-1", Source: "qq", Name: "孤勇者", Artist: "陈奕迅"},
 			{ID: "other-2", Source: "qq", Name: "七里香", Artist: "周杰伦"},
@@ -538,8 +538,14 @@ func TestResolveProviderSongFallbackSurvivesSmallCandidateLimit(t *testing.T) {
 		if err == nil {
 			t.Fatal("候选全不相似时必须报错, 不能随便塞一首歌给用户播")
 		}
-		if !IsProviderPaidOnly(err) {
-			t.Fatalf("err = %v, 期望 ErrProviderPaidOnly(重试无用, 该换源而不是等)", err)
+		// 2026-11-23 修正: 候选非空 = 上游有这首歌的其他版本, 只是没有目标这一版。
+		// 这不能报 ErrProviderPaidOnly —— 否则有会员的用户会被提示"需要会员",
+		// 从而误以为账号坏了(真实报告:「一万零一次沉溺 李十七」)。
+		if !IsProviderVersionGone(err) {
+			t.Fatalf("err = %v, 期望 ErrProviderVersionGone(这一版没了, 升级会员无用)", err)
+		}
+		if IsProviderPaidOnly(err) {
+			t.Fatal("不能同时算付费类 —— 两者的处置建议完全相反")
 		}
 	})
 }
