@@ -1402,7 +1402,7 @@ const WebPlayerProvider = ({ children }) => {
   useEffect(() => {
     return attachDesktopShellBridge({
       toggle: () => {
-        // 以 <audio> 的真实 paused 状态为准，不信任可能陈旧的 React state。
+        // 以音频元素的真实 paused 状态为准，不信任可能陈旧的 React state。
         if (audioRef.current?.paused ?? true) resumeWithFade();
         else pauseWithFade('shell_shortcut');
       },

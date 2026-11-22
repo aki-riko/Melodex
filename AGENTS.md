@@ -153,19 +153,20 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - **用户搜索历史**(`search_history.go`,按 user_id 隔离):`search_history_rows` uniqueIndex(user_id,keyword) 去重更新时间,每人留 50 条,链接不入、userID=0 跳过。`GET/DELETE /music/search_history`(userAPI 仅登录,DELETE 带 keyword 删单条/不带清空)。前端 Download.js 未发起搜索时显「最近搜索」chips。
 - **接线坑**:`jsonSearchHandler` 在公开 `/api/v1` 组,要让登录用户搜索记入历史 → 给 `/api/v1` 挂 `attachUserOptional`(非阻塞,匿名照常,桌面注入 local)。InitDB AutoMigrate 加两表(幂等)。
 
-## 桌面客户端:Tauri 2 包裹 PWA(2026-11,阶段 1 已完成)
+## 桌面客户端:Tauri 2 包裹 PWA(2026-11,阶段 1~3 已完成)
 
 电脑端主力形态是**用一个 Tauri 2 壳包裹线上 PWA**,不再维护第二套原生 UI。
-方案与阶段 0 实测证据见 `docs/desktop-shell-plan.md`。
+方案与阶段 0 实测证据见 `docs/desktop-shell-plan.md`;发布与自动更新见 `docs/desktop-release-updater.md`。
 
 ### 结构(`desktop/src-tauri/src/`,已按职责拆模块)
-- `main.rs` 只管装配:注册单实例/自启插件、建三个窗口、接窗口事件。
-- `service_url.rs` **站点地址解析 + 导航白名单**(纯函数,11 个单测,改这里必须保持测试绿)。
+- `main.rs` 只管装配:注册单实例/自启/快捷键/更新插件、建三个窗口、接窗口事件。
+- `service_url.rs` **站点地址解析 + 导航白名单**(纯函数,改这里必须保持 11 个测试绿)。
 - `main_window.rs` 主窗口:加载线上站点、`on_navigation` 护栏、关闭拦截为隐藏。
-- `overlay.rs` 透明歌词窗(行为与既有实现一致:穿透/置顶/跳任务栏/托盘切换)。
-- `settings_window.rs` 配对设置窗(本地页,关闭只隐藏)。
-- `tray.rs` 托盘菜单;`autostart_support.rs` 开机自启;`device.rs` 设备配对凭据。
+- `overlay.rs` 透明歌词窗;`settings_window.rs` 配对设置窗(关闭只隐藏)。
+- `tray.rs` 托盘菜单;`autostart_support.rs` 开机自启;
+  `shortcuts.rs` 全局快捷键;`updates.rs` 自动更新;`device.rs` 配对凭据。
 - `commands.rs` 暴露给本地页的 IPC 命令;`logging.rs` 同时写 stderr 与文件。
+- 前端薄桥:`frontend/src/platform/desktopShell.js`(`npm run test:desktop-shell`,9 项契约测试)。
 
 ### 三条不可退让的规则
 1. **远程页面零 IPC**。`capabilities/default.json` 只列 `overlay`/`settings` 本地窗口,
@@ -174,6 +175,7 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 2. **导航白名单**。只允许站点同源与登录网关(`auth.<父域>`,且父域限 `9li.life`)同源;
    其余外链交给系统浏览器。禁止为了"方便"把 `on_navigation` 改成恒 `true`。
 3. **关闭 = 隐藏到托盘,只有托盘「退出」才真退出**。`allow_exit()` 是唯一出口。
+   **例外**:自动更新安装前必须调 `allow_exit()`,否则进程赖在托盘会让安装器覆盖不了文件。
 
 ### 实测结论(2026-11-22 真机,已不是推测)
 - **媒体键走内核直通,不要另写 SMTC**。物理媒体键 → Windows SMTC → WebView2 → 页面
@@ -183,31 +185,56 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
   这是 Windows 语义,不是缺陷——验收与排查不要当 bug 修。
 - **远程 origin 的 Service Worker 在 WebView2 里正常工作**(`controller=.../sw.js`),
   所以**不要**在壳里另起本地 HTTP 服务做离线兜底。
+- **全局快捷键实测通过**:`Ctrl+Alt+Space`/`Left`/`Right` 分别映射 toggle/prev/next,
+  日志可见 `global shortcut control+alt+Space -> toggle` 等。实测脚本在
+  `desktop/prototype/scripts/send-shortcut.ps1`(用 keybd_event,不用 SendInput——
+  后者在 PowerShell 里手搓 INPUT 联合体极容易算错 cbSize,实测直接返回 0)。
 - 原 PrismQML 客户端过不去 Authentik SSO(`ApiClient.cpp` 里已有"被前置登录网关拦截"文案),
   这是本次重做的直接原因。
 
+### 自动更新的现状(重要,别误判)
+壳已接 updater:启动 8s 后静默检查 + 托盘「检查更新…」交互式更新。
+但 **`https://music.9li.life/desktop/latest.json` 尚未部署**,后端 SPA fallback 会返回 HTML 首页,
+于是每次检查只记一条 `[WARN] update check failed: 检查更新失败：error decoding response body`。
+**这是预期状态,不是缺陷**。部署清单后即恢复;`/desktop/` 路径必须绕过 SPA fallback 且 NPM 放行 SSO。
+清单由 `desktop/scripts/build-updater-manifest.mjs` 生成(10 项契约测试)。
+
 ### 依赖版本纪律(踩过)
-`tauri-plugin-single-instance` 固定 **2.4.5**、`tauri-plugin-autostart` 固定 **2.5.1**;
-更新的 2.5.x/2.6+ 要求 `tauri ^2.12`,与锁定的 `tauri 2.10.1` 冲突。升插件必须同步升 tauri。
+`tauri-plugin-single-instance` 固定 **2.4.5**、`tauri-plugin-autostart` 固定 **2.5.1**、
+`tauri-plugin-global-shortcut` 固定 **2.3.2**、`tauri-plugin-updater` 固定 **2.12.0**。
+更高版本(如 single-instance 2.5.x、updater 2.13+)要求 `tauri ^2.12`,与锁定的 `tauri 2.10.1` 冲突。
+**升插件必须同步升 tauri**,并重新核对该插件对 tauri 的 req。
 
 ### 门禁
 ```powershell
 cd desktop/src-tauri
 cargo fmt --check
-cargo test --locked
+cargo test --locked          # 当前 14 项
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked
 cd ../ui; node lyricsCore.test.mjs
+cd ../../frontend; npm run test:desktop-shell   # 9 项
+node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
 ```
 日志落 `%LOCALAPPDATA%\life.9li.melodex.desktoplyrics\logs\shell.log`;
 **日志不得记录设备令牌或带签名的播放地址**。
 
 阶段 0 的验证脚手架保留在 `desktop/prototype/`(可整目录删除,证据已摘录进方案文档)。
 
-## PrismQML 桌面原生播放(2026-07,已退役,保留作背景)
+### 未验证项(截至 2026-11-22,不要当成已修好)
+- **开机自启**:插件与菜单已接好,但**没有真的勾选并重启系统验证**。
+- **自动更新的端到端**:清单未部署,「检查→下载→安装→版本号变化」未在真实发布上跑通。
+- **SSO 全新登录**:壳内加载站点未跳 Authentik 已验证,但"全新机器首次登录"未覆盖。
+- **媒体键在新壳里**:阶段 0 用原型页面验的,新壳加载真实站点未重测(前端代码未变)。
 
-> **状态**:`desktop-prismqml` 已被上面的 Tauri 2 外壳取代。以下内容仅作历史背景与
-> 回退参考,不再是日常使用路径。退役原因:它自带第二套 UI 且过不去 Authentik SSO。
+## PrismQML 桌面原生播放(2026-07,**已被取代,保留待验收后删除**)
+
+> **状态**:`desktop-prismqml` 已由上面的 Tauri 2 外壳**取代**,但**尚未删除**——
+> 用户决定先用新客户端一段时间确认无遗留功能后再删。
+> 因此:crate/CI 工作流/本机构建产物**暂时全部保留**,不要擅自清理。
+> 退役原因:它自带第二套 UI 且过不去 Authentik SSO。
+> 真删时需同时处理:`desktop-prismqml/`(75 文件/10,844 行)、CI 工作流、本文档本节、
+> 以及本机 `%LOCALAPPDATA%\Melodex\desktop-{build,deploy}` 与 `.prism-sdk`/`build-cpp`。
 
 - `desktop-prismqml` 的解码与声卡输出由 Qt Multimedia C++ `QMediaPlayer/QAudioOutput` 完成；Python `PlayerController` 只负责队列、歌词、状态持久化和 QML 信号。
 - **音频数据面不得走 Python loopback 代理**：桌面端通过登录 cookie `POST /api/v1/playback_ticket`，服务端返回绑定 user_id/username/session_epoch/完整 stream 查询摘要的签名 URL；随后 `QMediaPlayer` 直接读取 `/music/download?...&playback_token=...`。`authRequired` 只允许该票据用于 `GET /music/download` 且必须 `stream=1`，修改 id/source/任意查询参数、改密码、禁用用户或票据过期都会失效。
