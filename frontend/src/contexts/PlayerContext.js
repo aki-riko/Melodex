@@ -2438,23 +2438,29 @@ export const PlayerBar = () => {
         </div>
       )}
 
-      {/* ===== 桌面端:全屏沉浸播放页(可切换:沉浸 / 歌词 / 聚焦) =====
-          沉浸档 = 大封面占半壁 + 右侧歌词面板(QQ 音乐/网易云那种),不是"深色底 + 小圆盘";
-          歌词档 = 歌词独占整屏;聚焦档 = 大封面独占整屏。 */}
+      {/* ===== 桌面端:全屏沉浸播放页(可切换:沉浸 / 歌词 / 封面) =====
+          沉浸档(默认)= **整屏封面当背景**:左半清晰、右半渐隐,歌词压在渐隐区上,
+                         底部一条半透明底栏装信息 + 进度 + 全部操作。
+                         不是"左边一张封面卡片 + 右边一个列表" —— 那样中间会空出一大片,
+                         完全没有"整张专辑铺满屏幕"的沉浸感。
+          歌词档 = 歌词独占整屏;封面档 = 封面铺满、只有底栏。 */}
       {expanded && nowPlaying && (
         <div className={`hidden lg:flex player-stage player-stage--${stageTone} player-stage--${stageLayout} fixed inset-0 z-sheet flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
           data-stage-layout={stageLayout}
           data-stage-tone={stageTone}>
-          {/* 背景:封面大图模糊铺满 + 纱。注意它是**整屏底**,大封面是叠在上面的实图,
-              两者是不同层 —— 只靠模糊底会出现"整屏一片糊红、看不清是哪张专辑"。 */}
-          <div className="player-stage__bg" aria-hidden="true">
-            {coverUrl && (
-              <div className="player-stage__cover" style={{ backgroundImage: `url(${coverUrl})` }} />
-            )}
-            <div className="player-stage__veil" />
+          {/* 整屏封面:这是舞台的**底**,不是装饰。
+              沉浸档里它是主角(左半清晰 + 右半渐隐到暗),歌词直接压在渐隐区上。
+              封面缺失时退化成纯色渐变,不留"黑屏"。 */}
+          <div className="player-stage__backdrop" aria-hidden="true">
+            {coverUrl
+              ? <div className="player-stage__backdrop-img" style={{ backgroundImage: `url(${coverUrl})` }} />
+              : <div className="player-stage__backdrop-empty" />}
+            {/* 渐隐方向由布局档位决定(见 CSS):
+                沉浸/封面档 = 横向「左清晰 → 右渐隐」;歌词档 = 纵向压暗。 */}
+            <div className="player-stage__scrim" />
           </div>
 
-          {/* 顶部:收起 + 两颗切换控件 */}
+          {/* 顶部:只有收起 + 两颗切换控件,不加任何标签 —— 用户要"信息压缩到底栏" */}
           <div className="player-stage__top">
             <button onClick={collapseExpanded} className="player-stage__back" aria-label="收起">
               <ChevronDown size={26} />
@@ -2466,46 +2472,13 @@ export const PlayerBar = () => {
             </div>
           </div>
 
-          {/* 中部:舞台主体。三档布局决定"大封面 / 歌词面板"各自占多少(CSS 按 .player-stage--disc/lyrics/split 切)。
-              这里不再挂 --desktop 修饰类:该类的尺寸已并入 .player-stage__body 基础块,
-              留一个 CSS 里不存在的类名只会让人以为它在起作用。 */}
+          {/* 中部:歌词浮在渐隐区上(沉浸档在右侧、歌词档居中、封面档不显示)。
+              这里**不放封面** —— 封面已经在背景里铺满了。 */}
           <div className="player-stage__body">
-            {/* 大封面(disc 与 split 档)。谱面是**方形实图**,不再是嵌在黑胶里的圆形小封面 ——
-                这是"沉浸"与"唱片机装饰"的分水岭:用户要的是封面当主角。 */}
-            {stageLayout !== 'lyrics' && (
-              <div key={`art-${stageLayout}`} className="player-stage__art fade-in">
-                <div className="player-stage__art-frame">
-                  {coverUrl
-                    ? <img src={coverUrl} alt="" className="player-stage__art-img"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                    : <div className="player-stage__art-empty"><ListMusic size={72} /></div>}
-                </div>
-                {/* 封面下方的信息行:歌名 + 歌手 + 专辑/来源(与截图那种"标题在封面上方"不同,
-                    放在封面下更稳 —— 封面本身可能是浅色,字压上去会看不清)。 */}
-                <div className="player-stage__art-meta">
-                  <p className="player-stage__art-title truncate">{nowPlaying?.name}</p>
-                  <p className="player-stage__art-sub truncate">
-                    {nowPlaying?.artist}
-                    {nowPlaying?.album ? ` · ${nowPlaying.album}` : ''}
-                    {nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* 右侧歌词面板(沉浸 / 歌词档)。沉浸档里它是**独立的一块面板**,不是浮在封面上的文字。 */}
             {stageShowsLyrics(stageLayout) && (
               <div key={`lyric-${stageLayout}`}
                 className="player-stage__lyrics player-stage__lyrics--desktop fade-in"
                 aria-label="歌词">
-                {/* 歌词档没有大封面,歌名/歌手会整块丢失 —— 在歌词顶部补一行标题。
-                    沉浸档不重复显示:左边大封面下方已经有同一份信息了。 */}
-                {stageLayout === 'lyrics' && (
-                  <div className="player-stage__lyrics-head">
-                    <p className="player-stage__title truncate">{nowPlaying?.name}</p>
-                    <p className="player-stage__artist truncate">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
-                  </div>
-                )}
                 {lrc.length === 0 ? (
                   <div className="player-stage__lyrics-empty">
                     <p>暂无歌词</p>
@@ -2525,20 +2498,36 @@ export const PlayerBar = () => {
             )}
           </div>
 
-          {/* 底部:进度 + 控制 + 音量 + 收藏 */}
+          {/* 底部:信息 + 进度 + 全部操作,压在一条半透明底栏里。
+              用户的原话是「把条+操作压缩到底栏里面去」—— 所以歌名/歌手、进度条、
+              收藏/模式/定时/上下首/播放/音量,**全部**在这条里,中部不再放任何控件。 */}
           <div className="player-stage__dock">
-            <div className="player-stage__progress player-stage__progress--wide">
-              <span className="player-stage__time player-stage__time--lead">{fmtTime(progress.cur)}</span>
-              <div className="relative flex-grow flex items-center">
-                <input type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
-                  onChange={(e) => seek(Number(e.target.value))}
-                  {...scrubHandlers}
-                  className="w-full accent-primary cursor-pointer" aria-label="播放进度" />
-                {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
+            <div className="player-stage__dock-inner">
+              {/* 左:歌名 + 歌手/专辑/来源 */}
+              <div className="player-stage__now">
+                <p className="player-stage__now-title truncate">{nowPlaying?.name}</p>
+                <p className="player-stage__now-sub truncate">
+                  {nowPlaying?.artist}
+                  {nowPlaying?.album ? ` · ${nowPlaying.album}` : ''}
+                  {nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}
+                </p>
               </div>
-              <span className="player-stage__time">{fmtTime(progress.dur)}</span>
-            </div>
-            <div className="player-stage__controls player-stage__controls--desktop">
+
+              {/* 中:进度条(时间在两侧) */}
+              <div className="player-stage__progress player-stage__progress--wide">
+                <span className="player-stage__time player-stage__time--lead">{fmtTime(progress.cur)}</span>
+                <div className="relative flex-grow flex items-center">
+                  <input type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+                    onChange={(e) => seek(Number(e.target.value))}
+                    {...scrubHandlers}
+                    className="w-full accent-primary cursor-pointer" aria-label="播放进度" />
+                  {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
+                </div>
+                <span className="player-stage__time">{fmtTime(progress.dur)}</span>
+              </div>
+
+              {/* 右:全部操作 */}
+              <div className="player-stage__controls player-stage__controls--desktop">
               <button onClick={onToggleFavorite} disabled={offline} className="player-stage__ctrl player-stage__ctrl--icon disabled:opacity-50"
                 aria-label={favorited ? '取消收藏' : '收藏'} aria-pressed={favorited}
                 title={offline ? '离线状态无法同步收藏' : favorited ? '取消收藏' : '收藏'}>
@@ -2569,6 +2558,7 @@ export const PlayerBar = () => {
                 iconSize={22}
                 openUp
               />
+              </div>
             </div>
           </div>
         </div>

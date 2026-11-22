@@ -222,12 +222,12 @@ assert.ok(/\.player-stage--immersive\s*\{/.test(css), '缺少 .player-stage--imm
 
 // 背景层必须不吃点击、有确定层级
 assert.ok(
-  /\.player-stage__bg\s*\{[^}]*pointer-events:\s*none/.test(css),
-  '背景层必须 pointer-events:none —— 否则它会把整屏的点击全部吃掉',
+  /\.player-stage__backdrop\s*\{[^}]*pointer-events:\s*none/.test(css),
+  '整屏封面层必须 pointer-events:none —— 否则它会把整屏的点击全部吃掉',
 );
 assert.ok(
-  /\.player-stage__bg\s*\{[^}]*z-index:\s*0/.test(css),
-  '背景层需要确定的 z-index,内容层才能稳定压在上面',
+  /\.player-stage__backdrop\s*\{[^}]*z-index:\s*0/.test(css),
+  '整屏封面层需要确定的 z-index,内容层才能稳定压在上面',
 );
 
 // ---- 8b. 舞台根规则不得声明 display / position / flex-direction ----
@@ -327,52 +327,81 @@ assert.match(
   '桌面端歌词可见性必须由舞台布局档决定,且经 stageShowsLyrics 判断(双栏也有歌词区)',
 );
 
-// ----. 沉浸档必须是"封面当主角"的大图,不是黑胶小圆盘 ----
+// ---- 10. 沉浸档的结构:整屏封面铺满 + 横向渐隐 + 歌词落在渐隐区 + 操作全在底栏 ----
 //
-// 真实事故(2026-11):第一版把"深色底 + 嵌在黑胶里的 17rem 小圆盘"当成了沉浸,
-// 用户直接回「你那算个几把的沉浸」,并给了网易云参考图 —— 要的是**大封面占半壁 + 右侧歌词**。
-// 这条把教训钉死:沉浸档必须用大方形实图(.player-stage__art-frame),
-// 且桌面舞台里不得再出现黑胶圆盘(那是可选的另一种"味道",不能当默认)。
+// 这条对应两轮真实纠正(2026-11):
+//   第一版:「深色底 + 嵌在黑胶里的小圆盘」→ 用户「你那算个几把的沉浸」;
+//   第二版:「左边一张封面卡片 + 右边歌词列表」→ 用户「你这做的啥啊,
+//           人家的沉浸是把条+操作压缩到底栏,整个背景是专辑(大概一半不透明),
+//           剩下一半是渐隐的,渐隐那部分才是歌词」。
+// 所以现在锁死的是**结构**,不是某个尺寸数字:
+//   ① 封面是**整屏铺满的背景层**,不是"一张卡片";
+//   ② 有一层**横向**渐变(左清晰 → 右压暗),歌词落在右侧;
+//   ③ 歌名/进度/操作**全部**在底栏里,中部除歌词外不放控件。
 {
-  // 桌面舞台必须有"大封面"这块结构
-  assert.match(player, /className="player-stage__art fade-in"/, '桌面舞台缺少大封面区块(player-stage__art)');
-  assert.match(player, /player-stage__art-frame/, '大封面必须有自己的画框容器');
-  assert.match(player, /player-stage__art-img/, '大封面必须是方形实图(player-stage__art-img)');
+  // ① 整屏封面层必须存在,且用 background-size:cover 铺满(不是 contain 露边)
+  assert.ok(
+    /\.player-stage__backdrop\s*\{/.test(css),
+    '缺少 .player-stage__backdrop —— 封面必须是整屏铺满的背景层,不是一张卡片',
+  );
+  const backdropImg = css.match(/\.player-stage__backdrop-img\s*\{([\s\S]*?)\n\}/);
+  assert.ok(backdropImg, '缺少 .player-stage__backdrop-img');
+  assert.match(backdropImg[1], /background-size:\s*cover/, '封面必须 cover 铺满(contain 会露黑边,就不是整屏背景了)');
+  // 必须是"基本可辨"的封面,不能糊成一片色块
+  const blur = backdropImg[1].match(/blur\((\d+)px\)/);
+  assert.ok(blur, '封面层应有明确的 blur 值');
+  assert.ok(
+    Number(blur[1]) <= 12,
+    `封面模糊 ${blur[1]}px 太大 —— 用户要的是"整张专辑铺满屏幕"、能认出是哪张,不是一团糊色(上一版 72px 被否)`,
+  );
 
-  // 桌面那段不得再出现黑胶小圆盘
+  // ② 横向渐隐层:必须存在 90deg 的 linear-gradient,且左侧透明、右侧接近实心
+  const scrim = css.match(/\.player-stage__scrim\s*\{([\s\S]*?)\n\}/);
+  assert.ok(scrim, '缺少 .player-stage__scrim —— "一半不透明、一半渐隐"就是这一层');
+  assert.match(
+    scrim[1],
+    /linear-gradient\(90deg/,
+    '渐隐必须是**横向** 90deg 渐变(左清晰 → 右压暗),竖向压暗做不出"一半不透明"的效果',
+  );
+  // 左侧那一段必须几乎透明(封面原样可见)
+  assert.match(
+    scrim[1],
+    /0\.0[0-9]/,
+    '渐隐层最左侧必须接近透明(0.0x)—— 否则封面一开始就被压暗,看不出专辑',
+  );
+  // 右侧必须接近实心(歌词要读得清)
+  assert.match(
+    scrim[1],
+    /0\.9[0-9]/,
+    '渐隐层最右侧必须接近实心(0.9x)—— 否则亮封面会把歌词吞掉',
+  );
+
+  // ③ 操作全部在底栏:底栏必须有信息区 + 进度 + 控制三部分
+  assert.match(player, /player-stage__dock-inner/, '底栏缺少内层容器(它承载三栏布局与半透明底)');
+  assert.match(player, /player-stage__now-title/, '底栏缺少歌名(用户要求信息压进底栏)');
+  const dockInner = css.match(/\.player-stage__dock-inner\s*\{([\s\S]*?)\n\}/);
+  assert.ok(dockInner, '缺少 .player-stage__dock-inner 样式');
+  assert.match(dockInner[1], /grid-template-columns/, '底栏三栏必须用 grid 分栏(用 flex+固定宽度会在窄窗换行)');
+  assert.match(dockInner[1], /backdrop-filter:\s*blur/, '底栏应是半透明毛玻璃(让封面透出来一点)');
+
+  // 中部不得再放大封面卡片 —— 封面已在背景里
   const desktopStart = player.indexOf('桌面端:全屏沉浸播放页');
   assert.ok(desktopStart > 0, '找不到桌面舞台段落');
   const desktopBlock = player.slice(desktopStart);
   assert.ok(
+    !/player-stage__art-frame|player-stage__art-img/.test(desktopBlock),
+    '桌面舞台不得再有"封面卡片"结构 —— 封面必须是整屏背景层,不是左半边一张图',
+  );
+  assert.ok(
     !/vinyl-wrap|turntable|tonearm/.test(desktopBlock),
-    '桌面沉浸档不得再用黑胶小圆盘(vinyl-wrap/turntable/tonearm)—— 用户要的是"封面当主角"的大图',
+    '桌面舞台不得出现黑胶圆盘(vinyl-wrap/turntable/tonearm)',
   );
 
-  // CSS:大封面必须按**宽度**取尺寸(占半壁是宽度概念),且要"够大"
-  const artFrame = css.match(/\.player-stage__art-frame\s*\{([\s\S]*?)\n\}/);
-  assert.ok(artFrame, '缺少 .player-stage__art-frame 样式');
-  const widthRule = artFrame[1].match(/width:\s*clamp\([^;]+\);/);
-  assert.ok(widthRule, '大封面必须给出 clamp() 宽度(跟视口走,不能写死 px)');
-  assert.ok(
-    /vw/.test(widthRule[0]),
-    `大封面宽度必须基于 vw 计算("占半壁"是宽度概念):${widthRule[0]}`,
-  );
-  assert.ok(
-    /object-fit:\s*cover/.test(css),
-    '封面图必须 object-fit:cover —— 否则非正方形封面会被拉变形',
-  );
-
-  // 沉浸档:歌词在右侧(左对齐),且封面与歌词是并排的(不是上下堆叠)
+  // 沉浸档歌词落在右侧渐隐区
   const discLyrics = css.match(/\.player-stage--disc \.player-stage__lyrics--desktop\s*\{([\s\S]*?)\n\}/);
   assert.ok(discLyrics, '缺少沉浸档歌词区样式');
-  assert.ok(
-    /text-align:\s*left/.test(discLyrics[1]),
-    '沉浸档歌词应在右侧、左对齐(与左侧大封面并排)',
-  );
-  assert.ok(
-    /flex:\s*1 1 0/.test(discLyrics[1]),
-    '沉浸档歌词区必须吃掉剩余宽度(flex:1 1 0),否则它会被挤成一条',
-  );
+  assert.match(discLyrics[1], /text-align:\s*left/, '沉浸档歌词应左对齐');
+  assert.match(discLyrics[1], /width:\s*min\(5[0-9]%/, '沉浸档歌词应占右侧约一半宽度(落在渐隐区上)');
 }
 
 // ---- 11. 歌词"当前行"必须比普通行更大更亮(沉浸感的来源) ----
@@ -412,10 +441,12 @@ assert.match(
     );
   }
   // 当前行还要更亮:普通行带透明度,当前行不带
-  assert.match(
-    css,
-    /\.player-stage \.player-lyric-line \{\s*color:\s*hsl\(var\(--foreground\) \/ 0\.5\)/,
-    '普通歌词行必须半透明(压暗),当前行才显得突出',
+  const normalColor = css.match(/\.player-stage \.player-lyric-line\s*\{[^}]*color:\s*hsl\(var\(--foreground\) \/ ([\d.]+)\)/);
+  assert.ok(normalColor, '普通歌词行必须带透明度(压暗),当前行才显得突出');
+  const alpha = Number(normalColor[1]);
+  assert.ok(
+    alpha > 0.3 && alpha < 0.7,
+    `普通行透明度 ${alpha} 不在合理区间(0.3~0.7);太小=看不见,太大=当前行不突出`,
   );
   assert.match(
     css,
@@ -459,35 +490,36 @@ assert.match(
     '.player-stage__controls 必须自带 display:flex —— 只写 --desktop 修饰类不会让它变成一行',
   );
 
-  // ★ 所有"横向排布"的舞台区块都必须自带 display:flex。
-  //   这批块是**一起**被重写脚本吃掉的(它们作为 z-index 共享选择器出现在一处,
+  // ★ 所有布局区块都必须自带 display(flex 或 grid)。
+  //   这批块曾经**一起**被重写脚本吃掉(它们作为 z-index 共享选择器出现在一处,
   //   grep 只看到那一处就会误判"还在")。逐个列出来,漏一个就红。
-  const mustFlex = [
+  //   判据是"有没有布局声明",不是"必须 flex" —— 底栏用 grid 分三栏是更好的选择。
+  const mustDisplay = [
     ['__top', '.player-stage__top'],
-    ['__meta', '.player-stage__meta'],
-    ['__center/__body', '.player-stage__body'],
+    ['__body', '.player-stage__body'],
     ['__controls', '.player-stage__controls'],
     ['__progress--wide', '.player-stage__progress--wide'],
+    ['__dock-inner', '.player-stage__dock-inner'],
   ];
-  for (const [name, selector] of mustFlex) {
+  for (const [name, selector] of mustDisplay) {
     const rule = css.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`));
     assert.ok(rule, `缺少 ${selector} 的独立声明块 —— 它只出现在共享选择器里等于没有样式`);
     assert.match(
       rule[1],
-      /display:\s*flex/,
-      `${selector} 必须自带 display:flex(否则 ${name} 会塌成竖排/堆叠)`,
+      /display:\s*(flex|grid)/,
+      `${selector} 必须自带 display:flex|grid(否则 ${name} 会塌成竖排/堆叠)`,
     );
   }
-  // __progress / __dock / __times 不一定要 flex,但必须有独立块(不能被吃成空壳)
-  for (const selector of ['.player-stage__progress', '.player-stage__dock', '.player-stage__times']) {
+  // __progress / __dock 不一定要 flex/grid,但必须有独立块(不能被吃成空壳)
+  for (const selector of ['.player-stage__progress', '.player-stage__dock']) {
     assert.ok(
-      css.includes(`${selector} {`),
+      css.includes(`${selector} {`) || css.includes(`${selector}{`),
       `缺少 ${selector} 的独立声明块 —— 它只出现在共享选择器里等于没有样式`,
     );
   }
 
-  // 舞台里的标题/歌手也要有样式(移动队列与歌词档都会用到)
-  assert.ok(css.includes('.player-stage__title'), '缺少 .player-stage__title —— 歌词档/队列标题会裸渲染');
+  // 舞台里的标题/歌手也要有样式(移动队列会用)
+  assert.ok(css.includes('.player-stage__title'), '缺少 .player-stage__title —— 队列标题会裸渲染');
   assert.ok(css.includes('.player-stage__artist'), '缺少 .player-stage__artist');
 }
 
