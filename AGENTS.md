@@ -494,7 +494,13 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **收藏**:每用户默认「我喜欢」歌单(后端 kind=favorite,见多用户节)。迷你条/全屏页心形按钮 toggle,乐观更新+失败回滚;收藏时后台静默下载到 NAS(与"加歌单即下载"一致),取消不下载。
 - **MediaSession(PC 全局媒体键)**:绑 play/pause/prev/next/stop/seek action handler + `playbackState`(playing/paused,决定系统媒体键能否正确恢复)+ `setPositionState`(OS 媒体面板进度条)+ 封面走 cover_proxy 多尺寸 artwork。**关键**:只绑 handler 不够,必须同步 playbackState/positionState 系统媒体键才稳定接管(键盘 ⏯⏮⏭/耳机线控/Win 媒体浮层)。
 - **移动端 QQ 音乐式**:迷你条(封面+跑马灯歌名+收藏/播放/队列三按钮,`bottom: calc(3.25rem + safe-area)` 贴底部 Tab 栏上方不留缝)→ 点击展开全屏播放页(滑入 player-slide-up / 收起 player-slide-down 动画;返回键 history.pushState 拦截为收起不退站)。
-- **留声机 + 逐字歌词**(全屏页):黑胶唱片(封面嵌黑胶,播放转 vinyl-spin / 暂停停 + 唱臂 .up/.down 摆动)↔ 点击切歌词。歌词 `parseLRC` 自适应:QQ 逐字 LRC(每字时间戳,≥2 有效字段)→ `KaraokeLine` 卡拉OK填色(background-clip:text 按 progress.cur 渐变);网易行级 LRC(行首+行尾两戳)→ 整行高亮;当前行 scrollIntoView 居中。
+- **全屏播放页「沉浸式 + 可切换」**(2026-11 重做,`contexts/playerStage.mjs` + `components/PlayerStageChrome.js`):两端共用同一套舞台,顶部有**两颗切换控件**:
+  - **布局三档**:唱片 / 歌词 / 双栏。默认值按断点分(桌面 `split`、手机 `disc`)—— 统一成一个会让其中一端第一次打开就"不像原来那个应用"。**旧的「点封面↔歌词」隐式切换已删除**(三档之后它会造成"点歌词跳回唱片档",与控件互相打架),门禁 `playerStage.test.mjs` 断言 `setShowLyric` 不得回归。
+  - **色板两档**:沉浸暗场 / 跟随主题。沉浸档**与全站主题无关地变深**,做法是在 `.player-stage--immersive` 里**重定义 --background/--foreground/--muted-foreground/--primary 等语义 token**,舞台内所有 Tailwind 类与 `.player-lyric-line` 自动跟着走(比逐元素覆盖少漏);强调色必须换成深色那档的浅蓝(沿用浅色主题的 #004F99 在深底上等于看不见)。「跟随主题」档**不重定义任何颜色**,只调低封面底图不透明度。
+  - 偏好按设备落 localStorage(`melodex_stage_layout` / `melodex_stage_tone`),脏值与存储抛错一律收敛到默认(无痕模式不能崩)。
+  - **★ 坑:舞台 CSS 写在 @layer 之外,不得声明 display / position / inset / z-index**。未分层样式优先级高于 @layer 中的 Tailwind utilities,写 `display:flex` 会压过 `hidden`(两套断点舞台同时显示),写 `position:relative` 会压过 `fixed`(舞台不黏视口)。这两类只在真机可见,构建/单测/门禁全不报 —— 现由 `playerStage.test.mjs` 逐条锁死(已用突变验证能抓到)。
+  - **歌词滚动读 `stageShowsLyrics(layout)`**,不是 `=== 'lyrics'`:双栏档也有歌词区,漏了就不会自动居中。
+- **留声机 + 逐字歌词**(全屏页):黑胶唱片(封面嵌黑胶,播放转 vinyl-spin / 暂停停 + 唱臂 .up/.down 摆动)↔ 布局档位决定唱片/歌词各自的去留。歌词 `parseLRC` 自适应:QQ 逐字 LRC(每字时间戳,≥2 有效字段)→ `KaraokeLine` 卡拉OK填色(background-clip:text 按 progress.cur 渐变);网易行级 LRC(行首+行尾两戳)→ 整行高亮;当前行 scrollIntoView 居中。
 - **封面**:列表/歌单/播放器所有封面走 `coverProxyUrl`(后端 cover_proxy,解决网易 http 在 https 被拦混合内容 + 防盗链 + 磁盘缓存);无封面 lucide Music 占位。
 - **行交互**(SongRow):手机 coarse 指针单击整行 / 电脑双击整行播放;行内按钮 stopPropagation 不触发行播放;歌单详情 onRemove 删除按钮内嵌长条内。
 - **持久化偏好均按设备**(localStorage,不跨设备):音量/播放模式/进度。要跨设备需挪后端 user_prefs。
