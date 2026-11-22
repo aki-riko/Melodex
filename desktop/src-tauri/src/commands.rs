@@ -67,6 +67,18 @@ pub fn get_click_through(state: State<'_, OverlayState>) -> Result<bool, String>
     overlay::get_click_through(&state)
 }
 
+/// 读取歌词窗当前物理位置，供前端做位置记忆。
+#[tauri::command]
+pub fn overlay_position(app: AppHandle) -> Result<(i32, i32), String> {
+    overlay::overlay_position(&app)
+}
+
+/// 恢复歌词窗位置。坐标是**物理像素**，与 `overlay_position` 返回值同单位。
+#[tauri::command]
+pub fn set_overlay_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    overlay::set_overlay_position(&app, x, y)
+}
+
 // ---------- B 档：主窗口远程页面可用（窄权限） ----------
 
 /// 主窗口把当前播放状态推给本机歌词窗。

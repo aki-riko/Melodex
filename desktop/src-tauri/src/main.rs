@@ -40,6 +40,8 @@ fn main() {
             commands::set_overlay_visible,
             commands::start_overlay_drag,
             commands::get_click_through,
+            commands::overlay_position,
+            commands::set_overlay_position,
             commands::lyrics_push_state,
             commands::lyrics_send_command,
         ])

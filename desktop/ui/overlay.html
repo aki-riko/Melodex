@@ -7,8 +7,11 @@
     <link rel="stylesheet" href="overlay.css" />
   </head>
   <body class="passthrough">
+    <!-- 双行设计（对齐旧 PrismQML 实现）：
+         主行 = 当前歌词，副行 = 下一行。
+         旧实现里的 outgoingLyric 只用于行切换动画期间的上移淡出，
+         不是常驻第三行——所以这里不设 "上一行" 元素。 -->
     <main id="lyrics-shell" class="lyrics-shell" aria-label="桌面歌词">
-      <p id="previous-line" class="lyric-line adjacent" aria-hidden="true"></p>
       <p id="current-line" class="lyric-line current"></p>
       <p id="next-line" class="lyric-line adjacent" aria-hidden="true"></p>
       <div id="controls" class="controls" aria-label="播放控制">

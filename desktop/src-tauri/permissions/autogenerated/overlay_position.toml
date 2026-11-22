@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-overlay-position"
+description = "Enables the overlay_position command without any pre-configured scope."
+commands.allow = ["overlay_position"]
+
+[[permission]]
+identifier = "deny-overlay-position"
+description = "Denies the overlay_position command without any pre-configured scope."
+commands.deny = ["overlay_position"]

@@ -107,3 +107,27 @@ pub fn hide_overlay(app: &AppHandle) {
         let _ = window.hide();
     }
 }
+
+/// 读取歌词窗的物理坐标（与 `set_overlay_position` 同单位）。
+pub fn overlay_position(app: &AppHandle) -> Result<(i32, i32), String> {
+    let window = app
+        .get_webview_window(OVERLAY_WINDOW)
+        .ok_or_else(|| "歌词窗口不存在".to_string())?;
+    let position = window
+        .outer_position()
+        .map_err(|error| format!("读取歌词窗口位置失败：{error}"))?;
+    Ok((position.x, position.y))
+}
+
+/// 设置歌词窗的物理坐标。
+///
+/// 用 `PhysicalPosition` 而不是逻辑坐标：旧实现存的是屏幕像素，
+/// 跨 DPI 变化时物理坐标更接近"用户上次看到的位置"。
+pub fn set_overlay_position(app: &AppHandle, x: i32, y: i32) -> Result<(), String> {
+    let window = app
+        .get_webview_window(OVERLAY_WINDOW)
+        .ok_or_else(|| "歌词窗口不存在".to_string())?;
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|error| format!("设置歌词窗口位置失败：{error}"))
+}

@@ -1,4 +1,34 @@
-:root,
+/*
+ * 桌面歌词窗样式。
+ *
+ * 视觉参数对齐旧 PrismQML 实现(desktop-prismqml/qml/components/DesktopLyricsWindow.qml
+ * 与 melodex_desktop/config.py)，不要凭观感随手改：
+ *
+ *   主行字号    20..64，默认 36（--lyric-font-size，由 JS 按窗口宽度自适应）
+ *   主行字重    DemiBold(600)
+ *   副行字号    主行 × 0.67，最小 16
+ *   播放色      #C6C6C6 系（默认"珊瑚绯" #FFC6C6）
+ *   未播放色    #EEEEEE
+ *   描边        rgba(5,6,8,0.82)，约 1px
+ *   阴影        垂直偏移 1px，rgba(5,6,8,0.30)
+ *   行切换      380ms InOutCubic（对应 Fluent slower）
+ *
+ * 为什么要描边：白字压在浅色壁纸上会彻底看不见。旧实现用 Text.Outline 解决，
+ * Web 侧等价物是 -webkit-text-stroke + text-shadow，两者叠加才有稳定对比度。
+ */
+
+:root {
+  /* 由 overlay.js 按窗口宽度/字号设置覆盖 */
+  --lyric-font-size: 36px;
+  --lyric-font-family: "Microsoft YaHei UI", "Segoe UI", "PingFang SC", sans-serif;
+  --played-color: #ffc6c6;
+  --unplayed-color: #eeeeee;
+  --outline-color: rgba(5, 6, 8, 0.82);
+  --shadow-color: rgba(5, 6, 8, 0.3);
+  --transition-ms: 380ms;
+  --secondary-scale: 0.67;
+}
+
 html,
 body {
   width: 100%;
@@ -6,9 +36,10 @@ body {
   margin: 0;
   overflow: hidden;
   background: transparent !important;
-  color: #fff;
-  font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--unplayed-color);
+  font-family: var(--lyric-font-family);
   user-select: none;
+  -webkit-user-select: none;
 }
 
 * {
@@ -17,84 +48,125 @@ body {
 
 .lyrics-shell {
   position: relative;
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
-  padding: 13px 34px 15px;
-  grid-template-rows: minmax(26px, 0.75fr) minmax(54px, 1.5fr) minmax(26px, 0.75fr);
-  align-items: center;
+  /* 旧实现的视觉重心：主行在上、副行在下，整组垂直居中；
+     顶部留出空间给悬停控制条（绝对定位，不占流）。 */
+  padding: 12px 34px 14px;
+  gap: 4px;
   cursor: move;
 }
 
+/* 三行共用：单行、居中、超长省略、描边 + 阴影保证任何壁纸上可读 */
 .lyric-line {
+  width: 100%;
   margin: 0;
   overflow: hidden;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.95),
-    0 0 12px rgba(0, 0, 0, 0.82),
-    0 0 2px rgba(0, 0, 0, 1);
-  -webkit-text-stroke: 0.55px rgba(0, 0, 0, 0.92);
+  -webkit-text-stroke: 1px var(--outline-color);
+  paint-order: stroke fill;
+  text-shadow: 0 1px 2px var(--shadow-color);
+  transition:
+    opacity var(--transition-ms) cubic-bezier(0.65, 0, 0.35, 1),
+    transform var(--transition-ms) cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 .adjacent {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: clamp(15px, 2.3vw, 21px);
-  font-weight: 560;
+  color: var(--unplayed-color);
+  /* 副行字号由 overlay.js 按 主行 × 0.67（最小 16px）计算后写入 */
+  font-size: var(--secondary-font-size, calc(var(--lyric-font-size) * 0.67));
+  font-weight: 400;
+  opacity: 0.92;
 }
 
 .current {
-  color: #1ed760;
-  font-size: clamp(24px, 4.2vw, 40px);
-  font-weight: 760;
+  color: var(--unplayed-color);
+  font-size: var(--lyric-font-size);
+  font-weight: 600;
   letter-spacing: 0.01em;
 }
 
+/* 逐字填色：双色渐变按 --fill 切分，等价于旧 WordFill 的双 Label 裁剪 */
 .current .word {
   display: inline;
-  background-image: linear-gradient(90deg, #1ed760 var(--fill), rgba(255, 255, 255, 0.9) var(--fill));
+  background-image: linear-gradient(
+    90deg,
+    var(--played-color) var(--fill, 0%),
+    var(--unplayed-color) var(--fill, 0%)
+  );
   background-clip: text;
   color: transparent;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  /* 描边与填色共存：stroke 画在 fill 之下 */
+  -webkit-text-stroke: 1px var(--outline-color);
+}
+
+/* 行切换动画：旧实现在行推进时上移淡出 / 下方淡入，这里用同一节奏 */
+.lyric-line.is-entering {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.lyric-line.is-leaving {
+  opacity: 0;
+  transform: translateY(-14px);
 }
 
 .controls {
   position: absolute;
-  right: 18px;
-  bottom: 10px;
+  top: 2px;
+  left: 50%;
   display: flex;
-  gap: 7px;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid rgba(30, 36, 41, 0.2);
+  border-radius: 19px;
+  background: rgba(247, 250, 252, 0.94);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 140ms ease;
+  transform: translateX(-50%) scale(0.96);
+  transition: opacity 120ms ease, transform 120ms ease;
 }
 
 body:not(.passthrough) .lyrics-shell:hover .controls,
 .controls:focus-within {
   opacity: 1;
   pointer-events: auto;
+  transform: translateX(-50%) scale(1);
 }
 
 .controls button {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 26px;
   padding: 0;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.26);
-  border-radius: 50%;
-  background: rgba(16, 16, 16, 0.45);
-  color: #fff;
-  font: 700 12px/1 "Segoe UI", sans-serif;
-  text-shadow: 0 1px 2px #000;
+  border: none;
+  border-radius: 13px;
+  background: transparent;
+  color: #1f2429;
+  font: 600 11px/1 "Segoe UI", sans-serif;
   cursor: pointer;
-  backdrop-filter: blur(5px);
 }
 
 .controls button:hover {
-  border-color: rgba(30, 215, 96, 0.8);
-  color: #1ed760;
+  background: rgba(31, 36, 41, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lyric-line,
+  .controls {
+    transition: none !important;
+  }
+  .lyric-line.is-entering,
+  .lyric-line.is-leaving {
+    transform: none;
+  }
 }

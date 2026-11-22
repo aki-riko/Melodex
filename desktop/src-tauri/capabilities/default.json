@@ -11,6 +11,8 @@
     "allow-clear-pairing",
     "allow-set-overlay-visible",
     "allow-start-overlay-drag",
-    "allow-get-click-through"
+    "allow-get-click-through",
+    "allow-overlay-position",
+    "allow-set-overlay-position"
   ]
 }

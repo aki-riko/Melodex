@@ -18,6 +18,8 @@ fn main() {
             "set_overlay_visible",
             "start_overlay_drag",
             "get_click_through",
+            "overlay_position",
+            "set_overlay_position",
             // 歌词壳内直连（唯一对远程页面开放的窄权限）
             "lyrics_push_state",
             "lyrics_send_command",
