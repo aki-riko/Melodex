@@ -16,6 +16,7 @@ mod service_url;
 mod settings_window;
 mod shortcuts;
 mod tray;
+mod updates;
 
 use tauri::Manager;
 
@@ -28,6 +29,7 @@ fn main() {
         }))
         .plugin(autostart_support::plugin())
         .plugin(shortcuts::plugin())
+        .plugin(updater::Builder::new().build())
         .manage(overlay::OverlayState::default())
         .invoke_handler(tauri::generate_handler![
             commands::public_device_config,
@@ -52,6 +54,14 @@ fn main() {
             tray::configure_platform(app)?;
             tray::setup_tray(app)?;
             shortcuts::register_defaults(&handle);
+
+            // 启动后延迟做一次静默检查：不打断启动、不自动安装，
+            // 发现新版本只在托盘 tooltip 提示。
+            let check_handle = handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(8));
+                updates::spawn_background_check(&check_handle);
+            });
 
             let site = match service_url::resolve_site() {
                 Ok(site) => site,

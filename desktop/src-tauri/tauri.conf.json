@@ -16,7 +16,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/icon-32.png",
       "icons/icon-128.png",
@@ -24,6 +25,14 @@
       "icons/icon.ico"
     ],
     "shortDescription": "Melodex 桌面客户端",
-    "longDescription": "Melodex 的 Windows/macOS 桌面客户端：包裹 Melodex PWA，提供托盘常驻、桌面歌词与开机自启。"
+    "longDescription": "Melodex 的桌面客户端：包裹 Melodex PWA，提供托盘常驻、桌面歌词、全局快捷键与开机自启。"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://music.9li.life/desktop/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwQkMwRjhFQ0JDRTQyMzMKUldRelFzN0xqZys4Z040eVZxbUJVSURRTENnVEhKQWlkR052Y3BwV3cvbVJ5ME5jV1NEWno0RFYK"
+    }
   }
 }

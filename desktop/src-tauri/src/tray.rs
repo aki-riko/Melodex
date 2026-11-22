@@ -42,6 +42,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
+    let update_item = MenuItem::with_id(app, "check_update", "检查更新…", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -52,6 +53,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &autostart_item,
             &shortcuts_item,
             &separator,
+            &update_item,
             &quit_item,
         ],
     )?;
@@ -69,6 +71,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "toggle_main" => main_window::toggle_main(app),
             "pairing" => crate::settings_window::show_settings(app),
+            "check_update" => crate::updates::interactive_check(app),
             "click_through" => {
                 // muda 在派发事件前已切换勾选状态，这里读到的是用户请求的新状态。
                 let requested = match click_for_event.is_checked() {
