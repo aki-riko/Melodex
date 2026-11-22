@@ -168,10 +168,44 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - `commands.rs` 暴露给本地页的 IPC 命令;`logging.rs` 同时写 stderr 与文件。
 - 前端薄桥:`frontend/src/platform/desktopShell.js`(`npm run test:desktop-shell`,9 项契约测试)。
 
+### 桌面歌词:壳内直连(2026-11 重做,配对流程已删)
+
+**旧设计已废弃**:原方案是「浏览器 → 服务器 hub → 独立歌词助手」,跨进程所以需要
+一次性配对码 + 设备令牌。新客户端里**播放与歌词窗同进程**,那套配对纯属历史包袱,
+表现为「必须先配对才能看歌词」的体验断裂。已删除。
+
+**现设计**(`desktop/src-tauri/src/lyrics_bridge.rs`):
+
+```
+主窗口页面 ──invoke('lyrics_push_state')──▶ Rust ──emit──▶ 歌词窗渲染
+歌词窗按钮 ──invoke('lyrics_send_command')──▶ Rust ──eval event──▶ 主窗口页面
+```
+
+- 前端薄桥:`frontend/src/platform/desktopShell.js` 的 `pushLyricsState` /
+  `attachLyricsCommandBridge`;`PlayerContext` 里 track 变化推整包、250ms 推 progress。
+- 歌词窗 `desktop/ui/overlay.js` 改为 `listen('melodex:lyrics-state')`,不再连 WebSocket。
+- **开箱即用**:无配对码、无服务器中转、断网也能显示歌词。
+
+**★ 权限必须双向对齐(踩过,很隐蔽)**
+启用 `build.rs` 的 `app_manifest` 后,**只对声明的命令生成 allow 权限**,
+漏掉的命令等于「任何窗口都调不了」,症状是歌词窗永远不显示。
+所以 `build.rs` 的 `commands()` 必须与 `main.rs` 的 `generate_handler!` **逐条对齐**,
+新增命令时两处都要改。当前 9 条:
+`public_device_config / connection_config / pair_device / clear_pairing /
+set_overlay_visible / start_overlay_drag / get_click_through / lyrics_push_state / lyrics_send_command`。
+
+**安全边界(两档)**:
+- `capabilities/default.json` → 只覆盖本地窗口(`overlay`/`settings`),含全部 7 条本地命令。
+- `capabilities/lyrics-bridge.json` → 覆盖 `main` + `remote.urls: https://music.9li.life/*`,
+  **只有** `lyrics_push_state` / `lyrics_send_command`。
+  远程页面能做的唯一一件事就是把「在放什么歌」告诉本机歌词窗——本来就是它要显示的内容。
+- 配对设置窗**不再自动弹出**,需要时从托盘「桌面歌词配对…」打开(仅为兼容旧凭据查看/清除)。
+
 ### 三条不可退让的规则
-1. **远程页面零 IPC**。`capabilities/default.json` 只列 `overlay`/`settings` 本地窗口,
-   主窗口(`main`,加载线上站点)**不在任何 capability 中**,也不配任何 `remote.urls`。
-   改配置时一旦给 `main` 或远程 origin 授权,任何能在该页面执行 JS 的人都获得本地命令能力。
+1. **远程页面的 IPC 面只能到「歌词桥」这两条**。`capabilities/default.json` 只列
+   `overlay`/`settings` 本地窗口;`capabilities/lyrics-bridge.json` 只给 `main` + 站点 origin
+   开 `lyrics_push_state` / `lyrics_send_command`。**禁止**再往 `lyrics-bridge.json` 加别的命令,
+   也禁止给任何远程 origin 开 `core:*` 或文件/网络/进程类权限。
 2. **导航白名单**。只允许站点同源与登录网关(`auth.<父域>`,且父域限 `9li.life`)同源;
    其余外链交给系统浏览器。禁止为了"方便"把 `on_navigation` 改成恒 `true`。
 3. **关闭 = 隐藏到托盘,只有托盘「退出」才真退出**。`allow_exit()` 是唯一出口。
