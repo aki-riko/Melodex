@@ -135,6 +135,11 @@ body {
  * 旧实现：212×38 胶囊卡片、顶部居中、圆角 = 高度一半、
  * 只有 `!clickThrough && hovered` 时淡入（opacity + scale 0.96→1，OutCubic）。
  * 新版保持同一语义：body 带 .passthrough（=锁定/穿透）时整条不响应、不显示。
+ *
+ * ★ 宽度：旧版写死 212，但内容是 5×32 + 4×spacing.xs(4) = 176，
+ *   两侧各空 18px，观感偏松（用户实测反馈「padding 太大」）。
+ *   这里改为**宽度由内容决定**（width: max-content），并用 10px 左右内边距，
+ *   胶囊就紧贴按钮，不再有大块空白。高度与圆角仍严格保持 38 / 半高。
  */
 .controls {
   position: absolute;
@@ -143,9 +148,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  width: var(--control-bar-width);
+  width: max-content;
   height: var(--control-bar-height);
+  padding: 0 10px;
+  gap: 4px;
   border: 1px solid var(--control-bar-border);
   border-radius: calc(var(--control-bar-height) / 2);
   background: var(--control-bar-bg);
@@ -171,6 +177,7 @@ body:not(.passthrough) .controls:focus-within {
   width: 32px;
   height: 30px;
   padding: 0;
+  flex-shrink: 0;
   place-items: center;
   border: none;
   border-radius: 6px;
@@ -180,9 +187,11 @@ body:not(.passthrough) .controls:focus-within {
   transition: background-color var(--control-bar-fade-ms) ease;
 }
 
+/* 图标 14px = 旧实现 iconSize.s（Metrics.qml:177）。
+   不要放大：旧版就是这个值，放大只会让 32×30 的按钮显得挤。 */
 .controls button svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   fill: currentColor;
 }
 

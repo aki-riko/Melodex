@@ -59,10 +59,30 @@ test('控制条默认隐藏、passthrough 时不显示、悬停才淡入', () =>
   );
 });
 
-test('控制条尺寸是 212×38（旧 Fluent.Card）', () => {
-  assert.match(overlayCss, /--control-bar-width:\s*212px/);
+test('控制条高度 38、宽度贴合内容（不再有大块空白）', () => {
   assert.match(overlayCss, /--control-bar-height:\s*38px/);
-  assert.match(overlayCss, /border-radius:\s*calc\(var\(--control-bar-height\) \/ 2\)/, '胶囊需要圆角=高度一半');
+  assert.match(
+    overlayCss,
+    /border-radius:\s*calc\(var\(--control-bar-height\) \/ 2\)/,
+    '胶囊需要圆角=高度一半',
+  );
+  // 用户实测反馈「padding 太大」：旧版写死 212 宽但内容只有 176，
+  // 两侧各空 18px。改为宽度由内容决定，并断言 padding 是小的固定值，
+  // 防止有人把 width 改回 212 或把 padding 加回去。
+  const block = overlayCss.match(/\.controls\s*\{[^}]*\}/s);
+  assert.ok(block, '找不到 .controls 规则');
+  assert.match(block[0], /width:\s*max-content/, '控制条宽度应由内容决定');
+  assert.doesNotMatch(
+    block[0],
+    /width:\s*var\(--control-bar-width\)/,
+    '不要再用写死的 212，内容撑不满会显得两侧空旷',
+  );
+  const padding = block[0].match(/padding:\s*0\s+(\d+)px/);
+  assert.ok(padding, '应显式声明水平 padding');
+  assert.ok(
+    Number(padding[1]) <= 12,
+    `水平 padding 应 <=12px（实际 ${padding[1]}px），否则两侧又会显得空`,
+  );
 });
 
 test('每个按钮 32×30（旧 Fluent.Button）', () => {
