@@ -2466,8 +2466,10 @@ export const PlayerBar = () => {
             </div>
           </div>
 
-          {/* 中部:舞台主体。三档布局决定"大封面 / 歌词面板"各自占多少(CSS 按 data-stage-layout 切)。 */}
-          <div className="player-stage__body player-stage__body--desktop">
+          {/* 中部:舞台主体。三档布局决定"大封面 / 歌词面板"各自占多少(CSS 按 .player-stage--disc/lyrics/split 切)。
+              这里不再挂 --desktop 修饰类:该类的尺寸已并入 .player-stage__body 基础块,
+              留一个 CSS 里不存在的类名只会让人以为它在起作用。 */}
+          <div className="player-stage__body">
             {/* 大封面(disc 与 split 档)。谱面是**方形实图**,不再是嵌在黑胶里的圆形小封面 ——
                 这是"沉浸"与"唱片机装饰"的分水岭:用户要的是封面当主角。 */}
             {stageLayout !== 'lyrics' && (

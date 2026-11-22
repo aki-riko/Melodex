@@ -424,6 +424,73 @@ assert.match(
   );
 }
 
+// ---- 12. 舞台类必须都有样式:不能"JSX 用了、CSS 没有" ----
+//
+// 真实事故(2026-11,上线后用户截图"？？？？？？？？"):大段重写舞台 CSS 时,
+// `.player-stage__controls` 的**基础块**被整个漏掉,只剩 `--desktop` 修饰类。
+// 后果:控制行失去 display:flex,收藏/模式/定时/上下首/播放/音量各占一行堆在左下角,
+// 整个底部塌掉。当时 grep 只搜到第 941 行的共享选择器(z-index 那一组),
+// 看起来"它还在",实际只是参与了一条无关规则。
+// 同类漏掉的还有 __title / __artist / __body--desktop。
+// 构建、其他门禁全都不报 —— 只有人眼看得见。所以这里静态扫。
+{
+  const used = new Set();
+  for (const src of [player, css]) {
+    for (const m of src.matchAll(/(player-stage[a-zA-Z0-9_-]*)/g)) used.add(m[1]);
+  }
+  // 只审 JSX 侧的用法
+  const usedInJsx = new Set();
+  for (const m of player.matchAll(/(player-stage[a-zA-Z0-9_-]*)/g)) usedInJsx.add(m[1]);
+  usedInJsx.delete('player-stage');
+  usedInJsx.delete('player-stage--'); // 模板字符串拼接产生的前缀残片
+  const missing = [...usedInJsx].filter((c) => !css.includes(`.${c}`)).sort();
+  assert.deepEqual(
+    missing,
+    [],
+    `这些舞台类在 JSX 里用了、CSS 里却从未出现(裸渲染):${missing.join(', ')}`,
+  );
+
+  // 控制行基础块必须自带 display:flex(那次事故的直接成因)
+  const controlsRule = css.match(/\.player-stage__controls\s*\{([^}]*)\}/);
+  assert.ok(controlsRule, '缺少 .player-stage__controls 基础块 —— 控制按钮会堆成多行');
+  assert.match(
+    controlsRule[1],
+    /display:\s*flex/,
+    '.player-stage__controls 必须自带 display:flex —— 只写 --desktop 修饰类不会让它变成一行',
+  );
+
+  // ★ 所有"横向排布"的舞台区块都必须自带 display:flex。
+  //   这批块是**一起**被重写脚本吃掉的(它们作为 z-index 共享选择器出现在一处,
+  //   grep 只看到那一处就会误判"还在")。逐个列出来,漏一个就红。
+  const mustFlex = [
+    ['__top', '.player-stage__top'],
+    ['__meta', '.player-stage__meta'],
+    ['__center/__body', '.player-stage__body'],
+    ['__controls', '.player-stage__controls'],
+    ['__progress--wide', '.player-stage__progress--wide'],
+  ];
+  for (const [name, selector] of mustFlex) {
+    const rule = css.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`));
+    assert.ok(rule, `缺少 ${selector} 的独立声明块 —— 它只出现在共享选择器里等于没有样式`);
+    assert.match(
+      rule[1],
+      /display:\s*flex/,
+      `${selector} 必须自带 display:flex(否则 ${name} 会塌成竖排/堆叠)`,
+    );
+  }
+  // __progress / __dock / __times 不一定要 flex,但必须有独立块(不能被吃成空壳)
+  for (const selector of ['.player-stage__progress', '.player-stage__dock', '.player-stage__times']) {
+    assert.ok(
+      css.includes(`${selector} {`),
+      `缺少 ${selector} 的独立声明块 —— 它只出现在共享选择器里等于没有样式`,
+    );
+  }
+
+  // 舞台里的标题/歌手也要有样式(移动队列与歌词档都会用到)
+  assert.ok(css.includes('.player-stage__title'), '缺少 .player-stage__title —— 歌词档/队列标题会裸渲染');
+  assert.ok(css.includes('.player-stage__artist'), '缺少 .player-stage__artist');
+}
+
 // 播放页仍必须能被返回键收掉(这条是 backLayers 门禁的补充,防止重做时漏挂)
 assert.match(player, /useBackLayer\(\{[\s\S]{0,200}?name:\s*'player-sheet'/, '舞台必须仍挂返回栈');
 
