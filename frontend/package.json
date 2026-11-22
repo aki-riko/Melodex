@@ -40,6 +40,7 @@
     "test:ux": "node scripts/uxGuards.test.mjs",
     "test:hooks": "node scripts/hookOrder.test.mjs",
     "test:quality": "node scripts/quality.test.mjs",
+    "test:lyric-dedupe": "node scripts/lyricDedupe.test.mjs",
     "test:menu": "node scripts/menuPosition.test.mjs",
     "test:overlay": "node scripts/overlayPortal.test.mjs",
     "test:source-boundary": "node scripts/sourceBoundary.test.mjs",

@@ -186,27 +186,82 @@ export const getAlbumDetail = async (id, source) => {
   return withSongs(data); // { songs, type, source, link, error }
 };
 
+// 歌词请求的去重与短时缓存。
+//
+// 背景(2026-11-22 真实日志):同一首歌的**不同候选**会各自触发一次 /music/lyric,
+// 而该接口在后端要跑"6 个源并发兜底搜索 + 单源最多 6+6 秒",实测稳定耗 11~12 秒。
+// 日志里「遗症」这一首连发了 3 次(kuwo → qq 各一次,全部无歌词),
+// 等于 30 多秒全烧在注定失败的兜底上,用户看到的就是歌词面板一直转圈。
+//
+// 这里做两件事,都不改变任何既有对外行为:
+//   1. **同 key 并发去重**:同一首歌同时只发一个请求,其余调用复用同一个 Promise。
+//      这解决了"播放器 + 歌单/搜索行 + 播放页"同时要歌词时重复打后端的问题。
+//   2. **短时缓存失败结果**:无歌词(空串)是最常见的慢路径,缓存它避免切来切去反复等。
+//
+// 注意 key 必须包含 source+id:同名不同源的歌是两个不同的实体,不能合并。
+const LYRIC_DEDUPE_TTL_MS = 5 * 60 * 1000;
+const lyricInFlight = new Map(); // key -> Promise<string>
+const lyricSettled = new Map();  // key -> { text, at }
+
+const lyricRequestKey = (song) => `${song.source || ''}::${song.id || ''}::${song.name || ''}`;
+
+const rememberLyricResult = (key, text) => {
+  const now = Date.now();
+  lyricSettled.set(key, { text, at: now });
+  // 顺手清掉过期项,避免长时间使用后 Map 无限增长。
+  if (lyricSettled.size > 200) {
+    for (const [k, entry] of lyricSettled) {
+      if (now - entry.at > LYRIC_DEDUPE_TTL_MS) lyricSettled.delete(k);
+    }
+  }
+};
+
 // 歌词(纯文本 LRC,沿用 /music/lyric)
 export const getLyric = async (song) => {
   const s = normalizeSong(song);
   const embeddedLyric = typeof s.extra?.lyric === 'string' ? s.extra.lyric.trim() : '';
   if (embeddedLyric) return embeddedLyric;
-  const params = new URLSearchParams();
-  params.set('id', s.id);
-  params.set('source', s.source);
-  params.set('name', s.name || '');
-  params.set('artist', s.artist || '');
-  if (s.album) params.set('album', s.album);
-  if (s.duration) params.set('duration', String(s.duration));
-  // 歌词请求同样禁止携带逐字歌词:有内嵌歌词时上面已短路返回,走到这里
-  // extra.lyric 本应为空;剔除是防历史脏数据把请求行撑爆代理。
-  const lyricExtraValue = urlSafeExtraValue(s.extra);
-  if (lyricExtraValue) params.set('extra', lyricExtraValue);
-  const { data } = await client.get(`/music/lyric?${params.toString()}`, {
-    responseType: 'text',
-    timeout: LYRIC_TIMEOUT_MS,
-  });
-  return data;
+
+  const key = lyricRequestKey(s);
+  // 只有"查过且确实没歌词"才复用空结果;有歌词的不用这里的缓存,
+  // 因为调用方(PlayerContext)自己已经有一套 lyricCache,重复缓存反而容易不一致。
+  const settled = lyricSettled.get(key);
+  if (settled && settled.text === '' && Date.now() - settled.at < LYRIC_DEDUPE_TTL_MS) {
+    return '';
+  }
+  const pending = lyricInFlight.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const params = new URLSearchParams();
+    params.set('id', s.id);
+    params.set('source', s.source);
+    params.set('name', s.name || '');
+    params.set('artist', s.artist || '');
+    if (s.album) params.set('album', s.album);
+    if (s.duration) params.set('duration', String(s.duration));
+    // 歌词请求同样禁止携带逐字歌词:有内嵌歌词时上面已短路返回,走到这里
+    // extra.lyric 本应为空;剔除是防历史脏数据把请求行撑爆代理。
+    const lyricExtraValue = urlSafeExtraValue(s.extra);
+    if (lyricExtraValue) params.set('extra', lyricExtraValue);
+    const { data } = await client.get(`/music/lyric?${params.toString()}`, {
+      responseType: 'text',
+      timeout: LYRIC_TIMEOUT_MS,
+    });
+    return typeof data === 'string' ? data : '';
+  })();
+
+  lyricInFlight.set(key, request);
+  try {
+    const text = await request;
+    rememberLyricResult(key, text || '');
+    return text;
+  } catch (err) {
+    // 失败不缓存:网络抖一下不该让这首歌 5 分钟内都拿不到歌词。
+    throw err;
+  } finally {
+    lyricInFlight.delete(key);
+  }
 };
 
 // 构造 Melodex 下载/播放链接。
