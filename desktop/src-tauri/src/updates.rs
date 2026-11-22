@@ -14,6 +14,46 @@ use updater::UpdaterExt;
 use crate::logging;
 use crate::main_window;
 
+/// 运行时覆盖更新清单地址的环境变量。
+///
+/// 用途有两类：
+/// 1. 自托管用户把清单放在别处（默认值见 `tauri.conf.json` 的 `plugins.updater.endpoints`）；
+/// 2. 本机端到端验证——不改配置、不重新打包即可指向临时清单。
+pub const ENDPOINTS_ENV: &str = "MELODEX_UPDATER_ENDPOINTS";
+
+/// 按环境变量覆盖端点后构造 `Updater`（可复用于 check / install）。
+///
+/// 不设该变量时走 `tauri.conf.json` 的默认端点。
+fn build_updater<R: Runtime>(app: &AppHandle<R>) -> Result<updater::Updater, String> {
+    let builder = app.updater_builder();
+
+    let raw = std::env::var(ENDPOINTS_ENV).unwrap_or_default();
+    let endpoints = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            reqwest::Url::parse(value)
+                .map_err(|error| format!("{ENDPOINTS_ENV} 中的地址无效 ({value})：{error}"))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let builder = if endpoints.is_empty() {
+        builder
+    } else {
+        logging::info(format!(
+            "updater endpoints overridden by {ENDPOINTS_ENV}: {raw}"
+        ));
+        builder
+            .endpoints(endpoints)
+            .map_err(|error| format!("设置更新端点失败：{error}"))?
+    };
+
+    builder
+        .build()
+        .map_err(|error| format!("初始化更新器失败：{error}"))
+}
+
 /// 启动后台静默检查。发现新版本只写日志并更新托盘提示，不打断播放。
 pub fn spawn_background_check<R: Runtime>(app: &AppHandle<R>) {
     let handle = app.clone();
@@ -31,9 +71,7 @@ pub fn spawn_background_check<R: Runtime>(app: &AppHandle<R>) {
 
 /// 检查是否有新版本。返回 `Some(version)` 表示可用。
 pub async fn check<R: Runtime>(app: &AppHandle<R>) -> Result<Option<String>, String> {
-    let updater = app
-        .updater()
-        .map_err(|error| format!("初始化更新器失败：{error}"))?;
+    let updater = build_updater(app)?;
     let update = updater
         .check()
         .await
@@ -45,9 +83,7 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>) -> Result<Option<String>, Str
 ///
 /// 调用方必须已经完成用户确认；本函数不弹任何窗口。
 pub async fn download_and_install<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let updater = app
-        .updater()
-        .map_err(|error| format!("初始化更新器失败：{error}"))?;
+    let updater = build_updater(app)?;
     let Some(update) = updater
         .check()
         .await

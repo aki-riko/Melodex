@@ -1,0 +1,11 @@
+{
+  "version": "9.9.9",
+  "notes": "e2e verification fixture (not a real release)",
+  "pub_date": "2026-11-22T00:00:00.000Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IGZha2Ugc2lnbmF0dXJlIGZvciBlMmUgdmVyaWZpY2F0aW9uClJXUWZha2VzaWduYXR1cmVibG9iRkFLRQo=",
+      "url": "http://127.0.0.1:47900/fake-setup.exe"
+    }
+  }
+}

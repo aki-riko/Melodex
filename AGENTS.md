@@ -203,6 +203,13 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 **这是预期状态,不是缺陷**。部署清单后即恢复;`/desktop/` 路径必须绕过 SPA fallback 且 NPM 放行 SSO。
 清单由 `desktop/scripts/build-updater-manifest.mjs` 生成(10 项契约测试)。
 
+**「检查」这一段已端到端验证(2026-11-22)**:壳支持 `MELODEX_UPDATER_ENDPOINTS` 运行时覆盖端点
+(逗号分隔)。配合 `desktop/prototype/scripts/serve-manifest.ps1` + `fixtures/latest.json` 实测:
+服务端收到 `GET /latest.json`,壳日志出现 `update available: 9.9.9`。
+**release 构建硬约束**:更新器拒绝非 https 端点(实测警告 `will fail in release builds`),
+该 http 覆盖只用于本机调试;正式发布必须 https。
+**仍未验证**:无真实签名产物,「下载→安装→版本号变化」没跑过。
+
 ### 依赖版本纪律(踩过)
 `tauri-plugin-single-instance` 固定 **2.4.5**、`tauri-plugin-autostart` 固定 **2.5.1**、
 `tauri-plugin-global-shortcut` 固定 **2.3.2**、`tauri-plugin-updater` 固定 **2.12.0**。

@@ -13,6 +13,33 @@ Melodex 桌面客户端使用 Tauri 2 的 updater 插件做应用内更新。本
   原因：后端 SPA fallback 把该路径当成前端路由，返回了 HTML 首页而不是 JSON。
   这是预期状态，不是缺陷；部署清单后即恢复。
 
+### 已完成的端到端验证（2026-11-22）
+
+清单未部署不妨碍先验「检查」这一段。壳体支持**运行时覆盖更新端点**：
+
+```powershell
+$env:MELODEX_UPDATER_ENDPOINTS = 'http://127.0.0.1:47900/latest.json'
+& "$env:LOCALAPPDATA\Melodex\desktop-deploy\bin\melodex_desktop.exe"
+```
+
+配合 `desktop/prototype/scripts/serve-manifest.ps1`（本地清单服务）与
+`desktop/prototype/fixtures/latest.json`（版本 9.9.9 的测试清单）实测结果：
+
+- 服务端：`request GET /latest.json`（两次）
+- 壳侧：`updater endpoints overridden by MELODEX_UPDATER_ENDPOINTS: ...` →
+  `update available: 9.9.9`
+
+即 **「发起检查 → 拉取清单 → 解析 → 判定有新版本」这一段已用真实 HTTP 请求验证通过**。
+
+> **release 构建的硬约束（实测警告）**：更新器会对非 https 端点告警
+> `The updater endpoint ... doesn't use https protocol. This is allowed in development
+> but will fail in release builds`。所以上面的 `http://127.0.0.1` 覆盖**只适用于本机调试**；
+> 正式发布必须用 `https`。若确实需要 http（不建议），得在插件配置里显式打开
+> `dangerousInsecureTransportProtocol`。
+
+> **仍未验证**：由于没有真实签名产物，「下载 → 安装 → 版本号变化」这一段没跑过。
+> 首次真实发布时必须逐项确认，不可仅凭代码推断。
+
 ## 发布一次新版本的完整步骤
 
 ### 1. 改版本号
