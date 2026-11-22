@@ -495,12 +495,16 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **MediaSession(PC 全局媒体键)**:绑 play/pause/prev/next/stop/seek action handler + `playbackState`(playing/paused,决定系统媒体键能否正确恢复)+ `setPositionState`(OS 媒体面板进度条)+ 封面走 cover_proxy 多尺寸 artwork。**关键**:只绑 handler 不够,必须同步 playbackState/positionState 系统媒体键才稳定接管(键盘 ⏯⏮⏭/耳机线控/Win 媒体浮层)。
 - **移动端 QQ 音乐式**:迷你条(封面+跑马灯歌名+收藏/播放/队列三按钮,`bottom: calc(3.25rem + safe-area)` 贴底部 Tab 栏上方不留缝)→ 点击展开全屏播放页(滑入 player-slide-up / 收起 player-slide-down 动画;返回键 history.pushState 拦截为收起不退站)。
 - **全屏播放页「沉浸式 + 可切换」——仅桌面端**(2026-11 重做,`contexts/playerStage.mjs` + `components/PlayerStageChrome.js` + `PlayerContext.js` 里的 `hidden lg:flex` 那段):顶部有**两颗切换控件**:
-  - **布局三档**:唱片 / 歌词 / 双栏,桌面默认 `split`;**色板两档**:沉浸暗场 / 跟随主题,默认 `immersive` —— 所以桌面进播放页就是深色舞台,与旧版「浅色白底双栏」一眼可辨。
-  - 沉浸档**与全站主题无关地变深**,做法是在 `.player-stage--immersive` 里**重定义 --background/--foreground/--muted-foreground/--primary 等语义 token**,舞台内所有 Tailwind 类与 `.player-lyric-line` 自动跟着走(比逐元素覆盖少漏);强调色必须换成深色那档的浅蓝(沿用浅色主题的 #004F99 在深底上等于看不见)。「跟随主题」档**不重定义任何颜色**,只调低封面底图不透明度。
+  - **布局三档**(默认档 = **沉浸**):`沉浸` = **大封面占左半 + 右侧歌词面板**;`歌词` = 歌词独占整屏;`封面` = 大封面独占整屏。**色板两档**:沉浸暗场(默认)/ 跟随主题。
+  - **★ 什么叫"沉浸"(2026-11 用户纠正,别再搞错)**:用户给网易云参考图并明确「封面占半壁,剩下是歌词」。所以沉浸档的核心是**方形大封面当主角**(`.player-stage__art-frame` + `.player-stage__art-img`),**不是**深色底 + 嵌在黑胶里的小圆盘 —— 第一版就是后者,被用户直接否掉(「你那算个几把的沉浸」)。桌面舞台里现在**不再有** `vinyl-wrap`/`turntable`/`tonearm`,由 `playerStage.test.mjs` 断言锁死。
+  - **封面尺寸必须够大**:`clamp(15rem, min(44vw, 52vh), 44rem)`。判据是**宽度**为主(占屏宽 ≥33% 或屏高 ≥40%),用 vw 不是 vh;上限 44rem 是防止 4K 上荒谬,不能小到把 2K 屏卡成小方块(34rem 时 2560 宽只有 21%,实测不够)。
+  - 沉浸档歌词区:`flex:1 1 0` + 左对齐 + 上下渐隐 mask(还没唱到的行自然淡出,不是被容器切一刀);空歌词有专门的说明态,不是光秃秃一行"暂无歌词"。
+  - 沉浸档**与全站主题无关地变深**,做法是在 `.player-stage--immersive` 里**重定义 --background/--foreground/--muted-foreground/--primary 等语义 token**,舞台内所有 Tailwind 类与 `.player-lyric-line` 自动跟着走(比逐元素覆盖少漏);强调色必须换成深色那档的浅蓝(沿用浅色主题的 #004F99 在深底上等于看不见)。「跟随主题」档**不重定义任何颜色**,只把封面底图压淡。
   - 偏好按设备落 localStorage(`melodex_stage_layout` / `melodex_stage_tone`),脏值与存储抛错一律收敛到默认(无痕模式不能崩)。
-  - **★ 移动端不参与**:`.lg:hidden` 那张整段保持重做前的原样(「封面 ↔ 歌词」隐式点击切换),用户 2026-11 明确「只要桌面端」。所以 `showLyric` 状态与 `activeLyricRef` 滚动必须**继续存在**并只服务移动端;桌面端读舞台档位。`playerStage.test.mjs` 用两段注释标题切片,断言切换控件**只在桌面段**、移动段必须仍有 `setShowLyric`。
+  - **★ 移动端不参与**:`.lg:hidden` 那张整段保持重做前的原样(「封面 ↔ 歌词」隐式点击切换),用户明确「只要桌面端」。所以 `showLyric` 状态与 `activeLyricRef` 滚动必须**继续存在**并只服务移动端;桌面端读舞台档位。`playerStage.test.mjs` 用两段注释标题切片,断言切换控件**只在桌面段**、移动段必须仍有 `setShowLyric`。
   - **★ 坑:舞台 CSS 写在 @layer 之外,不得声明 display / position / inset / z-index**。未分层样式优先级高于 @layer 中的 Tailwind utilities,写 `display:flex` 会压过 `hidden`(两套断点舞台同时显示),写 `position:relative` 会压过 `fixed`(舞台不黏视口)。这两类只在真机可见,构建/单测/门禁全不报 —— 现由 `playerStage.test.mjs` 逐条锁死(已用突变验证能抓到)。
-  - **两端歌词可见性判据不同**:移动端 `mobileLyricsVisible = expanded && showLyric`,桌面端 `desktopLyricsVisible = expanded && stageShowsLyrics(stageLayout)`。两个滚动 effect 各用独立快照,混用会让"从隐藏端切到可见端"被误判成逐行推进、从第一行一路滑到当前行。
+  - **两端歌词可见性判据不同**:移动端 `mobileLyricsVisible = expanded && showLyric`,桌面端 `desktopLyricsVisible = expanded && stageShowsLyrics(stageLayout)`。两个滚动 effect 各用独立快照,混用会让"从隐藏端切到可见端"被误判成逐行推进、从第一行一路滑到当前行。注意 `stageShowsLyrics` 返回 true 的是 `disc`(沉浸)与 `lyrics`,**不是** `split`(封面档没有歌词)。
+  - **不要逆向网易云客户端**:用户提过"逆向学习",但那既拿不到"为什么好看"也踩 AGPL/许可证红线。参考图已经把设计语言讲透(大封面 + 右侧歌词 + 模糊封面底 + 当前行高亮),从图里读规范即可。
 - **留声机 + 逐字歌词**(全屏页):黑胶唱片(封面嵌黑胶,播放转 vinyl-spin / 暂停停 + 唱臂 .up/.down 摆动)↔ 布局档位决定唱片/歌词各自的去留。歌词 `parseLRC` 自适应:QQ 逐字 LRC(每字时间戳,≥2 有效字段)→ `KaraokeLine` 卡拉OK填色(background-clip:text 按 progress.cur 渐变);网易行级 LRC(行首+行尾两戳)→ 整行高亮;当前行 scrollIntoView 居中。
 - **封面**:列表/歌单/播放器所有封面走 `coverProxyUrl`(后端 cover_proxy,解决网易 http 在 https 被拦混合内容 + 防盗链 + 磁盘缓存);无封面 lucide Music 占位。
 - **行交互**(SongRow):手机 coarse 指针单击整行 / 电脑双击整行播放;行内按钮 stopPropagation 不触发行播放;歌单详情 onRemove 删除按钮内嵌长条内。

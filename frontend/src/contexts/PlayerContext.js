@@ -2438,12 +2438,15 @@ export const PlayerBar = () => {
         </div>
       )}
 
-      {/* ===== 桌面端:全屏沉浸播放页(可切换:唱片 / 歌词 / 双栏) ===== */}
+      {/* ===== 桌面端:全屏沉浸播放页(可切换:沉浸 / 歌词 / 聚焦) =====
+          沉浸档 = 大封面占半壁 + 右侧歌词面板(QQ 音乐/网易云那种),不是"深色底 + 小圆盘";
+          歌词档 = 歌词独占整屏;聚焦档 = 大封面独占整屏。 */}
       {expanded && nowPlaying && (
         <div className={`hidden lg:flex player-stage player-stage--${stageTone} player-stage--${stageLayout} fixed inset-0 z-sheet flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
           data-stage-layout={stageLayout}
           data-stage-tone={stageTone}>
-          {/* 舞台背景:封面大图模糊铺底(纯装饰,不吃点击也不进可访问树) */}
+          {/* 背景:封面大图模糊铺满 + 纱。注意它是**整屏底**,大封面是叠在上面的实图,
+              两者是不同层 —— 只靠模糊底会出现"整屏一片糊红、看不清是哪张专辑"。 */}
           <div className="player-stage__bg" aria-hidden="true">
             {coverUrl && (
               <div className="player-stage__cover" style={{ backgroundImage: `url(${coverUrl})` }} />
@@ -2463,37 +2466,38 @@ export const PlayerBar = () => {
             </div>
           </div>
 
-          {/* 中部:舞台主体。三档布局决定唱片与歌词各自的去留与排布(CSS 按 data-stage-layout 切)。 */}
+          {/* 中部:舞台主体。三档布局决定"大封面 / 歌词面板"各自占多少(CSS 按 data-stage-layout 切)。 */}
           <div className="player-stage__body player-stage__body--desktop">
-            {/* 唱片 + 标题/歌手(disc 与 split 档) */}
+            {/* 大封面(disc 与 split 档)。谱面是**方形实图**,不再是嵌在黑胶里的圆形小封面 ——
+                这是"沉浸"与"唱片机装饰"的分水岭:用户要的是封面当主角。 */}
             {stageLayout !== 'lyrics' && (
-              <div key={`disc-${stageLayout}`} className="player-stage__disc fade-in">
-                <div className="turntable player-stage__turntable">
-                  <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
-                    <div className="tonearm__base" />
-                    <div className="tonearm__arm" />
-                    <div className="tonearm__head" />
-                  </div>
-                  <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
-                    {coverUrl
-                      ? <img src={coverUrl} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                      : <ListMusic size={72} className="text-muted-foreground" />}
-                  </div>
+              <div key={`art-${stageLayout}`} className="player-stage__art fade-in">
+                <div className="player-stage__art-frame">
+                  {coverUrl
+                    ? <img src={coverUrl} alt="" className="player-stage__art-img"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    : <div className="player-stage__art-empty"><ListMusic size={72} /></div>}
                 </div>
-                <div className="player-stage__disc-meta">
-                  <p className="player-stage__title truncate">{nowPlaying?.name}</p>
-                  <p className="player-stage__artist truncate">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
+                {/* 封面下方的信息行:歌名 + 歌手 + 专辑/来源(与截图那种"标题在封面上方"不同,
+                    放在封面下更稳 —— 封面本身可能是浅色,字压上去会看不清)。 */}
+                <div className="player-stage__art-meta">
+                  <p className="player-stage__art-title truncate">{nowPlaying?.name}</p>
+                  <p className="player-stage__art-sub truncate">
+                    {nowPlaying?.artist}
+                    {nowPlaying?.album ? ` · ${nowPlaying.album}` : ''}
+                    {nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* 滚动歌词(lyrics 与 split 档) */}
+            {/* 右侧歌词面板(沉浸 / 歌词档)。沉浸档里它是**独立的一块面板**,不是浮在封面上的文字。 */}
             {stageShowsLyrics(stageLayout) && (
               <div key={`lyric-${stageLayout}`}
                 className="player-stage__lyrics player-stage__lyrics--desktop fade-in"
                 aria-label="歌词">
-                {/* 歌词档没有唱片区,歌名/歌手会整块丢失 —— 在歌词顶部补一行标题。
-                    split 档不重复显示:那里左侧唱片区已经有同一份标题了。 */}
+                {/* 歌词档没有大封面,歌名/歌手会整块丢失 —— 在歌词顶部补一行标题。
+                    沉浸档不重复显示:左边大封面下方已经有同一份信息了。 */}
                 {stageLayout === 'lyrics' && (
                   <div className="player-stage__lyrics-head">
                     <p className="player-stage__title truncate">{nowPlaying?.name}</p>
@@ -2501,7 +2505,10 @@ export const PlayerBar = () => {
                   </div>
                 )}
                 {lrc.length === 0 ? (
-                  <p className="text-muted-foreground text-center mt-20">暂无歌词</p>
+                  <div className="player-stage__lyrics-empty">
+                    <p>暂无歌词</p>
+                    <p className="player-stage__lyrics-empty-hint">这首歌没拿到同步歌词，先听一会儿音乐吧</p>
+                  </div>
                 ) : (
                   lrc.map((line, i) => (
                     <p key={i}

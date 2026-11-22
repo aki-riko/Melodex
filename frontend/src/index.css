@@ -838,26 +838,28 @@
    只改这里不改那里,会出现"滑出后空等"或"没滑完就消失"。playerSheetMotion.test.mjs 会比对两处。 */
 .player-sheet-exit { animation: player-slide-down 0.26s var(--ease-exit) forwards; }
 
-/* ===== 播放舞台(2026-11 重做:沉浸式 + 可切换)=====
-   组件:src/contexts/PlayerContext.js(两套舞台)+ src/components/PlayerStageChrome.js(顶部切换控件)
+/* ===== 播放舞台(2026-11 重做:沉浸式 · 封面当主角)=====
+   组件:src/contexts/PlayerContext.js(桌面舞台)+ src/components/PlayerStageChrome.js(顶部切换控件)
    偏好:src/contexts/playerStage.mjs(布局三档 / 色板两档,有 Node 契约测试)
 
+   ---- 设计参照:网易云"沉浸播放页" ----
+   用户明确要求(2026-11,附多张参考图):
+     · **封面占半壁** —— 大方形实图在左,不是嵌在黑胶里的小圆盘;
+     · 右侧是歌词面板;
+     · 整屏沉浸:封面本身的大图铺满背景,读起来是"这一张专辑的页面",不是"一个深色壳子"。
+   所以默认档(沉浸)= 大封面 + 右侧歌词,**封面是主角**,黑胶只是可选的另一种味道。
+   上一版把"深色底 + 小圆盘"当成了沉浸,方向错了 —— 记住这个教训。
+
    ---- 核心做法:在舞台作用域内**重定义全站语义 token** ----
-   播放页是沉浸场景,不能沿用"页面纸面"色:浅色主题下纸面是白的,全屏播放页
-   会白得刺眼、封面模糊背景也被冲淡(用户截图反馈的正是这个观感)。
+   与其给舞台里每个元素再写一套深色覆盖(必然漏几处 —— 漏掉的那处就是
+   "深底上一行看不见的深灰字"),不如让舞台**自己当一层主题**:
+   在 .player-stage--immersive 里改写 --background/--foreground/--muted-foreground 等 token,
+   舞台内所有 Tailwind 类与现有的 .player-lyric-line、.app-scroll 规则都自动跟着走。
 
-   与其给舞台里每个元素再写一套深色覆盖(既啰嗦,又必然漏几处 ——
-   漏掉的那处就是"深底上一行看不见的深灰字"),不如让舞台**自己当一层主题**:
-   在 .player-stage--immersive 里改写 --background / --foreground / --muted-foreground 等 token。
-   于是舞台内所有 Tailwind 类(bg-background / text-muted-foreground / border-border)
-   与既有的 .player-lyric-line、.app-scroll 规则都自动跟着走,一处不漏。
-
-   两档:
-     · immersive —— 无论全站是浅色还是深色,进播放页就沉下去(这就是"沉浸"的定义)。
-       深色阶梯与 fluent-dark 一致;强调色用 Win11 深色浅蓝 #60CDFF
-       (深底上沿用浅色主题的深蓝 #004F99 会直接看不见)。
-     · theme —— **不改任何 token**,沿用当前主题。适合白天/办公场景,
-       所以这一档只调低封面底图的不透明度,不重定义颜色。
+   两档色板:
+     · immersive —— 无论全站是浅色还是深色,进播放页就沉下去。强调色用 Win11 深色的
+       浅蓝 #60CDFF(深底上沿用浅色主题的深蓝 #004F99 会直接看不见)。
+     · theme —— **不重定义任何颜色**,沿用当前主题,只把封面底图压淡。
    ========================================================================== */
 /* ⚠ 这里**只放颜色与溢出**,绝不写 display / position / flex-direction ——
    它们必须交给 JSX 的 Tailwind 类(`fixed inset-0 z-sheet flex flex-col` + `hidden`/`lg:hidden`)。
@@ -865,14 +867,12 @@
    优先级**高于** @layer 中的 Tailwind utilities —— 特异性相同时也由源码顺序决定。
    踩过的两刀:
      · 写 `display:flex` → 压过 `hidden`,两套断点舞台同时显示;
-     · 写 `position:relative` → 压过 `fixed`,舞台不再黏住视口,变成页面里的一块。
-   两者都只在真机上看得见,构建、单测、门禁全都不报。
-   背景层要用 position:absolute 定位,靠祖先的 `fixed` 建立包含块即可,不需要 relative。 */
+     · 写 `position:relative` → 压过 `fixed`,舞台不再黏住视口。
+   两者都只在真机上看得见,构建、单测、门禁全都不报。 */
 .player-stage {
   overflow: hidden;
   color: hsl(var(--foreground));
   background-color: hsl(var(--background));
-  /* 封面底图中性不透明度:两档各自覆盖 */
   --stage-cover-opacity: 0.22;
 }
 
@@ -895,18 +895,16 @@
   --primary-foreground: 0 0% 10%;
   --scrollbar-thumb: 0 0% 34%;
   --scrollbar-thumb-hover: 0 0% 48%;
-  /* 沉浸档封面要"亮得有颜色、暗得能读字" */
-  --stage-cover-opacity: 0.5;
+  /* 沉浸档:封面底图要有颜色(让人认出是哪张专辑),但不能亮到压过文字 */
+  --stage-cover-opacity: 0.55;
 }
 
-/* ---- 跟随主题:只压低封面底图,不重定义任何颜色 token ----
-   这一档的定义就是"什么都不改":舞台沿用当前主题的 background/foreground。
-   所以这里只有一行不透明度 —— 浅色主题上盖深纱会变成"脏灰",不是沉浸而是糊。 */
+/* ---- 跟随主题:只压低封面底图,不重定义任何颜色 ---- */
 .player-stage--theme {
   --stage-cover-opacity: 0.2;
 }
 
-/* ---- 背景层:封面模糊 + 纱(纯装饰,不吃点击、不进可访问树) ---- */
+/* ---- 背景层:封面模糊铺满 + 纱(纯装饰,不吃点击、不进可访问树) ---- */
 .player-stage__bg {
   position: absolute;
   inset: 0;
@@ -919,17 +917,20 @@
   inset: -18%;
   background-size: cover;
   background-position: center;
-  filter: blur(64px) saturate(140%);
+  filter: blur(72px) saturate(160%) brightness(0.9);
   opacity: var(--stage-cover-opacity);
 }
+/* 纱:上半透出封面颜色,下半压暗保证控制行永远读得清。
+   注意不是纯黑渐变 —— 带一点背景色才不会有"贴了一层灰塑料"的感觉。 */
 .player-stage__veil {
   position: absolute;
   inset: 0;
-  /* 上透下实:上半看得出封面颜色,下半压暗保证控制行文字永远读得清 */
-  background: linear-gradient(180deg,
-    hsl(var(--background) / 0.55) 0%,
-    hsl(var(--background) / 0.8) 45%,
-    hsl(var(--background) / 0.94) 100%);
+  background:
+    radial-gradient(120% 90% at 50% 0%, transparent 0%, hsl(var(--background) / 0.55) 78%),
+    linear-gradient(180deg,
+      hsl(var(--background) / 0.35) 0%,
+      hsl(var(--background) / 0.72) 52%,
+      hsl(var(--background) / 0.95) 100%);
 }
 
 /* 舞台内容层必须压在背景之上(z-index 0 是背景) */
@@ -938,14 +939,15 @@
 .player-stage__meta,
 .player-stage__progress,
 .player-stage__controls,
-.player-stage__dock {
+.player-stage__dock,
+.player-stage__art,
+.player-stage__lyrics {
   position: relative;
   z-index: 1;
 }
 
-/* 队列覆盖层:盖住舞台,继承舞台 token(沉浸档下跟着变深,不出现"深舞台里一块白列表") */
+/* ---- 队列覆盖层:盖住舞台,继承舞台 token ---- */
 .player-stage__queue {
-  /* 半透明 + 模糊:让它读起来是"舞台上面的一层",而不是另开一个页面 */
   background-color: hsl(var(--background) / 0.98);
   -webkit-backdrop-filter: blur(18px) saturate(130%);
   backdrop-filter: blur(18px) saturate(130%);
@@ -958,14 +960,14 @@
   justify-content: space-between;
   gap: 0.75rem;
   flex-shrink: 0;
-  padding: 0.75rem 1.25rem;
+  padding: 0.75rem 1.5rem;
 }
 .player-stage__back {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   height: 2.75rem;
-  padding: 0 0.5rem 0 0.25rem;
+  padding: 0 0.75rem 0 0.5rem;
   border-radius: 9999px;
   color: hsl(var(--muted-foreground));
   transition: color var(--motion-fast) var(--ease-standard),
@@ -973,7 +975,7 @@
 }
 .player-stage__back:hover {
   color: hsl(var(--foreground));
-  background-color: hsl(var(--secondary) / 0.7);
+  background-color: hsl(var(--secondary) / 0.6);
 }
 .player-stage__icon-btn {
   display: inline-flex;
@@ -989,7 +991,7 @@
 }
 .player-stage__icon-btn:hover {
   color: hsl(var(--foreground));
-  background-color: hsl(var(--secondary) / 0.7);
+  background-color: hsl(var(--secondary) / 0.6);
 }
 .player-stage__switches {
   display: flex;
@@ -1005,8 +1007,8 @@
   gap: 0.125rem;
   padding: 0.1875rem;
   border-radius: 9999px;
-  background-color: hsl(var(--secondary) / 0.55);
-  border: 1px solid hsl(var(--border) / 0.6);
+  background-color: hsl(var(--secondary) / 0.5);
+  border: 1px solid hsl(var(--border) / 0.55);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   backdrop-filter: blur(14px) saturate(140%);
 }
@@ -1015,7 +1017,7 @@
   align-items: center;
   gap: 0.3125rem;
   height: 1.875rem;
-  padding: 0 0.5rem;
+  padding: 0 0.625rem;
   border-radius: 9999px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1046,8 +1048,8 @@
   font-weight: 600;
   white-space: nowrap;
   color: hsl(var(--muted-foreground));
-  background-color: hsl(var(--secondary) / 0.55);
-  border: 1px solid hsl(var(--border) / 0.6);
+  background-color: hsl(var(--secondary) / 0.5);
+  border: 1px solid hsl(var(--border) / 0.55);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   backdrop-filter: blur(14px) saturate(140%);
   transition: background-color var(--motion-fast) var(--ease-standard),
@@ -1062,39 +1064,104 @@
   .player-stage-tone { padding: 0 0.5rem; }
 }
 
-/* ---- 舞台主体 ----
-   三档布局由 JSX 决定"该不该渲染"(见 PlayerContext 的 stageShowsLyrics),
-   这里只负责排布 —— 藏起来还挂着会让黑胶空转、歌词空滚,白费动画与滚动计算。 */
+/* ==========================================================================
+   舞台主体:三档布局
+   ==========================================================================
+   沉浸(disc)  : 左**大封面(占半壁)** + 右歌词面板   ← 默认,也是这类播放页的经典形态
+   歌词(lyrics): 歌词独占整屏(封面退成背景)
+   封面(split) : 大封面独占整屏(无歌词)
+   --------------------------------------------------------------------------
+   尺寸用 min()/clamp() 跟着视口走,不用固定 px:播放页会出现在 1024 宽的小窗
+   到 4K 全屏之间任何尺寸,固定值必然在某一档太小或太大。
+
+   ⚠ 大封面必须是**方形实图**且"占半壁":宽取 44vw(再封顶),高随宽度等比。
+     上一版把封面塞进 17rem 的黑胶圆盘里,视觉上只有半屏的一半 —— 那不是沉浸。 */
 .player-stage__body {
   flex-grow: 1;
   min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1.5rem;
-  padding: 0.5rem 1.5rem 0;
+  gap: 3rem;
+  padding: 0 4rem;
 }
-.player-stage__disc {
+
+/* ---- 大封面 ---- */
+.player-stage__art {
   display: flex;
   flex-direction: column;
   align-items: center;
   flex-shrink: 0;
   min-width: 0;
 }
-.player-stage__turntable {
-  width: min(74vw, 18.5rem);
-  height: min(74vw, 18.5rem);
+.player-stage__art-frame {
+  position: relative;
+  /* ---- 封面尺寸:「占半壁」是**宽度**概念,基准必须是 vw ----
+     实测(按下面这行算出来的真实像素,不是估计):
+       1280x720  → 374px(屏宽 29%,屏高 52%)
+       1440x900  → 468px(33% / 52%)
+       1920x1080 → 562px(29% / 52%)
+       2560x1440 → 704px(28% / 49%)   ← 被 44rem 上限兜住
+       1024x768  → 399px(39% / 52%)
+     两个约束同时生效,各自负责一件事:
+       · 44vw  —— 宽度方向:让封面在宽屏上"够大",是半壁的主角
+       · 52vh  —— 高度方向:矮屏(横放/小窗)优先保高度,否则控制行被挤出屏幕
+     这两个值必须一起看:只写 44vw 时 1280x720 会算出 563px > 屏高一半,
+     封面会把标题和进度条顶下去;只写 vh 时宽屏上又只剩一个窄条。
+     上限 44rem 只防 4K 上大到荒谬 —— 34rem 时 2560 宽只有 21%,实测不够(见 git 历史)。 */
+  width: clamp(15rem, min(44vw, 52vh), 44rem);
+  height: clamp(15rem, min(44vw, 52vh), 44rem);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: hsl(var(--secondary) / 0.5);
+  /* 封面要"浮起来":大阴影 + 细高光边。没有这层,方图贴在深底上会像没加载完的占位块 */
+  box-shadow:
+    0 24px 70px hsl(0 0% 0% / 0.55),
+    0 0 0 1px hsl(var(--foreground) / 0.08);
 }
+.player-stage__art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.player-stage__art-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+}
+.player-stage__art-meta {
+  margin-top: 1.5rem;
+  text-align: center;
+  max-width: 100%;
+  padding: 0 0.5rem;
+}
+.player-stage__art-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.player-stage__art-sub {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+}
+
+/* ---- 歌词区(沉浸档在右侧,歌词档独占) ---- */
 .player-stage__lyrics {
   width: 100%;
   height: 100%;
-  max-width: 34rem;
   overflow-y: auto;
-  text-align: center;
-  padding: 2rem 0.5rem;
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--scrollbar-thumb)) transparent;
   overscroll-behavior: contain;
+  /* 上下渐隐:让"还没唱到的歌词"自然淡出,而不是被容器切一刀 */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 12%, #000 88%, transparent 100%);
 }
 .player-stage__lyrics::-webkit-scrollbar { width: 10px; }
 .player-stage__lyrics::-webkit-scrollbar-track { background: transparent; }
@@ -1109,42 +1176,139 @@
   background-clip: content-box;
 }
 
-/* ---- 标题/歌手 + 进度 + 控制 ---- */
-.player-stage__meta {
+/* 沉浸档:封面占左半,歌词在右。半壁 = 封面那侧约 1/3 屏宽,其余给歌词 */
+.player-stage--disc .player-stage__body {
+  justify-content: center;
+  gap: clamp(2rem, 5vw, 5rem);
+}
+.player-stage--disc .player-stage__lyrics--desktop {
+  flex: 1 1 0;
+  max-width: 34rem;
+  height: 100%;
+  padding: 3rem 0.5rem;
+  text-align: left;
+  min-width: 0;
+}
+/* 歌词档:独占整屏、居中。这时封面只在背景里隐约可见 */
+.player-stage--lyrics .player-stage__body {
+  flex-direction: column;
+  justify-content: center;
+}
+.player-stage--lyrics .player-stage__lyrics--desktop {
+  flex: 1 1 auto;
+  max-width: 56rem;
+  height: 100%;
+  padding: 4rem 1rem;
+  text-align: center;
+}
+.player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line {
+  transform-origin: center;
+}
+/* 封面档:只有大封面,竖排居中(可更大:此时没有歌词抢宽度) */
+.player-stage--split .player-stage__body {
+  flex-direction: column;
+  justify-content: center;
+}
+.player-stage--split .player-stage__art-frame {
+  width: clamp(18rem, min(46vw, 62vh), 40rem);
+  height: clamp(18rem, min(46vw, 62vh), 40rem);
+}
+.player-stage--split .player-stage__lyrics--desktop { display: none; }
+
+.player-stage__lyrics-head {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+/* 没有歌词时的空态:不要只放一行"暂无歌词"就完事 —— 播放页会长时间停在
+   这个状态(纯音乐/没拿到 LRC 很常见),一句说明比空白友好。 */
+.player-stage__lyrics-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 60%;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+}
+.player-stage__lyrics-empty p:first-child { font-size: 1rem; font-weight: 600; }
+.player-stage__lyrics-empty-hint { font-size: 0.8125rem; opacity: 0.75; }
+
+/* 舞台内的歌词行字号:沉浸档用大字号(这是"看歌词"的场景),比列表页大得多 */
+.player-stage__lyrics--desktop .player-lyric-line { font-size: 1.375rem; }
+.player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line { font-size: 1.625rem; }
+
+/* 舞台内的歌词行颜色:普通行淡、当前行亮。
+   .player-lyric-line 原本读全站 --muted-foreground,在沉浸暗场上浅色主题的深灰会看不见,
+   所以这里按舞台 token 再定一次(舞台已经重定义了那些 token,这里只调透明度)。
+
+   ⚠ 当前行的"更大"靠 **font-size 过渡**会不会重排?
+     会。但这里刻意接受:歌词行是纵向排列的单列文本,字号变化只影响它自己那一行的高度,
+     而滚动定位用的是 scrollIntoView(每次当前行变化重算) —— 不会像"逐帧动画"那样持续重排。
+     fluentMotion 门禁禁止的是 @keyframes 里用 layout 属性做**逐帧**动画,
+     这里是一次性 state 切换 + 过渡,不在该门禁的语义内。
+     若将来发现低端机卡,退路是只改 transform:scale(已有)而不动字号。 */
+.player-stage .player-lyric-line {
+  color: hsl(var(--foreground) / 0.5);
+  padding-left: 0;
+  padding-right: 0;
+  /* 只过渡颜色/透明度这类可合成属性;字号变化直接到位(见上面的取舍说明) */
+  transition: color var(--motion-base) var(--ease-standard),
+              opacity var(--motion-base) var(--ease-standard);
+}
+.player-stage .player-lyric-line[data-active="true"] {
+  color: hsl(var(--foreground));
+  /* 当前行"更大":用**明确的 rem 值**而不是 em/百分比 ——
+     百分比是相对父级 font-size 链式相乘的,在 --lyrics--desktop(1.375rem)、
+     --lyrics 档(1.625rem)、矮屏覆盖(1.0625rem)三种基准下会算出三个不同结果,
+     调一处忘一处。这里按档位各写一条(见下面三条),当前行统一在基准上 +0.25rem。
+     另一半"更大"的观感来自既有的 transform:scale(1)(普通行是 0.86),两者叠加刚好。 */
+  text-shadow: 0 0 24px hsl(var(--foreground) / 0.18);
+}
+.player-stage--disc .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
+  font-size: 1.625rem;
+}
+.player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
+  font-size: 1.875rem;
+}
+@media (max-height: 700px) {
+  .player-stage--disc .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
+    font-size: 1.3125rem;
+  }
+  .player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
+    font-size: 1.5rem;
+  }
+}
+
+/* ---- 底部:进度 + 控制 ---- */
+.player-stage__dock {
+  flex-shrink: 0;
+  padding: 0 4rem 1.75rem;
+}
+.player-stage__progress--wide {
+  max-width: 56rem;
+  margin: 0 auto;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.875rem 1.5rem 0;
+  padding: 0;
 }
-.player-stage__title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  line-height: 1.3;
-}
-.player-stage__artist {
-  margin-top: 0.25rem;
-  font-size: 0.875rem;
-  color: hsl(var(--muted-foreground));
-}
-.player-stage__progress {
-  padding: 0 1.5rem;
-  margin-top: 0.875rem;
-}
-.player-stage__times {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 0.25rem;
+.player-stage__time {
+  width: 2.75rem;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   color: hsl(var(--muted-foreground));
 }
-.player-stage__controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 1.75rem;
-  margin-top: 1rem;
-  flex-shrink: 0;
+.player-stage__time--lead { text-align: right; }
+.player-stage__controls--desktop {
+  justify-content: center;
+  gap: 1.75rem;
+  padding: 0;
+  margin-top: 1.25rem;
 }
 .player-stage__ctrl {
   display: inline-flex;
@@ -1156,108 +1320,27 @@
   transition: background-color var(--motion-fast) var(--ease-standard);
 }
 .player-stage__ctrl:hover { background-color: hsl(var(--secondary) / 0.6); }
+.player-stage__ctrl--icon {
+  width: 2.75rem;
+  height: 2.75rem;
+}
 /* 播放主按钮:舞台上唯一的实心强调块 */
 .player-stage__play {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 4rem;
-  height: 4rem;
+  width: 3.75rem;
+  height: 3.75rem;
   flex-shrink: 0;
   border-radius: 9999px;
   background-color: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
-  box-shadow: 0 6px 20px hsl(var(--primary) / 0.32);
+  box-shadow: 0 6px 22px hsl(var(--primary) / 0.34);
   transition: transform var(--motion-fast) var(--ease-standard);
 }
 .player-stage__play:hover { transform: scale(1.04); }
 
-/* ---- 桌面舞台 ---- */
-.player-stage__body--desktop {
-  gap: 3rem;
-  padding: 0 4rem;
-}
-.player-stage__body--desktop .player-stage__turntable {
-  width: min(30vw, 22rem);
-  height: min(30vw, 22rem);
-}
-/* 双栏:唱片收窄到"唱机"的大小,把宽度让给歌词 */
-.player-stage--split .player-stage__body--desktop .player-stage__turntable {
-  width: min(24vw, 17rem);
-  height: min(24vw, 17rem);
-}
-/* 单档(唱片 / 歌词):竖排居中,不要让唱片孤零零缩在左上角 */
-.player-stage--disc .player-stage__body--desktop,
-.player-stage--lyrics .player-stage__body--desktop {
-  flex-direction: column;
-  justify-content: center;
-}
-.player-stage__disc-meta {
-  margin-top: 2rem;
-  text-align: center;
-  max-width: 100%;
-  padding: 0 1rem;
-}
-.player-stage__disc-meta .player-stage__title { font-size: 1.5rem; }
-.player-stage__disc-meta .player-stage__artist { margin-top: 0.5rem; }
-.player-stage__lyrics--desktop {
-  flex-grow: 1;
-  max-width: 36rem;
-  height: 100%;
-  padding: 4rem 0.5rem;
-  text-align: left;
-  min-width: 0;
-}
-.player-stage__lyrics--desktop .player-lyric-line { font-size: 1.25rem; }
-/* 歌词档独占整屏:居中对齐更像"看歌词"(与移动端一致) */
-.player-stage--lyrics .player-stage__lyrics--desktop {
-  max-width: 52rem;
-  text-align: center;
-}
-.player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line {
-  transform-origin: center;
-}
-/* 歌词档没有唱片区,歌名/歌手会整块丢失 —— 由组件在歌词顶部补一行标题,这里给它间距。
-   注意它是**滚动区内**的元素:歌词滚上去时标题会一起滚走,这是刻意的 ——
-   固定标题会一直占着屏幕,长歌看歌词时反而挤掉两行。 */
-.player-stage__lyrics-head {
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid hsl(var(--border) / 0.5);
-}
-.player-stage__dock {
-  flex-shrink: 0;
-  padding: 0 4rem 2rem;
-}
-.player-stage__progress--wide {
-  max-width: 56rem;
-  margin: 0 auto;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0;
-}
-.player-stage__progress--wide .player-stage__times { display: none; }
-.player-stage__time {
-  width: 2.5rem;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  color: hsl(var(--muted-foreground));
-}
-.player-stage__time--lead { text-align: right; }
-.player-stage__controls--desktop {
-  justify-content: center;
-  gap: 2rem;
-  padding: 0;
-  margin-top: 1.25rem;
-}
-.player-stage__ctrl--icon {
-  width: 2.75rem;
-  height: 2.75rem;
-}
-
-/* ---- 窄屏:竖排,主体让位给控制行 ---- */
+/* 手机端舞台不参与本次重做(整段是旧版),这里只保留它仍需的几个类 */
 @media (max-width: 1023px) {
   .player-stage__body {
     flex-direction: column;
@@ -1265,32 +1348,28 @@
     padding: 0 1.25rem;
     overflow: hidden;
   }
-  /* ⚠ 竖排时height:100% 会让歌词按"父容器高度"算,再叠上唱片区就整块溢出。
-     这里改成按剩余空间伸缩(flex:1 + min-height:0),歌词区才是"吃掉剩下的高度"。 */
   .player-stage__lyrics {
     height: auto;
     flex: 1 1 auto;
     min-height: 5rem;
     padding: 1rem 0.25rem;
-  }
-  /* 手机上的双栏 = 唱片区在上、歌词在下。唱片要明显收小,
-     否则 74vw 的圆盘会把歌词压成一条缝(竖屏本来就不够高)。 */
-  .player-stage--split .player-stage__turntable {
-    width: min(42vw, 9.5rem);
-    height: min(42vw, 9.5rem);
-  }
-  .player-stage--split .player-stage__body {
-    gap: 0.5rem;
+    -webkit-mask-image: none;
+    mask-image: none;
   }
 }
 
-/* ---- 矮屏(横放的手机 / 小窗笔记本):控制行绝不能被挤出屏幕 ---- */
-@media (max-height: 640px) {
-  .player-stage__body--desktop { gap: 1.5rem; padding: 0 2rem; }
-  .player-stage__disc-meta { margin-top: 1rem; }
+/* 矮屏(横放手机 / 小窗笔记本):封面要让位,控制行绝不能被挤出屏幕 */
+@media (max-height: 700px) {
+  .player-stage__body { gap: 1.5rem; padding: 0 2rem; }
+  .player-stage__art-frame {
+    width: clamp(11rem, min(26vw, 46vh), 20rem);
+    height: clamp(11rem, min(26vw, 46vh), 20rem);
+  }
+  .player-stage__art-meta { margin-top: 0.875rem; }
+  .player-stage__art-title { font-size: 1.125rem; }
   .player-stage__dock { padding: 0 2rem 1rem; }
-  .player-stage__lyrics--desktop { padding: 1.5rem 0.5rem; }
-  .player-stage__lyrics { padding: 0.75rem 0.25rem; }
+  .player-stage__lyrics--desktop { padding: 1.25rem 0.5rem; }
+  .player-stage__lyrics--desktop .player-lyric-line { font-size: 1.0625rem; }
 }
 
 /* ===== Fluent 动效系统 =====

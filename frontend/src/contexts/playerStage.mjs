@@ -18,20 +18,30 @@ export const STAGE_TONES = ['immersive', 'theme'];
 export const STAGE_LAYOUT_KEY = 'melodex_stage_layout';
 export const STAGE_TONE_KEY = 'melodex_stage_tone';
 
-/** 界面上给人看的中文名。布局/色板各一份,组件只读这里,不再各写一套。 */
-export const STAGE_LAYOUT_LABELS = { disc: '唱片', lyrics: '歌词', split: '双栏' };
+/**
+ * 界面上给人看的中文名。
+ *
+ * 档位 id 沿用 disc/lyrics/split(改了要动存储兼容),但**含义按用户的要求重定义了**:
+ *   disc  = 「沉浸」—— 大封面占半壁 + 右侧歌词面板。**这是默认档**,也是用户点名要的那一屏
+ *   lyrics= 「歌词」—— 歌词独占整屏
+ *   split = 「封面」—— 大封面独占整屏(不显示歌词)
+ *
+ * ⚠ disc 这个 id 历史含义是"黑胶小圆盘",现在改成了"大封面当主角"。
+ *   两者视觉完全不同 —— 别按 id 想当然,以这里的中文名为准。
+ */
+export const STAGE_LAYOUT_LABELS = { disc: '沉浸', lyrics: '歌词', split: '封面' };
 export const STAGE_TONE_LABELS = { immersive: '沉浸暗场', theme: '跟随主题' };
 
 /**
- * 首次打开的默认值。
+ * 首次打开的默认档位:**沉浸** —— 大封面占半壁 + 右侧歌词面板。
  *
- * 桌面与手机现在的定位完全不同(用户 2026-11 明确表态「只要桌面端」):
- *   · 桌面:三档舞台 + 两档色板,默认**沉浸暗场 + 双栏** —— 进播放页就沉下去,
- *     一眼能看出跟旧版「浅色 + 白底双栏」不是一个东西;
- *   · 手机:整段保持重做前的原样(封面 ↔ 歌词隐式切换),根本不读这个默认值,
- *     留着只是为了契约完整(手机档位由 showLyric 决定)。
+ * 不再按断点分:
+ *   · 桌面读这个默认值,本来就是用户点名要的那一屏;
+ *   · 手机根本不读它(移动端仍是旧的「封面 ↔ 歌词」隐式切换,由 showLyric 决定)。
+ * 参数保留只是为了调用方签名稳定(以前按 desktop 分过),传什么都返回同一档。
  */
-export const defaultStageLayout = (desktop) => (desktop ? 'split' : 'disc');
+// eslint-disable-next-line no-unused-vars
+export const defaultStageLayout = () => 'disc';
 
 /** 色板默认沉浸暗场:音乐播放页的常态是暗场(用户要的就是"沉浸式")。 */
 export const defaultStageTone = () => 'immersive';
@@ -48,7 +58,7 @@ export const normalizeStageTone = (value) => {
 };
 
 /** 这一档布局里歌词区是否可见。自动滚动/挂载判断都读它,不要各处再写一遍 === 判断。 */
-export const stageShowsLyrics = (layout) => layout === 'lyrics' || layout === 'split';
+export const stageShowsLyrics = (layout) => layout === 'lyrics' || layout === 'disc';
 
 /** 色板切换:两档来回切,未知值视为沉沉浸(默认档)。 */
 export const stageToneNext = (tone) => (normalizeStageTone(tone) === 'immersive' ? 'theme' : 'immersive');

@@ -37,7 +37,7 @@ const player = readFileSync(resolve(srcRoot, 'contexts', 'PlayerContext.js'), 'u
 // 这些都没有异常可抓,只能靠静态契约 + 纯函数断言锁住。
 
 // ---- 1. 档位清单与文案必须一一对应 ----
-assert.deepEqual(STAGE_LAYOUTS, ['disc', 'lyrics', 'split'], '布局三档必须是 唱片/歌词/双栏');
+assert.deepEqual(STAGE_LAYOUTS, ['disc', 'lyrics', 'split'], '布局三档必须是 沉浸/歌词/封面');
 assert.deepEqual(STAGE_TONES, ['immersive', 'theme'], '色板两档必须是 沉浸暗场/跟随主题');
 for (const id of STAGE_LAYOUTS) {
   const label = STAGE_LAYOUT_LABELS[id];
@@ -61,14 +61,30 @@ assert.deepEqual(
   '色板文案的键与 STAGE_TONES 不一致',
 );
 
-// ---- 2. 默认值:桌面双栏、手机唱片;色板默认沉浸 ----
-assert.equal(defaultStageLayout(true), 'split', '桌面默认应保持原来的「唱片 + 歌词」双栏');
-assert.equal(defaultStageLayout(false), 'disc', '手机默认应是唱片(原移动端就是封面)');
-assert.equal(defaultStageTone(), 'immersive', '色板默认应为沉浸暗场(播放页的常态)');
+// ---- 2. 默认值:桌面默认就是**沉浸档**(大封面 + 右侧歌词),色板默认沉浸暗场 ----
+//
+// 这条是本次重做的核心诉求:用户要的是"封面当主角、占半壁"的那种沉浸,
+// 不是"深色底 + 小圆盘"。默认档搞错,用户打开第一眼就是错的。
+assert.equal(
+  defaultStageLayout(true),
+  'disc',
+  '桌面默认必须是沉浸档(大封面 + 右侧歌词)—— 打开播放页就该是用户点名要的那一屏',
+);
+assert.equal(defaultStageTone(), 'immersive', '色板默认应为沉浸暗场');
+// 沉浸档必须真的带歌词区(否则"右侧歌词"就没了)
+assert.equal(
+  stageShowsLyrics(defaultStageLayout(true)),
+  true,
+  '默认档必须显示歌词区 —— 用户要的是"封面占半壁 + 右侧歌词",不是纯封面页',
+);
+// 档位中文名必须与语义一致(改名前叫"唱片/双栏",现在是"沉浸/歌词/封面")
+assert.equal(STAGE_LAYOUT_LABELS.disc, '沉浸', 'disc 档的对外名称必须是「沉浸」');
+assert.equal(STAGE_LAYOUT_LABELS.lyrics, '歌词');
+assert.equal(STAGE_LAYOUT_LABELS.split, '封面', 'split 档是"只有大封面",不是"双栏"');
 
 // ---- 3. 非法值必须收敛,绝不返回空 ----
 assert.equal(normalizeStageLayout('lyrics', true), 'lyrics', '合法值应原样返回');
-assert.equal(normalizeStageLayout(' ', true), 'split', '空白应收敛到默认');
+assert.equal(normalizeStageLayout(' ', true), 'disc', '空白应收敛到默认(沉浸)');
 assert.equal(normalizeStageLayout(null, false), 'disc', 'null 应收敛到默认');
 assert.equal(normalizeStageLayout(42, false), 'disc', '非字符串应收敛到默认');
 assert.equal(normalizeStageLayout('DISC', false), 'disc', '大小写应被容忍');
@@ -77,10 +93,14 @@ assert.equal(normalizeStageTone('nope'), 'immersive', '未知色板应收敛到�
 assert.equal(normalizeStageTone(null), 'immersive', 'null 色板应收敛到默认');
 
 // ---- 4. 「这一档显不显示歌词」是唯一判据 ----
-// 自动滚动与滚动区挂载都读它;写成 === 'lyrics' 会让 split 档的歌词不再自动居中。
-assert.equal(stageShowsLyrics('lyrics'), true);
-assert.equal(stageShowsLyrics('split'), true, '双栏档也有歌词区,必须为 true');
-assert.equal(stageShowsLyrics('disc'), false, '唱片档没有歌词区');
+// 自动滚动与滚动区挂载都读它。新语义:
+//   disc(沉浸)= 大封面 + 右侧歌词 → 有歌词
+//   lyrics      = 歌词独占 → 有歌词
+//   split(封面)= 只有大封面 → 无歌词
+// 写成 === 'lyrics' 会让默认的沉浸档不再自动居中(用户报的正是"歌词不跟"那一类)。
+assert.equal(stageShowsLyrics('lyrics'), true, '歌词档必须有歌词');
+assert.equal(stageShowsLyrics('disc'), true, '沉浸档有右侧歌词面板,必须为 true');
+assert.equal(stageShowsLyrics('split'), false, '封面档不显示歌词');
 assert.equal(stageShowsLyrics(undefined), false, '未知档位不得抛错');
 
 // ---- 5. 两档来回切 ----
@@ -104,7 +124,7 @@ assert.equal(stageToneActionLabel('theme'), '切换为沉浸暗场', '跟随时�
   };
 
   const storage = makeStorage();
-  assert.equal(readStageLayout(storage, true), 'split', '空存储应回落到桌面默认');
+  assert.equal(readStageLayout(storage, true), 'disc', '空存储应回落到默认(沉浸)');
   assert.equal(readStageTone(storage), 'immersive', '空存储应回落到沉浸');
 
   persistStagePref(storage, STAGE_LAYOUT_KEY, 'lyrics');
@@ -120,13 +140,13 @@ assert.equal(stageToneActionLabel('theme'), '切换为沉浸暗场', '跟随时�
   assert.equal(readStageTone(dirty), 'immersive', '脏色板应回落到沉浸');
 
   // Storage 不可用 / 抛错:不能崩,也不能阻断播放页
-  assert.equal(readStageLayout(null, true), 'split', 'storage 为 null 时回落到默认');
+  assert.equal(readStageLayout(null, true), 'disc', 'storage 为 null 时回落到默认');
   assert.equal(readStageTone(null), 'immersive', 'storage 为 null 时回落到默认');
   const throwing = {
     getItem() { throw new Error('SecurityError'); },
     setItem() { throw new Error('QuotaExceeded'); },
   };
-  assert.equal(readStageLayout(throwing, true), 'split', 'getItem 抛错时必须回落默认(无痕模式不能崩)');
+  assert.equal(readStageLayout(throwing, true), 'disc', 'getItem 抛错时必须回落默认(无痕模式不能崩)');
   assert.equal(readStageTone(throwing), 'immersive', 'getItem 抛错时必须回落默认');
   assert.equal(
     persistStagePref(throwing, STAGE_LAYOUT_KEY, 'split'),
@@ -306,6 +326,103 @@ assert.match(
   /const desktopLyricsVisible = expanded && stageShowsLyrics\(stageLayout\)/,
   '桌面端歌词可见性必须由舞台布局档决定,且经 stageShowsLyrics 判断(双栏也有歌词区)',
 );
+
+// ----. 沉浸档必须是"封面当主角"的大图,不是黑胶小圆盘 ----
+//
+// 真实事故(2026-11):第一版把"深色底 + 嵌在黑胶里的 17rem 小圆盘"当成了沉浸,
+// 用户直接回「你那算个几把的沉浸」,并给了网易云参考图 —— 要的是**大封面占半壁 + 右侧歌词**。
+// 这条把教训钉死:沉浸档必须用大方形实图(.player-stage__art-frame),
+// 且桌面舞台里不得再出现黑胶圆盘(那是可选的另一种"味道",不能当默认)。
+{
+  // 桌面舞台必须有"大封面"这块结构
+  assert.match(player, /className="player-stage__art fade-in"/, '桌面舞台缺少大封面区块(player-stage__art)');
+  assert.match(player, /player-stage__art-frame/, '大封面必须有自己的画框容器');
+  assert.match(player, /player-stage__art-img/, '大封面必须是方形实图(player-stage__art-img)');
+
+  // 桌面那段不得再出现黑胶小圆盘
+  const desktopStart = player.indexOf('桌面端:全屏沉浸播放页');
+  assert.ok(desktopStart > 0, '找不到桌面舞台段落');
+  const desktopBlock = player.slice(desktopStart);
+  assert.ok(
+    !/vinyl-wrap|turntable|tonearm/.test(desktopBlock),
+    '桌面沉浸档不得再用黑胶小圆盘(vinyl-wrap/turntable/tonearm)—— 用户要的是"封面当主角"的大图',
+  );
+
+  // CSS:大封面必须按**宽度**取尺寸(占半壁是宽度概念),且要"够大"
+  const artFrame = css.match(/\.player-stage__art-frame\s*\{([\s\S]*?)\n\}/);
+  assert.ok(artFrame, '缺少 .player-stage__art-frame 样式');
+  const widthRule = artFrame[1].match(/width:\s*clamp\([^;]+\);/);
+  assert.ok(widthRule, '大封面必须给出 clamp() 宽度(跟视口走,不能写死 px)');
+  assert.ok(
+    /vw/.test(widthRule[0]),
+    `大封面宽度必须基于 vw 计算("占半壁"是宽度概念):${widthRule[0]}`,
+  );
+  assert.ok(
+    /object-fit:\s*cover/.test(css),
+    '封面图必须 object-fit:cover —— 否则非正方形封面会被拉变形',
+  );
+
+  // 沉浸档:歌词在右侧(左对齐),且封面与歌词是并排的(不是上下堆叠)
+  const discLyrics = css.match(/\.player-stage--disc \.player-stage__lyrics--desktop\s*\{([\s\S]*?)\n\}/);
+  assert.ok(discLyrics, '缺少沉浸档歌词区样式');
+  assert.ok(
+    /text-align:\s*left/.test(discLyrics[1]),
+    '沉浸档歌词应在右侧、左对齐(与左侧大封面并排)',
+  );
+  assert.ok(
+    /flex:\s*1 1 0/.test(discLyrics[1]),
+    '沉浸档歌词区必须吃掉剩余宽度(flex:1 1 0),否则它会被挤成一条',
+  );
+}
+
+// ---- 11. 歌词"当前行"必须比普通行更大更亮(沉浸感的来源) ----
+//
+// 用户给了网易云参考图,那里最显眼的特征就是**当前行明显更大更亮**。
+// 只改颜色不改字号,整块歌词看起来是"一片均匀的灰",没有正在唱的那一句。
+// 这里直接把两条规则算成 px 互相比 —— 比较的是真实 CSS 值,不是写死的期望数字。
+{
+  const px = (selectorRe) => {
+    const m = css.match(selectorRe);
+    if (!m) return null;
+    const raw = m[1].trim();
+    const num = parseFloat(raw);
+    if (!Number.isFinite(num)) return null;
+    return raw.endsWith('rem') ? num * 16 : num;
+  };
+  const pairs = [
+    [
+      '沉浸档',
+      /\.player-stage__lyrics--desktop \.player-lyric-line \{\s*font-size:\s*([^;]+);/,
+      /\.player-stage--disc \.player-stage__lyrics--desktop \.player-lyric-line\[data-active="true"\] \{\s*font-size:\s*([^;]+);/,
+    ],
+    [
+      '歌词档',
+      /\.player-stage--lyrics \.player-stage__lyrics--desktop \.player-lyric-line \{\s*font-size:\s*([^;]+);/,
+      /\.player-stage--lyrics \.player-stage__lyrics--desktop \.player-lyric-line\[data-active="true"\] \{\s*font-size:\s*([^;]+);/,
+    ],
+  ];
+  for (const [name, normalRe, activeRe] of pairs) {
+    const normal = px(normalRe);
+    const active = px(activeRe);
+    assert.ok(normal != null, `${name}: 找不到普通行字号规则`);
+    assert.ok(active != null, `${name}: 找不到当前行字号规则 —— 当前行不会变大`);
+    assert.ok(
+      active > normal,
+      `${name}: 当前行 ${active}px 必须大于普通行 ${normal}px —— 否则整块歌词是一片均匀的灰`,
+    );
+  }
+  // 当前行还要更亮:普通行带透明度,当前行不带
+  assert.match(
+    css,
+    /\.player-stage \.player-lyric-line \{\s*color:\s*hsl\(var\(--foreground\) \/ 0\.5\)/,
+    '普通歌词行必须半透明(压暗),当前行才显得突出',
+  );
+  assert.match(
+    css,
+    /\.player-stage \.player-lyric-line\[data-active="true"\] \{\s*color:\s*hsl\(var\(--foreground\)\)/,
+    '当前行必须是不透明的纯前景色',
+  );
+}
 
 // 播放页仍必须能被返回键收掉(这条是 backLayers 门禁的补充,防止重做时漏挂)
 assert.match(player, /useBackLayer\(\{[\s\S]{0,200}?name:\s*'player-sheet'/, '舞台必须仍挂返回栈');
