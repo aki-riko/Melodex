@@ -233,17 +233,17 @@ assert.ok(
     );
   }
 }
-// 两套舞台的断点类必须仍在(重做时最容易漏成"两端都渲染")
-assert.equal(
-  (player.match(/lg:hidden player-stage/g) || []).length,
-  1,
-  '移动舞台必须带 lg:hidden',
-);
-assert.equal(
-  (player.match(/hidden lg:flex player-stage/g) || []).length,
-  1,
-  '桌面舞台必须带 hidden lg:flex',
-);
+// 两套断点舞台必须各在各位:移动端那张用 lg:hidden,桌面那张用 hidden lg:flex。
+// 不按"连在一起的字符串"匹配 —— 移动端恢复旧版后类名顺序/内容都变了,按段落判更稳。
+{
+  const mobileStart = player.indexOf('<div className={`lg:hidden');
+  assert.ok(mobileStart > 0, '移动端舞台根节点必须带 lg:hidden(否则手机上会跟桌面那张一起显示)');
+  assert.equal(
+    (player.match(/className=\{`hidden lg:flex player-stage/g) || []).length,
+    1,
+    '桌面舞台根节点必须是 hidden lg:flex + player-stage',
+  );
+}
 // 舞台根节点必须仍然是"固定整屏 + 语义层级"
 assert.equal(
   (player.match(/fixed inset-0 z-sheet/g) || []).length,
@@ -251,18 +251,21 @@ assert.equal(
   '两套舞台都必须 fixed inset-0 z-sheet —— 缺一个就不是沉浸式覆盖层',
 );
 
-// ---- 9. 组件契约:两套舞台都必须真的用上切换控件与档位 ----
+// ---- 9. 组件契约:切换控件只出现在**桌面端** ----
+//
+// 用户 2026-11 明确表态「只要桌面端(PWA)」,移动端整段保持重做前的原样。
+// 所以这条不再是"两端各一处",而是"恰好一处,且在桌面端那段里"。
 assert.match(player, /from '\.\/playerStage\.mjs'/, 'PlayerContext 必须从 playerStage.mjs 取档位规则');
 assert.match(player, /from '\.\.\/components\/PlayerStageChrome'/, 'PlayerContext 必须用抽出来的切换控件');
 assert.equal(
   (player.match(/<StageLayoutSwitch\b/g) || []).length,
-  2,
-  '两套舞台(桌面 / 手机)各要一处布局切换 —— 少一处说明有一端还切不了',
+  1,
+  '切换控件只能出现一处(桌面端舞台)—— 两端都挂就等于又改成"两端一起做"了',
 );
 assert.equal(
   (player.match(/<StageToneToggle\b/g) || []).length,
-  2,
-  '两套舞台各要一处色板切换',
+  1,
+  '色板切换同样只应有一处(桌面端)',
 );
 assert.equal(
   (player.match(/readStageLayout\(/g) || []).length,
@@ -271,22 +274,37 @@ assert.equal(
 );
 assert.match(player, /persistStagePref\(/, '切换必须落盘,否则刷新就回到默认');
 
-// 旧的隐式切换(点整块封面↔歌词)必须已经删除:
-// 三档布局之后它会造成"点歌词就跳回唱片档",与顶部控件互相打架。
-assert.ok(
-  !/setShowLyric\b/.test(player),
-  '不得再保留 showLyric 隐式切换 —— 布局已由顶部控件显式决定,两套机制并存会互相顶掉',
-);
-assert.ok(
-  !/点击显示封面|点击显示歌词/.test(player),
-  '不得再出现"点击显示封面/歌词"的提示 —— 那套隐式交互已由显式三档取代',
-);
+// 切换控件必须落在**桌面端**那段(而不是移动端):以两段注释标题为界切片判断。
+{
+  const mobileStart = player.indexOf('移动端:全屏展开播放页');
+  const desktopStart = player.indexOf('桌面端:全屏沉浸播放页');
+  assert.ok(mobileStart > 0, '找不到移动端段落标题(移动端应保持旧版标题)');
+  assert.ok(desktopStart > mobileStart, '找不到桌面端段落标题');
+  const mobileBlock = player.slice(mobileStart, desktopStart);
+  const desktopBlock = player.slice(desktopStart);
+  assert.ok(
+    !/StageLayoutSwitch|StageToneToggle/.test(mobileBlock),
+    '移动端段落里不得出现舞台切换控件 —— 移动端要恢复成重做前的原样',
+  );
+  assert.ok(
+    /StageLayoutSwitch/.test(desktopBlock),
+    '桌面端段落里必须有布局切换控件',
+  );
+  // 移动端必须把旧的隐式切换找回来
+  assert.match(mobileBlock, /setShowLyric/, '移动端必须恢复「封面 ↔ 歌词」隐式切换');
+  assert.match(mobileBlock, /点击显示歌词/, '移动端必须恢复旧的切换提示文案');
+}
 
-// 舞台的歌词滚动必须读 stageShowsLyrics(而不是只认 lyrics 档)
+// 移动端的歌词滚动仍读 showLyric,桌面端读舞台档位 —— 两者不可混用
 assert.match(
   player,
-  /stageShowsLyrics\(stageLayout\)/,
-  '歌词滚动与挂载都必须经 stageShowsLyrics 判断,否则双栏档的歌词不会自动居中',
+  /const mobileLyricsVisible = expanded && showLyric/,
+  '移动端歌词可见性必须仍由 showLyric 决定(保持旧行为)',
+);
+assert.match(
+  player,
+  /const desktopLyricsVisible = expanded && stageShowsLyrics\(stageLayout\)/,
+  '桌面端歌词可见性必须由舞台布局档决定,且经 stageShowsLyrics 判断(双栏也有歌词区)',
 );
 
 // 播放页仍必须能被返回键收掉(这条是 backLayers 门禁的补充,防止重做时漏挂)

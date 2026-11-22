@@ -1716,6 +1716,10 @@ export const PlayerBar = () => {
     });
   }, []);
   const [closing, setClosing] = useState(false); // 展开页收起动画中
+  // 移动端全屏页的「封面 ↔ 歌词」隐式切换。
+  // 2026-11 重做后**只有桌面端**改成显式三档舞台,移动端刻意保持原样(用户明确要求),
+  // 所以这个状态仍然只服务 .lg:hidden 那套;桌面端读 stageLayout,不读它。
+  const [showLyric, setShowLyric] = useState(false);
   const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
   const { offline } = useAuth();
@@ -1915,32 +1919,35 @@ export const PlayerBar = () => {
   // 快照里的 key 带上歌词行数:换歌时歌词是先清空、异步拉回再填上的,
   // 只比歌曲 key 的话"填上"那一刻会被当成同一首里的逐行推进,从第一行一路滑到当前行。
   const lyricSnapshotKey = `${curKey}#${lrc.length}`;
-  // 歌词区是否可见由**布局档位**决定(唱片档没有歌词区),分别给两端各留一份快照:
-  // 两个 DOM 节点同时存在(一端被 lg 断点隐藏),共用一份快照会让"从隐藏端切到可见端"
-  // 被误判成同一首歌里的逐行推进,于是从第一行一路平滑滑到当前行。
-  const stageLyricsVisible = expanded && stageShowsLyrics(stageLayout);
+  // 两端各自的"歌词区是否可见"判据不同,所以两个快照必须分开算:
+  //   · 移动端:仍走 showLyric 隐式开关(封面 ↔ 歌词),保持重做前的原样;
+  //   · 桌面端:由舞台布局档决定(stageShowsLyrics)。
+  // 共用一份快照会让"从隐藏端切到可见端"被误判成同一首歌里的逐行推进,
+  // 于是从第一行一路平滑滑到当前行。
+  const mobileLyricsVisible = expanded && showLyric;
+  const desktopLyricsVisible = expanded && stageShowsLyrics(stageLayout);
   const activeLyricRef = useRef(null);
   const mobileLyricSnapRef = useRef(null);
   useEffect(() => {
-    const snap = { songKey: lyricSnapshotKey, visible: stageLyricsVisible };
+    const snap = { songKey: lyricSnapshotKey, visible: mobileLyricsVisible };
     const behavior = lyricScrollBehavior(mobileLyricSnapRef.current, snap);
     mobileLyricSnapRef.current = snap;
     if (behavior && activeLyricRef.current) {
       activeLyricRef.current.scrollIntoView({ behavior, block: 'center' });
     }
-  }, [lyricIdx, stageLyricsVisible, lyricSnapshotKey]);
+  }, [lyricIdx, mobileLyricsVisible, lyricSnapshotKey]);
 
   // 桌面舞台的歌词区(同一套规则,独立 ref + 独立快照)。
   const desktopLyricRef = useRef(null);
   const desktopLyricSnapRef = useRef(null);
   useEffect(() => {
-    const snap = { songKey: lyricSnapshotKey, visible: stageLyricsVisible };
+    const snap = { songKey: lyricSnapshotKey, visible: desktopLyricsVisible };
     const behavior = lyricScrollBehavior(desktopLyricSnapRef.current, snap);
     desktopLyricSnapRef.current = snap;
     if (behavior && desktopLyricRef.current) {
       desktopLyricRef.current.scrollIntoView({ behavior, block: 'center' });
     }
-  }, [lyricIdx, stageLyricsVisible, lyricSnapshotKey]);
+  }, [lyricIdx, desktopLyricsVisible, lyricSnapshotKey]);
 
   // ===== 移动迷你条:左右滑动切歌 =====
   // 规则(阈值、方向、轴锁定)全在 playerMiniSwipe.mjs,这里只做事件接线与动画状态。
@@ -2288,41 +2295,24 @@ export const PlayerBar = () => {
       </div>
       )}
 
-      {/* ===== 移动端:全屏沉浸播放页(可切换:唱片 / 歌词 / 双栏) ===== */}
+      {/* ===== 移动端:全屏展开播放页(QQ音乐式) ===== */}
       {expanded && nowPlaying && (
-        <div className={`lg:hidden player-stage player-stage--${stageTone} player-stage--${stageLayout} fixed inset-0 z-sheet flex flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
-          data-stage-layout={stageLayout}
-          data-stage-tone={stageTone}
+        <div className={`lg:hidden fixed inset-0 z-sheet bg-background flex flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
-          {/* 舞台背景:封面大图模糊铺底。沉浸档用深压 + 霓虹光晕,跟随主题档只做极轻的色晕。
-              两层都是纯装饰,aria-hidden 且 pointer-events-none,不参与可访问树也不吃点击。 */}
-          <div className="player-stage__bg" aria-hidden="true">
-            {coverUrl && (
-              <div className="player-stage__cover" style={{ backgroundImage: `url(${coverUrl})` }} />
-            )}
-            <div className="player-stage__veil" />
-          </div>
-
-          {/* 顶部:收起 + 两颗切换控件 */}
-          <div className="player-stage__top">
-            <button onClick={collapseExpanded} className="player-stage__icon-btn" aria-label="收起">
-              <ChevronDown size={26} />
+          {/* 顶部:收起 */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <button onClick={collapseExpanded} className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="收起">
+              <ChevronDown size={28} />
             </button>
-            <div className="player-stage__switches">
-              <StageLayoutSwitch value={stageLayout} onChange={changeStageLayout} />
-              <StageToneToggle tone={stageTone} onToggle={toggleStageTone} />
-            </div>
+            <span className="text-xs uppercase tracking-wider text-muted-foreground">正在播放</span>
+            <span className="w-7" />
           </div>
 
-          {/* 移动端队列覆盖层:absolute inset-0 + z-sheet 盖住整个舞台。
-              它**刻意留在舞台内部**,好继承舞台那套 token —— 沉浸档下队列跟着变深,
-              不会出现"深色舞台里弹出一块白列表"的断层。
-              ⚠ 副作用(已核对):bg-background / text-foreground 与舞台的 --background / --foreground
-              取自同一个作用域,所以前景背景始终成对变化,不会出现"白底深字"这种组合。 */}
+          {/* 移动端队列覆盖层(展开页内) */}
           {queueOpen && (
-            <div className="player-stage__queue absolute inset-0 z-sheet bg-background text-foreground flex flex-col"
+            <div className="absolute inset-0 z-sheet bg-background flex flex-col"
               style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="font-semibold">播放队列 · {queue.length} 首</span>
                 <button onClick={() => setQueueOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="关闭队列">
                   <ChevronDown size={26} />
@@ -2348,67 +2338,57 @@ export const PlayerBar = () => {
               </div>
             </div>
           )}
-
-          {/* 中部:舞台主体。三档布局各自决定「显示唱片/显示歌词」,
-              不再有"点一下整块换面"的隐式交互 —— 切换交给顶部显式控件,
-              这样用户看得见自己在切什么、也不会误触歌词区把封面切没了。 */}
-          <div className="player-stage__body">
-            {/* 唱片(lyrics 档不渲染) */}
-            {stageLayout !== 'lyrics' && (
-              <div key={`disc-${stageLayout}`} className="player-stage__disc fade-in">
-                <div className="turntable player-stage__turntable">
-                  {/* 唱臂:暂停时抬起,播放时落到唱片上 */}
-                  <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
-                    <div className="tonearm__base" />
-                    <div className="tonearm__arm" />
-                    <div className="tonearm__head" />
-                  </div>
-                  {/* 黑胶唱片 */}
-                  <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
-                    {coverUrl
-                      ? <img src={coverUrl} alt=""
-                          onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                      : <ListMusic size={64} className="text-muted-foreground" />}
-                  </div>
-                </div>
-              </div>
-            )}
-            {/* 歌词(disc 档不渲染) */}
-            {stageShowsLyrics(stageLayout) && (
-              <div key={`lyric-${stageLayout}`}
-                className="player-stage__lyrics fade-in"
-                aria-label="歌词">
+          {/* 中部:黑胶唱片 ↔ 歌词(点击切换) */}
+          <div className="flex-grow flex items-center justify-center px-8 min-h-0 overflow-hidden"
+            onClick={() => setShowLyric((v) => !v)}>
+            {showLyric ? (
+              <div className="fade-in w-full h-full max-w-md overflow-y-auto app-scroll py-8 text-center" aria-label="歌词">
                 {lrc.length === 0 ? (
-                  <p className="text-muted-foreground text-center mt-10">暂无歌词</p>
+                  <p className="text-muted-foreground mt-10">暂无歌词</p>
                 ) : (
                   lrc.map((line, i) => (
                     <p key={i}
                       ref={i === lyricIdx ? activeLyricRef : null}
                       data-active={i === lyricIdx ? 'true' : undefined}
-                      className="player-lyric-line player-lyric-line--center py-1.5 px-2 leading-relaxed">
+                      className="player-lyric-line player-lyric-line--center py-1.5 px-2 text-base leading-relaxed">
                       {i === lyricIdx ? <KaraokeLine line={line} cur={progress.cur} /> : line.text}
                     </p>
                   ))
                 )}
               </div>
+            ) : (
+              <div className="fade-in turntable flex-shrink-0" style={{ width: 'min(78vw, 20rem)', height: 'min(78vw, 20rem)' }}>
+                {/* 唱臂:暂停时抬起,播放时落到唱片上 */}
+                <div className={`tonearm ${isPaused ? 'up' : 'down'}`}>
+                  <div className="tonearm__base" />
+                  <div className="tonearm__arm" />
+                  <div className="tonearm__head" />
+                </div>
+                {/* 黑胶唱片 */}
+                <div className={`vinyl-wrap vinyl-disc ${isPaused ? 'paused' : ''} w-full h-full`}>
+                  {coverUrl
+                    ? <img src={coverUrl} alt=""
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    : <ListMusic size={64} className="text-muted-foreground" />}
+                </div>
+              </div>
             )}
           </div>
-
+          <p className="text-center text-xs text-muted-foreground/60">{showLyric ? '点击显示封面' : '点击显示歌词'}</p>
           {/* 标题/歌手 + 收藏 */}
-          <div className="player-stage__meta">
+          <div className="px-8 mt-3 flex items-center gap-3">
             <div className="min-w-0 flex-grow">
-              <p className="player-stage__title truncate">{nowPlaying?.name}</p>
-              <p className="player-stage__artist truncate">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
+              <p className="text-xl font-bold truncate">{nowPlaying?.name}</p>
+              <p className="text-muted-foreground truncate mt-1">{nowPlaying?.artist}{nowPlaying?.source ? ` · ${songSourceText(nowPlaying)}` : ''}</p>
             </div>
-            <button onClick={onToggleFavorite} disabled={offline} className="player-stage__icon-btn disabled:opacity-50"
-              aria-label={favorited ? '取消收藏' : '收藏'} aria-pressed={favorited}>
+            <button onClick={onToggleFavorite} disabled={offline} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="收藏">
               <span key={favPulse} className={`inline-flex ${favPulse ? 'fluent-heart-pop' : ''}`}>
-                <Heart size={26} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
+                <Heart size={28} className={favorited ? 'text-primary' : 'text-muted-foreground'} fill={favorited ? 'currentColor' : 'none'} />
               </span>
             </button>
           </div>
           {/* 进度 */}
-          <div className="player-stage__progress">
+          <div className="px-8 mt-5">
             <div className="relative flex items-center">
               <input
                 type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
@@ -2418,27 +2398,27 @@ export const PlayerBar = () => {
               />
               {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
             </div>
-            <div className="player-stage__times">
+            <div className="flex justify-between text-xs text-muted-foreground tabular-nums mt-1">
               <span>{fmtTime(progress.cur)}</span>
               <span>{fmtTime(progress.dur)}</span>
             </div>
           </div>
           {/* 控制按钮 */}
-          <div className="player-stage__controls">
+          <div className="flex items-center justify-between px-10 mt-6">
             <button onClick={cycleMode}
-              className={`player-stage__ctrl ${mode === 'order' ? 'text-muted-foreground' : 'text-primary'}`}
+              className={`flex h-12 w-12 items-center justify-center rounded-full ${mode === 'order' ? 'text-muted-foreground' : 'text-primary'}`}
               title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
               {modeIcon}
             </button>
-            <button onClick={prev} className="player-stage__ctrl" aria-label="上一首">
+            <button onClick={prev} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="上一首">
               <SkipBack size={32} fill="currentColor" />
             </button>
             <button onClick={togglePlay}
-              className="player-stage__play"
+              className="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground"
               aria-label="播放/暂停">
               <PlayPauseIcon paused={isPaused} size={30} />
             </button>
-            <button onClick={next} className="player-stage__ctrl" aria-label="下一首">
+            <button onClick={next} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="下一首">
               <SkipForward size={32} fill="currentColor" />
             </button>
             <SleepTimerControl
