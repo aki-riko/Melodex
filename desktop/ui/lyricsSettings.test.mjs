@@ -18,6 +18,9 @@ const read = (name) => readFileSync(join(here, name), 'utf8');
 const overlayHtml = read('overlay.html');
 const overlayCss = read('overlay.css');
 const overlayJs = read('overlay.js');
+// 纯逻辑核心被抽到 lyricsCore.js（有独立的 lyricsCore.test.mjs 锁死数值行为）。
+// 静态断言要同时看这两处：算法搬走后仍必须存在，不能"搬着搬着就没了"。
+const lyricsCoreJs = read('lyricsCore.js');
 const settingsHtml = read('index.html');
 const settingsJs = read('settings.js');
 
@@ -139,10 +142,20 @@ test('已播放/未播放必须双色：底层与上层用不同颜色变量', (
 });
 
 test('整行进度按字数加权，与旧实现 lyricProgress 等价', () => {
-  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-  assert.match(js, /totalChars/, '需要按总字数归一');
-  assert.match(js, /Math\.max\(1, String\(word\.s/, '每个词至少算 1 字');
-  assert.match(js, /completed \/ Math\.max\(1, totalChars\)|completed\/Math\.max\(1,totalChars\)/);
+  // 算法本体在 lyricsCore.js 的 lineProgress（逐行对照 cpp/Lyrics.cpp:140-170），
+  // 数值行为由 lyricsCore.test.mjs 逐条验证；这里守的是"实现没有被悄悄换掉"。
+  const code = [overlayJs, lyricsCoreJs]
+    .map((source) => source.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n'))
+    .join('\n');
+  assert.match(code, /totalChars/, '需要按总字数归一');
+  assert.match(code, /Math\.max\(1, String\(word\??\.s/, '每个词至少算 1 字');
+  assert.match(
+    code,
+    /completed \/ Math\.max\(1, totalChars\)|completed\/Math\.max\(1,totalChars\)/,
+  );
+  // overlay.js 必须真的用上共享核心，而不是自己另抄一份（两份必然分叉）
+  assert.match(overlayJs, /from '\.\/lyricsCore\.js'/, 'overlay.js 需从核心导入');
+  assert.match(overlayJs, /coreLineProgress|lineProgress/, 'overlay.js 需使用共享实现');
 });
 
 test('行切换动画时长 300ms（旧版 duration.slower），不是 380', () => {
@@ -189,6 +202,95 @@ test('切行动画是三层共用同一 progress（复刻旧版 NumberAnimation 
   assert.match(css, /- 0\.30\) \/ 0\.70/, '副行应在 (p-0.30)/0.70 后出现');
   // 旧行上移 45% 行高
   assert.match(css, /0\.45 \* var\(--active-line-height\)/);
+});
+
+test('副行独立缩放，不复用主行的适配系数', () => {
+  // 旧版 DesktopLyricsWindow.qml:462-464：副行有自己的 Text.Fit + minimumPixelSize，
+  // 与主行各缩各的。共用 --line-font-scale 会让「主行短 / 副行长」时副行溢出。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const adjacentType = css.match(/\.adjacent \.lyric-base[\s\S]{0,240}/);
+  assert.ok(adjacentType, '找不到副行字号规则');
+  assert.match(adjacentType[0], /--secondary-font-scale/, '副行需用自己的缩放系数');
+  assert.doesNotMatch(
+    adjacentType[0],
+    /var\(--line-font-scale/,
+    '副行不得复用主行的 --line-font-scale',
+  );
+  // JS 侧必须真的写入这个变量
+  assert.match(overlayJs, /--secondary-font-scale/);
+  // 副行最小字号 = max(14, 主行最小 - 4) = 16
+  assert.match(overlayJs, /Math\.max\(14, FONT_SIZE_MIN - 4\)/, '副行下限需复刻旧版公式');
+});
+
+test('三层歌词必须真的被绝对定位（类名与 HTML 一致）', () => {
+  // ★ 实际踩到的血案：CSS 里写的是 `.lyric-row`，HTML 用的是 `class="lyric-line"`，
+  //   两者对不上 → 整条定位规则**从未生效** → 三层退化成 flex 流里的普通块，
+  //   `top`/`transform` 全部失去参照，歌词叠在一起、切行动画完全看不出来。
+  //   这类"选择器写错一个字"的 bug 构建、类型检查、其它测试全都不会报。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(css, /\.lyric-line\s*\{[^}]*position:\s*absolute/s, '三层容器需绝对定位');
+  assert.doesNotMatch(
+    css,
+    /\.lyric-row\s*\{/,
+    'HTML 里没有 lyric-row 这个类名，写它等于整条规则失效',
+  );
+  // HTML 里三个元素确实都用 lyric-line
+  const lines = [...overlayHtml.matchAll(/class="lyric-line/g)].length;
+  assert.equal(lines, 3, '主行/旧行/副行三层都要带 lyric-line');
+});
+
+test('主行顶部偏移=44（lyricSurface 32 + 边距 12），否则控制条压住歌词', () => {
+  // 旧版 DesktopLyricsWindow.qml:280 + 44-45：
+  //   lyricSurface.topMargin = 32，activeLineTopMargin = 12 → activeLineY = 44
+  // 曾经写成 12px，整块歌词上移 32px，悬停控制条（top:0、高 38）直接盖在歌词上。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(css, /--active-line-top:\s*44px/, '主行顶部偏移必须是 44px');
+  // 三层都必须用这个变量，不能各自写死
+  for (const block of ['.current-wrap', '.outgoing-wrap', '.adjacent']) {
+    const re = new RegExp(`\\${block}\\s*\\{[^}]*--active-line-top`, 's');
+    assert.match(css, re, `${block} 需使用 --active-line-top`);
+  }
+});
+
+test('新行入场偏移 = (主行高+副行高)/2，方向必须朝下', () => {
+  // 旧版 DesktopLyricsWindow.qml:42-50 推导：
+  //   incomingActiveY - activeLineY = (activeLineHeight + secondaryLineHeight) / 2
+  // 字号 36 → 主行 56 + 副行 38 → +47px（从副行位置**升上来**）。
+  // ★ 曾经写成 `secondaryLineHeight - activeLineHeight`（-18px）：
+  //   符号与数值双错，新行变成从上方掉下来，切行方向与旧版完全相反。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(
+    css,
+    /--incoming-offset:\s*calc\(\s*\(var\(--active-line-height\)\s*\+\s*var\(--secondary-line-height\)\)\s*\/\s*2\s*\)/,
+    '入场偏移必须是两行高的平均值',
+  );
+  assert.doesNotMatch(
+    css,
+    /--incoming-offset:\s*calc\(var\(--secondary-line-height\)\s*-\s*var\(--active-line-height\)\)/,
+    '不要再用「副行高 - 主行高」：这是负数，方向反了',
+  );
+});
+
+test('双击空白处关闭歌词（复刻旧版 WindowDragHandle.onDoubleClicked）', () => {
+  // 旧版 DesktopLyricsWindow.qml:493-499：
+  //   WindowDragHandle { onDoubleClicked: UserSettings.setLyricsVisible(false) }
+  // 必须排除控制条：双击「上一首」不该关歌词（旧版控制条 z=10 盖在拖拽层 z=9 之上）。
+  assert.match(overlayJs, /addEventListener\('dblclick'/, '缺少双击关闭');
+  assert.match(overlayJs, /dblclick[\s\S]{0,200}visible: false/, '双击应关闭歌词');
+  assert.match(
+    overlayJs,
+    /dblclick[\s\S]{0,200}closest\('\.controls'\)/,
+    '双击控制条按钮不得关闭歌词',
+  );
+});
+
+test('位置保存前先夹回可视区（旧版 clampToVisibleArea）', () => {
+  // 旧版 DesktopLyricsWindow.qml:97-104 + 180-185：
+  //   每次坐标变化都 clampToVisibleArea，落盘的一定是可显示位置。
+  // 否则把窗口拖到屏幕外后存下的坐标会让歌词"重启后消失"。
+  const saveFn = overlayJs.match(/const savePosition = async \([\s\S]*?\n\};/);
+  assert.ok(saveFn, '找不到 savePosition');
+  assert.match(saveFn[0], /overlay_clamp_position/, '保存前必须先回拉');
 });
 
 // ---------- 设置来源：必须是壳侧，不许回退 localStorage ----------
@@ -298,6 +400,10 @@ test('歌词窗里没有「顶层 const 被更早位置引用」（TDZ 白屏）
     for (let i = 0; i < declLine; i += 1) {
       const line = lines[i];
       if (line.trim().startsWith('//')) continue;
+      // import 语句天然安全：它是模块依赖声明，且被提升到模块求值之前执行，
+      // 不可能构成 TDZ。而且导入名与被导入模块的导出名常常同名
+      // （`import { lineProgress } ...`），把它算进来只会产生误报。
+      if (/^import\s/.test(line)) continue;
       if (/^\s/.test(line)) continue; // 缩进行属于函数体，跳过
       const re = new RegExp(`(^|[^.\\w$'"])${name.replace(/\$/g, '\\$')}([^.\\w$'"]|$)`);
       if (re.test(line)) {
@@ -333,8 +439,14 @@ test('长歌词必须缩字号，不能溢出窗口', () => {
   assert.match(js, /measureText/, '需要用测量结果判断是否超宽');
   assert.match(js, /--line-font-scale/, '需要把缩放系数写进 CSS');
   assert.match(js, /fitScale/, '需要有适配函数');
-  // 必须有下限，不能无限缩小（对应旧实现 minimumPixelSize）
-  assert.match(js, /FONT_SIZE_MIN \/ Math\.max\(1, baseSize\)/, '缩字号需要下限');
+  // 必须有下限，不能无限缩小（对应旧实现 minimumPixelSize）。
+  // 现在下限是参数化的：主行传 FONT_SIZE_MIN(20)，副行传 max(14, 20-4)=16。
+  assert.match(
+    js,
+    /minimumPixelSize \/ Math\.max\(1, baseSize\)/,
+    '缩字号需要下限',
+  );
+  assert.match(js, /minimumPixelSize = FONT_SIZE_MIN/, '主行下限默认 FONT_SIZE_MIN');
 });
 
 test('填色裁剪从文字左边缘开始，不是行左边缘', () => {

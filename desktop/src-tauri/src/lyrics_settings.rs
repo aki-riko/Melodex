@@ -385,15 +385,39 @@ pub fn apply_patch(
     patch: &LyricsSettingsPatch,
 ) -> Result<LyricsSettings, String> {
     let current = state.snapshot();
+    let previous_font_size = current.font_size;
     let updated = patch.apply_to(current);
     save(app, &updated)?;
+    let font_size_changed = updated.font_size != previous_font_size;
     let updated = state.replace(updated);
     broadcast(app, &updated);
     crate::tray::sync_check_items(app, &updated);
+    // 字号变了就要重算窗口高度（旧版是 QML 绑定表达式自动重算，Web 侧没有这层）。
+    //
+    // 为什么必须在**写盘成功之后**：尺寸跟着已保存的设置走，
+    // 不能出现「窗口变大了、设置没保存、重启又变回去」。
+    //
+    // 顺带做一次可见区回拉，对齐旧版 `onHeightChanged → clampToVisibleArea`：
+    // 字号调大后窗口变高，原本贴底的位置会跑到屏幕外。
+    if font_size_changed {
+        if let Err(error) = crate::overlay::apply_window_geometry(app, updated.font_size) {
+            logging::warn(format!("应用歌词窗尺寸失败：{error}"));
+        }
+        if let Err(error) = crate::overlay::clamp_to_visible_area(app) {
+            logging::warn(format!("修正歌词窗位置失败：{error}"));
+        }
+    }
     Ok(updated)
 }
 
 /// 默认位置：水平居中、垂直 76%（与旧实现 `defaultX`/`defaultY` 一致）。
+///
+/// 旧实现（DesktopLyricsWindow.qml:89-95）：
+/// ```text
+/// x = virtualX + round((desktopAvailableWidth - width) / 2)
+/// y = virtualY + round(desktopAvailableHeight * 0.76)
+/// ```
+/// 注意 `y` 用 **0.76 乘以可用高度**，再叠可视区起点，不是"居中偏下"。
 ///
 /// 返回物理像素。主显示器取不到时回退 `None`，由调用方保持原位。
 pub fn default_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -407,6 +431,13 @@ pub fn default_position(app: &AppHandle) -> Option<(i32, i32)> {
     let size = window.outer_size().ok()?;
     let x = area.position.x + (area.size.width as i32 - size.width as i32) / 2;
     let y = area.position.y + (area.size.height as f64 * 0.76) as i32;
+    // 旧实现 restorePosition 之后紧跟 clampToVisibleArea：
+    // 0.76 处在大屏上可能仍让窗口越出底边，必须夹回来。
+    let y = crate::overlay::clamp_axis(
+        y,
+        area.position.y,
+        area.size.height as i32 - size.height as i32,
+    );
     Some((x, y))
 }
 

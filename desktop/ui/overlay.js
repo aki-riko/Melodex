@@ -15,7 +15,7 @@
 //
 // 设置是**唯一真相源在 Rust 侧**：本窗口不写 localStorage，避免设置页与歌词窗各存一份。
 
-import { lyricFrame } from './lyricsCore.js';
+import { lineProgress as coreLineProgress, lyricFrame } from './lyricsCore.js';
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -35,9 +35,16 @@ const SECONDARY_MIN_PX = 16;
 const TRANSITION_MS = 300;
 
 // 歌词行左右内边距之和，必须与 overlay.css 里 .lyrics-shell 的
-// `padding: 12px 34px 14px`（左右各 34px）一致。
+// `padding: 12px 46px 14px`（左右各 46px）一致。
 // 缩字号时可用宽度 = 行宽 - 这个值，否则量出来的可容纳宽度偏大，仍会溢出。
-const LINE_HORIZONTAL_PADDING = 68;
+//
+// 46×2 = 92 与旧版等价：lyricSurface 内缩 12 + 行内 margin 34 = 46/边。
+const LINE_HORIZONTAL_PADDING = 92;
+
+// 副行在公用内边距之外再各缩 8px（旧版副行 margin 42、主行 34，差 8）。
+// 必须与 overlay.css 里 `.adjacent { left: 8px; right: 8px; }` 一致，
+// 否则量副行可用宽度时会偏大 16px，长副行仍会溢出。
+const SECONDARY_EXTRA_INSET = 8;
 
 // 三层结构（复刻 DesktopLyricsWindow.qml:371-480）：
 //   outgoing = 旧行，current = 新行（从副行位置长上来），next = 副行
@@ -155,12 +162,27 @@ const updateSettings = async (patch) => {
 
 // ---------- 窗口位置持久化 ----------
 
+/**
+ * 保存位置到壳侧设置。
+ *
+ * 旧实现的节奏（DesktopLyricsWindow.qml:120-123 + 230-238）：
+ * `onXChanged/onYChanged → schedulePositionSave()`，即**坐标一变就起 300ms 防抖**，
+ * 到点才落盘。拖动过程中不会每帧写盘，松手 300ms 后一定保存。
+ *
+ * 新版拖动是系统接管（`start_dragging()`），拿不到逐帧坐标，
+ * 所以在 mouseup / 窗口卸载时保存；这里再补一次「回拉后保存」，
+ * 保证存下来的坐标一定是**夹进可视区之后**的值。
+ */
 const savePosition = async () => {
   try {
+    // 先回拉再保存：旧版每次坐标变化都 clamp，落盘的永远是可显示位置。
+    // 直接把用户拖到屏幕外的坐标存进设置，重启后歌词就会「消失」。
+    await invoke('overlay_clamp_position');
     const [x, y] = await invoke('overlay_position');
     await invoke('lyrics_save_position', { x, y });
-  } catch {
-    /* 位置保存失败不影响歌词显示 */
+  } catch (error) {
+    // 位置保存失败不影响歌词显示，但必须留痕，否则「拖了不记住」无从排查。
+    console.warn('保存桌面歌词位置失败', error);
   }
 };
 
@@ -183,52 +205,17 @@ const setPlainLine = (element, line) => {
 };
 
 /**
- * 计算整行进度（0..1），等价旧实现 `melodex::lyricProgress`（Lyrics.cpp:140）。
+ * 整行进度（0..1），等价旧实现 `melodex::lyricProgress`（Lyrics.cpp:140）。
  *
- * 旧版算法（**按字数加权**，不是按词块数平均）：
- *   - 有 words 时：totalChars = Σ max(1, len(word.s))
- *                 已完成字数 += 已结束的词整字 + 当前词按时间插值
- *                 progress = 已完成 / 总字数
- *   - 无 words 时：progress = (position - t) / (end - t)
+ * 算法本体在 `lyricsCore.js` 的 `lineProgress`（有单测锁死与旧版逐条一致）：
+ *   - 有 words 时按**字数加权**（totalChars = Σ max(1, len(word.s))），
+ *     不是「每个词各自算比例再各画一段」——后者中英文混排时长词会填得忽快忽慢。
+ *   - 无 words 时 progress = (position - t) / (end - t)。
  *
- * 本鱼之前用「每个词各自算比例再各画一段」，中英文混排时长词会填得明显
- * 比旧版快/慢，与旧版观感不一致。这里改成与旧版逐字逐个权重累加。
+ * 这里只做一层薄封装：把 null/缺行统一成 progress 0，
+ * 免得调用点各自判空（判漏一次就是「整行突然满格」）。
  */
-const lineProgress = (line, position) => {
-  if (!line) return 0;
-  const words = Array.isArray(line.words) ? line.words : [];
-
-  if (words.length > 0) {
-    let totalChars = 0;
-    for (const word of words) {
-      totalChars += Math.max(1, String(word.s ?? '').length);
-    }
-    let completed = 0;
-    for (const word of words) {
-      const chars = Math.max(1, String(word.s ?? '').length);
-      const start = Number(word.t) || 0;
-      const end = Number(word.end) || start;
-      if (position >= end) {
-        completed += chars;
-        continue;
-      }
-      if (position > start && end > start) {
-        completed += chars * ((position - start) / (end - start));
-      }
-      break;
-    }
-    return Math.max(0, Math.min(1, completed / Math.max(1, totalChars)));
-  }
-
-  // 无 words（例如"只有歌曲名"或行级 LRC）：用 t/end 线性插值。
-  // 注意 -Infinity 是"完全没有歌词"时的哨兵：position <= start → 返回 0，
-  // 整行保持未播放色，与旧版显示歌曲名的观感一致。
-  const start = Number(line.t) || 0;
-  const end = Number.isFinite(Number(line.end)) ? Number(line.end) : start + 5;
-  if (position <= start) return 0;
-  if (end <= start) return 1;
-  return Math.max(0, Math.min(1, (position - start) / (end - start)));
-};
+const lineProgress = (line, position) => coreLineProgress(line, position);
 
 /** 字号适配测量用的隐藏 canvas（避免反复读 DOM 触发重排）。 */
 const measureCanvas = document.createElement('canvas');
@@ -270,10 +257,10 @@ const FIT_CACHE_LIMIT = 200;
  *
  * @returns {number} 缩放系数（<1 表示需要缩小）；1 表示原始字号即可
  */
-const fitScale = (text, baseSize, availableWidth) => {
+const fitScale = (text, baseSize, availableWidth, minimumPixelSize = FONT_SIZE_MIN) => {
   if (!text || !availableWidth) return 1;
 
-  const key = `${text}|${baseSize}|${Math.round(availableWidth)}`;
+  const key = `${text}|${baseSize}|${Math.round(availableWidth)}|${minimumPixelSize}`;
   const cached = fitCache.get(key);
   if (cached !== undefined) return cached;
 
@@ -282,14 +269,44 @@ const fitScale = (text, baseSize, availableWidth) => {
   let scale = 1;
   if (measured > availableWidth && measured > 0) {
     scale = availableWidth / measured;
-    // 旧实现有 minimumPixelSize 兜底（不无限缩小）。
-    // 主行最小 20px，相对默认 36px 约 0.55；这里取同一量级下限。
-    scale = Math.max(scale, FONT_SIZE_MIN / Math.max(1, baseSize));
+    // 旧实现的 minimumPixelSize 兜底（不无限缩小）。
+    // 主行下限 20px；副行下限是 max(14, 主行最小 - 4)（见调用处）。
+    scale = Math.max(scale, minimumPixelSize / Math.max(1, baseSize));
   }
 
   if (fitCache.size > FIT_CACHE_LIMIT) fitCache.clear();
   fitCache.set(key, scale);
   return scale;
+};
+
+/**
+ * 副行的最小字号 —— 复刻 `DesktopLyricsWindow.qml:464`：
+ * `minimumPixelSize: Math.max(14, UserSettings.lyricsFontSizeMinimum - 4)`
+ *
+ * 注意这里的 `-4` 是相对**主行最小字号 20** 而言，不是相对当前字号：
+ * 主行下限恒为 20，所以副行下限恒为 max(14, 16) = 16。
+ */
+const secondaryMinimumPixelSize = () => Math.max(14, FONT_SIZE_MIN - 4);
+
+/**
+ * 副行独立的字号适配 —— 复刻 `DesktopLyricsWindow.qml:462-464`。
+ *
+ * ★ 旧版副行有自己的 `Text.Fit`，**与主行缩放互不影响**：
+ *   主行那句话很短（不需要缩），副行很长（需要缩），两者各缩各的。
+ *   早期新版让副行复用主行的 `--line-font-scale`，于是副行长句会溢出、
+ *   而主行短句明明不需要缩却跟着变小的反向情况也会出现。
+ */
+const renderSecondaryLine = (text) => {
+  const baseSize = Math.max(
+    SECONDARY_MIN_SIZE,
+    Math.round(clampFontSize(settings.font_size) * SECONDARY_SCALE),
+  );
+  const rowWidth = nextLine.clientWidth;
+  // 副行左右各有 8px 额外内缩（与 .adjacent 的 left/right 对应），
+  // 在这里扣掉才能量准可用宽度。
+  const available = Math.max(0, rowWidth - LINE_HORIZONTAL_PADDING - SECONDARY_EXTRA_INSET * 2);
+  const scale = fitScale(text, baseSize, available, secondaryMinimumPixelSize());
+  lyricsShell.style.setProperty('--secondary-font-scale', String(scale));
 };
 
 /**
@@ -473,6 +490,7 @@ const render = () => {
   // 无歌词时进度恒为 0：歌曲名整体用"未播放色"显示，与旧版一致。
   renderCurrentLine({ text: mainText }, withLyrics ? position : Number.NEGATIVE_INFINITY);
   setPlainLine(nextLine, { text: secondaryText });
+  renderSecondaryLine(secondaryText);
 
   // 真的换行且上一行有内容时才播切换动画（对齐旧版 canAnimateForward 的意图：
   // 首次出现、跳行、倒退都不做「从上往下滚」那套）。
@@ -542,6 +560,18 @@ lyricsShell.addEventListener('mousedown', (event) => {
   // 锁定时窗是穿透的，这里本来也收不到事件；再判一次防边界情况。
   if (settings.click_through) return;
   invoke('start_overlay_drag').catch((error) => console.warn('拖动桌面歌词窗口失败', error));
+});
+
+// 双击空白处关闭歌词 —— 复刻旧实现 DesktopLyricsWindow.qml:493-499 的
+// `Fluent.WindowDragHandle { onDoubleClicked: setLyricsVisible(false) }`。
+//
+// 注意必须排除控制条：双击「上一首」按钮不该把歌词关掉。
+// 旧实现里控制条是独立元素（z=10 盖在拖拽层 z=9 之上），点击不会穿透到拖拽层；
+// Web 侧用 closest('.controls') 做同样的隔离。
+lyricsShell.addEventListener('dblclick', async (event) => {
+  if (event.target.closest('.controls')) return;
+  if (settings.click_through) return;
+  await updateSettings({ visible: false });
 });
 
 window.addEventListener('mouseup', () => {

@@ -140,6 +140,17 @@ pub fn overlay_position(app: AppHandle) -> Result<(i32, i32), String> {
     overlay::overlay_position(&app)
 }
 
+/// 把歌词窗夹回可视区，返回修正后的坐标。
+///
+/// 对应旧实现 `clampToVisibleArea`（DesktopLyricsWindow.qml:97-104）：
+/// 旧版在**每次坐标变化**后都会夹一次，所以窗口永远不会被拖到屏幕外。
+/// Web 侧拖动由 `start_dragging()` 交给系统处理，拿不到逐帧坐标，
+/// 因此在**拖动结束**时调用一次即可达到同样的效果。
+#[tauri::command]
+pub fn overlay_clamp_position(app: AppHandle) -> Result<(i32, i32), String> {
+    overlay::clamp_to_visible_area(&app)
+}
+
 /// 恢复歌词窗位置。坐标是**物理像素**，与 `overlay_position` 返回值同单位。
 #[tauri::command]
 pub fn set_overlay_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {

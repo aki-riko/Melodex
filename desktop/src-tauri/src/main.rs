@@ -43,6 +43,7 @@ fn main() {
             commands::get_click_through,
             commands::overlay_position,
             commands::set_overlay_position,
+            commands::overlay_clamp_position,
             commands::lyrics_settings_get,
             commands::lyrics_settings_update,
             commands::lyrics_reset_position,
@@ -100,7 +101,7 @@ fn main() {
             let visible = !autostart_support::launched_by_autostart();
             main_window::create_main_window(&handle, &site, visible)?;
 
-            overlay::create_overlay_window(&handle)?;
+            overlay::create_overlay_window(&handle, settings.font_size)?;
             // 穿透状态**跟随设置**，不再硬编码 true。
             //
             // 原先写死 true 会导致：设置里选了「未锁定」，重启后又回到穿透，

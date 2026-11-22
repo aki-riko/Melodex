@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-overlay-clamp-position"
+description = "Enables the overlay_clamp_position command without any pre-configured scope."
+commands.allow = ["overlay_clamp_position"]
+
+[[permission]]
+identifier = "deny-overlay-clamp-position"
+description = "Denies the overlay_clamp_position command without any pre-configured scope."
+commands.deny = ["overlay_clamp_position"]

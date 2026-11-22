@@ -66,9 +66,16 @@ body {
   justify-content: center;
   width: 100%;
   height: 100%;
-  /* 旧实现的视觉重心：主行在上、副行在下，整组垂直居中；
-     顶部留出空间给悬停控制条（绝对定位，不占流）。 */
-  padding: 12px 34px 14px;
+  /* 左右 46px = 旧版 34（行内 margin）+ 12（lyricSurface 相对窗口的内缩）。
+   *
+   * 旧版文字最大可用宽 = 窗口宽 - 24 - 68 = **窗口宽 - 92**：
+   *   lyricSurfaceWidth = min(width-24, ...)   (DesktopLyricsWindow.qml:62-71)
+   *   每行 anchors.leftMargin / rightMargin = 34 (行 378-379 / 407-408)
+   * 所以这里每边留 46，合计 92，与旧版能排进同样长的句子。
+   *
+   * ★ 这个值与 overlay.js 的 LINE_HORIZONTAL_PADDING 必须相等，
+   *   由 lyricsSettings.test.mjs 断言，改一边必须改另一边。 */
+  padding: 12px 46px 14px;
   gap: 4px;
   cursor: move;
 }
@@ -76,13 +83,9 @@ body {
 /* 布局容器。歌词行改为绝对定位三层（见下方 .lyric-row），
    所以这里不再用 flex 流式排布。 */
 
-.adjacent {
-  color: var(--unplayed-color);
-  /* 副行字号由 overlay.js 按 主行 × 0.67（最小 16px）计算后写入 */
-  font-size: var(--secondary-font-size, calc(var(--lyric-font-size) * 0.67));
-  font-weight: 400;
-  opacity: 0.92;
-}
+/* 副行的完整规则见下方「副行：从下方 35% 行高浮起」一节。
+ * 这里不重复声明任何属性——同一选择器写两处、属性还重叠，
+ * 只会让「哪条生效」取决于书写顺序，是纯粹的埋雷。 */
 
 /* ---------- 歌词行：双层裁剪填色（复刻 WordFill.qml）----------
  *
@@ -110,10 +113,27 @@ body {
   /* 行高（与旧版同式） */
   --active-line-height: calc(var(--lyric-font-size) + 20px);
   --secondary-line-height: calc(var(--secondary-font-size, 24px) + 14px);
+  /* 主行顶部偏移 —— 必须与旧版一致，否则控制条会压住歌词。
+   *
+   * 旧版 DesktopLyricsWindow.qml：
+   *   lyricSurface  anchors.topMargin = 32   (行 280)
+   *   activeLineTopMargin = 12               (行 44)
+   *   activeLineY = lyricSurface.y + 12 = 32 + 12 = 44   (行 45)
+   *
+   * 这里曾经是 12px，等于把整块歌词上移 32px：控制条（top:0、高 38px）
+   * 会直接盖在歌词上，而旧版两者之间有 6px 空隙。
+   */
+  --active-line-top: 44px;
 }
 
-/* 三层的公共盒模型：绝对定位在同一列，宽度一致 */
-.lyric-row {
+/* 三层的公共盒模型：绝对定位在同一列，宽度一致。
+ *
+ * ★ 类名必须是 `.lyric-line`（overlay.html 三个元素都用这个），
+ *   曾经写成 `.lyric-row` → 与 HTML 对不上 → 整条规则**从未生效**：
+ *   三层退化成 flex 流里的普通块，`top`/`transform` 全部失去参照，
+ *   表现为歌词叠在一起、切行动画完全看不出来。
+ */
+.lyric-line {
   position: absolute;
   left: 0;
   right: 0;
@@ -131,13 +151,26 @@ body {
    由 JS 每帧写 --transition-progress(0..1)，这里只做线性插值，
    缓动由 JS 用 InOutCubic 预先算好写进 progress，避免 CSS/JS 缓动叠加。 */
 .current-wrap {
-  top: var(--active-line-top, 12px);
+  top: var(--active-line-top, 44px);
   height: var(--active-line-height);
   font-size: var(--lyric-font-size);
   font-weight: 600;
   letter-spacing: 0.01em;
-  /* 起点：副行位置 + 副行/主行字号比 */
-  --incoming-offset: calc(var(--secondary-line-height) - var(--active-line-height));
+  /* 起点：副行位置。推导（旧版 DesktopLyricsWindow.qml:42-50）：
+   *
+   *   activeLineY        = 表面 y + 12
+   *   secondaryLineY     = activeLineY + activeLineHeight
+   *   incomingActiveY    = secondaryLineY + (secondaryLineHeight - activeLineHeight) / 2
+   *   → 相对主行位置的偏移 = incomingActiveY - activeLineY
+   *                        = activeLineHeight + (secondaryLineHeight - activeLineHeight)/2
+   *                        = (activeLineHeight + secondaryLineHeight) / 2
+   *
+   * 字号 36 → 主行 56、副行 38 → **+47px（向下）**，即新行从下面升上来。
+   *
+   * ★ 这里曾经写成 `secondaryLineHeight - activeLineHeight`（字号36时 = -18px），
+   *   符号和数值都错：新行变成从**上方掉下来**，切行方向与旧版完全相反。
+   */
+  --incoming-offset: calc((var(--active-line-height) + var(--secondary-line-height)) / 2);
   --incoming-scale: var(--secondary-scale, 0.67);
   transform-origin: center center;
   transform: translateY(calc(var(--incoming-offset) * (1 - var(--transition-progress, 1))))
@@ -148,7 +181,7 @@ body {
 
 /* 旧行：上移 45% 行高 + 淡出（progress/0.78 内完成） */
 .outgoing-wrap {
-  top: var(--active-line-top, 12px);
+  top: var(--active-line-top, 44px);
   z-index: 3;
   height: var(--active-line-height);
   font-size: var(--lyric-font-size);
@@ -163,11 +196,20 @@ body {
 
 /* 副行：从下方 35% 行高浮起 + 淡入（30% 后才开始） */
 .adjacent {
-  top: calc(var(--active-line-top, 12px) + var(--active-line-height));
+  top: calc(var(--active-line-top, 44px) + var(--active-line-height));
   height: var(--secondary-line-height);
   color: var(--unplayed-color);
   font-size: var(--secondary-font-size, calc(var(--lyric-font-size) * 0.67));
   font-weight: 400;
+  /* 副行左右各多缩 8px（旧版 DesktopLyricsWindow.qml:444-445 是 42，主行是 34）。
+   * 副行字号更小，内缩多一点才与主行视觉对齐。
+   *
+   * .lyric-line 是 `left:0; right:0; width:100%`；绝对定位下同时给
+   * left/right/width 会以 width 为准而忽略 right，所以必须把 width 让回 auto，
+   * 由 left/right 决定宽度，否则两侧内缩不生效。 */
+  left: 8px;
+  right: 8px;
+  width: auto;
   --entry: max(0, min(1, calc((var(--transition-progress, 1) - 0.30) / 0.70)));
   transform: translateY(calc(var(--secondary-line-height) * 0.35 * (1 - var(--entry))));
   opacity: calc(0.92 * var(--entry));
@@ -202,10 +244,18 @@ body {
   text-shadow: 0 1px 2px var(--shadow-color);
 }
 
-/* 副行的字号基数不同（主行 × 0.67），单独给 */
+/* 副行的字号基数不同（主行 × 0.67），且**缩放系数独立**。
+ *
+ * 旧版 DesktopLyricsWindow.qml:462-464：副行有自己的 Text.Fit + minimumPixelSize，
+ * 与主行各缩各的。共用主行的 --line-font-scale 会让「主行短、副行长」时副行溢出。
+ */
 .adjacent .lyric-base,
 .adjacent.lyric-line {
-  font-size: calc(var(--secondary-font-size, 24px) * var(--line-font-scale, 1));
+  font-size: calc(
+    var(--secondary-font-size, 24px) * var(--secondary-font-scale, 1)
+  );
+  /* 副行描边按自己的缩放系数收细（同主行逻辑），否则小字被描边糊住 */
+  -webkit-text-stroke: calc(1px * var(--secondary-font-scale, 1)) var(--outline-color);
 }
 
 /* 底层：未播放色 */
