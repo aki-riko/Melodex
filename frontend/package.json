@@ -54,7 +54,7 @@
     "test:desktop-shell": "node scripts/desktopShell.test.mjs",
     "test:shell-commands": "node ../desktop/scripts/shellCommandManifest.test.mjs",
     "test:desktop-lyrics": "node ../desktop/ui/lyricsSettings.test.mjs && node ../desktop/ui/lyricsCore.test.mjs",
-    "test:favorites": "node scripts/favoriteSync.test.mjs",
+    "test:favorites": "node scripts/favoriteSync.test.mjs && node scripts/favoriteBatchHearts.test.mjs",
     "test:credential": "node scripts/credentialExpiry.test.mjs",
     "test:playback-reason": "node scripts/playbackReason.test.mjs",
     "test:theme": "node scripts/themeContract.test.mjs && node scripts/themeContrast.test.mjs && node scripts/fluentMotion.test.mjs",

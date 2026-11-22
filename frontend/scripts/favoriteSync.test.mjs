@@ -197,22 +197,28 @@ check(() => {
   // 这不是假想竞态:换歌 / 首次进视口时都会异步问一次收藏状态。
   // 若用户在响应回来前点灭了心,而响应(旧值 true)随后到达,心会自己亮回去。
   // 修法是发请求前后比对序号 —— 这里验证序号确实只在真正的变更后才前进。
+  // 注意序号是**按歌**的(见 scripts/favoriteBatchHearts.test.mjs:
+  // 全局序号会让同批多行的结论互相丢弃,那正是用户截图里只剩一首亮心的 bug)。
   clearFavoriteStatusCache();
-  const before = favoriteChangeSequence();
+  const target = song('s1');
+  const before = favoriteChangeSequence(target, 1);
   // 只查缓存、不发广播:序号不变
-  readFavoriteStatus(song('s1'), 1);
-  writeFavoriteStatus(song('s1'), 1, true);
-  assert.equal(favoriteChangeSequence(), before, '缓存读写不算变更,不得推进序号');
+  readFavoriteStatus(target, 1);
+  writeFavoriteStatus(target, 1, true);
+  assert.equal(favoriteChangeSequence(target, 1), before, '缓存读写不算变更,不得推进序号');
 
-  publishFavoriteChange({ song: song('s1'), userId: 1, favorited: false });
-  const afterChange = favoriteChangeSequence();
+  publishFavoriteChange({ song: target, userId: 1, favorited: false });
+  const afterChange = favoriteChangeSequence(target, 1);
   assert.ok(afterChange > before, '真正的收藏变更必须推进序号(陈旧响应据此被丢弃)');
 
   // 无身份的歌不广播 → 也不推进序号
   publishFavoriteChange({ song: { id: '' }, userId: 1, favorited: true });
-  assert.equal(favoriteChangeSequence(), afterChange, '被忽略的广播不推进序号');
+  assert.equal(favoriteChangeSequence(target, 1), afterChange, '被忽略的广播不推进序号');
+  // 改别的歌不影响这首歌的序号(按歌隔离;全局序号时这里必然失败)。
+  publishFavoriteChange({ song: song('s2'), userId: 1, favorited: true });
+  assert.equal(favoriteChangeSequence(target, 1), afterChange, '改别的歌不得动这首歌的序号');
   clearFavoriteStatusCache();
-}, '变更序号只在真实变更时推进');
+}, '变更序号只在真实变更时按歌推进');
 
 // ---------------- D. 静态门禁:三处入口都必须走统一出口 ----------------
 

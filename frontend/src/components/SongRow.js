@@ -288,10 +288,10 @@ const SongRow = ({
     let cancelled = false;
     // 发请求前记下变更序号:若用户在响应回来之前亲手切换过收藏,
     // 这次响应就是陈旧结论,必须丢弃 —— 否则会把刚点灭的心又点亮回去。
-    const seqAtRequest = favoriteChangeSequence();
+    const seqAtRequest = favoriteChangeSequence(rowSong, userId);
     getFavoriteStatus(rowSong)
       .then((ok) => {
-        if (cancelled || favoriteChangeSequence() !== seqAtRequest) return;
+        if (cancelled || favoriteChangeSequence(rowSong, userId) !== seqAtRequest) return;
         publishFavoriteChange({ song: rowSong, userId, favorited: ok });
         setFavorited(ok);
       })

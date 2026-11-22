@@ -1728,9 +1728,9 @@ export const PlayerBar = () => {
 
     let cancelled = false;
     // 与 SongRow 同一条纪律:响应晚于用户亲手切换就必须丢弃,否则陈旧结论把心又点亮。
-    const seqAtRequest = favoriteChangeSequence();
+    const seqAtRequest = favoriteChangeSequence(nowPlaying, favUserId);
     getFavoriteStatus(nowPlaying).then((f) => {
-      if (cancelled || favoriteChangeSequence() !== seqAtRequest) return;
+      if (cancelled || favoriteChangeSequence(nowPlaying, favUserId) !== seqAtRequest) return;
       publishFavoriteChange({ song: nowPlaying, userId: favUserId, favorited: f });
       setFavorited(f);
     }).catch(() => {});
