@@ -44,7 +44,27 @@
           </svg>
         </button>
       </div>
-      <p id="current-line" class="lyric-line current"></p>
+      <!-- 主行：双层结构复刻旧版 WordFill.qml
+           底层 = 未播放色整行；上层 = 已播放色整行，但被一个宽度随进度增长的
+           容器裁剪，形成"左到右填色"效果（逐字填色的视觉等价物）。
+
+           三层协同复刻 DesktopLyricsWindow.qml:371-480 的切行动画：
+             1) outgoing —— 旧行（z 最高）：上移 45% 行高 + 淡出，前 78% 完成
+             2) active   —— 新行：从副行位置 + 0.67 缩放，长到主行位置 + 1.0
+             3) secondary—— 副行：从下方 35% 浮起 + 淡入，30% 后才开始
+           三者由同一个 transitionProgress(0→1, 300ms InOutCubic) 驱动。 -->
+      <div id="outgoing-line" class="lyric-line outgoing-wrap" aria-hidden="true">
+        <p id="outgoing-line-base" class="lyric-base"></p>
+        <div id="outgoing-line-clip" class="lyric-clip">
+          <p id="outgoing-line-active" class="lyric-active"></p>
+        </div>
+      </div>
+      <div id="current-line-wrap" class="lyric-line current-wrap">
+        <p id="current-line-base" class="lyric-base" aria-hidden="true"></p>
+        <div id="current-line-clip" class="lyric-clip">
+          <p id="current-line" class="lyric-active"></p>
+        </div>
+      </div>
       <p id="next-line" class="lyric-line adjacent" aria-hidden="true"></p>
     </main>
     <script type="module" src="overlay.js"></script>

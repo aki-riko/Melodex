@@ -34,7 +34,18 @@ const SettingRow = ({ icon: Icon, title, description, children }) => (
   </div>
 );
 
-/** 复用的开关：与设置页风格一致 */
+/** 复用的开关。
+ *
+ * 直接照抄 Settings.js:663-677 的原生开关（应用里已验证可用的那个）：
+ *   - 轨道：relative inline-flex h-6 w-11 items-center rounded-full
+ *   - 滑块：switch-knob inline-block h-4 w-4 rounded-full
+ *   - 位移：打开 translate-x-6 / 关闭 translate-x-1
+ *   - 颜色：滑块颜色来自 --switch-knob 主题变量，**不能手写 bg-white**
+ *     （浅色主题轨道变浅后白滑块会"消失"）。
+ *
+ * 之前本鱼用 absolute + left/top 自己定位，算错位移导致滑块跑出胶囊——
+ * 应用里本来就有正确实现，照抄即可。
+ */
 const Toggle = ({ checked, onChange, label, disabled }) => (
   <button
     type="button"
@@ -43,12 +54,13 @@ const Toggle = ({ checked, onChange, label, disabled }) => (
     aria-label={label}
     disabled={disabled}
     onClick={() => onChange(!checked)}
-    className={`relative h-6 w-11 rounded-full transition-colors duration-150 ${
-      checked ? 'bg-primary' : 'bg-muted'
-    } ${disabled ? 'cursor-wait opacity-60' : 'cursor-pointer'}`}
+    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+      checked ? 'bg-primary' : 'bg-secondary'
+    } ${disabled ? 'cursor-wait opacity-60' : ''}`}
+    title={label}
   >
     <span
-      className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform duration-150 ${
+      className={`switch-knob inline-block h-4 w-4 transform rounded-full transition-transform ${
         checked ? 'translate-x-6' : 'translate-x-1'
       }`}
     />

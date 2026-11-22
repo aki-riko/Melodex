@@ -15,7 +15,7 @@
 //
 // 设置是**唯一真相源在 Rust 侧**：本窗口不写 localStorage，避免设置页与歌词窗各存一份。
 
-import { lyricFrame, lyricWordFill } from './lyricsCore.js';
+import { lyricFrame } from './lyricsCore.js';
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -30,9 +30,18 @@ const FONT_SIZE_MAX = 64;
 const FONT_SIZE_DEFAULT = 36;
 const SECONDARY_SCALE = 0.67;
 const SECONDARY_MIN_PX = 16;
-const TRANSITION_MS = 380;
+// 旧实现用 Fluent.Enums.duration.slower = 300ms（Metrics.qml:38），
+// 不是 380。帧驱动动画（FrameAnimation）本身不设时长，300 只用于行切换过渡。
+const TRANSITION_MS = 300;
 
-// 双行：主行 = 当前歌词，副行 = 下一行（对齐旧 PrismQML 实现）。
+// 三层结构（复刻 DesktopLyricsWindow.qml:371-480）：
+//   outgoing = 旧行，current = 新行（从副行位置长上来），next = 副行
+const outgoingWrap = document.getElementById('outgoing-line');
+const outgoingBase = document.getElementById('outgoing-line-base');
+const outgoingActive = document.getElementById('outgoing-line-active');
+const currentWrap = document.getElementById('current-line-wrap');
+const currentBase = document.getElementById('current-line-base');
+const currentClip = document.getElementById('current-line-clip');
 const currentLine = document.getElementById('current-line');
 const nextLine = document.getElementById('next-line');
 const lyricsShell = document.getElementById('lyrics-shell');
@@ -168,34 +177,158 @@ const setPlainLine = (element, line) => {
   element.textContent = line?.text || '';
 };
 
+/**
+ * 计算整行进度（0..1），等价旧实现 `melodex::lyricProgress`（Lyrics.cpp:140）。
+ *
+ * 旧版算法（**按字数加权**，不是按词块数平均）：
+ *   - 有 words 时：totalChars = Σ max(1, len(word.s))
+ *                 已完成字数 += 已结束的词整字 + 当前词按时间插值
+ *                 progress = 已完成 / 总字数
+ *   - 无 words 时：progress = (position - t) / (end - t)
+ *
+ * 本鱼之前用「每个词各自算比例再各画一段」，中英文混排时长词会填得明显
+ * 比旧版快/慢，与旧版观感不一致。这里改成与旧版逐字逐个权重累加。
+ */
+const lineProgress = (line, position) => {
+  if (!line) return 0;
+  const words = Array.isArray(line.words) ? line.words : [];
+
+  if (words.length > 0) {
+    let totalChars = 0;
+    for (const word of words) {
+      totalChars += Math.max(1, String(word.s ?? '').length);
+    }
+    let completed = 0;
+    for (const word of words) {
+      const chars = Math.max(1, String(word.s ?? '').length);
+      const start = Number(word.t) || 0;
+      const end = Number(word.end) || start;
+      if (position >= end) {
+        completed += chars;
+        continue;
+      }
+      if (position > start && end > start) {
+        completed += chars * ((position - start) / (end - start));
+      }
+      break;
+    }
+    return Math.max(0, Math.min(1, completed / Math.max(1, totalChars)));
+  }
+
+  // 无 words（例如"只有歌曲名"或行级 LRC）：用 t/end 线性插值。
+  // 注意 -Infinity 是"完全没有歌词"时的哨兵：position <= start → 返回 0，
+  // 整行保持未播放色，与旧版显示歌曲名的观感一致。
+  const start = Number(line.t) || 0;
+  const end = Number.isFinite(Number(line.end)) ? Number(line.end) : start + 5;
+  if (position <= start) return 0;
+  if (end <= start) return 1;
+  return Math.max(0, Math.min(1, (position - start) / (end - start)));
+};
+
+/** 主行文本宽度缓存：同一行内宽度不变，避免每帧测量导致布局抖动。 */
+const currentLineWidthCache = { text: null, width: 0 };
+
+/**
+ * 渲染主行：底层未播放色整行 + 上层已播放色被裁剪。
+ * 文本只在**内容真的变了**时才写 DOM，避免每帧重排导致闪烁。
+ */
 const renderCurrentLine = (line, position) => {
-  currentLine.replaceChildren();
-  if (!line) return;
-  if (!Array.isArray(line.words) || line.words.length < 2) {
-    currentLine.textContent = line.text || '';
-    return;
+  const text = line?.text || '';
+
+  if (currentBase.textContent !== text) {
+    currentBase.textContent = text;
+    currentLine.textContent = text;
+    // 换行后宽度缓存失效，下一帧重新测。
+    currentLineWidthCache.text = null;
   }
-  for (const word of line.words) {
-    const ratio = lyricWordFill(word, position);
-    const span = document.createElement('span');
-    span.className = 'word';
-    span.textContent = word.s || '';
-    span.style.setProperty('--fill', `${Math.max(0, Math.min(1, ratio)) * 100}%`);
-    currentLine.appendChild(span);
+
+  // 裁剪宽度 = 整行宽度 × 进度。用 CSS 变量驱动，避免每帧写 style.width。
+  const ratio = lineProgress(line, position);
+  currentClip.style.setProperty('--fill-ratio', String(ratio));
+
+  // 上层文字宽度必须等于整行实际宽度，否则填色区里文字会被挤压变形。
+  if (currentLineWidthCache.text !== text) {
+    currentLineWidthCache.text = text;
+    currentLineWidthCache.width = currentWrap.clientWidth;
   }
+  currentLine.style.setProperty('--line-width', `${currentLineWidthCache.width}px`);
 };
 
 /**
- * 行推进时给主行加一次进出场动画。
- * 只在「真的换行」时触发，同一行内的逐字推进不重放动画（否则会一直闪）。
+ * 行切换动画：复刻旧实现 DesktopLyricsWindow.qml:482-491。
+ *
+ * 旧版用 NumberAnimation 把 lyricTransitionProgress 从 0 线性推到 1，
+ * duration = Fluent.Enums.duration.slower = **300ms**，easing = InOutCubic，
+ * 然后由 QML 的绑定表达式把同一个 progress 映射到三个元素上：
+ *
+ *   旧行：y -= 行高*0.45*exit，opacity = 1-exit，  exit = min(1, p/0.78)
+ *   新行：y 从副行位置插值到主行位置，scale 从 0.67 到 1，opacity 0.96→1
+ *   副行：y 从下方 35% 行高浮起，opacity 0.92*entry，entry = max(0,(p-0.3)/0.7)
+ *
+ * 三个元素**共用同一个 progress**，所以是连续一体的过渡，不是各自独立淡入。
+ * 本鱼之前用一个一次性 class + CSS transition，做不出「新行从副行位置长上来」。
+ *
+ * 这里用 requestAnimationFrame 自己推进 progress，并在 JS 里做 InOutCubic
+ * （CSS 端只做线性插值，避免缓动被叠加两次）。
  */
-const animateLineChange = () => {
-  currentLine.classList.remove('is-entering');
-  currentLine.classList.remove('is-leaving');
-  // 强制 reflow 让上面的移除生效，动画可重复触发。
-  void currentLine.offsetWidth;
-  currentLine.classList.add('is-entering');
-  window.setTimeout(() => currentLine.classList.remove('is-entering'), TRANSITION_MS);
+const TRANSITION_EASE = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+let transitionFrame = 0;
+
+/** 把 progress(0..1) 写进 CSS 变量，三个元素一起动。 */
+const applyTransitionProgress = (progress) => {
+  lyricsShell.style.setProperty('--transition-progress', String(progress));
+};
+
+/** 结束过渡：progress=1，清掉旧行文本（旧行只在过渡期可见）。 */
+const finishTransition = () => {
+  if (transitionFrame) {
+    window.cancelAnimationFrame(transitionFrame);
+    transitionFrame = 0;
+  }
+  applyTransitionProgress(1);
+  outgoingBase.textContent = '';
+  outgoingActive.textContent = '';
+  outgoingWrap.style.visibility = 'hidden';
+};
+
+/**
+ * 启动一次换行动画。
+ *
+ * @param {string} outgoingText 上一行的文字（作为上移淡出的"旧行"）
+ */
+const startLineTransition = (outgoingText) => {
+  if (transitionFrame) {
+    window.cancelAnimationFrame(transitionFrame);
+    transitionFrame = 0;
+  }
+
+  // 旧行内容与位置在动画期间可见
+  if (outgoingText) {
+    outgoingBase.textContent = outgoingText;
+    outgoingActive.textContent = outgoingText;
+    outgoingActive.style.setProperty('--line-width', `${currentWrap.clientWidth}px`);
+    outgoingWrap.style.visibility = 'visible';
+  } else {
+    outgoingWrap.style.visibility = 'hidden';
+  }
+
+  const startedAt = performance.now();
+  applyTransitionProgress(0);
+
+  const step = (now) => {
+    const elapsed = now - startedAt;
+    const linear = Math.min(1, elapsed / TRANSITION_MS);
+    applyTransitionProgress(TRANSITION_EASE(linear));
+
+    if (linear < 1) {
+      transitionFrame = window.requestAnimationFrame(step);
+    } else {
+      transitionFrame = 0;
+      finishTransition();
+    }
+  };
+  transitionFrame = window.requestAnimationFrame(step);
 };
 
 // ---------- 渲染 ----------
@@ -214,30 +347,73 @@ const hasLyrics = () => Boolean(
   playback.track && Array.isArray(playback.lyrics) && playback.lyrics.length > 0,
 );
 
+/**
+ * 主行/副行该显示什么。
+ *
+ * ★ 复刻旧实现 DesktopLyricsWindow.qml:20-25：
+ *   activeText: activeLine ? activeLine.text : (Player.currentSong.name || "")
+ *   nextText:   nextLine   ? nextLine.text   : (Player.currentSong.artist || "")
+ *
+ * 即**没有歌词时显示歌曲名 / 歌手名**，而不是把窗口留空。
+ * 本鱼最初写成「无歌词就清空」，导致纯音乐或歌词未加载时窗口一片空白——
+ * 用户看到的就是"歌词没了"。
+ */
+const currentDisplayText = (frame, hasLyricLines) => {
+  if (hasLyricLines && frame?.current) return frame.current.text || '';
+  if (hasLyricLines) return '';
+  return playback.track?.name || '';
+};
+
+const nextDisplayText = (frame, hasLyricLines) => {
+  if (hasLyricLines && frame?.next) return frame.next.text || '';
+  if (hasLyricLines) return '';
+  return playback.track?.artist || '';
+};
+
 const render = () => {
   // 用户关掉歌词（settings.visible=false）后，即使还有歌在放也不能再弹出来。
-  setOverlayVisible(playback.hasState && hasLyrics() && settings.visible);
+  setOverlayVisible(playback.hasState && settings.visible);
 
-  if (!hasLyrics()) {
-    currentLine.textContent = '';
+  // 没有歌曲信息时才彻底清空（此时本来就没东西可显示）。
+  if (!playback.track) {
+    if (currentBase.textContent !== '') {
+      currentBase.textContent = '';
+      currentLine.textContent = '';
+      currentLineWidthCache.text = null;
+    }
     nextLine.textContent = '';
     renderedLineIndex = -2;
     renderedActiveText = '';
     return;
   }
 
+  const withLyrics = hasLyrics();
   const position = effectivePosition();
-  const frame = lyricFrame(playback.lyrics, position);
+  const frame = withLyrics ? lyricFrame(playback.lyrics, position) : null;
 
-  const changedLine = frame.index !== renderedLineIndex;
-  const changedText = (frame.current?.text || '') !== renderedActiveText;
+  const mainText = currentDisplayText(frame, withLyrics);
+  const secondaryText = nextDisplayText(frame, withLyrics);
 
-  renderCurrentLine(frame.current, position);
-  setPlainLine(nextLine, frame.next);
+  const changedLine = withLyrics && frame && frame.index !== renderedLineIndex;
+  const changedText = mainText !== renderedActiveText;
 
-  if (changedLine && changedText) animateLineChange();
-  renderedLineIndex = frame.index;
-  renderedActiveText = frame.current?.text || '';
+  // 无歌词时进度恒为 0：歌曲名整体用"未播放色"显示，与旧版一致。
+  renderCurrentLine({ text: mainText }, withLyrics ? position : Number.NEGATIVE_INFINITY);
+  setPlainLine(nextLine, { text: secondaryText });
+
+  // 真的换行且上一行有内容时才播切换动画（对齐旧版 canAnimateForward 的意图：
+  // 首次出现、跳行、倒退都不做「从上往下滚」那套）。
+  if (changedLine && changedText) {
+    const canAnimate = renderedActiveText.length > 0
+      && mainText.length > 0
+      && renderedLineIndex >= 0
+      && frame.index === renderedLineIndex + 1;
+    if (canAnimate) startLineTransition(renderedActiveText);
+    else finishTransition();
+  }
+
+  renderedLineIndex = withLyrics && frame ? frame.index : -2;
+  renderedActiveText = mainText;
 
   // 播放/暂停图标二选一由 class 控制（旧实现 icon 随 Player.playing 切换）。
   toggleButton.classList.toggle('is-playing', !playback.paused);
@@ -321,3 +497,8 @@ window.setInterval(render, RENDER_INTERVAL_MS);
 
 // 启动时先隐藏，等主窗口推来第一条状态。
 setOverlayVisible(false);
+
+// 初始 progress=1：静止状态下新行就在主行位置、副行完全可见。
+// 若不初始化，CSS 里 --transition-progress 缺失会让首帧显示成"正在动画"的缩小态。
+applyTransitionProgress(1);
+outgoingWrap.style.visibility = 'hidden';
