@@ -160,3 +160,130 @@ export const attachLyricsCommandBridge = (handlers, options = {}) => {
   target.addEventListener(SHELL_LYRICS_COMMAND_EVENT, onCommand);
   return () => target.removeEventListener(SHELL_LYRICS_COMMAND_EVENT, onCommand);
 };
+
+// ---------- 桌面歌词设置（主窗口「设置」页用）----------
+//
+// 与旧 PrismQML 实现对齐：那 6 项设置放在**主窗口的设置页**（SettingsPage.qml），
+// 不是独立窗口——用户点「设置」就能看到。这里给网页侧提供同样的读写入口。
+//
+// 权限说明：只有 `lyrics_settings_get` / `lyrics_settings_update` 两条对主窗口开放，
+// 语义自限（读写本机歌词设置），不涉及文件/网络/系统能力。见 capabilities/lyrics-bridge.json。
+
+/** 设置变化事件名（壳侧广播，多窗口同步用）。 */
+export const SHELL_LYRICS_SETTINGS_EVENT = 'melodex:lyrics-settings';
+
+/**
+ * 读取桌面歌词设置。
+ *
+ * 浏览器里返回 null（而不是抛错），让调用方按"无原生歌词"渲染。
+ *
+ * @returns {Promise<object|null>}
+ */
+export const getLyricsSettings = async (options = {}) => {
+  const scope = options.scope || globalThis;
+  const logger = options.logger || console;
+  if (!isDesktopShell(scope)) return null;
+
+  const invoke = options.invoke || getShellInvoke(scope);
+  if (typeof invoke !== 'function') return null;
+
+  try {
+    return await invoke('lyrics_settings_get');
+  } catch (error) {
+    logger.warn('读取桌面歌词设置失败', error);
+    return null;
+  }
+};
+
+/**
+ * 局部更新桌面歌词设置。
+ *
+ * 只传要改的字段（补丁语义）；返回更新后的完整设置，失败返回 null。
+ * 壳侧写盘失败时**不会**改状态，所以这里不做乐观更新。
+ *
+ * @returns {Promise<object|null>}
+ */
+export const updateLyricsSettings = async (patch, options = {}) => {
+  const scope = options.scope || globalThis;
+  const logger = options.logger || console;
+  if (!isDesktopShell(scope)) return null;
+  if (!patch || typeof patch !== 'object') {
+    logger.warn('歌词设置补丁非法，已丢弃', patch);
+    return null;
+  }
+
+  const invoke = options.invoke || getShellInvoke(scope);
+  if (typeof invoke !== 'function') return null;
+
+  try {
+    return await invoke('lyrics_settings_update', { patch });
+  } catch (error) {
+    logger.warn('保存桌面歌词设置失败', error);
+    return null;
+  }
+};
+
+/**
+ * 重置歌词窗位置到默认（水平居中、垂直 76%）。
+ *
+ * @returns {Promise<object|null>}
+ */
+export const resetLyricsPosition = async (options = {}) => {
+  const scope = options.scope || globalThis;
+  const logger = options.logger || console;
+  if (!isDesktopShell(scope)) return null;
+
+  const invoke = options.invoke || getShellInvoke(scope);
+  if (typeof invoke !== 'function') return null;
+
+  try {
+    return await invoke('lyrics_reset_position');
+  } catch (error) {
+    logger.warn('重置桌面歌词位置失败', error);
+    return null;
+  }
+};
+
+/**
+ * 订阅歌词设置变化（设置窗/托盘改动时同步主窗口 UI）。
+ *
+ * @returns {() => void} 取消订阅；非壳环境返回空函数
+ */
+export const attachLyricsSettingsBridge = (handler, options = {}) => {
+  const scope = options.scope || globalThis;
+  const logger = options.logger || console;
+  if (!isDesktopShell(scope)) return () => {};
+  if (typeof handler !== 'function') return () => {};
+
+  const target = scope.window || scope;
+  if (typeof target?.addEventListener !== 'function') return () => {};
+
+  // Tauri 的事件监听通过 __TAURI__.event.listen 注册，不是 DOM 事件。
+  const listen = scope?.__TAURI__?.event?.listen;
+  if (typeof listen !== 'function') return () => {};
+
+  let unlisten = null;
+  let disposed = false;
+
+  listen(SHELL_LYRICS_SETTINGS_EVENT, (event) => {
+    try {
+      handler(event?.payload);
+    } catch (error) {
+      logger.warn('处理歌词设置事件失败', error);
+    }
+  })
+    .then((fn) => {
+      // 订阅完成前就被取消了：立即退订，避免泄漏。
+      if (disposed) {
+        if (typeof fn === 'function') fn();
+        return;
+      }
+      unlisten = fn;
+    })
+    .catch((error) => logger.warn('订阅歌词设置事件失败', error));
+
+  return () => {
+    disposed = true;
+    if (typeof unlisten === 'function') unlisten();
+  };
+};

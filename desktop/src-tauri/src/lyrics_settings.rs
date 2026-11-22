@@ -37,6 +37,13 @@ pub const FONT_SIZE_MINIMUM: u32 = 20;
 pub const FONT_SIZE_MAXIMUM: u32 = 64;
 pub const DEFAULT_FONT_SIZE: u32 = 36;
 
+/// 设置文件的结构版本。
+///
+/// 用途只有一个：让旧配置文件能被**一次性迁移**。
+/// v1 把默认 `click_through` 从 true 改成 false（穿透时控制条永远不出现），
+/// 老文件里没有这个字段 → 读到 0 → 触发迁移。
+pub const SCHEME_VERSION: u32 = 1;
+
 /// 已播放色，未播放色统一 `#EEEEEE`（与 config.py 的 8 套配色逐字一致）。
 pub const COLOR_SCHEMES: [(&str, &str); 8] = [
     ("珊瑚绯", "#FFC6C6"),
@@ -84,6 +91,13 @@ pub struct LyricsSettings {
     pub position_set: bool,
     pub position_x: i32,
     pub position_y: i32,
+    /// 结构版本，用于一次性迁移（见 `SCHEME_VERSION`）。
+    ///
+    /// **必须字段级 `#[serde(default)]`**：此时缺失取的是 `u32::default()` = 0，
+    /// 而不是结构体 `Default` 里的 `SCHEME_VERSION`。若缺字段也读成 1，
+    /// 旧配置文件就永远不会触发迁移——本意正好相反。
+    #[serde(default)]
+    pub scheme_version: u32,
 }
 
 impl Default for LyricsSettings {
@@ -91,14 +105,23 @@ impl Default for LyricsSettings {
         Self {
             // 默认显示，与旧实现 `desktop_lyrics_visible` 默认 true 一致。
             visible: true,
-            // 默认穿透，与旧实现 `_click_through = True` 及现有壳行为一致。
-            click_through: true,
+            // 默认**不**穿透（即可交互）。
+            //
+            // 旧实现默认穿透，但穿透时鼠标事件根本到不了歌词窗，控制条
+            // （`body:not(.passthrough) ... :hover`）就永远不会出现——用户看到的
+            // 就是「只有歌词、交互全无」。旧版靠托盘勾选解锁，而托盘在全屏游戏下
+            // 看不见，等于唯一入口被藏起来。
+            //
+            // 所以这里默认解锁：鼠标移到歌词上就能看到 5 个按钮。
+            // 玩游戏不想被挡时，从歌词控制条的「锁定」按钮或托盘勾选即可穿透。
+            click_through: false,
             font_preset: DEFAULT_FONT_PRESET.to_string(),
             font_size: DEFAULT_FONT_SIZE,
             color_scheme: DEFAULT_COLOR_SCHEME.to_string(),
             position_set: false,
             position_x: 0,
             position_y: 0,
+            scheme_version: SCHEME_VERSION,
         }
     }
 }
@@ -223,7 +246,24 @@ pub fn load(app: &AppHandle) -> LyricsSettings {
         }
     };
     match serde_json::from_slice::<LyricsSettings>(&bytes) {
-        Ok(settings) => settings.sanitized(),
+        Ok(settings) => {
+            let mut settings = settings.sanitized();
+            // 一次性迁移：v1 之前默认 click_through=true，而穿透状态下
+            // 控制条（靠 :hover 露出）永远不出现，用户看到的就是「只有歌词」。
+            // 老配置文件没有 scheme_version 字段（默认 0），据此把旧默认值的
+            // 穿透关掉一次；迁移后用户自己的选择会被尊重。
+            if settings.scheme_version < SCHEME_VERSION {
+                if settings.click_through {
+                    logging::info("迁移歌词设置：旧版默认穿透会让控制条无法出现，已改为可交互");
+                    settings.click_through = false;
+                }
+                settings.scheme_version = SCHEME_VERSION;
+                if let Err(error) = save(app, &settings) {
+                    logging::warn(format!("写回迁移后的歌词设置失败：{error}"));
+                }
+            }
+            settings
+        }
         Err(error) => {
             crate::logging::warn(format!("歌词设置已损坏，使用默认值：{error}"));
             LyricsSettings::default()
@@ -378,11 +418,18 @@ mod tests {
     fn defaults_match_legacy_implementation() {
         let settings = LyricsSettings::default();
         assert!(settings.visible, "旧实现 desktop_lyrics_visible 默认 true");
-        assert!(settings.click_through, "旧实现 _click_through 默认 true");
+        // 与旧实现**有意不同**：旧版默认穿透，但穿透时鼠标事件到不了歌词窗，
+        // 控制条的 :hover 永远不触发 → 用户只看到歌词、没有任何按钮。
+        // 新版默认可交互（按钮可用），用户主动点「锁定」才穿透。
+        assert!(
+            !settings.click_through,
+            "默认必须可交互，否则控制条永远不出现"
+        );
         assert_eq!(settings.font_size, 36);
         assert_eq!(settings.color_scheme, "珊瑚绯");
         assert_eq!(settings.font_preset, "微软雅黑");
         assert!(!settings.position_set, "未拖动过就不该有保存位置");
+        assert_eq!(settings.scheme_version, SCHEME_VERSION);
     }
 
     #[test]
@@ -458,8 +505,42 @@ mod tests {
         assert_eq!(clean.color_scheme, "雾银");
         // 未出现的字段用默认值，而不是 0 / false。
         assert!(clean.visible);
-        assert!(clean.click_through);
+        assert!(!clean.click_through, "默认不穿透，否则控制条出不来");
         assert_eq!(clean.font_preset, DEFAULT_FONT_PRESET);
+        assert_eq!(clean.scheme_version, 0, "缺字段即为旧文件，用于触发迁移");
+    }
+
+    #[test]
+    fn legacy_file_without_version_is_detected_for_migration() {
+        // 关键：旧配置文件（v1 之前）没有 scheme_version 字段，必须读成 0，
+        // 才能被 load() 里的迁移逻辑识别。读成 1 就永远不迁移，
+        // 用户会一直卡在「穿透 + 控制条不出现」的状态。
+        let raw = r#"{"visible":true,"click_through":true,"font_size":36}"#;
+        let settings: LyricsSettings = serde_json::from_str(raw).expect("应能解析旧文件");
+        assert_eq!(settings.scheme_version, 0, "旧文件必须读成版本 0");
+        assert!(settings.click_through, "旧文件里存的是穿透");
+        assert!(
+            settings.scheme_version < SCHEME_VERSION,
+            "版本 0 < 当前版本，load 会执行迁移"
+        );
+    }
+
+    #[test]
+    fn new_file_keeps_user_click_through_choice() {
+        // 迁移只对旧文件生效一次；新文件里用户选「锁定」必须被尊重，
+        // 不能在每次启动时被强行改回可交互。
+        let settings = LyricsSettings {
+            click_through: true,
+            scheme_version: SCHEME_VERSION,
+            ..Default::default()
+        };
+        let raw = serde_json::to_string(&settings).expect("应能序列化");
+        let back: LyricsSettings = serde_json::from_str(&raw).expect("应能解析");
+        assert_eq!(
+            back.scheme_version, SCHEME_VERSION,
+            "版本已是最新，不触发迁移"
+        );
+        assert!(back.click_through, "用户主动选择的锁定必须保持");
     }
 
     #[test]

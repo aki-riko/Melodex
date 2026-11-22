@@ -71,7 +71,7 @@ fn main() {
                 settings.font_size,
                 settings.color_scheme
             ));
-            app.manage(lyrics_settings::LyricsSettingsState::new(settings));
+            app.manage(lyrics_settings::LyricsSettingsState::new(settings.clone()));
 
             tray::configure_platform(app)?;
             tray::setup_tray(app)?;
@@ -101,16 +101,15 @@ fn main() {
             main_window::create_main_window(&handle, &site, visible)?;
 
             overlay::create_overlay_window(&handle)?;
-            // 默认鼠标穿透，与既有行为一致。
-            if let Err(error) = overlay::apply_click_through(&handle, true) {
+            // 穿透状态**跟随设置**，不再硬编码 true。
+            //
+            // 原先写死 true 会导致：设置里选了「未锁定」，重启后又回到穿透，
+            // 而穿透状态下鼠标事件到不了歌词窗，控制条（靠 :hover 露出）永远不出现。
+            if let Err(error) = overlay::apply_click_through(&handle, settings.click_through) {
                 logging::warn(error);
             }
 
-            // 配对设置窗：一律后台创建、**不再自动弹出**。
-            //
-            // 2026-11 架构变更后，桌面歌词走壳内直连、无需配对，
-            // 所以启动时没有任何理由挡住用户。需要时可从托盘「桌面歌词配对…」打开，
-            // 仅为兼容旧设备凭据的查看与清除而保留。
+            // 歌词设置窗：默认后台创建不弹出，从托盘「桌面歌词设置…」打开。
             settings_window::create_settings_window(&handle, false)?;
 
             Ok(())

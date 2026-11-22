@@ -107,7 +107,7 @@ assert.deepEqual(
   `这些命令没有授予任何窗口，等于没注册：${ungranted.join(', ')}`,
 );
 
-// ---------- 4. 安全边界：远程 origin 只能拿到歌词桥两条 ----------
+// ---------- 4. 安全边界：远程 origin 的 IPC 面必须逐个列举 ----------
 
 const bridge = JSON.parse(read('capabilities', 'lyrics-bridge.json'));
 assert.deepEqual(
@@ -123,10 +123,34 @@ assert.deepEqual(
 const bridgeCommands = (bridge.permissions || [])
   .filter((p) => p.startsWith('allow-'))
   .map((p) => p.slice('allow-'.length).replaceAll('-', '_'));
+
+// 远程页面能调的**全部**命令在此逐一列举。
+//
+// 为什么允许设置命令：旧 PrismQML 实现的 6 项歌词设置就在**主窗口设置页**
+// （SettingsPage.qml），用户点「设置」即可看到。新版照此放在 Web 设置页，
+// 因此需要给主窗口开放 lyrics_settings_get / lyrics_settings_update /
+// lyrics_reset_position 三条。
+//
+// 为什么这三条是安全的（与 lyrics_push_state 同理，语义自限）：
+//   - get：只返回本机歌词显示偏好（字号/配色/字体/位置），不含任何凭据；
+//   - update：只改本机歌词显示偏好，**不触碰文件系统/网络/进程**；
+//   - reset_position：只把歌词窗挪回默认位置。
+// 它们都不接受任意路径、URL 或命令名，最坏情况是「远程页面改了歌词颜色」，
+// 而这本来就是它自己要显示的内容。
+//
+// **新增任何一条都必须在此显式修改**，让评审必须看见——这是刻意的摩擦。
+const ALLOWED_REMOTE_COMMANDS = [
+  'lyrics_push_state',
+  'lyrics_send_command',
+  'lyrics_settings_get',
+  'lyrics_settings_update',
+  'lyrics_reset_position',
+];
+
 assert.deepEqual(
   [...bridgeCommands].sort(),
-  ['lyrics_push_state', 'lyrics_send_command'],
-  '远程 origin 只能拿到歌词桥两条命令（这是安全底线，禁止放宽）',
+  [...ALLOWED_REMOTE_COMMANDS].sort(),
+  '远程 origin 的命令集必须与白名单完全一致（新增必须显式改白名单并说明理由）',
 );
 assert.equal(
   (bridge.permissions || []).filter((p) => p.startsWith('core:')).length,
@@ -134,14 +158,20 @@ assert.equal(
   '禁止给远程 origin 开 core:* 权限',
 );
 
-// 本地窗口专用命令不得出现在远程 capability 里。
-const localOnly = registered.filter(
-  (cmd) => !['lyrics_push_state', 'lyrics_send_command'].includes(cmd),
-);
+// 其余命令（配对凭据、穿透控制、窗口位置写入、拖动）仍只给本地窗口。
+const localOnly = registered.filter((cmd) => !ALLOWED_REMOTE_COMMANDS.includes(cmd));
 for (const cmd of localOnly) {
   assert.ok(
     !bridgeCommands.includes(cmd),
     `${cmd} 是本地窗口命令，绝不能对远程 origin 开放`,
+  );
+}
+
+// 特别点名：凭据类命令永远不许出现在远程 capability 里。
+for (const forbidden of ['pair_device', 'clear_pairing', 'connection_config']) {
+  assert.ok(
+    !bridgeCommands.includes(forbidden),
+    `${forbidden} 涉及设备凭据，绝不允许远程页面调用`,
   );
 }
 
