@@ -897,7 +897,17 @@
 /* ---- ① 整屏封面 ----
    不是模糊底,是**实图铺满**:左半要让用户一眼认出是哪张专辑。
    object-fit 用 cover(等比裁切),不用 contain —— contain 会露出黑边,那一圈边
-   正是"这不是整屏背景"的证据。 */
+   正是"这不是整屏背景"的证据。
+
+   ★ 不要再加 blur(2026-11 用户第三次纠正:「专辑放大糊成啥样了」)——
+     原因有两层叠加:
+       ① 源图尺寸差异极大(实测缓存 507 张:4000px 的也有,300px 的也有),
+          小图放大到整屏必然软;
+       ② 再叠一层 blur(哪怕只有 6px),因为整屏放大了数倍,视觉上等于十几像素的糊。
+     所以这里 **blur 归零**,改用轻微提锐(contrast/saturate)+ 压暗来让它稳:
+     关掉模糊后封面是"实图",小图会显得软,但那是源图本身的限制,不是我们糊上去的。
+     小图的画质改善只能靠换更大尺寸的源(网易云封面 URL 支持 ?param=WxH,后续可在取图侧做),
+     不该靠"糊一层"来掩盖。 */
 .player-stage__backdrop {
   position: absolute;
   inset: 0;
@@ -910,11 +920,11 @@
   inset: 0;
   background-size: cover;
   background-position: center left;
-  /* 极轻的模糊(6px):纯锐图压满整屏会显得"一张图片贴上去",
-     但它必须**基本可辨** —— 所以只给 6px,不是上一版的 72px。 */
-  filter: blur(6px) saturate(115%) brightness(0.92);
-  transform: scale(1.06);
+  /* 只做轻微的饱和/对比调整,让压暗后的封面不显灰;不模糊、不放大 */
+  filter: saturate(108%) contrast(102%);
 }
+/* 注意:不再用 transform: scale(1.06)。那个放大原本是配 blur 用的(防边缘露底色),
+   现在没有 blur,放大只会白白损失锐度 —— inset:0 + cover 已经铺满了。 */
 .player-stage__backdrop-empty {
   position: absolute;
   inset: 0;

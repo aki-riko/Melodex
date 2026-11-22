@@ -347,12 +347,17 @@ assert.match(
   const backdropImg = css.match(/\.player-stage__backdrop-img\s*\{([\s\S]*?)\n\}/);
   assert.ok(backdropImg, '缺少 .player-stage__backdrop-img');
   assert.match(backdropImg[1], /background-size:\s*cover/, '封面必须 cover 铺满(contain 会露黑边,就不是整屏背景了)');
-  // 必须是"基本可辨"的封面,不能糊成一片色块
-  const blur = backdropImg[1].match(/blur\((\d+)px\)/);
-  assert.ok(blur, '封面层应有明确的 blur 值');
+  // ★ 整屏封面**不得再模糊**(2026-11 第三次纠正:"专辑放大糊成啥样了")。
+  //   整屏放大了数倍,哪怕 6px 的 blur 视觉上也等于十几像素的糊;叠加小尺寸源图就更明显。
   assert.ok(
-    Number(blur[1]) <= 12,
-    `封面模糊 ${blur[1]}px 太大 —— 用户要的是"整张专辑铺满屏幕"、能认出是哪张,不是一团糊色(上一版 72px 被否)`,
+    !/blur\(/.test(backdropImg[1]),
+    '整屏封面层不得使用 blur —— 它是实图铺满,模糊会让"认不出是哪张专辑";'
+    + '小图偏软是源图限制,应换更大的源(网易云支持 ?param=WxH),不要靠模糊掩盖',
+  );
+  // 也不要为了配 blur 而放大(放大既损失锐度又不必要)
+  assert.ok(
+    !/scale\(\s*1\.[0-9]/.test(backdropImg[1]),
+    '整屏封面不得 scale 放大 —— inset:0 + cover 已铺满,放大只会更糊',
   );
 
   // ② 横向渐隐层:必须存在 90deg 的 linear-gradient,且左侧透明、右侧接近实心
