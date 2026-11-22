@@ -189,6 +189,10 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
   日志可见 `global shortcut control+alt+Space -> toggle` 等。实测脚本在
   `desktop/prototype/scripts/send-shortcut.ps1`(用 keybd_event,不用 SendInput——
   后者在 PowerShell 里手搓 INPUT 联合体极容易算错 cbSize,实测直接返回 0)。
+- **真实站点形态已二次取证**(第二轮,加载 `https://music.9li.life/` 而非本地探针页):
+  `hasMediaSession/hasMediaMetadata/hasSetPositionState` 全为 true;
+  壳派发的 `melodex:shell-shortcut` 事件 `received:true`(薄桥链路成立);
+  硬件媒体键 `handler-play/pause/next` 均到达。**媒体键在真实页面已不是推断。**
 - 原 PrismQML 客户端过不去 Authentik SSO(`ApiClient.cpp` 里已有"被前置登录网关拦截"文案),
   这是本次重做的直接原因。
 
@@ -222,10 +226,12 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
 阶段 0 的验证脚手架保留在 `desktop/prototype/`(可整目录删除,证据已摘录进方案文档)。
 
 ### 未验证项(截至 2026-11-22,不要当成已修好)
-- **开机自启**:插件与菜单已接好,但**没有真的勾选并重启系统验证**。
-- **自动更新的端到端**:清单未部署,「检查→下载→安装→版本号变化」未在真实发布上跑通。
-- **SSO 全新登录**:壳内加载站点未跳 Authentik 已验证,但"全新机器首次登录"未覆盖。
-- **媒体键在新壳里**:阶段 0 用原型页面验的,新壳加载真实站点未重测(前端代码未变)。
+- **开机自启**:插件与菜单已接好,但**没有真的勾选并重启系统验证**(需动注册表,留待用户本人确认)。
+- **自动更新的端到端**:清单 `latest.json` 未部署,「检查→下载→安装→版本号变化」未在真实发布上跑通。
+  壳侧降级行为已验证(只记 WARN、不崩溃、不打扰)。
+- **SSO 全新登录**:壳内加载站点未跳 Authentik 已验证,但"全新机器首次登录"未覆盖,需用户人工走一遍。
+
+> 已澄清:**媒体键在真实站点页面成立**(第二轮取证),不再是未验证项。
 
 ## PrismQML 桌面原生播放(2026-07,**已被取代,保留待验收后删除**)
 

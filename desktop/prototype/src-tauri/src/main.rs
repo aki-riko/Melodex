@@ -186,6 +186,11 @@ fn main() {
 
 /// 注入到远程站点的诊断脚本。
 /// 只读：不改 DOM、不写存储、不上传任何站点数据，只把环境与 SW 状态发回本地回环端点。
+///
+/// 2026-11 追加（阶段 2/3 验收补充）：
+/// - 探测真实站点页面上 `navigator.mediaSession` 是否可用（新壳媒体键依赖它）；
+/// - 探测页面是否已注册 Service Worker 控制权（离线能力前提）；
+/// - 主动派发一次 `melodex:shell-shortcut` 事件，验证薄桥监听链路能收到。
 fn sw_probe_js() -> String {
     format!(
         r#"(function(){{
@@ -199,6 +204,7 @@ fn sw_probe_js() -> String {
     hasServiceWorker: 'serviceWorker' in navigator,
     hasMediaSession: 'mediaSession' in navigator,
     hasMediaMetadata: 'MediaMetadata' in window,
+    hasSetPositionState: !!(navigator.mediaSession && navigator.mediaSession.setPositionState),
     ua: navigator.userAgent,
     controller: (navigator.serviceWorker && navigator.serviceWorker.controller) ? navigator.serviceWorker.controller.scriptURL : null
   }};
@@ -221,6 +227,24 @@ fn sw_probe_js() -> String {
     }});
   }} else {{
     post(out);
+  }}
+
+  // 薄桥链路验证：真实站点是否能收到壳派发的快捷键事件。
+  // 注意：只观察，不触发任何播放动作——监听器是只读的。
+  try {{
+    var seen = false;
+    window.addEventListener('melodex:shell-shortcut', function(){{
+      seen = true;
+      post({{ kind: 'shortcut-event', received: true }});
+    }});
+    window.dispatchEvent(new window.CustomEvent('melodex:shell-shortcut', {{
+      detail: {{ action: 'probe' }}
+    }}));
+    setTimeout(function(){{
+      if (!seen) post({{ kind: 'shortcut-event', received: false }});
+    }}, 1200);
+  }} catch (e) {{
+    post({{ kind: 'shortcut-event', error: String(e) }});
   }}
 }})();"#,
         port = REPORT_PORT

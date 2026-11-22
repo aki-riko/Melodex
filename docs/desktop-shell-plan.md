@@ -104,6 +104,27 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File desktop\prototype\script
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File desktop\prototype\scripts\press-media-key.ps1 -Key next
 ```
 
+#### 补充取证（R1 第二轮，加载**真实站点**而非本地探针页）
+
+阶段 0 首轮用的是本地探针页。为了排除「只有本地页才行」的疑虑，第二轮让原型壳
+**加载真实站点 `https://music.9li.life/`** 并注入只读诊断脚本，结果：
+
+```json
+{"kind":"sw","href":"https://music.9li.life/","origin":"https://music.9li.life",
+ "isSecureContext":true,"hasServiceWorker":true,
+ "hasMediaSession":true,"hasMediaMetadata":true,"hasSetPositionState":true,
+ "controller":"https://music.9li.life/sw.js","registrations":["https://music.9li.life/"]}
+{"kind":"shortcut-event","received":true}
+```
+
+- **真实站点页面上 `mediaSession` 全套 API 可用**（含 `setPositionState`），
+  说明新壳依赖的媒体键能力在真实页面成立，不是本地页特例。
+- **壳派发的 `melodex:shell-shortcut` 事件能送达真实站点页面**（`received:true`），
+  阶段 2 的薄桥链路在真实站点上成立。
+- 随后对真实站点派发硬件媒体键：`handler-play` / `handler-pause` / `handler-next` 均到达。
+- 同轮再次印证会话争用语义：应用暂停后按键会被另一个 `Playing` 会话接走，
+  **恢复播放后立即恢复响应**。
+
 ### R2 线上站点 & SSO —— 🟡 **部分通过（需你人工确认登录态）**
 
 - `https://music.9li.life/` 在壳内直接加载成功，`on_navigation` 只记录到 `NAV https://music.9li.life/`。
