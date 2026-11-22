@@ -282,27 +282,65 @@ lyrics_reset_position / lyrics_save_position / lyrics_push_state / lyrics_send_c
 ```powershell
 cd desktop/src-tauri
 cargo fmt --check
-cargo test --locked          # 当前 33 项
+cargo test --locked          # 当前 39 项
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked
-cd ../ui; node lyricsSettings.test.mjs && node lyricsCore.test.mjs   # 20 项 + 核心
+cd ../ui; node lyricsSettings.test.mjs && node lyricsCore.test.mjs   # 36 项 + 核心 9 项
 cd ../../frontend
 npm run test:desktop-shell     # 17 项
-npm run test:desktop-lyrics    # 20 项（设置契约）
+npm run test:desktop-lyrics    # 36 项（设置契约）
 npm run test:shell-commands    # 命令清单三处对齐 + 远程权限边界
 node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
 ```
 日志落 `%LOCALAPPDATA%\life.9li.melodex.desktoplyrics\logs\shell.log`;
 **日志不得记录设备令牌或带签名的播放地址**。
 
-阶段 0 的验证脚手架保留在 `desktop/prototype/`(可整目录删除,证据已摘录进方案文档)。
+### 桌面歌词 1:1 复刻(2026-11-23,修掉四处真实缺陷)
+
+对照旧 PrismQML(`DesktopLyricsWindow.qml` / `WordFill.qml` / `cpp/Lyrics.cpp`
+/ `config.py` / `SettingsPage.qml`)逐项校准。**这些坑构建和类型检查都不会报**,
+只有人眼能发现,所以每一条都补了机器门禁:
+
+1. **CSS 类名与 HTML 对不上** → 整条定位规则被丢弃。CSS 写 `.lyric-row`、
+   HTML 用 `class="lyric-line"`,于是三层退化成普通流式块,`top`/`transform`
+   失去参照,歌词叠在一起、切行动画完全看不出。**改选择器务必先 grep 一遍 HTML。**
+2. **新行入场方向反了**:旧版 `incomingActiveY - activeLineY` =
+   `(主行高+副行高)/2`(字号36 → **+47px,从下往上升**);曾写成
+   `副行高-主行高`(-18px),变成从上方掉下来。
+3. **主行顶部偏移少了 32px**:旧版 `activeLineY = lyricSurface.y(32) + 12 = 44`,
+   曾写成 12 → 整块歌词上移,悬停控制条(`top:0` 高 38)**直接压住歌词**。
+4. **双击空白处关闭歌词缺失**:旧版 `WindowDragHandle.onDoubleClicked →
+   setLyricsVisible(false)`。补 `dblclick` 时要排除 `.controls`,
+   否则双击「上一首」会关掉歌词。
+
+同时补齐旧版有、新版缺的行为:
+
+- **行索引必须回退到同一时间戳分组首行**(`Lyrics.cpp:122-127`)。LRC 里合唱/
+  翻译常同戳多行;只取"最后一个 `t<=pos`"会停在组末,表现为合唱先亮最后一行。
+- **副行独立字号适配**(`DesktopLyricsWindow.qml:462-464`):旧版副行有自己的
+  `Text.Fit` + 下限 `max(14, 主行最小-4)`。复用主行缩放系数会让
+  「主行短 / 副行长」时副行溢出。
+- **副行左右各多缩 8px**(旧版 margin 42 vs 主行 34);`.adjacent` 曾有两处
+  重复定义且属性重叠,已合并。
+- **行可用宽度 = 窗口宽 - 92**(lyricSurface 内缩 12 + 行内 margin 34),
+  与旧版排得下同样长的句子;CSS `padding` 与 JS `LINE_HORIZONTAL_PADDING`
+  由门禁绑定,改一边必须改另一边。
+- **窗口几何随字号联动**:旧版是 QML 绑定表达式,Web 侧没有这层,必须显式调用。
+  宽 `min(920, max(640, 屏宽-96))`、高 `46 + (字号+20) + (副行字号+14) + 18`;
+  改字号后 `apply_window_geometry` 重算尺寸并 `clamp_to_visible_area`
+  (对应旧版 `onHeightChanged → clampToVisibleArea`)。
+- **位置保存前先 clamp**(旧版每次坐标变化都夹)。否则拖到屏幕外后存下的坐标
+  会让歌词"重启后消失"。为此新增本地命令 `overlay_clamp_position`
+  (**仅本地窗口**;远程白名单仍是 5 条不变)。
+- 纯逻辑核心抽到 `desktop/ui/lyricsCore.js`,数值行为由 `lyricsCore.test.mjs`
+  逐条对照 `cpp/Lyrics.cpp` 锁死。
 
 ### 未验证项(截至 2026-11-23,不要当成已修好)
 - **开机自启**:插件与菜单已接好,但**没有真的勾选并重启系统验证**(需动注册表,留待用户本人确认)。
 - **自动更新的端到端**:清单 `latest.json` 未部署,「检查→下载→安装→版本号变化」未在真实发布上跑通。
   壳侧降级行为已验证(只记 WARN、不崩溃、不打扰)。
 - **SSO 全新登录**:壳内加载站点未跳 Authentik 已验证,但"全新机器首次登录"未覆盖,需用户人工走一遍。
-- **控制条/设置页的真机观感(2026-11 新增)**:代码、编译、Rust 33 项单测、20 项设置契约全过,
+- **控制条/设置页的真机观感(2026-11 新增)**:代码、编译、Rust 39 项单测、36 项设置契约全过,
   但**没有人眼看过实际渲染**。旧实现的数值(212×38 / 32×30 / 8 套配色)是照 QML 抄的,
   而 WebView2 的字体渲染与 Qt 不完全一致 —— **像素级观感仍需用户目视确认后才算验收**。
   同理「拖动能存位置」「关闭后从托盘能重新打开」这类交互，需真机走一遍。
