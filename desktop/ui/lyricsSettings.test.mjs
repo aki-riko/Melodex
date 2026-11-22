@@ -291,6 +291,16 @@ test('位置保存前先夹回可视区（旧版 clampToVisibleArea）', () => {
   const saveFn = overlayJs.match(/const savePosition = async \([\s\S]*?\n\};/);
   assert.ok(saveFn, '找不到 savePosition');
   assert.match(saveFn[0], /overlay_clamp_position/, '保存前必须先回拉');
+
+  // 恢复位置后同样要夹（旧版 restorePosition 里紧跟 Qt.callLater(clampToVisibleArea)）：
+  // 显示器变化或字号变大后，旧坐标可能已在屏幕外。
+  const restoreFn = overlayJs.match(/const restorePosition = async \([\s\S]*?\n\};/);
+  assert.ok(restoreFn, '找不到 restorePosition');
+  assert.match(
+    restoreFn[0],
+    /overlay_clamp_position/,
+    '恢复位置后必须回拉，否则歌词可能整块落在屏幕外',
+  );
 });
 
 // ---------- 设置来源：必须是壳侧，不许回退 localStorage ----------

@@ -186,6 +186,15 @@ const savePosition = async () => {
   }
 };
 
+/**
+ * 恢复上次保存的位置 —— 复刻旧实现 `restorePosition`（DesktopLyricsWindow.qml:106-118）。
+ *
+ * ★ 恢复之后**必须立刻夹回可视区**（旧版是 `Qt.callLater(clampToVisibleArea)`）。
+ *   两个理由：
+ *   ① 显示器分辨率/排列变了（拔掉副屏、改缩放），旧坐标可能已经落在屏幕外；
+ *   ② 窗口高度随字号变化，同一 y 在更大字号下可能顶出底边。
+ *   不夹的话用户会遇到「歌词明明开着，但整块在屏幕外，怎么都看不见」。
+ */
 const restorePosition = async () => {
   if (!settings.position_set) return;
   try {
@@ -193,6 +202,7 @@ const restorePosition = async () => {
       x: Math.round(settings.position_x),
       y: Math.round(settings.position_y),
     });
+    await invoke('overlay_clamp_position');
   } catch (error) {
     console.warn('恢复桌面歌词位置失败', error);
   }
