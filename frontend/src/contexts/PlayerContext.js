@@ -3,7 +3,7 @@ import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart } fro
 import DesktopLyricsBridge from '../components/DesktopLyricsBridge';
 import SleepTimerControl from '../components/SleepTimerControl';
 import VolumeControl from '../components/VolumeControl';
-import { getStreamUrl, getPlaybackSegmentUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe } from '../services/musicdl';
+import { getStreamUrl, getPlaybackSegmentUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe, probePlaybackAvailability } from '../services/musicdl';
 import { deleteCachedSong, getPlayableCachedSong, touchCachedSong } from '../services/offlineAudio';
 import { useAuth } from './AuthContext';
 import { sourceLabel } from '../utils/sourceLabels';
@@ -1285,7 +1285,25 @@ const WebPlayerProvider = ({ children }) => {
     const canSwitchSource = !offline && cur.source && cur.source !== 'local' && cur.name && !switchTriedRef.current.has(switchKey);
     if (canSwitchSource) {
       switchTriedRef.current.add(switchKey);
-      setNotice(`「${cur.name}」当前源无法播放，正在自动换源…`);
+      // 换源前先问清"到底为什么放不出":
+      //
+      // 媒体元素拿不到 HTTP 响应头,后端其实已经按 classifyPlaybackOpenError 把
+      // 原因分好类并写进 X-Melodex-Playback-Reason / -Retryable,只是原生流这条路径
+      // 前端读不到。所以只在**已经失败**时补一次 Range: bytes=0-1 的探针(此时多一次
+      // 往返无所谓,开播路径不受影响),拿到真实原因后提示用户,而不是笼统一句"无法播放"。
+      // 真实事故(2026-11-22):酷我付费曲 fpay=1 连取址都不发 → 404,用户只看到
+      // "当前源无法播放,正在自动换源",既不知道是要会员,也不知道换源是不是正解。
+      let failureReason = '';
+      try {
+        const probe = await probePlaybackAvailability(cur);
+        if (probe && probe.ok === false && probe.reason) failureReason = probe.reason;
+      } catch { /* 探针失败不阻断换源 */ }
+      if (seqAtError !== playSeqRef.current || songIdentityKey(nowPlayingRef.current || {}) !== curKey) return;
+      setNotice(
+        failureReason
+          ? `「${cur.name}」${failureReason}，正在自动换源…`
+          : `「${cur.name}」当前源无法播放，正在自动换源…`,
+      );
       try {
         const replacement = await switchSongSource(cur);
         const replacementKey = songIdentityKey(replacement);
@@ -1316,8 +1334,15 @@ const WebPlayerProvider = ({ children }) => {
     const idx = list.findIndex((s) => songIdentityKey(s) === curKey);
     const nxt = list.slice(idx + 1).find((s) => !triedRef.current.has(songIdentityKey(s)));
     if (nxt) {
-      setNotice(`「${cur.name}」该源无法播放，已自动切换…`);
+      setNotice(
+        failureReason
+          ? `「${cur.name}」${failureReason}，已自动切换下一首…`
+          : `「${cur.name}」该源无法播放，已自动切换…`,
+      );
       startPlay(nxt);
+    } else if (failureReason) {
+      // 队列也到头了:这是用户唯一能看到的结论,必须说清原因和下一步该做什么。
+      setNotice(`「${cur.name}」${failureReason}。`);
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
     }

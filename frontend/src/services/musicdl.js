@@ -233,6 +233,48 @@ const buildDownloadParams = (song, extra = {}) => {
 export const getStreamUrl = (song) =>
   `${API_BASE}/music/download?${buildDownloadParams(song, { stream: '1' })}`;
 
+// 播放前预检:问后端"这个源现在能不能给出播放地址",并在失败时把**具体原因**带回来。
+//
+// 为什么需要:普通 <audio> 流式播放拿不到 HTTP 响应头 —— 一旦 404,前端只知道"放不出",
+// 不知道是"需要会员"还是"已下架"。用户侧表现就是点了没反应/自动跳下一首(2026-11-22
+// 真实事故:酷我付费曲 fpay=1 连取址请求都不发,直接 404)。
+// 这里只发 Range: bytes=0-1 的极小请求,代价可忽略,代价远小于"点了才知道放不出"。
+//
+// 返回 { ok:true } 或 { ok:false, reason, retryable }。
+export const probePlaybackAvailability = async (song, { signal } = {}) => {
+  const url = getStreamUrl(song);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Range: 'bytes=0-1' },
+      signal,
+    });
+    if (response.ok || response.status === 206) {
+      // 及时释放,别把连接挂在流上。
+      try { await response.body?.cancel?.(); } catch { /* ignore */ }
+      return { ok: true };
+    }
+    const headerReason = response.headers?.get?.('x-melodex-playback-reason') || '';
+    const retryableHeader = response.headers?.get?.('x-melodex-playback-retryable');
+    let retryable = true;
+    if (retryableHeader === '0') retryable = false;
+    else if (retryableHeader === '1') retryable = true;
+    try { await response.body?.cancel?.(); } catch { /* ignore */ }
+    return {
+      ok: false,
+      status: response.status || 0,
+      reason: headerReason || '',
+      retryable,
+    };
+  } catch (err) {
+    // 网络层失败(断网/被中断)不当作"这首歌不可用",交给正常播放流程处理。
+    if (err?.name === 'AbortError') return { ok: true, aborted: true };
+    return { ok: false, status: 0, reason: '', retryable: true, networkError: true };
+  }
+};
+
 // 锁屏连续播放分块：后端统一输出可独立重试、可追加到同一 MediaSource 的
 // FLAC/fMP4 短块。与普通 stream URL 分开，避免不支持 MSE 的浏览器受到影响。
 export const getPlaybackSegmentUrl = (song, chunkIndex = 0) =>

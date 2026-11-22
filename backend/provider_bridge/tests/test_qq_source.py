@@ -337,6 +337,63 @@ class QQSourceTests(unittest.TestCase):
         self.assertTrue(any("2001" in line for line in captured.output))
         self.assertEqual(len(backend.vkey_calls), 0)
 
+    def test_rate_limited_search_retries_then_recovers(self):
+        """2001 是"这次请求被限流", 不是"这首歌不存在" —— 必须重试后才能作罢。
+
+        真实事故(2026-11-22 NAS 生产): 同一关键词「遗症 格林」连续三次搜索得到
+        2001 / 2001 / 命中 mid=002kBeiE4F3SEj 的可播地址。旧实现第一次空结果就返回,
+        于是一首**库里确实存在且能播**的歌被静默丢失, 用户侧表现为"这首歌放不出来"。
+        """
+        class FlakyBackend(FakeBackend):
+            """前 N 次搜索回 code=2001, 之后正常返回。"""
+
+            def __init__(self, *args, fail_times=2, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.fail_times = fail_times
+                self.search_calls = 0
+
+            def __call__(self, client, payload, url=None):
+                if f"{qq_source.SEARCH_MODULE}.{qq_source.SEARCH_METHOD}" in payload:
+                    self.search_calls += 1
+                    if self.search_calls <= self.fail_times:
+                        self.calls.append({"cookie": getattr(client, "cookie", ""), "payload": payload})
+                        return search_response([], 2001)
+                return super().__call__(client, payload, url)
+
+        items = [song_item("AAA")]
+        backend = FlakyBackend(items, purl_by_quality={"quality": "M500"}, fail_times=2)
+        songs = self.run_search(backend, limit=5)
+        # 第 3 次搜索成功 → 歌必须被找回, 不能因为前两次限流就丢。
+        self.assertEqual([song["id"] for song in songs], ["AAA"])
+        self.assertEqual(backend.search_calls, 3)
+
+    def test_rate_limited_search_gives_up_after_budget(self):
+        """重试必须有上限: 一直限流时只重试 SEARCH_RATE_LIMIT_RETRIES 次, 不做无限重打。"""
+        backend = FakeBackend([], search_code=2001)
+        calls = {"n": 0}
+        original = backend.__call__
+
+        def counting(client, payload, url=None):
+            calls["n"] += 1
+            return original(client, payload, url)
+
+        with mock.patch.object(qq_source.time, "sleep"):  # 不真的等, 免得测试变慢
+            self.run_search(counting, limit=5)
+        self.assertEqual(calls["n"], 1 + qq_source.SEARCH_RATE_LIMIT_RETRIES)
+
+    def test_non_rate_limited_empty_search_does_not_retry(self):
+        """普通空结果(code=0 但没有歌)不重试 —— 既有语义, 免得把正常空结果拖成慢请求。"""
+        backend = FakeBackend([], search_code=0)
+        calls = {"n": 0}
+        original = backend.__call__
+
+        def counting(client, payload, url=None):
+            calls["n"] += 1
+            return original(client, payload, url)
+
+        self.run_search(counting, limit=5)
+        self.assertEqual(calls["n"], 1)
+
     # ---- 可观测性(/health 暴露的观测快照) ------------------------------
 
     def test_status_records_rate_limited_search(self):

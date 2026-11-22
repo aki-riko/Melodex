@@ -6,7 +6,7 @@
 // 真实事故背景:自建歌单页的音质整列显示 "—",原因是歌曲记录里根本没有
 // bitrate/ext(见 utils/songFields.js 的 songWritePayload),必须靠服务器副本来兜。
 
-import { qualityFromBitrate, qualityFromSong, qualityFromServerCopy, resolveQuality } from '../src/utils/quality.js';
+import { qualityFromBitrate, qualityFromSong, qualityFromServerCopy, resolveQuality, needsVip } from '../src/utils/quality.js';
 
 let failures = 0;
 const eq = (actual, expected, label) => {
@@ -114,9 +114,28 @@ eq(
 // 三者全空 → null(界面不显示,而不是显示 "—" 占位)
 eq(resolveQuality(null, null, { duration: 200 }), null, '无任何证据时应返回 null');
 
+// ---- 5. 「需会员」信号(needsVip) ----
+// 真实事故(2026-11-22):搜「遗症 格林」,酷我那条 is_vip=true / extra.needs_vip="1"
+// 且 is_invalid=true —— 酷我对付费曲连取址请求都不发,用户点播放直接 404。
+// 而 VIP 徽章此前只在 lg+ 显示,手机上根本看不见,用户点了才知道放不出。
+eq(needsVip({ is_vip: true }), true, 'is_vip=true 应判需会员');
+eq(needsVip({ is_vip: false }), false, 'is_vip=false 不应判需会员');
+eq(needsVip({ extra: { needs_vip: '1' } }), true, 'extra.needs_vip="1" 应判需会员(酷我真实返回形状)');
+eq(needsVip({ extra: { needs_vip: 1 } }), true, 'extra.needs_vip 数字 1 也应判需会员');
+eq(needsVip({ extra: { needs_vip: true } }), true, 'extra.needs_vip 布尔 true 也应判需会员');
+eq(needsVip({ extra: { needs_vip: '0' } }), false, 'needs_vip="0" 不应判需会员');
+eq(needsVip({ extra: { needs_vip: '' } }), false, 'needs_vip 空串不应判需会员(空值不等于付费)');
+eq(needsVip({ extra: {} }), false, '无该字段不应判需会员');
+eq(needsVip({ extra: null }), false, 'extra 为 null 不应崩');
+eq(needsVip({}), false, '空对象不应判需会员');
+eq(needsVip(null), false, 'null 入参不应崩');
+// 免费曲不能因为别的字段被误判 —— 酷我免费曲不写 needs_vip,只写副歌点位。
+eq(needsVip({ is_vip: false, extra: { chorus_start_ms: '74562', chorus_end_ms: '113517' } }), false,
+  '只有副歌点位(免费曲也有)绝不能判成需会员');
+
 if (failures > 0) {
   console.error(`\nquality 契约测试失败 ${failures} 项`);
   process.exitCode = 1;
 } else {
-  console.log('quality 契约测试通过：码率分档 / 扩展名归一 / 副本反推 / 三路优先级 / 零值防护全部符合预期。');
+  console.log('quality 契约测试通过：码率分档 / 扩展名归一 / 副本反推 / 三路优先级 / 零值防护 / 需会员判定全部符合预期。');
 }

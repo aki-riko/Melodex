@@ -35,7 +35,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import requests
 
@@ -97,6 +97,24 @@ PROBE_CONCURRENCY = 16
 # 早先的 8s 会让单个卡住的 CDN 节点拖住整层。
 PROBE_TIMEOUT_SECONDS = 2
 DEVICE_ID_FILE = "qq-device-id"
+# 搜索被 code=2001 限流时的重试策略。
+#
+# 为什么必须重试: 2001 不是"这首歌不存在", 而是"这次请求被限流"。实测(2026-11-22,
+# NAS 生产出口 IP)对关键词「遗症 格林」做完整搜索: 第 1 次 code=2001, **第 1 次重试就
+# 命中** mid=002kBeiE4F3SEj(ogg 174k, is_invalid=false) —— 也就是说一次空结果就放弃,
+# 会把一首**库里确实存在且能播**的歌静默丢掉, 用户侧表现为"这首歌搜不到/放不出来"。
+# 近 20 小时这种 2001 出现了 188 次, 属于必须自己扛掉的常态抖动, 不是故障。
+#
+# 退避间隔是实测调出来的, 有两个反例要记住:
+#   1. 0.4s / 0.9s → 连续 3 次全是 2001(太密, 上游窗口没走完), 从开发机和 NAS 都复现;
+#   2. 改 1.0s / 2.0s 后, 同一关键词在 NAS 上一次重试即命中。
+# 另一个独立观测: 限流解除后窗口很短(实测某次间隔 5s 的轮询在 0.6s 处就已 code=0),
+# 说明 2001 通常是**瞬时**限流而非长封锁 —— 这正是短退避重试有效的前提。
+# 总代价 +3s, QQ 本身 1~2s, 仍在 Go 侧 12s 的搜索预算内。
+SEARCH_RATE_LIMIT_RETRIES = 2
+SEARCH_RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0)
+# QQ 用 2001 表示"这次搜索被限流"(不是"这首歌不存在"), 是暂时性空结果。
+SEARCH_RATE_LIMIT_CODE = 2001
 DOWNLOAD_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
@@ -501,6 +519,36 @@ def _search_items(
     code = _integer(node.get("code"))
     items = ((node.get("data") or {}).get("body") or {}).get("item_song") or []
     return [item for item in items if isinstance(item, dict)], code
+
+
+def _search_items_with_retry(
+    client: PlatformHTTP,
+    keyword: str,
+    limit: int,
+    device_id: str,
+    search_type: int = SEARCH_TYPE_SONG,
+    *,
+    on_retry: Callable[[int, int], None] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """搜索, 并对 code=2001(限流) 做有限次退避重试。
+
+    只重试"被限流且没有任何候选"这一种情况: 那是**暂时性**的空结果, 等一下就可能有货。
+    其余情况(真的没有这首歌、code=0 但结果为空)不重试, 避免把正常空结果拖成慢请求。
+
+    非限流的空结果维持原有语义(一次就返回), 这条既有行为有测试锁定, 不要改成"空就重试"。
+    """
+    items, code = _search_items(client, keyword, limit, device_id, search_type)
+    attempt = 0
+    while not items and code == SEARCH_RATE_LIMIT_CODE and attempt < SEARCH_RATE_LIMIT_RETRIES:
+        index = min(attempt, len(SEARCH_RATE_LIMIT_BACKOFF_SECONDS) - 1)
+        delay = SEARCH_RATE_LIMIT_BACKOFF_SECONDS[index] if SEARCH_RATE_LIMIT_BACKOFF_SECONDS else 0.0
+        if delay > 0:
+            time.sleep(delay)
+        attempt += 1
+        if on_retry is not None:
+            on_retry(attempt, code)
+        items, code = _search_items(client, keyword, limit, device_id, search_type)
+    return items, code
 
 
 def _probe_media_url(url: str, cookie: str) -> tuple[bool, int]:
@@ -997,7 +1045,13 @@ def search(
     # 搜索这一步按实测形状走匿名请求(不需要也不发送凭证);凭证只在取地址时使用。
     client = PlatformHTTP("", session)
 
-    items, code = _search_items(client, keyword, limit, device_id, search_type)
+    items, code = _search_items_with_retry(
+        client, keyword, limit, device_id, search_type,
+        on_retry=lambda attempt, retry_code: LOGGER.warning(
+            "[qq] 搜索被限流 code=%s, 第 %d/%d 次重试 keyword=%r 凭证=%s",
+            retry_code, attempt, SEARCH_RATE_LIMIT_RETRIES, keyword, state["summary"],
+        ),
+    )
     if not items:
         # 不允许静默返回空:被限流/被拒绝时必须留下可排查痕迹。
         LOGGER.warning(

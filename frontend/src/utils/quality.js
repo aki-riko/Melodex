@@ -70,3 +70,33 @@ export const resolveQuality = (liveInfo, serverCopy, song) => {
   }
   return qualityFromServerCopy(serverCopy, song) || qualityFromSong(song);
 };
+
+// 「这个源拿不到完整音频,必须开会员」——与"能不能播"是两个独立信号。
+//
+// 真实事故(2026-11-22):用户搜「遗症 格林」,列表里那条来自酷我(kuwo)的结果
+// is_vip=true / extra.needs_vip="1" / is_invalid=true —— 酷我侧判定为付费曲时
+// **连取址请求都不发**(省一次往返,且防止把 11 秒试听片段当整曲交付)。于是用户
+// 点播放拿到 404,表现成"放不出来"。而 VIP 徽章此前是 `hidden lg:inline-flex`,
+// 手机上根本看不见 —— 用户是点了之后才知道放不出。
+//
+// 判据取两个来源,任一命中即算:① 规范化后的 is_vip ② 上游显式写进 extra 的
+// needs_vip="1"(kuwo_source.build_payload 会写)。extra 里的值可能是字符串
+// "1"、数字 1 或布尔 true,统一按"非空且不等于 0/false"判定。
+const flagOn = (value) => {
+  if (value === true) return true;
+  if (value == null) return false;
+  const text = String(value).trim().toLowerCase();
+  return text !== '' && text !== '0' && text !== 'false' && text !== 'no';
+};
+
+export const needsVip = (song) => {
+  if (!song || typeof song !== 'object') return false;
+  if (flagOn(song.is_vip)) return true;
+  const extra = song.extra;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
+  return flagOn(extra.needs_vip);
+};
+
+// 列表里给用户看的说明文字:为什么这条点了可能放不出、该怎么办。
+export const vipHintText = '当前源需要会员才能播放完整音频，可换源或到设置里登录该平台会员';
+

@@ -400,6 +400,34 @@ func serveSodaTrack(c *gin.Context, request mediaDownloadRequest, settings core.
 	http.ServeContent(c.Writer, c.Request, filename, time.Now(), bytes.NewReader(decrypted))
 }
 
+// serveStreamUnavailable 统一处理"这个源现在给不出播放地址"。
+//
+// 为什么要单独抽出来并把原因带给前端(2026-11-22 真实事故):
+// 搜「遗症 格林」时列表里那条来自酷我,而酷我对付费曲(fpay=1)**连取址请求都不发**
+// (省一次往返,且防止把 11 秒试听片段当整曲交付)。旧实现只回一句
+// "Failed to get URL" + 404,前端拿不到任何原因,只能笼统提示"当前源无法播放,
+// 正在自动换源" —— 用户既不知道是"需要会员",也不知道换源是不是正解。
+//
+// classifyPlaybackOpenError 早就能把「限流(可重试)/付费·下架(不可重试)/其他」分开,
+// MSE 分块链路也一直在用它,唯独原生流这条 404 路径此前没接上。这里补齐,
+// 响应头约定与分块链路完全一致:X-Melodex-Playback-Retryable + X-Melodex-Playback-Reason。
+func serveStreamUnavailable(c *gin.Context, track *model.Track, err error) {
+	if track != nil {
+		markQualityCacheInvalid(*track)
+	}
+	if err == nil {
+		err = errors.New("provider returned empty download URL")
+	}
+	reason, retryable := classifyPlaybackOpenError(err)
+	if track != nil {
+		log.Printf("[stream] 取不到播放地址 source=%q id=%q retryable=%t: %v (%s)",
+			track.Source, track.ID, retryable, err, reason)
+	}
+	c.Header("X-Melodex-Playback-Retryable", boolFlag(retryable))
+	c.Header("X-Melodex-Playback-Reason", reason)
+	c.String(http.StatusNotFound, "Failed to get URL")
+}
+
 func serveProviderTrack(c *gin.Context, request mediaDownloadRequest, settings core.WebSettings) {
 	resolve := core.GetDownloadFunc(request.track.Source)
 	if resolve == nil {
@@ -408,8 +436,7 @@ func serveProviderTrack(c *gin.Context, request mediaDownloadRequest, settings c
 	}
 	mediaURL, err := resolve(request.track)
 	if err != nil || strings.TrimSpace(mediaURL) == "" {
-		markQualityCacheInvalid(*request.track)
-		c.String(http.StatusNotFound, "Failed to get URL")
+		serveStreamUnavailable(c, request.track, err)
 		return
 	}
 	if fetch, handled, rangeError := core.NewSourceRangeFetch(mediaURL, request.track.Source, request.requestedRange); handled || rangeError != nil {

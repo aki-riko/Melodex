@@ -43,7 +43,7 @@ import HighlightedLyricMatch from './HighlightedLyricMatch';
 import { MenuPopover, MenuItem, MenuDivider } from '../ui/Menu';
 import { useBackLayer } from '../contexts/backNavigation.js';
 import { cn } from '../ui/cn';
-import { resolveQuality } from '../utils/quality';
+import { resolveQuality, needsVip, vipHintText } from '../utils/quality';
 
 const fmtSec = (sec) => (sec ? formatDuration(sec) : '—');
 
@@ -214,6 +214,10 @@ const SongRow = ({
   // (自建歌单、最近播放就是这种情况),也能显示真实音质与大小。
   const serverCopy = downloadedCopy(rowSong);
   const q = resolveQuality(effectiveLiveInfo, serverCopy, rowSong);
+  // 需要会员才能拿到完整音频(酷我等源对付费曲连取址请求都不发)。
+  // 必须在手机上也能看见:此前 VIP 徽章是 `hidden lg:inline-flex`,手机端完全看不到,
+  // 用户点了播放拿到 404 才知道放不出(2026-11-22 真实事故)。
+  const vipOnly = needsVip(rowSong);
   const sizeLabel = formatBytes(
     effectiveLiveInfo?.sizeBytes || serverCopy?.size_bytes || rowSong.size,
   );
@@ -498,7 +502,12 @@ const SongRow = ({
               导致每行高度翻倍、列表显得又稀又乱,所以只在 lg+ 显示。 */}
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 type-caption text-muted-foreground">
             <span className="max-w-[12rem] truncate">{rowSong.artist || '未知歌手'}</span>
-            {rowSong.is_vip && <Badge tone="vip" className="hidden lg:inline-flex">VIP</Badge>}
+            {/* VIP 徽章不再限定 lg+:它解释的是"这条点了为什么放不出",属于决策信息,
+                必须手机上也可见(见上方 vipOnly 的注释)。其余展示型徽章仍只在 lg+ 显示,
+                避免 375px 下把信息区挤成三四行。 */}
+            {vipOnly && (
+              <Badge tone="vip" title={vipHintText}>VIP</Badge>
+            )}
             {q && <Badge tone={q.tone} title={q.title}>{q.label}</Badge>}
             {instrumentalLabel && <Badge tone="warn" className="hidden lg:inline-flex">{instrumentalLabel}</Badge>}
             {inspectState === 'checking' && <Badge tone="neutral">验证中</Badge>}
