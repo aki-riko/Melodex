@@ -78,7 +78,8 @@ import {
   stageShowsLyrics,
   stageToneNext,
 } from './playerStage.mjs';
-import { StageLayoutSwitch, StageToneToggle } from '../components/PlayerStageChrome';import {
+import { StageLayoutSwitch, StageToneToggle } from '../components/PlayerStageChrome';
+import {
   TAP_SLOP_PX, dragOffset, lockSwipeAxis, marqueeDurationSec, miniEnterKind, resolveSwipe,
 } from './playerMiniSwipe.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
