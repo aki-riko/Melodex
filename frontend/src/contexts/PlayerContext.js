@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart } from 'lucide-react';
-import DesktopLyricsBridge from '../components/DesktopLyricsBridge';
+import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart, Captions } from 'lucide-react';
+import { pushRouteEntry } from './routeHistory.js';
+import {
+  desktopLyricsProgressMessage,
+  desktopLyricsTrackMessage,
+} from './playerDesktopLyrics';
 import SleepTimerControl from '../components/SleepTimerControl';
 import VolumeControl from '../components/VolumeControl';
 import { getStreamUrl, getPlaybackSegmentUrl, coverProxyUrl, getLyric, getFavoriteStatus, toggleFavorite, saveToServer, serverSaveSucceeded, recordPlayHistory, reportPlaybackDiagnostic, switchSource as switchSongSource, getMe, probePlaybackAvailability } from '../services/musicdl';
@@ -20,7 +24,7 @@ import {
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
 import { autoDownloadOnPlayPlan, retainAutoDownloadAttempt } from './playerAutoDownload.js';
-import { attachDesktopShellBridge } from '../platform/desktopShell.js';
+import { attachDesktopShellBridge, attachLyricsCommandBridge, isDesktopShell, pushLyricsState } from '../platform/desktopShell.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
 import {
   beginPlaybackTransition,
@@ -1411,6 +1415,47 @@ const WebPlayerProvider = ({ children }) => {
     });
   }, [next, pauseWithFade, prev, resumeWithFade]);
 
+  // 桌面壳：把当前歌词状态推给本机歌词窗（壳内直连，不需要配对）。
+  // 浏览器里 pushLyricsState 直接返回 false，不产生任何副作用。
+  // 只在壳内生效，且壳未打开歌词窗时也不影响播放。
+  useEffect(() => {
+    if (!isDesktopShell()) return;
+    const trackMessage = desktopLyricsTrackMessage({
+      track: nowPlaying,
+      lines: lrc,
+      position: progress.cur,
+      duration: progress.dur,
+      paused: isPaused,
+      currentIndex: lyricIdx,
+    });
+    pushLyricsState(trackMessage).catch(() => {});
+    // 切歌/歌词变化才推整包；进度用下面的定时器推。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowPlaying?.id, nowPlaying?.source, lrc, lyricIdx]);
+
+  useEffect(() => {
+    if (!isDesktopShell()) return undefined;
+    const timer = window.setInterval(() => {
+      const message = desktopLyricsProgressMessage({
+        position: progress.cur,
+        duration: progress.dur,
+        paused: isPaused,
+        currentIndex: lyricIdx,
+      });
+      pushLyricsState(message).catch(() => {});
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [isPaused, lyricIdx, progress.cur, progress.dur]);
+
+  // 桌面壳：接收歌词窗按钮发来的控制命令。
+  useEffect(() => {
+    return attachLyricsCommandBridge({
+      toggle: () => { togglePlay(); },
+      prev,
+      next,
+    });
+  }, [next, prev, togglePlay]);
+
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -2027,17 +2072,15 @@ export const PlayerBar = () => {
               {modeIcon}
             </button>
             <SleepTimerControl {...sleepTimerControlProps} align="center" />
-            <DesktopLyricsBridge
-              song={nowPlaying}
-              lines={lrc}
-              activeIndex={lyricIdx}
-              currentTime={progress.cur}
-              duration={progress.dur}
-              isPaused={isPaused}
-              onTogglePlay={togglePlay}
-              onPrev={prev}
-              onNext={next}
-            />
+            <button
+              type="button"
+              onClick={() => { pushRouteEntry('settings'); }}
+              aria-label="桌面歌词"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="桌面歌词（桌面客户端内自动同步，无需配对）"
+            >
+              <Captions size={19} />
+            </button>
             {/* 右:进度条 */}
             <div className="flex items-center gap-2 flex-grow min-w-0">
               <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>

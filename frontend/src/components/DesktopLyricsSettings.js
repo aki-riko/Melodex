@@ -1,90 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { useQuery } from 'react-query';
-import { Check, Copy, MonitorUp, RefreshCw, Trash2 } from 'lucide-react';
-import {
-  createDesktopLyricsPairing,
-  getDesktopLyricsDevices,
-  revokeDesktopLyricsDevice,
-} from '../services/musicdl';
-import { useFeedback } from '../contexts/FeedbackContext';
+import React from 'react';
+import { MonitorUp } from 'lucide-react';
+import { isDesktopShell } from '../platform/desktopShell.js';
 
-const fmtDeviceTime = (value) => {
-  if (!value) return '尚未连接';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString('zh-CN');
-};
-
+/**
+ * 桌面歌词说明。
+ *
+ * 2026-11 架构变更：旧版是「浏览器播放 + 独立歌词助手」，跨进程所以需要
+ * 一次性配对码 + 设备令牌。新客户端里播放与歌词窗在同一进程内，
+ * 壳直接转发状态，**开箱即用、无需配对**。
+ *
+ * 这里因此不再提供配对码生成/设备管理，只说明用法与前提。
+ */
 const DesktopLyricsSettings = () => {
-  const feedback = useFeedback();
-  const devices = useQuery(['desktop-lyrics-devices'], getDesktopLyricsDevices);
-  const [pairing, setPairing] = useState(null);
-  const [remaining, setRemaining] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!pairing?.expires_at) {
-      setRemaining(0);
-      return undefined;
-    }
-    const update = () => {
-      const ms = new Date(pairing.expires_at).getTime() - Date.now();
-      setRemaining(Math.max(0, Math.ceil(ms / 1000)));
-    };
-    update();
-    const timer = window.setInterval(update, 1000);
-    return () => window.clearInterval(timer);
-  }, [pairing]);
-
-  const createPairing = async () => {
-    setBusy(true);
-    setError('');
-    setCopied(false);
-    try {
-      setPairing(await createDesktopLyricsPairing());
-    } catch (requestError) {
-      console.warn('生成桌面歌词配对码失败', requestError);
-      setError(requestError?.response?.data?.error || requestError?.message || '生成配对码失败');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const copyCode = async () => {
-    if (!pairing?.code) return;
-    try {
-      await navigator.clipboard.writeText(pairing.code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch (copyError) {
-      console.warn('复制桌面歌词配对码失败', copyError);
-      setError('复制失败，请手动选中配对码');
-    }
-  };
-
-  const revoke = async (device) => {
-    // 原生 window.confirm 会阻塞浏览器、无法 Esc、样式与全站无关,改用统一确认框。
-    const ok = await feedback.confirm({
-      title: `移除「${device.name}」?`,
-      body: '移除后该桌面歌词助手必须重新配对才能连接。',
-      confirmLabel: '移除',
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await revokeDesktopLyricsDevice(device.id);
-      await devices.refetch();
-      feedback.success('已移除该设备');
-    } catch (requestError) {
-      console.warn('移除桌面歌词设备失败', requestError);
-      setError(requestError?.response?.data?.error || requestError?.message || '移除设备失败');
-      feedback.error('移除设备失败，请稍后重试');
-    }
-  };
-
-  const list = devices.data || [];
-  const codeExpired = pairing && remaining <= 0;
+  const inShell = isDesktopShell();
 
   return (
     <section className="mb-8">
@@ -92,84 +20,28 @@ const DesktopLyricsSettings = () => {
         <div>
           <h3 className="text-xl font-semibold">透明桌面歌词</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            支持 Windows 和 macOS。浏览器继续播放，原生助手只显示无边框透明歌词并回传上/暂停/下一首。
+            在桌面客户端内播放时，歌词会自动显示为无边框透明窗口，始终置顶并支持鼠标穿透。
           </p>
         </div>
         <MonitorUp className="flex-shrink-0 text-primary" size={24} />
       </div>
 
       <div className="rounded-md border border-border surface p-4">
-        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-          <li>安装并打开 Melodex 桌面歌词助手。</li>
-          <li>助手中填写当前 Melodex 服务地址；不要填写具体 API 路径。</li>
-          <li>点击下方按钮，把五分钟内有效的配对码填入助手。</li>
-        </ol>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={createPairing}
-            disabled={busy}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-          >
-            {busy ? '正在生成…' : '生成一次性配对码'}
-          </button>
-          {pairing?.code && (
-            <button
-              type="button"
-              onClick={copyCode}
-              disabled={codeExpired}
-              className="flex items-center gap-2 rounded-md border border-border bg-secondary px-3 py-2 font-mono text-lg font-semibold tracking-wider disabled:opacity-50"
-              title="复制配对码"
-            >
-              {pairing.code}
-              {copied ? <Check size={17} className="text-primary" /> : <Copy size={17} />}
-            </button>
-          )}
-          {pairing?.code && (
-            <span className={`text-xs ${codeExpired ? 'text-destructive-text' : 'text-muted-foreground'}`}>
-              {codeExpired ? '已过期，请重新生成' : `${remaining} 秒后过期；使用一次即失效`}
-            </span>
-          )}
-        </div>
-        {error && <p className="mt-3 text-sm text-destructive-text">{error}</p>}
-      </div>
-
-      <div className="mt-4 rounded-md border border-border surface">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <p className="font-semibold">已配对助手</p>
-          <button
-            type="button"
-            onClick={() => devices.refetch()}
-            className="text-muted-foreground transition-colors hover:text-foreground"
-            title="刷新设备列表"
-            aria-label="刷新设备列表"
-          >
-            <RefreshCw size={17} className={devices.isFetching ? 'animate-spin' : ''} />
-          </button>
-        </div>
-        {devices.isLoading && <p className="px-4 py-3 text-sm text-muted-foreground">正在读取设备…</p>}
-        {!devices.isLoading && list.length === 0 && (
-          <p className="px-4 py-3 text-sm text-muted-foreground">尚未配对 Windows 或 macOS 助手。</p>
-        )}
-        {list.map((device) => (
-          <div key={device.id} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0">
-            <div className="min-w-0 flex-grow">
-              <p className="truncate font-medium">{device.name}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                最近连接：{fmtDeviceTime(device.last_seen_at)}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => revoke(device)}
-              className="text-muted-foreground transition-colors hover:text-destructive-text"
-              title="移除设备"
-              aria-label={`移除 ${device.name}`}
-            >
-              <Trash2 size={17} />
-            </button>
+        {inShell ? (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>无需配对：客户端内播放有歌词的歌曲时会自动出现。</li>
+            <li>歌词窗按钮可直接上一首 / 播放暂停 / 下一首。</li>
+            <li>默认鼠标穿透；需要拖动或点按钮时，从系统托盘取消「歌词鼠标穿透」。</li>
+            <li>关闭歌词窗不会退出客户端，可从托盘重新唤出主窗口。</li>
+          </ul>
+        ) : (
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>桌面歌词需要 Melodex 桌面客户端，当前是浏览器环境，没有原生歌词窗口。</p>
+            <p>
+              请安装并打开桌面客户端后再播放；浏览器内仍可在播放页查看逐字歌词与留声机视图。
+            </p>
           </div>
-        ))}
+        )}
       </div>
     </section>
   );

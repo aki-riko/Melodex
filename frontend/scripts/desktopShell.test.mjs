@@ -8,9 +8,13 @@
 import assert from 'node:assert/strict';
 import {
   attachDesktopShellBridge,
+  attachLyricsCommandBridge,
+  getShellInvoke,
   isDesktopShell,
   normalizeShellAction,
+  pushLyricsState,
   SHELL_ACTIONS,
+  SHELL_LYRICS_COMMAND_EVENT,
   SHELL_SHORTCUT_EVENT,
 } from '../src/platform/desktopShell.js';
 
@@ -135,6 +139,103 @@ test('normalizeShellAction 接受裸字符串与对象两种形态', () => {
   assert.equal(normalizeShellAction({ action: 'unknown' }), null);
   assert.equal(normalizeShellAction(undefined), null);
   assert.equal(normalizeShellAction(42), null);
+});
+
+// ---------- 桌面歌词壳内直连 ----------
+
+test('getShellInvoke 兼容两种 Tauri 通道', () => {
+  const fn = () => {};
+  assert.equal(getShellInvoke({ __TAURI_INTERNALS__: { invoke: fn } }), fn);
+  assert.equal(getShellInvoke({ __TAURI__: { core: { invoke: fn } } }), fn);
+  assert.equal(getShellInvoke({}), null);
+});
+
+test('浏览器里 pushLyricsState 直接返回 false，不调用任何通道', async () => {
+  let called = 0;
+  const ok = await pushLyricsState(
+    { type: 'track' },
+    { scope: { window: fakeWindow() }, invoke: () => { called += 1; }, logger: silentLogger },
+  );
+  assert.equal(ok, false);
+  assert.equal(called, 0, '浏览器里不得调用 invoke');
+});
+
+test('壳内 pushLyricsState 调用 lyrics_push_state 并带上 state', async () => {
+  const calls = [];
+  const scope = { __TAURI_INTERNALS__: {}, window: fakeWindow() };
+  const ok = await pushLyricsState(
+    { type: 'track', position: 3 },
+    { scope, invoke: (...args) => { calls.push(args); }, logger: silentLogger },
+  );
+  assert.equal(ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'lyrics_push_state');
+  assert.equal(calls[0][1].state.type, 'track');
+});
+
+test('非法状态类型不调用 invoke', async () => {
+  const warnings = [];
+  let called = 0;
+  const scope = { __TAURI_INTERNALS__: {}, window: fakeWindow() };
+  const ok = await pushLyricsState(
+    { type: 'evil' },
+    { scope, invoke: () => { called += 1; }, logger: { warn: (...a) => warnings.push(a) } },
+  );
+  assert.equal(ok, false);
+  assert.equal(called, 0);
+  assert.equal(warnings.length, 1);
+});
+
+test('invoke 抛错时 pushLyricsState 返回 false 且记日志', async () => {
+  const warnings = [];
+  const scope = { __TAURI_INTERNALS__: {}, window: fakeWindow() };
+  const ok = await pushLyricsState(
+    { type: 'progress' },
+    { scope, invoke: () => { throw new Error('boom'); }, logger: { warn: (...a) => warnings.push(a) } },
+  );
+  assert.equal(ok, false);
+  assert.equal(warnings.length, 1);
+});
+
+test('attachLyricsCommandBridge 在浏览器里零副作用', () => {
+  const win = fakeWindow();
+  const dispose = attachLyricsCommandBridge(
+    { toggle: () => {} },
+    { scope: { window: win }, logger: silentLogger },
+  );
+  assert.equal(win.listeners.size, 0);
+  dispose();
+  assert.equal(win.listeners.size, 0);
+});
+
+test('壳内歌词命令白名单生效', () => {
+  const win = fakeWindow();
+  const calls = [];
+  attachLyricsCommandBridge(
+    { prev: () => calls.push('prev'), toggle: () => calls.push('toggle'), next: () => calls.push('next') },
+    { scope: { __TAURI_INTERNALS__: {}, window: win }, logger: silentLogger },
+  );
+  assert.ok(win.listeners.has(SHELL_LYRICS_COMMAND_EVENT));
+
+  win.dispatch(SHELL_LYRICS_COMMAND_EVENT, { detail: { command: 'toggle' } });
+  win.dispatch(SHELL_LYRICS_COMMAND_EVENT, { detail: { command: 'next' } });
+  win.dispatch(SHELL_LYRICS_COMMAND_EVENT, { detail: { command: 'drop-tables' } });
+  win.dispatch(SHELL_LYRICS_COMMAND_EVENT, { detail: null });
+  assert.deepEqual(calls, ['toggle', 'next'], '只应执行白名单内的命令');
+});
+
+test('歌词命令取消监听后不再响应', () => {
+  const win = fakeWindow();
+  let count = 0;
+  const dispose = attachLyricsCommandBridge(
+    { toggle: () => { count += 1; } },
+    { scope: { __TAURI_INTERNALS__: {}, window: win }, logger: silentLogger },
+  );
+  win.dispatch(SHELL_LYRICS_COMMAND_EVENT, { detail: { command: 'toggle' } });
+  assert.equal(count, 1);
+  dispose();
+  win.dispatch(SHELL_LYRICS_COMMAND_EVENT, { detail: { command: 'toggle' } });
+  assert.equal(count, 1);
 });
 
 console.log(`\ndesktop shell bridge tests passed (${passed})`);

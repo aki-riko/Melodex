@@ -1,7 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "local-windows",
-  "description": "仅本地自绘窗口（歌词窗、配对设置窗）可调用本地命令。远程站点不在任何 capability 的 remote.urls 中，因此线上页面无法触达 IPC。",
+  "description": "仅本地自绘窗口（歌词窗、配对设置窗）可调用本地命令。远程站点 origin 不在本 capability 的 remote.urls 中，因此线上页面无法触达这些命令。",
   "windows": ["overlay", "settings"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "allow-public-device-config",
+    "allow-connection-config",
+    "allow-pair-device",
+    "allow-clear-pairing",
+    "allow-set-overlay-visible",
+    "allow-start-overlay-drag",
+    "allow-get-click-through"
+  ]
 }

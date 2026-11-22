@@ -1,15 +1,19 @@
-import {
-  desktopLyricsDeviceWebSocketURL,
-  lyricFrame,
-  lyricWordFill,
-} from './lyricsCore.js';
+// 桌面歌词窗：走壳内直连，不再需要配对码与服务器中转。
+//
+// 架构变更（2026-11）：旧版通过 WebSocket 连服务器 hub，必须先配对拿到设备令牌。
+// 新客户端里播放与歌词同进程，改为：
+//   主窗口页面 --invoke('lyrics_push_state')--> Rust --emit--> 本窗口
+//   本窗口 --invoke('lyrics_send_command')--> Rust --eval event--> 主窗口页面
+//
+// 好处：开箱即用、不需要配对、断网也能显示歌词。
+
+import { lyricFrame, lyricWordFill } from './lyricsCore.js';
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const PROTOCOL = 'melodex.desktop-lyrics.v1';
-const TOKEN_PROTOCOL_PREFIX = 'melodex-token.';
-const RECONNECT_MAX_MS = 15000;
+const STATE_EVENT = 'melodex:lyrics-state';
+const RENDER_INTERVAL_MS = 80;
 
 const previousLine = document.getElementById('previous-line');
 const currentLine = document.getElementById('current-line');
@@ -18,10 +22,6 @@ const lyricsShell = document.getElementById('lyrics-shell');
 const controls = document.getElementById('controls');
 const toggleButton = document.getElementById('toggle-button');
 
-let socket = null;
-let reconnectTimer = null;
-let reconnectDelay = 1000;
-let configVersion = 0;
 let overlayVisible = false;
 let playback = {
   track: null,
@@ -31,6 +31,8 @@ let playback = {
   paused: true,
   currentIndex: -1,
   receivedAt: performance.now(),
+  // 是否至少收到过一次有效状态；没收到前不显示窗口。
+  hasState: false,
 };
 
 const effectivePosition = () => {
@@ -70,18 +72,20 @@ const setOverlayVisible = async (visible) => {
   }
 };
 
+const hasLyrics = () => Boolean(playback.track && Array.isArray(playback.lyrics) && playback.lyrics.length > 0);
+
 const render = () => {
-  const lyrics = Array.isArray(playback.lyrics) ? playback.lyrics : [];
-  const hasLyrics = Boolean(playback.track && lyrics.length > 0);
-  setOverlayVisible(hasLyrics && socket?.readyState === WebSocket.OPEN);
-  if (!hasLyrics) {
+  // 只有「收到过状态 + 有歌词」才显示；否则隐藏，避免空白窗浮在桌面上。
+  setOverlayVisible(playback.hasState && hasLyrics());
+
+  if (!hasLyrics()) {
     previousLine.textContent = '';
     currentLine.textContent = '';
     nextLine.textContent = '';
     return;
   }
   const position = effectivePosition();
-  const frame = lyricFrame(lyrics, position);
+  const frame = lyricFrame(playback.lyrics, position);
   setPlainLine(previousLine, frame.previous);
   renderCurrentLine(frame.current, position);
   setPlainLine(nextLine, frame.next);
@@ -89,81 +93,34 @@ const render = () => {
 };
 
 const applyStateMessage = (message) => {
+  if (!message || (message.type !== 'track' && message.type !== 'progress')) return;
+
   if (message.type === 'track') {
     playback.track = message.track || null;
     playback.lyrics = Array.isArray(message.lyrics) ? message.lyrics : [];
   }
-  if (message.type !== 'track' && message.type !== 'progress') return;
   playback.position = Math.max(0, Number(message.position) || 0);
   playback.duration = Math.max(0, Number(message.duration) || 0);
   playback.paused = Boolean(message.paused);
   playback.currentIndex = Number.isInteger(message.current_index) ? message.current_index : -1;
   playback.receivedAt = performance.now();
+  playback.hasState = true;
   render();
 };
 
-const closeSocket = () => {
-  if (reconnectTimer) window.clearTimeout(reconnectTimer);
-  reconnectTimer = null;
-  const opened = socket;
-  socket = null;
-  if (opened) opened.close();
-  setOverlayVisible(false);
-};
+// 主通道：壳转发主窗口推来的状态。
+listen(STATE_EVENT, (event) => {
+  applyStateMessage(event.payload);
+});
 
-const scheduleReconnect = (version) => {
-  if (version !== configVersion) return;
-  reconnectTimer = window.setTimeout(() => connect(version), reconnectDelay);
-  reconnectDelay = Math.min(RECONNECT_MAX_MS, reconnectDelay * 2);
-};
-
-const connect = async (version = configVersion) => {
-  if (version !== configVersion) return;
-  let config;
-  try {
-    config = await invoke('connection_config');
-  } catch (error) {
-    console.warn('读取桌面歌词连接配置失败', error);
-    scheduleReconnect(version);
-    return;
-  }
-  if (!config?.base_url || !config?.device_token) {
-    setOverlayVisible(false);
-    return;
-  }
-  let opened;
-  try {
-    opened = new WebSocket(desktopLyricsDeviceWebSocketURL(config.base_url), [PROTOCOL, `${TOKEN_PROTOCOL_PREFIX}${config.device_token}`]);
-  } catch (error) {
-    console.warn('创建桌面歌词 WebSocket 失败', error);
-    scheduleReconnect(version);
-    return;
-  }
-  socket = opened;
-  opened.onopen = () => {
-    reconnectDelay = 1000;
-  };
-  opened.onmessage = (event) => {
-    try {
-      applyStateMessage(JSON.parse(event.data));
-    } catch (error) {
-      console.warn('忽略无效桌面歌词消息', error);
-    }
-  };
-  opened.onerror = () => {
-    console.warn('桌面歌词 WebSocket 连接异常');
-  };
-  opened.onclose = () => {
-    if (socket === opened) socket = null;
-    setOverlayVisible(false);
-    scheduleReconnect(version);
-  };
-};
-
-controls.addEventListener('click', (event) => {
+controls.addEventListener('click', async (event) => {
   const command = event.target.closest('button')?.dataset.command;
-  if (!['prev', 'toggle', 'next'].includes(command) || socket?.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify({ type: 'command', command }));
+  if (!['prev', 'toggle', 'next'].includes(command)) return;
+  try {
+    await invoke('lyrics_send_command', { command });
+  } catch (error) {
+    console.warn('发送桌面歌词控制命令失败', error);
+  }
 });
 
 lyricsShell.addEventListener('mousedown', (event) => {
@@ -175,16 +132,12 @@ listen('click-through-changed', (event) => {
   document.body.classList.toggle('passthrough', Boolean(event.payload));
 });
 
-listen('desktop-config-changed', () => {
-  configVersion += 1;
-  closeSocket();
-  reconnectDelay = 1000;
-  connect(configVersion);
-});
-
 invoke('get_click_through')
   .then((enabled) => document.body.classList.toggle('passthrough', Boolean(enabled)))
   .catch((error) => console.warn('读取鼠标穿透状态失败', error));
 
-window.setInterval(render, 80);
-connect();
+// 本地进度插值：壳只转发关键帧，这里按 80ms 平滑推进歌词位置。
+window.setInterval(render, RENDER_INTERVAL_MS);
+
+// 启动时先隐藏，等主窗口推来第一条状态。
+setOverlayVisible(false);

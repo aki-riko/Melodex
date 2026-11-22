@@ -10,6 +10,7 @@ mod autostart_support;
 mod commands;
 mod device;
 mod logging;
+mod lyrics_bridge;
 mod main_window;
 mod overlay;
 mod service_url;
@@ -39,6 +40,8 @@ fn main() {
             commands::set_overlay_visible,
             commands::start_overlay_drag,
             commands::get_click_through,
+            commands::lyrics_push_state,
+            commands::lyrics_send_command,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -84,16 +87,12 @@ fn main() {
                 logging::warn(error);
             }
 
-            // 配对设置窗：已配对则后台创建（隐藏）；未配对则直接显示，
-            // 让用户能立刻完成「设置 → 桌面歌词」的配对流程。
-            match device::load_device_config(&handle) {
-                Ok(Some(_)) => settings_window::create_settings_window(&handle, false)?,
-                Ok(None) => settings_window::create_settings_window(&handle, true)?,
-                Err(error) => {
-                    logging::warn(error);
-                    settings_window::create_settings_window(&handle, true)?;
-                }
-            }
+            // 配对设置窗：一律后台创建、**不再自动弹出**。
+            //
+            // 2026-11 架构变更后，桌面歌词走壳内直连、无需配对，
+            // 所以启动时没有任何理由挡住用户。需要时可从托盘「桌面歌词配对…」打开，
+            // 仅为兼容旧设备凭据的查看与清除而保留。
+            settings_window::create_settings_window(&handle, false)?;
 
             Ok(())
         })

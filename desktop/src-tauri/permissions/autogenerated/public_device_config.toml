@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-public-device-config"
+description = "Enables the public_device_config command without any pre-configured scope."
+commands.allow = ["public_device_config"]
+
+[[permission]]
+identifier = "deny-public-device-config"
+description = "Denies the public_device_config command without any pre-configured scope."
+commands.deny = ["public_device_config"]

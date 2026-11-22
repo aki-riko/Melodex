@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lyrics-send-command"
+description = "Enables the lyrics_send_command command without any pre-configured scope."
+commands.allow = ["lyrics_send_command"]
+
+[[permission]]
+identifier = "deny-lyrics-send-command"
+description = "Denies the lyrics_send_command command without any pre-configured scope."
+commands.deny = ["lyrics_send_command"]

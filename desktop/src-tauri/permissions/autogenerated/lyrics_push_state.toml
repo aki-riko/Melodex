@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lyrics-push-state"
+description = "Enables the lyrics_push_state command without any pre-configured scope."
+commands.allow = ["lyrics_push_state"]
+
+[[permission]]
+identifier = "deny-lyrics-push-state"
+description = "Denies the lyrics_push_state command without any pre-configured scope."
+commands.deny = ["lyrics_push_state"]

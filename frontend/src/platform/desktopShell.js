@@ -18,6 +18,12 @@ export const SHELL_ACTIONS = {
   NEXT: 'next',
 };
 
+/** 桌面歌词：页面监听歌词窗按钮命令的 DOM 事件名（与 Rust 侧约定一致）。 */
+export const SHELL_LYRICS_COMMAND_EVENT = 'melodex:lyrics-command';
+
+/** 歌词窗按钮可能发来的命令白名单。 */
+export const SHELL_LYRICS_COMMANDS = ['prev', 'toggle', 'next'];
+
 /**
  * 判断当前是否运行在桌面壳内。
  *
@@ -75,4 +81,82 @@ export const attachDesktopShellBridge = (handlers, options = {}) => {
 
   target.addEventListener(SHELL_SHORTCUT_EVENT, onShortcut);
   return () => target.removeEventListener(SHELL_SHORTCUT_EVENT, onShortcut);
+};
+
+/**
+ * 取壳内的 invoke 函数。
+ *
+ * Tauri 2 把命令通道挂在 `__TAURI_INTERNALS__.invoke`（旧版是 `__TAURI__.core.invoke`），
+ * 两者都兼容；取不到就返回 null，让调用方降级而不是抛错。
+ */
+export const getShellInvoke = (scope = globalThis) =>
+  scope?.__TAURI_INTERNALS__?.invoke
+  || scope?.__TAURI__?.core?.invoke
+  || null;
+
+/**
+ * 把一条歌词状态推给本机歌词窗。
+ *
+ * 只在壳内生效；浏览器里直接返回 false，不做任何网络/存储操作。
+ * 失败只记日志——歌词窗没开、壳版本旧都不该影响播放。
+ *
+ * @returns {Promise<boolean>} 是否已交给壳
+ */
+export const pushLyricsState = async (state, options = {}) => {
+  const scope = options.scope || globalThis;
+  const logger = options.logger || console;
+  if (!isDesktopShell(scope)) return false;
+
+  const invoke = options.invoke || getShellInvoke(scope);
+  if (typeof invoke !== 'function') return false;
+  if (!state || (state.type !== 'track' && state.type !== 'progress')) {
+    logger.warn('歌词状态类型非法，已丢弃', state?.type);
+    return false;
+  }
+
+  try {
+    await invoke('lyrics_push_state', { state });
+    return true;
+  } catch (error) {
+    logger.warn('推送桌面歌词状态失败', error);
+    return false;
+  }
+};
+
+/**
+ * 监听歌词窗发来的播放控制命令。
+ *
+ * 壳用 `eval` 派发 DOM 事件，因此远程页面**不需要任何 IPC 权限**即可接收。
+ * 浏览器里完全惰性。
+ *
+ * @returns {() => void} 取消监听；非壳环境返回空函数
+ */
+export const attachLyricsCommandBridge = (handlers, options = {}) => {
+  const scope = options.scope || globalThis;
+  const logger = options.logger || console;
+  if (!isDesktopShell(scope)) return () => {};
+
+  const target = scope.window || scope;
+  if (typeof target?.addEventListener !== 'function') return () => {};
+
+  const onCommand = (event) => {
+    const raw = event?.detail?.command;
+    if (typeof raw !== 'string' || !SHELL_LYRICS_COMMANDS.includes(raw)) {
+      logger.warn('收到无法识别的桌面歌词命令', event?.detail);
+      return;
+    }
+    const handler = handlers?.[raw];
+    if (typeof handler !== 'function') {
+      logger.warn(`桌面歌词命令缺少处理器: ${raw}`);
+      return;
+    }
+    try {
+      handler();
+    } catch (error) {
+      logger.warn(`桌面歌词命令执行失败: ${raw}`, error);
+    }
+  };
+
+  target.addEventListener(SHELL_LYRICS_COMMAND_EVENT, onCommand);
+  return () => target.removeEventListener(SHELL_LYRICS_COMMAND_EVENT, onCommand);
 };

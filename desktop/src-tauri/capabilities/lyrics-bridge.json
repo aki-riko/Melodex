@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "lyrics-bridge",
+  "description": "桌面歌词壳内直连：只允许主窗口的站点页面把播放状态推给本机歌词窗，以及回传歌词窗按钮命令。不涉及文件/网络/系统能力。",
+  "windows": ["main"],
+  "permissions": ["allow-lyrics-push-state", "allow-lyrics-send-command"],
+  "remote": {
+    "urls": ["https://music.9li.life/*"]
+  }
+}
