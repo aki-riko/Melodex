@@ -10,6 +10,7 @@ use crate::autostart_support;
 use crate::logging;
 use crate::main_window;
 use crate::overlay;
+use crate::shortcuts;
 
 pub const TRAY_ID: &str = "melodex-tray";
 
@@ -33,6 +34,14 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let separator = PredefinedMenuItem::separator(app)?;
+    // 快捷键说明是只读提示项：点击不做事，仅让用户知道有这些键可用。
+    let shortcuts_item = MenuItem::with_id(
+        app,
+        "shortcuts_hint",
+        format!("快捷键  {}", shortcuts::describe().replace('\n', " / ")),
+        false,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -41,6 +50,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &pairing_item,
             &click_item,
             &autostart_item,
+            &shortcuts_item,
             &separator,
             &quit_item,
         ],

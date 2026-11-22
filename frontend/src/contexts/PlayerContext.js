@@ -20,6 +20,7 @@ import {
   shouldStopAtTrackEnd,
 } from './playerSleepTimer.js';
 import { autoDownloadOnPlayPlan, retainAutoDownloadAttempt } from './playerAutoDownload.js';
+import { attachDesktopShellBridge } from '../platform/desktopShell.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
 import {
   beginPlaybackTransition,
@@ -1395,6 +1396,20 @@ const WebPlayerProvider = ({ children }) => {
       console.debug('当前浏览器不支持部分 MediaSession seek 动作', err);
     }
   }, [buildPlayerDiagnostic, cachedCover, next, nowPlaying, offline, pauseWithFade, prev, progress.cur, resumeWithFade, seek]);
+
+  // 桌面壳(Tauri)全局快捷键 → 播放器动作。
+  // 浏览器里 attachDesktopShellBridge 直接返回空函数,不注册任何监听(零副作用)。
+  useEffect(() => {
+    return attachDesktopShellBridge({
+      toggle: () => {
+        // 以 <audio> 的真实 paused 状态为准，不信任可能陈旧的 React state。
+        if (audioRef.current?.paused ?? true) resumeWithFade();
+        else pauseWithFade('shell_shortcut');
+      },
+      prev,
+      next,
+    });
+  }, [next, pauseWithFade, prev, resumeWithFade]);
 
   // 同步播放状态给 OS(playbackState 决定全局媒体键能否正确恢复/暂停)
   useEffect(() => {

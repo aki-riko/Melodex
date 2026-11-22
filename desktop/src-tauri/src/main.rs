@@ -14,6 +14,7 @@ mod main_window;
 mod overlay;
 mod service_url;
 mod settings_window;
+mod shortcuts;
 mod tray;
 
 use tauri::Manager;
@@ -26,6 +27,7 @@ fn main() {
             main_window::show_main(app);
         }))
         .plugin(autostart_support::plugin())
+        .plugin(shortcuts::plugin())
         .manage(overlay::OverlayState::default())
         .invoke_handler(tauri::generate_handler![
             commands::public_device_config,
@@ -49,6 +51,7 @@ fn main() {
 
             tray::configure_platform(app)?;
             tray::setup_tray(app)?;
+            shortcuts::register_defaults(&handle);
 
             let site = match service_url::resolve_site() {
                 Ok(site) => site,
