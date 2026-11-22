@@ -1,0 +1,9 @@
+{
+  "identifier": "prototype-window",
+  "description": "Prototype only: lets the probe window report diagnostics back to the Rust process.",
+  "windows": ["main"],
+  "permissions": ["core:default"],
+  "remote": {
+    "urls": ["https://*", "http://*"]
+  }
+}

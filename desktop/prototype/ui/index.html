@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Melodex Shell Prototype</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      margin: 0; padding: 16px 20px; line-height: 1.6; font-size: 14px;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .sub { opacity: .65; font-size: 12px; margin-bottom: 14px; }
+    section { border: 1px solid rgba(128,128,128,.35); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+    h2 { font-size: 14px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+    .badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgba(128,128,128,.2); font-weight: 600; }
+    button { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(128,128,128,.5); background: transparent; cursor: pointer; }
+    button:hover { background: rgba(128,128,128,.15); }
+    button:disabled { opacity: .45; cursor: default; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+    pre { background: rgba(128,128,128,.12); padding: 8px 10px; border-radius: 6px; overflow: auto; max-height: 220px; font-size: 12px; margin: 6px 0 0; }
+    .ok { color: #0a7a30; font-weight: 600; }
+    .fail { color: #b3261e; font-weight: 600; }
+    .unk { color: #8a6d00; font-weight: 600; }
+    input[type=text] { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(128,128,128,.5); background: transparent; min-width: 260px; }
+    label { display: inline-flex; align-items: center; gap: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Melodex 桌面壳原型</h1>
+  <div class="sub">仅用于阶段 0 验证。三项各自给出「通过 / 不通过」证据，验证完整个 <code>desktop/prototype</code> 目录可直接删除。</div>
+
+  <section>
+    <h2>R1 WebView2 媒体会话（MediaSession / SMTC）<span class="badge" id="r1-badge">待验证</span></h2>
+    <div class="row">
+      <button id="r1-play">播放测试音频</button>
+      <button id="r1-pause">暂停</button>
+      <button id="r1-next" title="不换曲，只验证 MediaSession 的 nexttrack 处理器">触发 nexttrack</button>
+      <label><input type="checkbox" id="r1-auto" /> 自动循环播放</label>
+    </div>
+    <div id="r1-verdict" class="unk" style="margin-top:6px">尚未开始</div>
+    <pre id="r1-log">等待检测…</pre>
+  </section>
+
+  <section>
+    <h2>R2 线上站点 &amp; SSO 重定向<span class="badge" id="r2-badge">待验证</span></h2>
+    <div class="row">
+      <input type="text" id="r2-url" value="https://music.9li.life/" />
+      <button id="r2-open">在当前窗口打开</button>
+    </div>
+    <div id="r2-verdict" class="unk" style="margin-top:6px">尚未开始</div>
+    <pre id="r2-log">等待检测…</pre>
+  </section>
+
+  <section>
+    <h2>R3 Service Worker（远程 origin）<span class="badge" id="r3-badge">待验证</span></h2>
+    <div class="row">
+      <button id="r3-check">检查 SW 支持 / controller</button>
+      <button id="r3-register">尝试注册当前 origin 的 sw.js</button>
+    </div>
+    <div id="r3-verdict" class="unk" style="margin-top:6px">尚未开始</div>
+    <pre id="r3-log">等待检测…</pre>
+  </section>
+
+  <section>
+    <h2>环境</h2>
+    <pre id="env-log">…</pre>
+  </section>
+
+  <audio id="r1-audio" preload="auto"></audio>
+  <script src="./probe.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+[package]
+name = "melodex-shell-prototype"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "=2.5.4", features = [] }
+
+[dependencies]
+tauri = { version = "=2.10.1", features = ["wry"] }

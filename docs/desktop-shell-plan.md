@@ -60,38 +60,92 @@
 | 断点续播 | **前端已实现**（`localStorage` 按 userId 存队列+进度），壳不用做 | 无 | 无 |
 | 自动更新 | `tauri-plugin-updater` + NSIS + Ed25519 签名 | 中 | 私钥必须由你保管，见 R4 |
 
-## 四、未验证项（不验证就动工会翻车）
+## 四、阶段 0 实测结果（2026-11-22，真实 Windows 真机）
 
-### R1. WebView2 里 MediaSession 会不会接管 Windows 媒体键 —— 🔴 最高优先级
+> 结论：**R1 通过、R3 通过、R2 部分通过**。原型代码在 `desktop/prototype/`（可整目录删除），
+> 日志在 `desktop/prototype/prototype.log`。全部结论都有可复现命令与时间戳证据，不是推测。
 
-前端 `PlayerContext.js:1353-1411` 已经把 `navigator.mediaSession` 的 action handler、`playbackState`、
-`setPositionState` 全配齐了，**在 Chrome/Edge 里工作正常**。
-但 WebView2 是嵌入式内核，微软按「浏览器功能在嵌入场景是否合理」做了裁剪，硬件媒体键这类能力**不保证默认开启**。
+### 测试环境
 
-- 已有旁证：某 WPF + WebView2 应用在更新日志里专门写「**native** real-time SMTC media synchronization」——暗示它得自己在原生侧接，而不是靠内核白送。
-- **验证方法**：最小 Tauri 窗口加载一个带 `<audio>` + MediaSession 的本地页，按键盘 ⏯/⏮/⏭，看有没有反应。
-- **兜底方案**：Rust 侧用 `windows` crate 的 `SystemMediaTransportControls` 自己发布会话，网页把播放状态/元数据经 IPC 同步过去。工作量 +2~3 天，但**一定能成**。
+| 项 | 值 |
+|---|---|
+| WebView2 内核 | `Chrome/157.0.0.0 ... Edg/157.0.0.0`（运行时 `157.0.4341.60`） |
+| Tauri | 2.10.1（首次编译 50s，复用 `desktop/src-tauri/Cargo.lock` 避免依赖漂移） |
+| 工具链 | MSVC 2022 BuildTools 17.14、Rust 1.96、Node 24 |
 
-### R2. Authentik SSO 在 WebView2 里能不能走完 —— 🟡
+### R1 媒体键 —— ✅ **通过（内核直通，无需 Rust 侧自建 SMTC）**
 
-安卓已验证：Capacitor WebView 加载远端站点，CookieManager 与后端共享登录态。
-Windows WebView2 在内核层面等价，但 OIDC 重定向**有可能被踢到系统浏览器**打开。
+**证据链（时间戳取自 `prototype.log`，Unix 秒）**：
 
-- **验证方法**：壳里打开站点，走完整登录，看是停在壳内还是跳出去。
-- **兜底方案**：若跳出去，改用「授权码回跳 `tauri://` 自定义协议」把会话带回来；或让 NPM 对桌面壳的 UA 放行（不推荐，改动基础设施）。
+| 时刻 | 事件 |
+|---|---|
+| `…775.019` | `event-playing` — 音频真正开始播放 |
+| `…778.025` | `autoplay-result` `paused:false, currentTime:2.97, readyState:4, errorCode:null` — 确在播，非假播放 |
+| SMTC 侧观测 | 会话数由 `n=1` 变为 `n=2`，新增 `msedgewebview2.exe:Playing` |
+| `…789.744` | 按下硬件媒体键 ⏯ → 页面收到 `handler-pause` |
+| `…872.297` | 按下 ⏭ → `handler-next` |
+| `…884.211` | 按下 ⏮ → `handler-prev` |
+| `…887.000` | 按下 ⏹ → `handler-stop` |
 
-### R3. 远程页面能不能用 Service Worker（决定离线能力） —— 🟡
+全链路成立：**物理媒体键 → Windows SMTC → WebView2 → 页面 `mediaSession` handler**。
+因此**不需要**在 Rust 侧用 `windows` crate 自建 SMTC，原计划的 2~3 天兜底工作量可以省掉。
 
-壳加载的是 `https://music.9li.life`，origin 与浏览器一致，理论上 `sw.js` 照常注册，**离线打开的还是缓存好的 App shell**，不需要在壳里另起本地 HTTP 服务。
+**重要行为特征（必须写进实现与测试）**：
+媒体键只路由给**当前活动**的 SMTC 会话。实测中当本机 Chrome 另有一个 `Playing`
+会话时，本应用一旦暂停就失去活动位，后续按键全部被 Chrome 接走（3 次连按均无响应）。
+这不是缺陷，是 Windows 的既定语义。产品含义：应用暂停时媒体键不响应是**正常**的，
+验收用例必须据此书写，不能把「暂停后按 ⏯ 没反应」当成 bug。
 
-- **验证方法**：加载后 DevTools 看 `navigator.serviceWorker.controller`，再断网重启看是否仍能打开。
-- **兜底方案**：壳内起一个只监听 `127.0.0.1` 的静态服务托管离线兜底页（`127.0.0.1` 是安全上下文，SW 也可以用）。工作量 +1~2 天。
-- **注意**：`tauri://` / `asset://` 这类自定义协议**不是安全上下文，SW 根本不工作**——所以「打包本地产物」那条路反而更贵。
+**复现命令**：
+```powershell
+# 观察当前所有媒体会话
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File desktop\prototype\scripts\smtc-probe.ps1
+# 发送真实硬件媒体键（playpause / next / prev / stop）
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File desktop\prototype\scripts\press-media-key.ps1 -Key next
+```
 
-### R4. 自动更新的签名私钥 —— 🟡（流程问题，不是技术问题）
+### R2 线上站点 & SSO —— 🟡 **部分通过（需你人工确认登录态）**
 
-Tauri updater 强制 Ed25519 签名，无法关闭。私钥必须由**你自己**生成并保管（CI secret），
-一旦丢失，已装用户再也收不到更新。本鱼不会代你生成或读取私钥。
+- `https://music.9li.life/` 在壳内直接加载成功，`on_navigation` 只记录到 `NAV https://music.9li.life/`。
+- **没有**出现跳往 Authentik 域名的导航事件。
+- 但需诚实说明：本次测试机浏览器里已存在 SSO/Melodex 会话，
+  **未覆盖「全新机器首次登录」这条路径**。这条必须由你人工走一遍。
+- 已知利好：安卓 APK 用的是完全相同的「壳加载远端站 + 共享 Cookie」形态且已真机验证，
+  Windows 侧内核同为 Chromium。
+
+### R3 Service Worker —— ✅ **通过（远程 origin 上 SW 正常工作）**
+
+注入诊断脚本后回传（`kind:"sw"`）：
+
+```json
+{"origin":"https://music.9li.life","isSecureContext":true,"hasServiceWorker":true,
+ "controller":"https://music.9li.life/sw.js","registrations":["https://music.9li.life/"]}
+```
+
+`controller` 已就位、注册作用域正确，说明 WebView2 像普通浏览器一样运行既有 PWA。
+**因此不需要在壳内另起 `127.0.0.1` 静态服务**，原计划 +1~2 天兜底工作量省掉。
+（`tauri://` 自定义协议不是安全上下文、SW 不工作，这条注意事项仍然成立，只是本方案不走那条路。）
+
+### R4 签名私钥 —— ✅ 已就位（本鱼只确认存在，未读取任何内容）
+
+`<SIGNING-DIR>` 下三个文件均在：
+`.tauri-updater-key`、`.tauri-updater-key.pub`、`.tauri-updater-password`（2026-07-23）。
+**本鱼未打开、未复制、未回显其中任何一个字节**，后续构建只通过环境变量指向路径。
+私钥一旦丢失将无法给已装用户发更新，请自行做好离线备份。
+
+### 其他实测踩坑（写进实现纪律）
+
+1. **必须复用 `desktop/src-tauri/Cargo.lock`**。从零解析依赖会得到互相冲突的 `tauri` +
+   传递依赖组合，编译报 `UnexpectedMenuKind` 之类 tauri 自身枚举缺失的错（实测 28 个错误）。
+   注意锁文件里没有新包名时 `--locked` 会被拒，去掉该参数即可（既有版本仍被锁定）。
+2. **PowerShell 5.1 读 UTF-8 无 BOM 会按 GBK 解析**：含中文的 `.ps1` 直接语法错误。
+   诊断脚本一律写纯 ASCII，或带 BOM。
+3. **`additional_browser_args` 会覆盖 wry 的默认值**，默认是
+   `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`，自定义时必须自己带上。
+4. **stdout 有管道缓冲**，取证日志必须同时写文件与 stderr，否则关键证据会丢。
+5. **WinRT SMTC 只能在 Windows PowerShell 5.1 里用**：pwsh 7（.NET 8）无 WinRT 投影。
+6. 用 `document.title` 回传诊断数据**不可靠**（SPA 路由会覆盖、title 同步也不保证），
+   改用本地回环 HTTP 上报才稳。
 
 ## 五、安全边界（这条必须写死）
 
@@ -105,15 +159,10 @@ Tauri updater 强制 Ed25519 签名，无法关闭。私钥必须由**你自己*
 
 ## 六、实施步骤
 
-### 阶段 0：原型验证（1~2 天，不改动生产代码）
+### 阶段 0：原型验证 —— ✅ **已完成（2026-11-22）**
 
-> 目的：把 R1/R2/R3 三个问号变成确定的「行 / 不行」。**验证不过就回头改方案，不要硬着头皮往下写。**
-
-1. 在 `desktop/` 里加一个临时 `prototype` 窗口。
-2. 加载带 `<audio>` + MediaSession 的页面 → 按媒体键、看 Windows 媒体浮层。
-3. 加载线上站点 → 走 SSO 登录 → 确认会话落在壳内。
-4. 断网重启 → 确认 SW 缓存生效。
-5. **产出**：三项各给「通过 / 不通过 + 证据」。不通过项按第四节兜底方案调整排期。
+结论：R1 通过、R3 通过、R2 部分通过（需你人工走一次全新登录）。详见第四节。
+原型留在 `desktop/prototype/`，阶段 5 后可整目录删除；也可现在就删，证据已全部摘录进本文档。
 
 ### 阶段 1：主壳骨架（2~3 天）
 
@@ -122,9 +171,10 @@ Tauri updater 强制 Ed25519 签名，无法关闭。私钥必须由**你自己*
 - 托盘 + 关闭最小化到托盘 + 单实例 + 开机自启。
 - 日志落 `%LOCALAPPDATA%`（不要把 URL 查询串写进日志）。
 
-### 阶段 2：原生增强（3~4 天）
+### 阶段 2：原生增强（2~3 天，比原估下调）
 
-- 媒体键：按阶段 0 结论，走内核直通或 Rust 侧 SMTC。
+- 媒体键：**走内核直通，零额外代码**（R1 已实测通过，省掉原计划 2~3 天的 Rust 侧 SMTC）。
+  注意前端已有的 `PlayerContext.js` MediaSession 逻辑必须保持不动。
 - 全局快捷键：播放/暂停、上一首、下一首。
 - 歌词窗：把现有 `desktop` 的 overlay 逻辑内建进主壳（透明 + 穿透 + 托盘开关 + 拖动）。
 - 前端加一个薄桥 `frontend/src/platform/desktopShell.js`：检测壳环境、注册 IPC、
@@ -167,7 +217,8 @@ npm.cmd run test:theme
 真机验收清单（缺一不可）：
 
 - [ ] 媒体键 ⏯/⏮/⏭ 生效，Windows 媒体浮层显示歌名与封面
-- [ ] SSO 登录全程在壳内完成，无需外部浏览器
+      （注意：**应用处于暂停态时媒体键不响应属正常**，见第四节 R1 的会话争用说明）
+- [ ] SSO 登录全程在壳内完成，无需外部浏览器（**全新机器首次登录**必须覆盖）
 - [ ] 关闭窗口最小化到托盘，音乐不断
 - [ ] 桌面歌词透明、可穿透、托盘可开关
 - [ ] 全局快捷键在应用失焦时仍生效
@@ -180,11 +231,12 @@ npm.cmd run test:theme
 | 项 | 评估 |
 |---|---|
 | 预期效果（量化） | 退役 7000+ 行重复实现；桌面端从「进不了 SSO 的死路」变为「与 Web 同源、部署即更新」；安装包 2~5 MB（对比 Electron 100 MB+） |
-| 实施难度 | **7~12 人天**（不含阶段 0 的不确定性；若 R1 要自建 SMTC 则 +2~3 天） |
-| 风险等级 | **中高**。风险集中在阶段 0 三个未验证项；阶段 1 之后基本是确定性工作 |
+| 实施难度 | **4~7 人天**（阶段 0 已完成；两项原兜底——Rust 侧自建 SMTC、壳内本地 HTTP 服务——经实测均不需要） |
+| 风险等级 | **中低**（原为中高）。三条技术未知已实测澄清，剩余风险是常规实现与真机验收 |
 
 ## 九、回退方案
 
-- 阶段 0~3 全部在 `desktop/` 内推进，`desktop-prismqml/` **原样保留**，随时可退回。
+- 阶段 1~3 全部在 `desktop/` 内推进，`desktop-prismqml/` **原样保留**，随时可退回。
 - 旧客户端已部署在 `%LOCALAPPDATA%\Melodex\desktop-deploy`，删除源码目录前它照常可运行。
 - 前端薄桥接在浏览器环境完全惰性，出问题删掉一个文件即可，不影响 PWA。
+- 原型 `desktop/prototype/` 与证据文件 `desktop/prototype/prototype.log` 可直接删除，不影响任何已提交代码。

@@ -47,6 +47,9 @@ android/app/src/main/res/xml/config.xml
 # Windows/macOS 桌面歌词助手本地构建产物
 desktop/src-tauri/target/
 desktop/src-tauri/gen/schemas/
+# 阶段 0 原型壳（临时验证脚手架，证据已摘录进 docs/desktop-shell-plan.md）
+desktop/prototype/src-tauri/target/
+desktop/prototype/src-tauri/gen/schemas/
 desktop-prismqml/build-cpp/
 desktop-prismqml/.prism-sdk/
 
