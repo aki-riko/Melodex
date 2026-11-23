@@ -491,7 +491,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                             value={sodaSMSCode}
                             onChange={(e) => setSodaSMSCode(e.target.value)}
                             placeholder="验证码"
-                            className="min-w-0 flex-grow rounded-control border border-border surface-control px-3 py-2 text-xs outline-none focus:border-primary"
+                            className="h-8 min-w-0 flex-grow rounded-control border border-border surface-control px-3 text-xs outline-none focus:border-primary"
                           />
                           <button
                             onClick={validateSodaSMS}

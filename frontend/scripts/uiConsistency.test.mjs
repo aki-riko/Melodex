@@ -500,6 +500,40 @@ check('播放页全屏封面必须用 coverUrlHd（不糊）', () => {
   );
 });
 
+// ---------- ⑩ 表单控件必须固定高度（同一行才能等高）----------
+
+check('表单控件（input/select）必须固定高度，不能只靠 py', () => {
+  // ★ 实测（用户管理页「新建用户」一行）：
+  //   用户名 41px / 密码 41px / 下拉 39px / 创建按钮 37px —— 同一行差 4px。
+  //   根因：三个控件都写 `px-3 py-2`，但 input 是 16px 字号、button 是 14px、
+  //   select 还受浏览器默认行高影响，**固有高度各不相同**。
+  //   统一 `h-10`（= --size-control）后必然等高。
+  //
+  // 例外：textarea 是多行控件，有 rows 就该跟随内容，不要求固定高度。
+  const offenders = [];
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    const rel = file.replace(root, '').replace(/\\/g, '/').replace(/^\//, '');
+    // 跨行匹配 <input|select ... className="...">
+    const re = /<(input|select)\b([\s\S]{0,500}?)className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      const tag = m[1];
+      const cls = m[3] || m[4] || '';
+      if (!/px-\d/.test(cls)) continue;
+      if (!/py-\d/.test(cls)) continue;
+      if (/\bh-\d+\b/.test(cls)) continue;
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:${line}  <${tag}>  ${cls.slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些表单控件只有 py 没有固定高度（同一行会高低不齐，因为 input/select 的固有高度不同）：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

@@ -130,29 +130,37 @@ const UserManagement = () => {
 
       <section className="mb-8">
         <h3 className="type-title mb-3">新建用户</h3>
+        {/* ★ 2026-11 修「表单控件高度不齐」：
+            实测同一行的四个控件高度 41 / 41 / 39 / 37px ——
+            input 是 16px 字号、button 是 14px 字号，select 还受浏览器默认行高影响，
+            所以哪怕都写 `px-3 py-2`，固有高度也各不相同。
+            统一 `h-10`（40px = --size-control）后必然等高。 */}
         <form onSubmit={onCreate} className="flex flex-wrap items-center gap-2">
           <input
             value={newUser.username}
             onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
             placeholder="用户名"
-            className="px-3 py-2 border border-border rounded-md surface-control outline-none focus:border-primary"
+            className="h-10 rounded-control border border-border px-3 surface-control outline-none focus:border-primary"
           />
           <input
             type="password"
             value={newUser.password}
             onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
             placeholder="密码(≥8 位)"
-            className="px-3 py-2 border border-border rounded-md surface-control outline-none focus:border-primary"
+            className="h-10 rounded-control border border-border px-3 surface-control outline-none focus:border-primary"
           />
           <select
             value={newUser.role}
             onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-            className="px-3 py-2 border border-border rounded-md surface-control outline-none focus:border-primary"
+            className="h-10 rounded-control border border-border px-3 surface-control outline-none focus:border-primary"
           >
             <option value="user">普通用户</option>
             <option value="admin">管理员</option>
           </select>
-          <button type="submit" className="px-4 py-2 border border-border rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:brightness-95 transition-colors">
+          <button
+            type="submit"
+            className="h-10 rounded-control border border-border bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+          >
             创建
           </button>
         </form>
