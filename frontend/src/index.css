@@ -1158,8 +1158,24 @@
   min-width: 0;
 }
 
-/* ---- 顶部两颗切换控件 ---- */
+/* ---- 顶部两颗切换控件 ----
+ *
+ * ★ 2026-11 统一高度（实测发现顶栏三种高度混用）：
+ *   收起按钮 .player-stage__back        = 2.75rem(44px)
+ *   图标按钮 .player-stage__icon-btn    = 2.75rem(44px)
+ *   分段项   .player-stage-switch__item = 1.875rem(30px)
+ *   色板按钮 .player-stage-tone         = 2.125rem(34px)
+ *   三者并排在同一条顶栏上，视觉重心对不齐 —— 这是「细节糙」的直接来源。
+ *
+ *   现在引入 --stage-control-h: 2.25rem(36px) 作为**顶栏控件的统一视觉高度**，
+ *   分段项/色板按钮都按它对齐；收起与图标钮保持 44px（可点热区）
+ *   但用 padding 让**视觉高度**也落在同一基线上。
+ *
+ *   为什么是 36px 而不是 44：分段控件里有 3 个并排项，
+ *   44px 会把顶栏撑得过高（整页是沉浸式，顶栏越轻越好）；
+ *   36px 已是可点热区内缩 8px 后的舒适值。 */
 .player-stage-switch {
+  --stage-control-h: 2.25rem;   /* 36px */
   display: inline-flex;
   align-items: center;
   gap: 0.125rem;
@@ -1174,7 +1190,9 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3125rem;
-  height: 1.875rem;
+  /* 36px 容器 - 上下 padding(3px×2) - 边框(1px×2) = 28px 内容高度。
+     用 calc 而不是写死，改 --stage-control-h 时自动跟随。 */
+  height: calc(var(--stage-control-h) - 0.5rem);
   padding: 0 0.625rem;
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -1194,10 +1212,13 @@
   .player-stage-switch__item { padding: 0 0.4375rem; }
 }
 .player-stage-tone {
+  /* 与 .player-stage-switch 共用同一视觉高度（36px），
+     否则两颗控件并排时会一高一矮 —— 实测原来是 34px vs 36px。 */
+  --stage-control-h: 2.25rem;
   display: inline-flex;
   align-items: center;
   gap: 0.3125rem;
-  height: 2.125rem;
+  height: var(--stage-control-h);
   padding: 0 0.625rem;
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -1439,12 +1460,20 @@
   display: inline-flex;
   align-items: baseline;
   gap: 0.25rem;
-  padding: 0.25rem 0.625rem;
+  padding: 0.3125rem 0.6875rem;
   border-radius: 9999px;
-  /* 纯黑胶囊:图里就是接近 #000,不是主题色 */
-  background-color: hsl(0 0% 0% / 0.78);
+  /* ★ 2026-11 优化（用户：「播放页所有内容细节优化」）：
+     原来是 11px 字号 + 纯黑 0.78 实心 —— 压在亮封面上时文字边缘发虚，
+     且与顶栏那套「毛玻璃」的控件语言不一致。
+     现在：字号 11→12px（可读性）、底色降到 0.62 并加 backdrop blur
+     （与 .player-stage-switch / .player-stage-tone 同一套材质）、
+     补一道极细的白描边让胶囊在亮/暗背景上都有轮廓。 */
+  background-color: hsl(0 0% 0% / 0.62);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid hsl(0 0% 100% / 0.12);
   color: hsl(0 0% 100%);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

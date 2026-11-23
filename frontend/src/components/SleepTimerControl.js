@@ -95,7 +95,11 @@ const SleepTimerControl = ({
         onClick={() => setOpen((v) => !v)}
         className={`${isMobileMenu
           ? 'flex h-12 w-12 items-center justify-center rounded-full'
-          : 'inline-flex h-9 min-w-[2.25rem] items-center justify-center gap-1.5 rounded-full px-2 text-xs font-medium'
+          // ★ 桌面播放条：2026-11 从 h-9(36px) 改成 h-11(44px)。
+          //   实测播放条上其它按钮（上一首/播放/下一首/模式/歌词/音量/收藏/队列）
+          //   全是 44×44，只有这颗是 36px —— 并排看过去明显矮一截。
+          //   未启用定时器时是**圆形图标钮**；启用后展开成带文字的胶囊（min-w 撑开）。
+          : 'inline-flex h-11 min-w-[2.75rem] items-center justify-center gap-1.5 rounded-full px-2 text-xs font-medium'
         } transition-colors ${
           active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
         }`}

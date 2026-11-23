@@ -429,6 +429,77 @@ check('设置页操作按钮必须用 SettingsActionButton（保证等高）', (
   );
 });
 
+// ---------- ⑧ 播放条：所有图标按钮必须同高 ----------
+
+check('播放条图标按钮高度必须一致（44px）', () => {
+  // ★ 实测（2026-11）：播放条上 8 个按钮里有 7 个是 44×44，
+  //   只有「睡眠定时」是 36×36 —— 并排看过去矮一截，是「细节糙」的典型。
+  //
+  // 判据：播放条涉及的两个组件里，圆形图标按钮必须用 h-11（44px）或 min-h-touch。
+  // 允许移动端 h-12（48px，移动触控档，与桌面不同层级）。
+  const barFiles = [
+    'src/components/SleepTimerControl.js',
+    'src/components/VolumeControl.js',
+  ];
+  const offenders = [];
+  for (const rel of barFiles) {
+    const src = readSrc(rel);
+    // 桌面档的图标按钮（排除 isMobileMenu 分支里的 h-12）
+    for (const m of src.matchAll(/'inline-flex (h-\d+) min-w-\[[^\]]+\] items-center justify-center gap-1\.5 rounded-full px-2[^']*'/g)) {
+      const h = m[1];
+      if (h === 'h-11' || h === 'h-size-touch') continue;
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:${line}  桌面图标按钮用了 ${h}（应为 h-11 = 44px）`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `播放条图标按钮必须同高（44px = h-11），否则并排看会一高一矮：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+// ---------- ⑨ 播放页封面必须走高分辨率档 ----------
+
+check('播放页全屏封面必须用 coverUrlHd（不糊）', () => {
+  // ★ 真实缺陷（用户报「专辑模糊」）：
+  //   播放页把封面按**高度铺满整屏**（background-size: auto 100%，860px 高），
+  //   而列表缩略图的 cover 只有 300×300 → 拉伸 2.87 倍，必然糊。
+  //   实测 QQ 源同一 ID 支持 800×800（181KB vs 38KB），
+  //   所以播放页必须请求高分辨率档。
+  const src = readSrc('src/contexts/PlayerContext.js');
+
+  // backdrop 两层都必须用 coverUrlHd
+  assert.match(
+    src,
+    /player-stage__backdrop-art"\s+style=\{\{\s*backgroundImage:\s*`url\(\$\{coverUrlHd\}\)`/,
+    'backdrop-art 必须用 coverUrlHd（300px 拉伸 2.87 倍会糊）',
+  );
+  assert.match(
+    src,
+    /player-stage__backdrop-fill"\s+style=\{\{\s*backgroundImage:\s*`url\(\$\{coverUrlHd\}\)`/,
+    'backdrop-fill 也必须用 coverUrlHd',
+  );
+  // coverApi 必须支持 size 选项
+  const svc = readSrc('src/services/musicdl.js');
+  assert.match(
+    svc,
+    /export const upgradeCoverUrl\s*=/,
+    'musicdl.js 需要 upgradeCoverUrl（把 QQ 封面 R300x300 改成更大档）',
+  );
+  assert.match(
+    svc,
+    /coverProxyUrl\s*=\s*\(song,\s*options\s*=\s*\{\}\)/,
+    'coverProxyUrl 需要支持 options.size 参数',
+  );
+  // 只改 QQ（gtimg）的尺寸段，其它源原样返回 —— 乱改会 404
+  assert.match(
+    svc,
+    /y\\\.gtimg\\\.cn|gtimg/,
+    'upgradeCoverUrl 必须限定只处理 gtimg（QQ）域名',
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

@@ -1814,6 +1814,17 @@ export const PlayerBar = () => {
   // PlayerBar 是独立组件,Provider 里那份 downloadedCopy 不在它的作用域内。
   const { downloadedCopy } = useServerDownloads();
   const coverUrl = cachedCoverUrl || (!offline && nowPlaying?.cover ? coverProxyUrl(nowPlaying) : '');
+  // ★ 播放页专用高分辨率封面（2026-11，修「专辑模糊」）：
+  //   列表/播放条的缩略图用 300×300 足够（还省流量），
+  //   但播放页把封面按**高度铺满整屏**（background-size: auto 100%，860px 高）——
+  //   300px 拉伸 2.87 倍必糊。实测 QQ 源同一 ID 支持 800×800（181KB），
+  //   所以只在这个大尺寸场景请求高分辨率档。其它源的 URL 结构不同，
+  //   upgradeCoverUrl 内部只动 gtimg 的 R<数字>x<数字>M000 段，其它原样返回。
+  const coverUrlHd = (() => {
+    if (!nowPlaying?.cover || offline) return coverUrl;
+    const hd = coverProxyUrl(nowPlaying, { size: 800 });
+    return hd || coverUrl;
+  })();
 
   // 副歌标记位置:从歌曲 extra 派生,不额外存 state。
   // 为什么用 useMemo 而不是每次渲染现算:progress 每帧都在变(时间更新),PlayerBar 会跟着重渲染;
@@ -2660,12 +2671,16 @@ export const PlayerBar = () => {
                   保证封面右边缘之外不会突然变成纯黑;
                 · backdrop-art  —— **高度完整显示**(auto 100%)、左对齐,
                   正方形封面在 16:9 屏上不再上下被裁(用户:"上面感觉被裁剪了")。
-              ⚠ 不加 blur:整屏放大会把几像素的模糊放大成十几像素的糊。 */}
+              ⚠ 不加 blur:整屏放大会把几像素的模糊放大成十几像素的糊。
+              ★ 2026-11 换用 coverUrlHd:原来这里和列表缩略图共用 300×300 的
+                coverUrl,而 backdrop-art 是按高度铺满整屏(860px)——
+                300px 被拉伸 2.87 倍,这就是用户报的「专辑模糊」。
+                现在只在这个大尺寸场景请求 800×800 档。 */}
           <div className="player-stage__backdrop" aria-hidden="true">
             {coverUrl ? (
               <>
-                <div className="player-stage__backdrop-fill" style={{ backgroundImage: `url(${coverUrl})` }} />
-                <div className="player-stage__backdrop-art" style={{ backgroundImage: `url(${coverUrl})` }} />
+                <div className="player-stage__backdrop-fill" style={{ backgroundImage: `url(${coverUrlHd})` }} />
+                <div className="player-stage__backdrop-art" style={{ backgroundImage: `url(${coverUrlHd})` }} />
               </>
             ) : (
               <div className="player-stage__backdrop-empty" />

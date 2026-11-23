@@ -364,16 +364,41 @@ export const saveToServer = async (song, { expectedUserId } = {}) => {
 
 export const apiBase = API_BASE;
 
+/**
+ * 把 QQ 音乐封面 URL 的尺寸档提到 `size`（默认 800）。
+ *
+ * ★ 为什么需要（2026-11 实测，用户报「专辑模糊」）：
+ *   后端返回的 cover 是 `.../T002R300x300M000...jpg` —— 只有 **300×300**。
+ *   列表缩略图（40px）够用，但播放页把封面按**高度铺满整屏**
+ *   （`background-size: auto 100%`，860px 高）→ 300px 被拉伸 **2.87 倍**，
+ *   肉眼必然糊。而 QQ 源本身支持同一 ID 的更大档：
+ *   实测 T002R300x300 / T002R500x500 / T002R800x800 都返回 200，
+ *   800×800 是 181KB（300 是 38KB）。
+ *
+ * ★ 只改 QQ（gtimg）的 `R<数字>x<数字>` 段，其它源原样返回：
+ *   网易/酷狗/咪咕的 URL 结构不同，乱改会 404。
+ *   而且**只用于大尺寸展示场景**（播放页），列表缩略图仍走 300 档省流量。
+ */
+export const upgradeCoverUrl = (url, size = 800) => {
+  if (!url || typeof url !== 'string') return url;
+  // 只处理 QQ 音乐（gtimg）的固定模式 T002R300x300M000
+  if (!/y\.gtimg\.cn|gtimg\.cn/.test(url)) return url;
+  return url.replace(/R\d+x\d+M000/, `R${size}x${size}M000`);
+};
+
 // 封面代理 URL:封面源站常有防盗链 + 网易封面是 http(生产 https 会被浏览器拦混合内容),
 // 故统一走后端 cover_proxy(带 referer + 磁盘缓存)。无 cover 返回空串(前端显占位)。
 // 例外:本地音乐封面是站内相对路径(/music/local_music/cover?id=...),直接用原路径,
 // 不能套 cover_proxy——cover_proxy 的 isPublicHTTPURL 会拒绝站内/相对 URL(SSRF 防护)返 403。
-export const coverProxyUrl = (song) => {
+//
+// `options.size` 传数字时把 QQ 封面升到该档（播放页用 800，列表默认不动）。
+export const coverProxyUrl = (song, options = {}) => {
   const s = normalizeSong(song);
-  const url = s.cover || '';
+  let url = s.cover || '';
   if (!url) return '';
   // 站内相对路径(本地音乐封面)直接返回,拼上 API_BASE 即可。
   if (url.startsWith('/')) return `${API_BASE}${url}`;
+  if (options.size) url = upgradeCoverUrl(url, options.size);
   const src = s.source || '';
   return `${API_BASE}/music/cover_proxy?url=${encodeURIComponent(url)}${src ? `&source=${encodeURIComponent(src)}` : ''}`;
 };
