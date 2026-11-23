@@ -148,7 +148,7 @@ const DesktopLyricsSettings = () => {
         desc="桌面歌词是桌面客户端的原生窗口，浏览器里没有。"
         action={<MonitorUp className="flex-shrink-0 text-primary" size={24} />}
       >
-        <div className="space-y-2 rounded-control border border-border surface p-4 text-sm leading-relaxed text-muted-foreground">
+        <div className="space-y-2 rounded-control border border-border surface p-4 type-body text-muted-foreground">
           <p>请安装并打开 Melodex 桌面客户端后再播放；浏览器内仍可在播放页查看逐字歌词与留声机视图。</p>
         </div>
       </SettingsSection>

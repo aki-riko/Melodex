@@ -49,7 +49,7 @@ export default function SettingsSection({
         {action}
       </div>
       {desc ? (
-        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{desc}</p>
+        <p className="mb-4 type-body text-muted-foreground">{desc}</p>
       ) : null}
       {children}
     </section>

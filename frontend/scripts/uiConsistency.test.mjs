@@ -725,6 +725,33 @@ check('禁止裸 rounded，用 rounded-control 或 rounded-full', () => {
   );
 });
 
+// ---------- ⑪ 禁止 text-[NNpx] 任意字号 ----------
+
+check('禁止 text-[NNpx] 任意字号，用 type-* 令牌', () => {
+  // ★ 实测（设置页 CDP 量行高）：
+  //   11px 字号出现三套行高 —— 14.3px(type-micro) / 16.5px(徽章) / 16px(text-[11px] leading-4)。
+  //   同一字号三套行高，垂直节奏就散了。
+  //   项目已有字号阶梯 type-hero/title/section/body/caption/micro，
+  //   写 `text-[11px]` 等于绕过整条阶梯，且通常还配一个手写 leading。
+  const offenders = [];
+  for (const file of files) {
+    const rel = file.replace(root, '').replace(/\\/g, '/');
+    const src = readFileSync(file, 'utf8')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+    for (const m of src.matchAll(/text-\[(\d+(?:\.\d+)?(?:px|rem))\]/g)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:~${line}  text-[${m[1]}]`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `不要写任意字号（会让同一字号出现多套行高），改用 type-hero/title/section/body/caption/micro：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

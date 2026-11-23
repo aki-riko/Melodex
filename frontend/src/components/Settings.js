@@ -364,13 +364,13 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
       <div className="flex h-full min-h-[108px] flex-col rounded-control border border-border surface p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">{sourceLabel(source)}</p>
-            <p className="mt-1 truncate text-[11px] leading-4 text-muted-foreground" title={credentialHint(source, loggedIn, qrSupported, detail)}>
+            <p className="truncate type-body font-semibold text-foreground">{sourceLabel(source)}</p>
+            <p className="mt-1 truncate type-micro text-muted-foreground" title={credentialHint(source, loggedIn, qrSupported, detail)}>
               {qrSupported ? '扫码' : '手填'}{manualSupported && qrSupported ? ' / 手填' : ''}
             </p>
           </div>
           <div className="flex flex-shrink-0 items-center gap-1">
-            <span className={`inline-flex items-center gap-1 rounded-control border px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}>
+            <span className={`inline-flex items-center gap-1 rounded-control border px-1.5 py-0.5 type-micro font-medium ${badge.className}`}>
               {badge.icon}
               {badge.text}
             </span>
@@ -455,11 +455,11 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
               )}
 
               {statusNote && (
-                <p className="mt-3 rounded-control bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">{statusNote}</p>
+                <p className="mt-3 rounded-control bg-secondary p-3 type-micro text-muted-foreground">{statusNote}</p>
               )}
 
               {sodaSMS && (
-                <div className="mt-3 rounded-control bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
+                <div className="mt-3 rounded-control bg-secondary p-3 type-micro text-muted-foreground">
                   {sodaSMS.mode === 'up' ? (
                     <>
                       <p>请按汽水要求发送短信。</p>
@@ -545,7 +545,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             </div>
             <div className="overflow-y-auto p-4 app-scroll">
               {COOKIE_HELP[source] && (
-                <div className="mb-3 rounded-control bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
+                <div className="mb-3 rounded-control bg-secondary p-3 type-micro text-muted-foreground">
                   <p className="mb-2 font-medium text-foreground">获取方式</p>
                   <p>1. 浏览器打开 <a href={COOKIE_HELP[source].url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline">{COOKIE_HELP[source].url}<ExternalLink size={12} /></a> 并登录会员账号</p>
                   <p>2. 按 F12 打开开发者工具,进入「网络/Network」</p>
@@ -660,7 +660,7 @@ const Settings = () => {
         <SettingsRow>
           <div className="min-w-0">
             <p className="font-semibold">播放时自动下载到服务器</p>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            <p className="mt-1 type-body text-muted-foreground">
               开启后，每首开始播放（即可正常播放）的歌会自动下载到服务器。同一首本次会话只下一次。
             </p>
           </div>
