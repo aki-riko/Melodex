@@ -107,6 +107,78 @@ assert.deepEqual(
   `这些命令没有授予任何窗口，等于没注册：${ungranted.join(', ')}`,
 );
 
+// ---------- 3b. ★ 窗口归属：命令必须授予「真正会调用它的窗口」 ----------
+//
+// ★★ 为什么需要这一段（真实事故，2026-11-23 用户报「按钮完全无法点击」）：
+//   上面的集合断言全绿 —— 因为 `lyrics_send_command` 确实被 `lyrics-bridge`
+//   授予了（给 `main`）。但**歌词窗自己也调它**（点上一首/下一首/播放暂停），
+//   而 `default.json`（唯一覆盖 `overlay` 的 capability）里没有这一条。
+//   运行时直接拒绝，报错原文：
+//     `lyrics_send_command not allowed on window "overlay", webview "overlay",
+//      URL: local / allowed on: [windows: "main", ...]`
+//   症状是「点了没反应、控制台无报错」（overlay.js 里 catch 只 console.warn）。
+//
+//   集合相等查不出这种漏洞：**命令存在、也有窗口被授予，只是授错了窗口**。
+//   所以要按窗口维度单独断言。
+
+/** 命令名 → 被哪些窗口覆盖。窗口列表来自各 capability 的 `windows` 字段。 */
+const windowsFor = new Map();
+for (const file of readdirSync(join(tauriRoot, 'capabilities')).filter((f) => f.endsWith('.json'))) {
+  const capability = JSON.parse(read('capabilities', file));
+  const windows = capability.windows || [];
+  for (const permission of capability.permissions || []) {
+    if (!permission.startsWith('allow-')) continue;
+    const command = permission.slice('allow-'.length).replaceAll('-', '_');
+    if (!windowsFor.has(command)) windowsFor.set(command, new Set());
+    for (const w of windows) windowsFor.get(command).add(w);
+  }
+}
+
+// `overlay.js`（歌词窗）实际 invoke 的命令。
+//
+// 这份清单来自 desktop/ui/overlay.js 的源码，用正则抓 `invoke('xxx'` ——
+// 不手抄，避免以后加了新调用又忘了授权。
+// ★ 必须先剥掉注释：文件头那几行架构说明里写着 `invoke('lyrics_push_state')`
+//   和 `invoke('lyrics_send_command')` 当作示意，但它们不是真实调用
+//   （lyrics_push_state 是**主窗口**推给歌词窗的，歌词窗自己从不调用）。
+const overlayJs = readFileSync(
+  new URL('../../desktop/ui/overlay.js', import.meta.url),
+  'utf8',
+)
+  .replace(/\/\*[\s\S]*?\*\//g, '')            // 块注释
+  .split('\n')
+  .filter((line) => !line.trim().startsWith('//')) // 行注释
+  .join('\n');
+
+const overlayCommands = [...new Set(
+  [...overlayJs.matchAll(/invoke\(\s*'([a-z0-9_]+)'/g)].map((m) => m[1]),
+)];
+assert.ok(overlayCommands.length > 0, '没能从 overlay.js 解析出 invoke 命令');
+assert.ok(
+  !overlayCommands.includes('lyrics_push_state'),
+  'lyrics_push_state 是主窗口→歌词窗的单向通道，歌词窗不应调用它（若真调用了，说明架构被改坏）',
+);
+
+// 逐个断言：歌词窗调用过的每条命令，必须被某个覆盖 `overlay` 的 capability 授予。
+const overlayUngranted = overlayCommands.filter(
+  (cmd) => !(windowsFor.get(cmd)?.has('overlay')),
+);
+assert.deepEqual(
+  overlayUngranted,
+  [],
+  `这些命令在歌词窗里被 invoke，但没有授予 overlay 窗口（运行时会被拒，表现为「按钮点了没反应」）：\n  ${overlayUngranted.join('\n  ')}\n`
+    + '修法：把对应 allow-* 加到 capabilities/default.json（它覆盖 overlay + settings）。',
+);
+
+// 反向：控制类命令必须也授予 overlay（不能只给 main）。
+// 点名单列，因为它们是「点了没反应」最直接的受害者。
+for (const cmd of ['lyrics_send_command', 'lyrics_settings_update', 'lyrics_settings_get']) {
+  assert.ok(
+    windowsFor.get(cmd)?.has('overlay'),
+    `${cmd} 必须同时授予 overlay 窗口（歌词窗自己要用）`,
+  );
+}
+
 // ---------- 4. 安全边界：远程 origin 的 IPC 面必须逐个列举 ----------
 
 const bridge = JSON.parse(read('capabilities', 'lyrics-bridge.json'));

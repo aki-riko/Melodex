@@ -58,7 +58,19 @@ const lyricsShell = document.getElementById('lyrics-shell');
 const controls = document.getElementById('controls');
 const toggleButton = document.getElementById('toggle-button');
 
-let overlayVisible = false;
+/**
+ * 歌词窗的"我们声称的"可见状态。
+ *
+ * ★ 初值必须是 `null`（未知），不能用 `false`（踩过，症状是
+ *   「设置里关掉歌词，窗口却还挂在屏幕上」）：
+ *   `setOverlayVisible` 有「同值短路」。启动时若 `settings.visible === false`
+ *   （用户此前关过歌词），`render()` 调 `setOverlayVisible(false)` →
+ *   `overlayVisible === false` → **直接 return，从不真的调用壳侧的
+ *   `set_overlay_visible(false)`** → 窗口保持 Windows 创建时的可见状态。
+ *   `null` 表示"还没和壳侧同步过"，第一次调用必定下发。
+ */
+let overlayVisible = null;
+
 // -2 表示「还没有渲染过任何行」，与旧版 `property int renderedLineIndex: -2` 一致。
 let renderedLineIndex = -2;
 let renderedActiveText = '';
@@ -714,12 +726,16 @@ const renderSecondaryLine = (text) => {
 
 // ---------- 渲染 ----------
 
+// （`overlayVisible` 的声明在文件顶部，初值 null —— 见那里的长注释。）
+
 const setOverlayVisible = async (visible) => {
   if (overlayVisible === visible) return;
   overlayVisible = visible;
   try {
     await invoke('set_overlay_visible', { visible });
   } catch (error) {
+    // 下发失败就把声称状态退回未知，让下一次 render 重试（而不是永远认为已生效）。
+    overlayVisible = null;
     console.warn('切换桌面歌词窗口可见性失败', error);
   }
 };

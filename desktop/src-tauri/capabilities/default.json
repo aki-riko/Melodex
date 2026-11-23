@@ -19,6 +19,8 @@
     "allow-lyrics-settings-get",
     "allow-lyrics-settings-update",
     "allow-lyrics-reset-position",
-    "allow-lyrics-save-position"
+    "allow-lyrics-save-position",
+    "allow-lyrics-send-command"
   ]
 }
+

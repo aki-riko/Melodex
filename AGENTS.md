@@ -589,6 +589,63 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
     ③ 图标 `14px` → `15px`（14px 在 32×30 按钮里四周各空 9px，显得空）。
     ④ 淡入 `120ms` → `150ms`（120ms 时 5 个按钮带缩放一起浮现像"闪一下"）。
 
+#### 第八轮(2026-11-23 深夜):按钮点不动 + 控制条 UI 重做
+
+17. **「这里的按钮完全无法点击，没回调」—— 命令授错窗口。**
+    `overlay.js` 的 click handler 调 `invoke('lyrics_send_command')`，
+    但这条命令**只在 `lyrics-bridge.json` 里授予了 `main` 窗口**，
+    而唯一覆盖 `overlay` 的 `default.json` 里没有它。运行时直接拒绝。
+    实测报错原文（CDP 抓的，`overlay.js` 里 catch 只 `console.warn` 所以看不见）：
+    ```
+    lyrics_send_command not allowed on window "overlay", webview "overlay", URL: local
+    allowed on: [windows: "main", URL: local], [windows: "main", URL: https://music.9li.life/*] ...
+    referenced by: capability: lyrics-bridge, permission: allow-lyrics-send-command
+    ```
+    **修法**：把 `allow-lyrics-send-command` 加进 `capabilities/default.json`。
+
+    **★ 门禁漏洞（这次补上）**：原 `shellCommandManifest.test.mjs` 只做
+    「集合相等」——命令存在、也**有**窗口被授予，只是**授错了窗口**，查不出来。
+    新增一段**窗口归属**断言：
+    - 用正则从 `overlay.js` 抠出所有 `invoke('xxx'`（**必须先剥注释** ——
+      文件头架构说明里写着 `invoke('lyrics_push_state')` 当示意，会被误抓）；
+    - 断言这些命令**每个**都被某个覆盖 `overlay` 的 capability 授予；
+    - 反向点名 `lyrics_send_command` / `lyrics_settings_*` 必须同时授予 overlay。
+    突变验证：去掉那条权限后测试立刻红并指名 `lyrics_send_command`。
+
+18. **「设置里关掉歌词，窗口却还挂在屏幕上」—— 可见性声称状态初值错。**
+    `overlayVisible` 初值是 `false`，而 `setOverlayVisible` 有「同值短路」。
+    启动时若 `settings.visible === false`（用户此前关过歌词），
+    `render()` 调 `setOverlayVisible(false)` → `overlayVisible === false` →
+    **直接 return，从不真的调用壳侧 `set_overlay_visible(false)`** →
+    窗口保持 Windows 创建时的可见状态。
+    **修法**：初值改 `null`（"未知，还没和壳侧同步过"），第一次调用必定下发；
+    且下发失败时把状态退回 `null` 让下次重试。
+    （这条被既有的 TDZ 门禁当场抓出：本鱼一度把声明放在文件后段，
+    而第 61 行的 top-level 语句引用了它。）
+
+19. **控制条 UI 重做（用户：「这个条的 UI 也设计一下」）。**
+    旧观感是一块 `rgba(247,250,252,0.94)` 的**实心白饼**、无投影、
+    边框在 DPR 1.5 下只有 0.67px —— 浮在深色壁纸上像贴上去的纸片，
+    与旁边那套「梯度光晕」的柔和语言完全不搭。
+    **新方案：毛玻璃胶囊**
+    - 半透明底 `rgba(250,251,252,0.72)` + `backdrop-filter: blur(20px) saturate(180%)`：
+      透出壁纸色，深浅通吃；
+    - **顶部 1px 内高光**（`inset 0 1px 0 rgba(255,255,255,0.75)`）＋底部内侧暗边：
+      这是「玻璃边缘受光」的关键，少了它就是普通半透明色块；
+    - 双层柔和投影（`0 2px 6px` + `0 6px 18px`）：近实远散，让胶囊浮起来；
+    - 按钮圆角 `6px` → **全圆**（胶囊 + 圆角按钮才是同一套语言）；
+    - 悬停从灰块改**白色柔光**（配毛玻璃像"光打上去"），`:active` 加 0.92 缩放；
+    - 主播放按钮从扁平深灰改成**带内高光的深色玻璃**（渐变 + 同色投影），
+      在一排无底色图标中间成为视觉焦点。
+    - 暂停图标显示用 `flex` 而不是 `block`（按钮是 grid 容器，block 不居中）。
+
+    **排查坑**：`overlay.js` 用 `const { invoke } = window.__TAURI__.core;`
+    **解构赋值**在模块加载时就把函数引用抓走了 —— 之后替换
+    `window.__TAURI__.core.invoke` 对它**完全无效**，
+    导致所有"拦截 invoke 验证点击"的测试都看不到调用（本鱼踩了两轮）。
+    可靠判据改成**看副作用**：点「下一首」后 `current-line-base.textContent` 变了
+    （实测 `"但是我们渐行渐远"` → `" 作词 : Fanko冯思源"`，确实切歌了）。
+
 #### 排查手法(可复用)
 - **UI 资源是编译进二进制的**(`frontendDist: "../ui"`):
   改完 `desktop/ui/*` **必须 `cargo build` 才生效**,只重启进程看到的是旧界面

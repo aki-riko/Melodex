@@ -115,16 +115,29 @@
    * ★ 曾经写成「副行高 - 主行高」= -18px：符号与数值双错，新行变成从上往下掉。 */
   --incoming-offset: calc((var(--active-line-height) + var(--secondary-line-height)) / 2);
 
-  /* 控制条：DesktopLyricsWindow.qml:286-298 的 38 高与两组 rgba。
-   * 宽度仍由内容决定（用户此前明确反馈旧版 212 写死导致两侧空 18px）。
+  /* ---- 控制条 ----
    *
-   * 淡入时长 150ms（旧实现是 Fluent `duration.fast` = 120ms）：
-   * 120ms 时 5 个按钮带缩放一起浮现，看起来是"闪一下"；
-   * 150ms 明显柔和，也仍在"瞬时响应"的范围内。 */
+   * 几何沿用旧版 QML 的 38px 高；**视觉重做**（用户反馈「这个条的 UI 也设计一下」）。
+   *
+   * 旧观感的问题：一块 `rgba(247,250,252,0.94)` 的**实心白饼**，没有投影、
+   * 边框在 DPR 1.5 下只有 0.67px。浮在深色壁纸上像贴上去的纸片，
+   * 与旁边那套「梯度光晕」的柔和语言完全不搭。
+   *
+   * 新方案：**毛玻璃胶囊** ——
+   *   ① 半透明底 + `backdrop-filter: blur()`：透出背后的壁纸颜色，
+   *      在浅色/深色/花哨壁纸上都能自然融入，而不是一块死白；
+   *   ② 顶部一道 1px 高光（inset box-shadow）：模拟玻璃边缘的受光，
+   *      这是「玻璃感」的关键，少了它就是普通半透明色块；
+   *   ③ 双层柔和投影：近处紧实、远处弥散，
+   *      让胶囊"浮"在壁纸上而不是贴在上面；
+   *   ④ 边框改成半透明白（浅色壁纸上靠投影分离，深色壁纸上靠边框提亮）。
+   *
+   * 淡入 150ms：120ms 时 5 个按钮带缩放一起浮现，看起来是"闪一下"。 */
   --control-bar-height: 38px;
   --control-bar-fade-ms: 150ms;
-  --control-bar-bg: rgba(247, 250, 252, 0.94);
-  --control-bar-border: rgba(30, 36, 41, 0.2);
+  /* 半透明底：深浅壁纸通吃。0.72 是"能透出壁纸色、又不影响图标可读性"的折中。 */
+  --control-bar-bg: rgba(250, 251, 252, 0.72);
+  --control-bar-border: rgba(255, 255, 255, 0.55);
   --control-icon-color: #1f2429;
 }
 
@@ -393,9 +406,25 @@ body {
   height: var(--control-bar-height);
   padding: 0 8px;
   gap: 6px;
+  /* ★ UI 重做（用户反馈「这个条的 UI 也设计一下」）：从「实心白饼」改成**毛玻璃胶囊**。
+   *   ① `backdrop-filter: blur()` 让胶囊透出壁纸色，浅/深/花哨底都能融入；
+   *   ② 顶部 1px 内高光（inset 阴影）是"玻璃边缘受光"的关键 —— 少了它就是普通半透明块；
+   *   ③ 双层柔和投影让胶囊浮起来，而不是贴在壁纸上；
+   *   ④ 边框改半透明白，在深色壁纸上靠它提亮边缘。
+   *
+   * ★ 顶部留 1px 呼吸：`top: 4` 就只剩 2px 间隙、悬停时会压住歌词
+   *   （主行在 44px、胶囊高 38）。1px 时间隙 5px。 */
   border: 1px solid var(--control-bar-border);
   border-radius: calc(var(--control-bar-height) / 2);
   background: var(--control-bar-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  /* 内高光（顶部）+ 双层柔和投影（近实远散） */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(30, 36, 41, 0.06),
+    0 2px 6px rgba(8, 12, 20, 0.16),
+    0 6px 18px rgba(8, 12, 20, 0.12);
   opacity: 0;
   pointer-events: none;
   transform: translateX(-50%) scale(0.96);
@@ -412,7 +441,11 @@ body:not(.passthrough) .controls:focus-within {
   transform: translateX(-50%) scale(1);
 }
 
-/* 每个按钮 32×30（旧实现 Fluent.Button 的 width/height） */
+/* 每个按钮 32×30（旧实现 Fluent.Button 的 width/height）。
+ *
+ * ★ UI 重做：圆角从 6px 改成**全圆**（15px = 高度一半）。
+ *   胶囊条 + 圆角按钮是同一套语言，6px 方角在胶囊里显得"没做完"。
+ *   悬停改为**白色柔光**而不是灰色块 —— 配毛玻璃底更像"光打上去"。 */
 .controls button {
   display: grid;
   width: 32px;
@@ -421,18 +454,16 @@ body:not(.passthrough) .controls:focus-within {
   flex-shrink: 0;
   place-items: center;
   border: none;
-  border-radius: 6px;
+  border-radius: calc(30px / 2);
   background: transparent;
   color: var(--control-icon-color);
   cursor: pointer;
-  transition: background-color var(--control-bar-fade-ms) ease;
+  transition:
+    background-color var(--control-bar-fade-ms) ease,
+    transform 90ms ease;
 }
 
-/* 图标 15px。
- *
- * 旧实现是 iconSize.s = 14px（Metrics.qml:177），但在 32×30 的按钮里
- * 四周各空 9px，视觉上显得空、点击热区也浪费。15px 只加 1px，
- * 比例更饱满且不会撑满按钮。 */
+/* 图标 15px（旧实现 iconSize.s = 14px，在 32×30 按钮里四周各空 9px 显得空）。 */
 .controls button svg {
   width: 15px;
   height: 15px;
@@ -440,21 +471,50 @@ body:not(.passthrough) .controls:focus-within {
 }
 
 .controls button:hover {
-  background: rgba(31, 36, 41, 0.1);
+  background: rgba(255, 255, 255, 0.55);
 }
 
-/* 播放/暂停是 primary 样式 + pill 形状（旧实现 style_primary + shape_pill） */
+/* 按下给一点点回弹感（90ms 短过渡，不拖沓） */
+.controls button:active {
+  transform: scale(0.92);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+/* 播放/暂停是 primary 样式 + 圆形（旧实现 style_primary + shape_pill）。
+ *
+ * ★ UI 重做：从扁平深灰 `rgba(31,36,41,0.9)` 改成**带内高光的深色玻璃**，
+ *   与胶囊条的玻璃语言一致；加一层同色投影让它"凸"起来，
+ *   在一排无底色的图标按钮中间成为视觉焦点。 */
 .controls button.primary {
-  border-radius: calc(30px / 2);
-  background: rgba(31, 36, 41, 0.9);
+  background: linear-gradient(
+    180deg,
+    rgba(48, 54, 62, 0.94) 0%,
+    rgba(28, 32, 38, 0.96) 100%
+  );
   color: #f7fafc;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 1px 3px rgba(8, 12, 20, 0.35);
 }
 
 .controls button.primary:hover {
-  background: rgba(31, 36, 41, 1);
+  background: linear-gradient(
+    180deg,
+    rgba(60, 67, 76, 0.96) 0%,
+    rgba(36, 41, 48, 0.98) 100%
+  );
 }
 
-/* 播放/暂停图标按状态二选一，避免每次改 DOM 结构 */
+.controls button.primary:active {
+  background: linear-gradient(
+    180deg,
+    rgba(36, 41, 48, 0.98) 0%,
+    rgba(24, 28, 33, 1) 100%
+  );
+}
+
+/* 播放/暂停图标按状态二选一，避免每次改 DOM 结构
+ * ★ 用 flex 而不是 block：按钮是 grid 容器，block 会让图标不居中。 */
 .controls .icon-pause {
   display: none;
 }
@@ -464,7 +524,7 @@ body:not(.passthrough) .controls:focus-within {
 }
 
 .controls button.primary.is-playing .icon-pause {
-  display: block;
+  display: flex;
 }
 
 @media (prefers-reduced-motion: reduce) {

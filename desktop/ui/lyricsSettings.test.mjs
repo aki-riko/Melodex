@@ -46,7 +46,8 @@ test('播放按钮有播放与暂停两个图标，靠 class 切换', () => {
   assert.match(overlayHtml, /class="icon-play"/);
   assert.match(overlayHtml, /class="icon-pause"/);
   assert.match(overlayCss, /\.is-playing \.icon-play\s*\{\s*display:\s*none/);
-  assert.match(overlayCss, /\.is-playing \.icon-pause\s*\{\s*display:\s*block/);
+  // 暂停图标显示时用 flex（按钮是 grid 容器，block 会让图标不居中）
+  assert.match(overlayCss, /\.is-playing \.icon-pause\s*\{\s*display:\s*flex/);
   assert.match(overlayJs, /classList\.toggle\('is-playing'/);
 });
 
@@ -96,8 +97,12 @@ test('每个按钮 32×30（旧 Fluent.Button）', () => {
   assert.match(overlayCss, /\.controls button\s*\{[^}]*height:\s*30px/s);
 });
 
-test('播放按钮是 pill 形状', () => {
-  assert.match(overlayCss, /\.controls button\.primary\s*\{[^}]*border-radius:\s*calc\(30px \/ 2\)/s);
+test('按钮是全圆（胶囊条 + 圆角按钮同一套语言）', () => {
+  // ★ UI 重做：圆角从 6px 方角改成全圆（15px = 按钮高 30 的一半）。
+  //   6px 方角放在胶囊里显得"没做完"，和胶囊的圆润线条不是一套语言。
+  const rule = overlayCss.match(/\.controls button\s*\{[^}]*\}/s);
+  assert.ok(rule, '找不到 .controls button 规则');
+  assert.match(rule[0], /border-radius:\s*calc\(30px \/ 2\)/, '按钮应为全圆');
 });
 
 // ---------- 双行布局不能被改坏 ----------
@@ -953,6 +958,56 @@ test('填色接缝必须软化（右边缘渐隐），且唱完后取消渐隐',
     clipRule[0],
     /--fill-softness:\s*calc\(var\(--lyric-font-size\)[^)]*var\(--line-font-scale/,
     '软边宽度应按实际字号缩放',
+  );
+});
+
+test('可见性声称状态的初值必须是未知（否则关掉的窗口不隐藏）', () => {
+  // ★ 真实缺陷（用户实测「设置里关掉歌词，窗口却还挂在屏幕上」）：
+  //   `overlayVisible` 初值曾是 `false`，而 setOverlayVisible 有「同值短路」。
+  //   启动时若 settings.visible === false，render() 调 setOverlayVisible(false)
+  //   → overlayVisible === false → 直接 return → **从不真的下发** →
+  //   窗口保持 Windows 创建时的可见状态。
+  //   `null` = "还没和壳侧同步过"，第一次调用必定下发。
+  const jsCode = overlayJs
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+
+  assert.match(
+    jsCode,
+    /let overlayVisible = null/,
+    'overlayVisible 初值必须是 null（未知），不能是 false',
+  );
+  assert.doesNotMatch(
+    jsCode,
+    /let overlayVisible = false/,
+    '初值不能是 false：启动时 visible=false 会导致「同值短路」而从不真正隐藏窗口',
+  );
+  // 下发失败要退回未知，让下次重试
+  assert.match(
+    jsCode,
+    /overlayVisible = null;[\s\S]{0,80}console\.warn\('切换桌面歌词窗口可见性失败'/,
+    '下发失败应把声称状态退回 null，避免永远认为已生效',
+  );
+});
+
+test('控制条是毛玻璃胶囊（不是实心白饼）', () => {
+  // ★ 用户反馈「这个条的 UI 也设计一下」。旧观感是一块
+  //   `rgba(247,250,252,0.94)` 的实心白饼，无投影，浮在深色壁纸上像贴上去的纸片。
+  //   新方案：半透明底 + backdrop-filter + 内高光 + 双层投影。
+  const rule = overlayCss.match(/\.controls\s*\{[^}]*\}/s);
+  assert.ok(rule, '找不到 .controls 规则');
+  assert.match(rule[0], /backdrop-filter:\s*blur\(/, '需要毛玻璃模糊');
+  assert.match(rule[0], /-webkit-backdrop-filter:\s*blur\(/, 'WebKit 也要毛玻璃');
+  assert.match(rule[0], /box-shadow:/, '需要投影（否则浮不起来）');
+  assert.match(rule[0], /inset 0 1px 0 rgba\(255, 255, 255/, '需要顶部内高光（玻璃边缘受光）');
+  // 底层必须半透明（0.94 那种实心白会透不出壁纸色）
+  const barBg = overlayCss.match(/--control-bar-bg:\s*rgba\([^)]*,\s*([\d.]+)\)/);
+  assert.ok(barBg, '找不到 --control-bar-bg');
+  assert.ok(
+    Number(barBg[1]) <= 0.8,
+    `底色不透明度应 <= 0.8（实际 ${barBg[1]}），否则是实心白饼、透不出壁纸色`,
   );
 });
 
