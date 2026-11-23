@@ -136,8 +136,9 @@ const makeHistory = (initialState = null) => {
     'src/App.js',
     'src/components/MyPlaylist.js',
     'src/components/LocalMusic.js',
-    'src/components/DesktopLyricsBridge.js',
   ]) {
+    // DesktopLyricsBridge.js 已在 1115e9b(桌面歌词改壳内直连)中删除,
+    // 这里同步去掉 —— 留着会让本门禁因 ENOENT 直接崩掉,而不是报出真正的问题。
     const source = read(rel);
     const code = source
       .split(/\r?\n/)

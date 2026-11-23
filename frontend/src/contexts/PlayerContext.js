@@ -87,6 +87,7 @@ import {
   TAP_SLOP_PX, dragOffset, lockSwipeAxis, marqueeDurationSec, miniEnterKind, resolveSwipe,
 } from './playerMiniSwipe.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
+import { resolveQuality } from '../utils/quality.js';
 
 const PlayerContext = createContext(null);
 
@@ -1772,6 +1773,9 @@ export const PlayerBar = () => {
   const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
   const { offline } = useAuth();
+  // 音质徽章要读服务器磁盘副本记录(见下面 qualityBadge)。这里单独取一次:
+  // PlayerBar 是独立组件,Provider 里那份 downloadedCopy 不在它的作用域内。
+  const { downloadedCopy } = useServerDownloads();
   const coverUrl = cachedCoverUrl || (!offline && nowPlaying?.cover ? coverProxyUrl(nowPlaying) : '');
 
   // 副歌标记位置:从歌曲 extra 派生,不额外存 state。
@@ -1789,6 +1793,18 @@ export const PlayerBar = () => {
   const seekToChorus = useCallback(() => {
     if (chorusRange) seek(chorusRange.start);
   }, [chorusRange, seek]);
+
+  // 音质徽章(网易云右侧那个「极高」的位置)。
+  //
+  // ★ 只展示、不编造:三级可信度全在 utils/quality.js 里排好序 ——
+  //   验活结果 > 服务器磁盘副本 > 歌曲记录。三处都没有就**不显示**,
+  //   绝不用"标准"这种没信息量的词占位(那等于给用户一个假结论)。
+  // 这里的验活结果拿不到(播放条没有 useLiveCheck 的实例),所以走后两级;
+  // 服务器副本优先,因为它来自真实落盘文件的 ext/size_bytes。
+  const qualityBadge = useMemo(
+    () => resolveQuality(null, downloadedCopy(nowPlaying), nowPlaying),
+    [curKey, nowPlaying, downloadedCopy],
+  );
 
   // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
   //
@@ -2564,10 +2580,56 @@ export const PlayerBar = () => {
             )}
           </div>
 
-          {/* 底部:信息 + 进度 + 全部操作,压在一条半透明底栏里。
-              用户的原话是「把条+操作压缩到底栏里面去」—— 所以歌名/歌手、进度条、
-              收藏/模式/定时/上下首/播放/音量,**全部**在这条里,中部不再放任何控件。 */}
+          {/* 底部:网易云式底栏(2026-11 重做)。
+              用户给了网易云截图并说「底下这部分按照网易云图2重做」,所以整条按那张图重排:
+
+                ┌──────────────────────────────────────────────────────────┐
+                │▓▓▓▓▓▓▓▓▓▓▓▓●▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│ ← 通栏进度线(贴顶)
+                │  [ 00:35 / 03:18 ]  ← 黑底时间胶囊,跟着进度点跑            │
+                │  歌名          ♡  ↻  ⏮  ▶  ⏭  ☰        [极高] ＋ 词 🔊 ⋯ │
+                │  歌手                                                     │
+                └──────────────────────────────────────────────────────────┘
+
+              ★ 与旧版(圆角浮起卡片、三栏 grid、进度在中间)的四点不同,别改回去:
+                ① **通栏贴底**:整条横贯屏幕底边、直角、无外边距 —— 不再是浮在封面上的
+                   一张圆角卡片(旧版那样看起来像"贴纸",不像"播放条");
+                ② **进度线在顶边通栏**:不是中间一段短滑块。它同时是拖拽区与副歌标记的坐标系;
+                ③ **时间做成黑底胶囊浮在线下方**,而且**跟着进度点水平移动** —— 这是网易云
+                   最有辨识度的一处;左侧固定显示「当前 / 总长」两个值;
+                ④ **左信息 / 中控制 / 右工具**三段分布,中间那组居中不动。
+                   旧版把收藏/模式/定时/上下首/播放/音量全塞在右侧一坨,既挤又不像播放条。 */}
           <div className="player-stage__dock">
+            {/* 顶边:通栏进度线。input 铺满整宽、透明轨道,视觉轨道由 CSS 画在背后,
+                这样拖拽热区就是整条(旧版只有中间那一小段可拖,细得难点中)。
+                ★ 进度百分比只在这一处算,以 CSS 变量 --rail-progress 往下传:
+                  进度点与时间胶囊都读它(CSS 里各自夹取)。写两份会因四舍五入/夹取规则
+                  不同而错位 —— 拖动时圆点和胶囊差一点点,肉眼是看得出来的。 */}
+            <div className="player-stage__rail"
+              style={{ '--rail-progress': `${progress.dur ? Math.min(100, Math.max(0, (progress.cur / progress.dur) * 100)) : 0}%` }}>
+              <div className="player-stage__rail-track" aria-hidden="true">
+                <div
+                  className="player-stage__rail-fill"
+                  style={{ transform: `scaleX(${progress.dur ? Math.min(1, Math.max(0, progress.cur / progress.dur)) : 0})` }}
+                />
+              </div>
+              <input
+                type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
+                onChange={(e) => seek(Number(e.target.value))}
+                {...scrubHandlers}
+                className="player-stage__rail-input" aria-label="播放进度"
+              />
+              {/* 进度点:白圆点,压在线上。pointer-events:none —— 拖动由底下那条 input 接管,
+                  圆点若也接事件会和 input 抢 pointerdown,拖起来一顿一顿的。 */}
+              <div className="player-stage__rail-knob" aria-hidden="true" />
+              {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
+              {/* 时间胶囊:跟着进度点跑(位置在**线的上方**,见 CSS 注释)。 */}
+              <div className="player-stage__time-pill">
+                <span className="player-stage__time-pill-cur">{fmtTime(progress.cur)}</span>
+                <span className="player-stage__time-pill-sep">/</span>
+                <span className="player-stage__time-pill-dur">{fmtTime(progress.dur)}</span>
+              </div>
+            </div>
+
             <div className="player-stage__dock-inner">
               {/* 左:歌名 + 歌手/专辑/来源 */}
               <div className="player-stage__now">
@@ -2579,51 +2641,104 @@ export const PlayerBar = () => {
                 </p>
               </div>
 
-              {/* 中:进度条(时间在两侧) */}
-              <div className="player-stage__progress player-stage__progress--wide">
-                <span className="player-stage__time player-stage__time--lead">{fmtTime(progress.cur)}</span>
-                <div className="relative flex-grow flex items-center">
-                  <input type="range" min={0} max={progress.dur || 0} value={progress.cur || 0} step="0.5"
-                    onChange={(e) => seek(Number(e.target.value))}
-                    {...scrubHandlers}
-                    className="w-full accent-primary cursor-pointer" aria-label="播放进度" />
-                  {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
-                </div>
-                <span className="player-stage__time">{fmtTime(progress.dur)}</span>
+              {/* 中:播放控制(收藏/模式在左、上下首+播放在右 —— 与网易云图2 同序) */}
+              <div className="player-stage__controls player-stage__controls--desktop">
+                <button onClick={onToggleFavorite} disabled={offline} className="player-stage__ctrl player-stage__ctrl--icon disabled:opacity-50"
+                  aria-label={favorited ? '取消收藏' : '收藏'} aria-pressed={favorited}
+                  title={offline ? '离线状态无法同步收藏' : favorited ? '取消收藏' : '收藏'}>
+                  <span key={favPulse} className={`inline-flex ${favPulse ? 'fluent-heart-pop' : ''}`}>
+                    <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground hover:text-foreground transition-colors'} fill={favorited ? 'currentColor' : 'none'} />
+                  </span>
+                </button>
+                <button onClick={cycleMode}
+                  className={`player-stage__ctrl player-stage__ctrl--icon ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'} transition-colors`}
+                  title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">{modeIcon}</button>
+                <button onClick={prev} className="player-stage__ctrl" aria-label="上一首">
+                  <SkipBack size={30} fill="currentColor" />
+                </button>
+                <button onClick={togglePlay} className="player-stage__play" aria-label="播放/暂停">
+                  <PlayPauseIcon paused={isPaused} size={26} />
+                </button>
+                <button onClick={next} className="player-stage__ctrl" aria-label="下一首">
+                  <SkipForward size={30} fill="currentColor" />
+                </button>
               </div>
 
-              {/* 右:全部操作 */}
-              <div className="player-stage__controls player-stage__controls--desktop">
-              <button onClick={onToggleFavorite} disabled={offline} className="player-stage__ctrl player-stage__ctrl--icon disabled:opacity-50"
-                aria-label={favorited ? '取消收藏' : '收藏'} aria-pressed={favorited}
-                title={offline ? '离线状态无法同步收藏' : favorited ? '取消收藏' : '收藏'}>
-                <span key={favPulse} className={`inline-flex ${favPulse ? 'fluent-heart-pop' : ''}`}>
-                  <Heart size={22} className={favorited ? 'text-primary' : 'text-muted-foreground hover:text-foreground transition-colors'} fill={favorited ? 'currentColor' : 'none'} />
-                </span>
-              </button>
-              <button onClick={cycleMode}
-                className={`player-stage__ctrl player-stage__ctrl--icon ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'} transition-colors`}
-                title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">{modeIcon}</button>
-              <SleepTimerControl {...sleepTimerControlProps} align="center" />
-              <button onClick={prev} className="player-stage__ctrl" aria-label="上一首">
-                <SkipBack size={30} fill="currentColor" />
-              </button>
-              <button onClick={togglePlay} className="player-stage__play" aria-label="播放/暂停">
-                <PlayPauseIcon paused={isPaused} size={30} />
-              </button>
-              <button onClick={next} className="player-stage__ctrl" aria-label="下一首">
-                <SkipForward size={30} fill="currentColor" />
-              </button>
-              {/* 舞台底部空间更宽,垂直音量条向上弹出。
-                  与底部播放条共用同一个组件,手感一致。 */}
-              <VolumeControl
-                volume={volume}
-                muted={muted}
-                onVolumeChange={setVolume}
-                onToggleMute={toggleMute}
-                iconSize={22}
-                openUp
-              />
+              {/* 右:工具组(音质标签 / 队列 / 歌词 / 音量 / 睡眠定时)。
+                  网易云右侧是「极高 / 收藏 / 词 / 音量 / ⋯」—— 这里按同一顺序摆:
+                  音质徽章(只读展示)→ 队列 → 桌面歌词 → 音量 → 睡眠定时(等价于那个 ⋯)。 */}
+              <div className="player-stage__tools">
+                {qualityBadge && (
+                  <span className="player-stage__quality" title={qualityBadge.title || '当前音质'}>
+                    {qualityBadge.label}
+                  </span>
+                )}
+                <button onClick={() => setQueueOpen((o) => !o)}
+                  className={`player-stage__tool ${queueOpen ? 'text-primary' : ''}`}
+                  title="播放队列" aria-label="播放队列">
+                  <ListMusic size={20} />
+                </button>
+                {/* 舞台里的队列浮层 —— 必须真的画出来。
+                    ★ 这是本次重做补的一个真缺陷:底栏那颗队列按钮早就在(底部播放条那套),
+                      但**舞台这段原本没有对应的浮层**,点下去只把 queueOpen 置 true,
+                      屏幕上什么都不会出现(外观上像按钮坏了)。
+                      结构、样式与底部播放条那份保持一致,位置锚到这颗按钮上方。 */}
+                {queueOpen && (
+                  <>
+                    {/* 点任何地方都收起。用 fixed 全屏透明层而不是 document 监听:
+                        舞台是 fixed inset-0 的覆盖层,这里点外部的事件不该穿到下面的页面。 */}
+                    <div className="fixed inset-0 z-bar" onClick={() => setQueueOpen(false)} />
+                    <div className="player-stage__queue-pop app-scroll">
+                      <div className="player-stage__queue-head">
+                        <span className="font-semibold text-sm">播放队列</span>
+                        <span className="text-xs text-muted-foreground">{queue.length} 首</span>
+                      </div>
+                      {queue.length === 0 ? (
+                        <p className="text-sm text-muted-foreground px-3 py-4">队列为空</p>
+                      ) : (
+                        <div className="py-1">
+                          {queue.map((s, i) => {
+                            const k = `${s.source}-${s.id}`;
+                            const active = k === curKey;
+                            return (
+                              <button key={`${k}-${i}`} onClick={() => { playFromQueue(s); }}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${active ? 'bg-secondary' : 'hover:bg-secondary/60'}`}>
+                                <span className={`w-5 text-right text-xs tabular-nums flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`}>
+                                  {active ? '▶' : i + 1}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className={`text-sm truncate ${active ? 'text-primary font-medium' : ''}`}>{s.name}</p>
+                                  <p className="text-xs text-muted-foreground truncate">{s.artist}{s.source ? ` · ${songSourceText(s)}` : ''}</p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+                {inDesktopShell && (
+                  <button
+                    type="button"
+                    onClick={toggleLyricsVisible}
+                    aria-label={lyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
+                    aria-pressed={lyricsVisible}
+                    className={`player-stage__tool ${lyricsVisible ? 'text-primary' : ''}`}
+                    title={lyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
+                  >
+                    <Captions size={20} />
+                  </button>
+                )}
+                <VolumeControl
+                  volume={volume}
+                  muted={muted}
+                  onVolumeChange={setVolume}
+                  onToggleMute={toggleMute}
+                  iconSize={20}
+                  openUp
+                />
+                <SleepTimerControl {...sleepTimerControlProps} align="right" />
               </div>
             </div>
           </div>

@@ -490,13 +490,28 @@ assert.match(
     '沉浸档 body 必须 padding:0 —— 留着左右 padding 会让歌词起点偏离 50%',
   );
 
-  // ③ 操作全部在底栏:底栏必须有信息区 + 进度 + 控制三部分
-  assert.match(player, /player-stage__dock-inner/, '底栏缺少内层容器(它承载三栏布局与半透明底)');
+  // ③ 操作全部在底栏:底栏必须有信息区 + 进度的通栏轨道 + 控制三部分
+  assert.match(player, /player-stage__dock-inner/, '底栏缺少内层容器(它承载三段布局)');
   assert.match(player, /player-stage__now-title/, '底栏缺少歌名(用户要求信息压进底栏)');
   const dockInner = css.match(/\.player-stage__dock-inner\s*\{([\s\S]*?)\n\}/);
   assert.ok(dockInner, '缺少 .player-stage__dock-inner 样式');
-  assert.match(dockInner[1], /grid-template-columns/, '底栏三栏必须用 grid 分栏(用 flex+固定宽度会在窄窗换行)');
-  assert.match(dockInner[1], /backdrop-filter:\s*blur/, '底栏应是半透明毛玻璃(让封面透出来一点)');
+  // 2026-11 网易云式重做:中间那组必须**真正居中**,所以三段用 flex
+  // (左右两条各 flex:1 等分,中间 flex-shrink:0 —— 几何中心恒定)。
+  // 旧版用 grid 三等分,中间会被左右栏宽度差异推偏。
+  assert.match(
+    dockInner[1],
+    /display:\s*flex/,
+    '底栏三段必须用 flex(左右各 flex:1 等分,中间才落在几何中心)',
+  );
+  assert.match(player, /player-stage__controls--desktop/, '底栏缺少中间控制组');
+  assert.match(player, /player-stage__tools/, '底栏缺少右工具组');
+  // 左右两条必须**等分弹性宽度**(flex:1 1 0),否则中间那组会被推偏
+  const nowRule = css.match(/\.player-stage__now\s*\{([^}]*)\}/);
+  assert.ok(nowRule, '缺少 .player-stage__now —— 左信息区');
+  assert.match(nowRule[1], /flex:\s*1\s+1\s+0/, '左信息必须 flex:1 1 0(与右工具等分,中间才居中)');
+  const toolsRule = css.match(/\.player-stage__tools\s*\{([^}]*)\}/);
+  assert.ok(toolsRule, '缺少 .player-stage__tools —— 右工具组');
+  assert.match(toolsRule[1], /flex:\s*1\s+1\s+0/, '右工具必须 flex:1 1 0(与左信息等分)');
 
   // 中部不得再放大封面卡片 —— 封面已在背景里
   const desktopStart = player.indexOf('桌面端:全屏沉浸播放页');
@@ -634,5 +649,88 @@ assert.match(
 
 // 播放页仍必须能被返回键收掉(这条是 backLayers 门禁的补充,防止重做时漏挂)
 assert.match(player, /useBackLayer\(\{[\s\S]{0,200}?name:\s*'player-sheet'/, '舞台必须仍挂返回栈');
+
+// ---- 13. 底栏「按网易云图2 重做」的结构契约 ----
+//
+// 用户给的网易云截图里,那条底栏有四个一眼可辨的特征。这里逐条钉死 ——
+// 它们全是「画错了界面上立刻看得出来、但构建/单测全都不报」的一类:
+//   ① **通栏贴底 + 直角 + 实色**:不是浮在封面上的圆角毛玻璃卡片;
+//   ② **进度线在顶边、通栏整宽**:不是中间一段短滑块;
+//   ③ **进度点与时间胶囊**都跟着同一个进度值走(两份各算会错位);
+//   ④ **三段分布**,中间那组几何居中(左右两条等分弹性宽度)。
+{
+  // ⚠ .player-stage__dock 在 CSS 里出现**两次**:一次是 z-index 共享选择器组
+  //   (__top/__body/__dock 三者共用),一次是它自己的样式块。
+  //   按"第一个匹配"取会拿到共享块(只有 position/z-index),断言全部落空。
+  //   所以这里取**最后一个**带 background 的块 —— 也就是真正定义外观的那个。
+  const dockBlocks = [...css.matchAll(/\.player-stage__dock\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  assert.ok(dockBlocks.length >= 2, `.player-stage__dock 应有共享块 + 样式块两处,实际 ${dockBlocks.length} 处`);
+  const dockBody = dockBlocks.find((b) => b.includes('background')) || '';
+  assert.ok(dockBody, '找不到 .player-stage__dock 的样式块(带 background 的那一块)');
+  assert.ok(
+    !/border-radius/.test(dockBody),
+    '底栏不得有圆角 —— 网易云图2 是通栏贴底的直边条,不是浮起的圆角卡片',
+  );
+  assert.ok(
+    !/backdrop-filter/.test(dockBody),
+    '底栏不得是毛玻璃 —— 图里那条是实色,不透出封面',
+  );
+  assert.match(
+    dockBody,
+    /background-color:\s*hsl\(var\(--background\)\)/,
+    '底栏必须是纯色背景(不是带 alpha 的半透明)',
+  );
+
+  // ② 进度线
+  assert.ok(/\.player-stage__rail\s*\{/.test(css), '缺少 .player-stage__rail —— 通栏进度线');
+  const rail = css.match(/\.player-stage__rail\s*\{([^}]*)\}/);
+  assert.match(rail[1], /height:\s*var\(--rail-height\)/, '进度线高度必须走 --rail-height 变量');
+  assert.match(rail[1], /overflow:\s*visible/, '进度线容器不得裁切 —— 时间胶囊要探到线的上方');
+  assert.match(player, /--rail-progress/, '进度百分比必须由 rail 容器统一给出(圆点与胶囊共用同一源值)');
+  assert.equal(
+    (player.match(/'--rail-progress':/g) || []).length,
+    1,
+    '--rail-progress 只能有一处**赋值** —— 写两份会让圆点与胶囊错位',
+  );
+
+  // ③ 进度点 / 时间胶囊
+  const knob = css.match(/\.player-stage__rail-knob\s*\{([^}]*)\}/);
+  assert.ok(knob, '缺少 .player-stage__rail-knob —— 白色进度点');
+  assert.match(knob[1], /pointer-events:\s*none/, '进度点不得吃事件(要和底下透明的 input 抢拖动)');
+  assert.match(knob[1], /clamp\(/, '进度点位置必须 clamp 两端 —— 否则 0%/100% 有半个圆被裁掉');
+  const pill = css.match(/\.player-stage__time-pill\s*\{([^}]*)\}/);
+  assert.ok(pill, '缺少 .player-stage__time-pill —— 黑底时间胶囊');
+  assert.match(pill[1], /hsl\(0 0% 0%/, '时间胶囊必须是黑底(与参考图一致,不用主题色)');
+  assert.match(pill[1], /clamp\(/, '时间胶囊位置必须 clamp 两端,靠近 0%/100% 时不得溢出');
+  // 胶囊在**线的上方**(参考图实测:胶囊 y=4..44,线 y=60..71)
+  assert.match(
+    pill[1],
+    /bottom:\s*calc\(100%/,
+    '时间胶囊必须悬在进度线**上方**(bottom: calc(100% + …));写成 top 会压住歌名那一行',
+  );
+
+  // ④ 三段 + 中间居中
+  const nowRule = css.match(/\.player-stage__now\s*\{([^}]*)\}/);
+  const toolsRule2 = css.match(/\.player-stage__tools\s*\{([^}]*)\}/);
+  assert.ok(nowRule && toolsRule2, '底栏必须有左信息(.player-stage__now)与右工具(.player-stage__tools)');
+  assert.match(nowRule[1], /flex:\s*1\s+1\s+0/, '左信息必须 flex:1 1 0');
+  assert.match(toolsRule2[1], /flex:\s*1\s+1\s+0/, '右工具必须 flex:1 1 0(与左信息等分,中间才居中)');
+  const ctrlDesktop = css.match(/\.player-stage__controls--desktop\s*\{([^}]*)\}/);
+  assert.ok(ctrlDesktop, '缺少 .player-stage__controls--desktop');
+  assert.match(ctrlDesktop[1], /justify-content:\s*center/, '中间控制组必须居中(网易云那五颗就钉在正中)');
+
+  // 音质徽章:参考图右侧「极高」那个描边小框
+  assert.match(player, /player-stage__quality/, '底栏右工具组缺少音质徽章(参考图的「极高」位置)');
+  const quality = css.match(/\.player-stage__quality\s*\{([^}]*)\}/);
+  assert.ok(quality, '缺少 .player-stage__quality 样式');
+  assert.match(quality[1], /border:\s*1px solid/, '音质徽章必须是描边方框(与参考图一致)');
+
+  // 舞台队列浮层:这颗按钮在底栏里,浮层必须真的存在,否则点了什么都不出现
+  assert.match(player, /player-stage__queue-pop/, '舞台队列按钮必须配一个实际渲染的浮层(否则点了没反应)');
+  const queuePop = css.match(/\.player-stage__queue-pop\s*\{([^}]*)\}/);
+  assert.ok(queuePop, '缺少 .player-stage__queue-pop 样式');
+  assert.match(queuePop[1], /max-height/, '队列浮层必须有最大高度(否则长队列会撑出屏幕)');
+  assert.match(queuePop[1], /overflow-y:\s*auto/, '队列浮层必须可滚');
+}
 
 console.log('playerStage tests passed');

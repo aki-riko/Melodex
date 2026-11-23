@@ -868,6 +868,12 @@
   overflow: hidden;
   color: hsl(var(--foreground));
   background-color: hsl(var(--background));
+  /* 底栏进度线的两个尺寸(参照网易云截图实测):
+       · 线高 12px @ 1605px 宽的截图 ≈ 0.75rem;
+       · 进度点直径 24px @ 1605px ≈ 1rem。
+     放舞台根上而不是 --immersive 里:跟随主题档也要用同一套几何。 */
+  --rail-height: 0.75rem;
+  --rail-knob: 1rem;
 }
 
 .player-stage--immersive {
@@ -1275,34 +1281,171 @@
 }
 
 /* ==========================================================================
-   ③ 底栏:歌名 + 进度 + 全部操作
+   ③ 底栏:网易云式「通栏贴底 + 顶部通栏进度 + 左信息/中控制/右工具」
    ==========================================================================
-   用户要求「把条+操作压缩到底栏里面去」。所以这里是一条**横跨整屏的半透明带**:
-     左 1/4  : 歌名 / 歌手·专辑·来源
-     中 1/2  : 进度条(两侧时间)
-     右 1/4  : 收藏 / 模式 / 定时 / 上首 / 播放 / 下首 / 音量
-   三栏用 grid,宽度用 minmax 让它随窗口伸缩 —— 用 flex + 固定宽度在窄一点的小窗
-   必然把"右 1/4"挤到换行(上一版控制行塌成多行就是这么来的,那次还叠加了 display 丢失)。 */
+   2026-11 用户给了网易云截图:「底下这部分按照网易云图2重做」。参照图量出来的规范:
+     · 整条**横贯屏幕底边、直角、无外边距** —— 不再浮在封面上当圆角卡片;
+     · 顶边一条**通栏进度线**(实测 12px 高、全宽),未播部分比已播部分暗;
+     · 进度点是一个**纯白圆**(实测直径 24px),压在线上;
+     · **黑底时间胶囊**浮在线的下方,而且**跟着进度点水平移动**(网易云最显著的一处);
+     · 底栏本身是**纯色深底**而不是毛玻璃 —— 图里那条明显是实色,没有透出封面。
+   下面这些类名与 JSX 一一对应(PlayerContext.js 的桌面舞台底栏)。 */
 .player-stage__dock {
   flex-shrink: 0;
-  padding: 0 2rem 2rem;
+  /* 通栏贴底:左右不留白、底部贴到屏幕边(安全区兜底给 iOS/安卓手势条) */
+  padding: 0 0 env(safe-area-inset-bottom, 0);
+  /* 纯色深底(不到 1.0 会透出封面,那就不是"实色条"了) */
+  background-color: hsl(var(--background));
+  /* 顶边一根极淡的分隔线:让条与封面有明确边界,又不喧宾夺主 */
+  border-top: 1px solid hsl(var(--foreground) / 0.08);
 }
+
+/* ---- 顶边通栏进度线 ----
+   三层叠在一起,全部绝对定位,高度由 --rail-height 统一控制:
+     · __rail-track —— 视觉轨道(未播部分)
+     · __rail-fill  —— 已播部分,用 scaleX 推进
+     · __rail-input —— 真正的 <input type=range>,透明但铺满整条 = 拖拽热区
+   为什么进度用 scaleX 而不是 width:进度每秒更新 4 次,改 width 每次都触发重排,
+   transform 走合成层(与移动迷你条同一条纪律,fluentMotion 门禁也禁止 width 动画)。 */
+.player-stage__rail {
+  position: relative;
+  height: var(--rail-height);
+  /* 胶囊要探到线的上方(浮在封面上),所以这里绝不能裁切 */
+  overflow: visible;
+  cursor: pointer;
+}
+/* 进度百分比只有**一个来源**(--rail-progress),进度点与时间胶囊都从它算位置。
+   为什么不在 JSX 里各写一份 left:两处夹取规则不同(圆点半宽 8px、胶囊半宽 52px),
+   但**源值必须一致**,否则拖动时圆点和胶囊会错位一点点 —— 那种偏差肉眼看得出来。 */
+.player-stage__rail-track {
+  position: absolute;
+  inset: 0;
+  background-color: hsl(var(--foreground) / 0.14);
+}
+.player-stage__rail-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background-color: hsl(var(--foreground) / 0.62);
+  transition: transform 250ms linear;
+}
+.player-stage__rail-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  /* 完全透明:视觉全由上面两层画,这里只负责接事件 */
+  opacity: 0;
+  cursor: pointer;
+  /* 去掉 UA 给 range 的固有外观,否则不同浏览器会画出各自的滑块 */
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* 进度点:纯白圆,压在线上居中。
+   两端用 clamp 夹住:0% 时圆点中心留在半圆处、100% 时同理 —— 否则轨道两端各有半个圆
+   被舞台的 overflow:hidden 裁掉(轨道真正铺到屏幕最左/最右,所以这一定会发生)。 */
+.player-stage__rail-knob {
+  position: absolute;
+  top: 50%;
+  width: var(--rail-knob);
+  height: var(--rail-knob);
+  border-radius: 9999px;
+  background-color: hsl(0 0% 100%);
+  box-shadow: 0 1px 6px hsl(0 0% 0% / 0.45);
+  /* 必须不吃事件:拖动由底下那条 input 接管。
+     圆点若也接 pointerdown,会和 input 抢事件,拖起来一顿一顿的。 */
+  pointer-events: none;
+  /* 夹取 + 居中一步到位:left 取夹好的位置,再用自身半宽左移。
+     calc 里不能把 clamp 的结果和 -50% 混着算百分比,所以半宽用 var 显式给。 */
+  left: clamp(calc(var(--rail-knob) / 2), var(--rail-progress, 0%), calc(100% - var(--rail-knob) / 2));
+  transform: translate(-50%, -50%);
+  transition: left 250ms linear;
+}
+/* 时间胶囊:黑底白字,跟着进度点跑。
+   ★ 位置在**线的上方**(实测参考图:胶囊 y=4..44,进度线 y=60..71)——
+     它是从条里"探出去"浮在封面上的,不是嵌在条内。所以用 bottom 相对 rail 顶端往上推,
+     而不是 top 往下。写成 top 会让胶囊压住歌名那一行。
+   ★ 水平两端必须夹住:translateX(-50%) 居中到进度点后,靠近 0% / 100% 会各溢出半个胶囊
+     宽度被舞台的 overflow:hidden 裁掉。用 clamp(半宽, 进度%, 100% - 半宽) 保证不出屏。
+     半宽取 3.25rem("0:00 / 0:00" 量出来的实际胶囊半宽,足够覆盖到 13 字符的时长)。 */
+.player-stage__time-pill {
+  position: absolute;
+  /* 悬在进度线上方 8px */
+  bottom: calc(100% + 0.5rem);
+  /* 读同一个 --rail-progress(由 rail 容器提供),两端按**自身半宽**夹取。
+     3.25rem 是胶囊最宽情形("00:00 / 00:00" 量出来的半宽)的保守值 ——
+     夹多一点只是靠近两端时略微偏离圆点,夹少了就会被裁掉,取大不取小。 */
+  left: clamp(3.25rem, var(--rail-progress, 0%), calc(100% - 3.25rem));
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  /* 纯黑胶囊:图里就是接近 #000,不是主题色 */
+  background-color: hsl(0 0% 0% / 0.78);
+  color: hsl(0 0% 100%);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  /* 居中跟点 + 两端夹取(见上面注释)。translateX 里的 -50% 只影响自身,不影响 left 的计算。 */
+  transform: translateX(-50%);
+  transition: left 250ms linear;
+}
+/* 胶囊内三段:当前时间 / 分隔斜杠 / 总时长。
+   三者都是胶囊的一部分,所以各自给一条规则(门禁会要求"JSX 用到的类 CSS 里必须有",
+   裸 span 也能正常显示,但明确规则便于统一字距与透明度)。 */
+.player-stage__time-pill-cur { color: hsl(0 0% 100%); }
+.player-stage__time-pill-sep { color: hsl(0 0% 100% / 0.6); }
+.player-stage__time-pill-dur { color: hsl(0 0% 100% / 0.72); }
+
+/* ---- 舞台里的播放队列浮层 ----
+   锚在右工具组那颗队列按钮上方。注意父级 .player-stage__tools 是 flex 容器,
+   所以这里用 absolute 相对**最近的定位祖先**;而 .player-stage__tools 本身没有
+   position,真正生效的定位祖先是舞台根(fixed inset-0)——
+   因此用 `bottom` 从底往上推,而不是靠父级定位(那样一改父布局就飘)。
+   宽度与底部播放条那份一致(w-80 = 20rem),最大高度留出标题栏空间。 */
+.player-stage__queue-pop {
+  position: absolute;
+  right: 1.75rem;
+  bottom: 5.5rem;
+  z-index: 60;
+  width: 20rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  border-radius: 0.75rem;
+  background-color: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 12px 32px hsl(0 0% 0% / 0.5);
+  /* 滚动条走统一类 —— uxGuards 要求可滚容器必须能挂 .scroll-area/.app-scroll,
+     但普通 CSS 摸不到那个类名,所以在 JSX 上另挂 app-scroll(见下一条注释)。 */
+}
+.player-stage__queue-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background-color: hsl(var(--popover));
+  border-bottom: 1px solid hsl(var(--border));
+}
+/* 内层:左信息 / 中控制 / 右工具 三段。
+   用 flex 而不是 grid:中间那组要**真正居中**(不随左右两栏宽度漂移),
+   三栏宽度天然不等,grid 的 1fr/1fr 会把中间那组推向一侧。
+   左右用 flex:1 撑开、中间 flex-shrink:0,中间就是几何中心。 */
 .player-stage__dock-inner {
-  display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(18rem, 2fr) auto;
+  display: flex;
   align-items: center;
   gap: 1.5rem;
-  max-width: 88rem;
-  margin: 0 auto;
-  padding: 1rem 1.5rem;
-  border-radius: 1rem;
-  /* 半透明底栏:让封面仍能透出来一点,同时保证文字对比度 */
-  background-color: hsl(var(--background) / 0.55);
-  border: 1px solid hsl(var(--foreground) / 0.1);
-  -webkit-backdrop-filter: blur(22px) saturate(130%);
-  backdrop-filter: blur(22px) saturate(130%);
+  max-width: 100%;
+  padding: 0.75rem 1.75rem;
 }
-.player-stage__now { min-width: 0; }
+/* 左信息与右工具各占等分的弹性宽度 —— 这样中间那组才落在正中 */
+.player-stage__now { flex: 1 1 0; min-width: 0; }
 .player-stage__now-title {
   font-size: 1.0625rem;
   font-weight: 700;
@@ -1336,8 +1479,9 @@
   align-items: center;
   flex-shrink: 0;
 }
+/* 中间控制组:必须**自成一组、居中不动**(网易云图2 里那五颗就是钉在正中的)。 */
 .player-stage__controls--desktop {
-  justify-content: flex-end;
+  justify-content: center;
   gap: 0.375rem;
 }
 .player-stage__ctrl {
@@ -1355,7 +1499,8 @@
   width: 2.5rem;
   height: 2.5rem;
 }
-/* 播放主按钮:底栏里唯一的实心强调块 */
+/* 播放主按钮:网易云图2 里是**比其它图标稍大的半透明圆**,
+   不是明亮的实心强调色块。底色用前景色的低透明度,图标本身是白的。 */
 .player-stage__play {
   display: inline-flex;
   align-items: center;
@@ -1364,12 +1509,58 @@
   height: 3.25rem;
   flex-shrink: 0;
   border-radius: 9999px;
-  background-color: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  box-shadow: 0 4px 18px hsl(var(--primary) / 0.36);
-  transition: transform var(--motion-fast) var(--ease-standard);
+  background-color: hsl(var(--foreground) / 0.12);
+  color: hsl(var(--foreground));
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-standard);
 }
-.player-stage__play:hover { transform: scale(1.05); }
+.player-stage__play:hover {
+  background-color: hsl(var(--foreground) / 0.2);
+  transform: scale(1.05);
+}
+
+/* ---- 右工具组:音质徽章 / 队列 / 歌词 / 音量 / 睡眠定时 ----
+   与左信息等分弹性宽度,让中间那组保持在正中;内部右对齐。 */
+.player-stage__tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.player-stage__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  color: hsl(var(--foreground) / 0.72);
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.player-stage__tool:hover {
+  background-color: hsl(var(--foreground) / 0.12);
+  color: hsl(var(--foreground));
+}
+/* 音质徽章:网易云那个「极高」的方框描边样式 —— 透明底 + 1px 描边 + 小字号。 */
+.player-stage__quality {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding: 0 0.375rem;
+  margin-right: 0.25rem;
+  flex-shrink: 0;
+  border: 1px solid hsl(var(--foreground) / 0.36);
+  border-radius: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  color: hsl(var(--foreground) / 0.78);
+}
 
 /* 手机端舞台不参与本次重做(整段是旧版),这里只保留它仍需的几个类 */
 @media (max-width: 1023px) {
@@ -1386,16 +1577,15 @@
     -webkit-mask-image: none;
     mask-image: none;
   }
-  .player-stage__dock { padding: 0 1rem 1rem; }
-  .player-stage__dock-inner { grid-template-columns: 1fr; gap: 0.75rem; }
+  .player-stage__dock { padding: 0 0 env(safe-area-inset-bottom, 0); }
+  .player-stage__dock-inner { flex-wrap: wrap; gap: 0.75rem; }
 }
 
-/* 窄窗口(1024~1280):底栏三栏收起为两行,别把操作挤到换行火星里去 */
+/* 窄窗口(1024~1280):底栏收紧,控制按钮小一档,别把右工具组挤到换行 */
 @media (min-width: 1024px) and (max-width: 1279px) {
   .player-stage__dock-inner {
-    grid-template-columns: minmax(10rem, 1fr) minmax(14rem, 1.6fr) auto;
     gap: 1rem;
-    padding: 0.875rem 1.25rem;
+    padding: 0.625rem 1.25rem;
   }
   .player-stage__ctrl { width: 2.5rem; height: 2.5rem; }
   .player-stage__play { width: 3rem; height: 3rem; }
@@ -1404,8 +1594,7 @@
 /* 矮屏(横放 / 小窗):底栏收紧,歌词居中区让位 */
 @media (max-height: 700px) {
   .player-stage__top { padding: 0.625rem 1.25rem; }
-  .player-stage__dock { padding: 0 1.25rem 1rem; }
-  .player-stage__dock-inner { padding: 0.75rem 1rem; gap: 1rem; }
+  .player-stage__dock-inner { padding: 0.5rem 1rem; gap: 1rem; }
   .player-stage__lyrics--desktop .player-lyric-line { font-size: 1.125rem; }
   .player-stage--disc .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
     font-size: 1.3125rem;
