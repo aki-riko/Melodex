@@ -923,9 +923,12 @@
   inset: 0;
   background-size: cover;
   background-position: center;
-  /* 接续底色要明显压暗,不能和真封面抢视线 */
-  filter: saturate(105%) brightness(0.72);
-  opacity: 0.9;
+  /* 接续底色必须**明显压暗**:
+     它只负责"封面右边缘之外不要突然变纯黑",绝不能在渐隐区贡献亮部。
+     实测教训:opacity .9 + brightness .72 时,右侧被封面的橙色光晕透出来一点,
+     视觉上就是「渐隐没有隐到完全透明」。现在压到 .6 + opacity .85。 */
+  filter: saturate(100%) brightness(0.55);
+  opacity: 0.85;
 }
 .player-stage__backdrop-art {
   position: absolute;
@@ -961,34 +964,38 @@
    38%~70% 逐渐压上来,
    70% 之后接近纯背景色(歌词就落在这段,字要读得清)。
    竖向再叠一层淡淡的上下压暗,避免顶部/底部控件与亮封面糊在一起。 */
-/* ---- ② 渐隐层:**以 50% 为中心**的柔和渐变(不是硬边!)----
-   用户两次纠正:
-     ① 「就是50%就要分界线了」+ 截图圈出位置 → 意思是**歌词区从 50% 开始**;
-     ② 「不是特么让你直接硬切啊」+ 网易云截图 → 人家是**平滑过渡**,没有一条硬边。
+/* ---- ② 渐隐层:**以 50% 为中心**,到封面右边缘之后必须**压到全实** ----
+   三次纠正的合并结论:
+     ① 「就是50%就要分界线了」→ 歌词区从 50% 开始(位置);
+     ② 「不是特么让你直接硬切啊」→ 要平滑过渡,不是刀切边;
+     ③ 「渐隐没有隐到完全透明吗」→ 右侧必须**彻底压死**,不能留亮部光晕。
 
-   所以「50%」指的是**过渡的中心位置**,不是一条刀切线:
-     0%   alpha 0.04   左端:封面原样可见
-     30%  alpha 0.16   封面开始被压
-     45%  alpha 0.46   临近过渡中心
-     **50% alpha 0.62   ← 过渡中点(约一半不透明)**
-     58%  alpha 0.86
-     72%  alpha 0.95   到这里已经足够暗,歌词读得清
-     100% alpha 0.97
-   相邻色标之间保持平滑插值,不出现跳变 —— 这正是网易云那种"封面自然没入暗处"的观感。
-
-   ⚠ 想调节"分界感"时改的是 45%/58% 这两个点的 alpha,不要加成对贴边色标(那是硬切)。 */
+   ★ 为什么右侧会漏亮(第三次的根因,已量过):
+     封面用 auto 100%(高度撑满的正方形),它的**右边缘在屏幕 56%~60% 处**
+     (1920x1080 → 1080/1920 = 56.3%;2220x1340 → 1340/2220 = 60.4%)。
+     而之前 72% 才 0.95、100% 才 0.97 —— 0.95 仍能透出封面的橙色亮部,
+     于是右半区看起来"没隐干净"。
+   ★ 现在把"完全压死"的点定在 **封面右边缘之后**(62%),并且用到 1.0 而不是 0.97:
+     0%   .04   左端封面清晰
+     30%  .14
+     45%  .44
+     **50% .60   ← 过渡中点(约一半不透明)**
+     56%  .82   封面右边缘附近已经很暗
+     62%  **1.00** ← 到这里彻底不透明,之后一律纯色,任何亮部都透不出来
+     100% 1.00
+   注意最后一段必须是 1.00 且**保持到 100%** —— 写成 .95/.97 会留下光晕。 */
 .player-stage__scrim {
   position: absolute;
   inset: 0;
   background:
     linear-gradient(90deg,
       hsl(var(--background) / 0.04) 0%,
-      hsl(var(--background) / 0.16) 30%,
-      hsl(var(--background) / 0.46) 45%,
-      hsl(var(--background) / 0.62) 50%,
-      hsl(var(--background) / 0.86) 58%,
-      hsl(var(--background) / 0.95) 72%,
-      hsl(var(--background) / 0.97) 100%),
+      hsl(var(--background) / 0.14) 30%,
+      hsl(var(--background) / 0.44) 45%,
+      hsl(var(--background) / 0.60) 50%,
+      hsl(var(--background) / 0.82) 56%,
+      hsl(var(--background) / 1) 62%,
+      hsl(var(--background) / 1) 100%),
     linear-gradient(180deg,
       hsl(var(--background) / 0.42) 0%,
       transparent 14%,
@@ -996,14 +1003,19 @@
       hsl(var(--background) / 0.55) 100%);
 }
 /* 跟随主题档:渐隐层同样压向主题背景,只是透明度略降(浅色主题上盖太实会像糊了一层灰) */
+/* 跟随主题档:同样的形状(50% 过渡中点、62% 压死到 1)。
+   只是左端更透一点(浅色主题上不需要那么重的压暗),但**右侧同样必须是 1.0** ——
+   0.96 在浅底上会漏出封面的亮部,看起来就是"没隐干净"。 */
 .player-stage--theme .player-stage__scrim {
   background:
     linear-gradient(90deg,
       hsl(var(--background) / 0.02) 0%,
-      hsl(var(--background) / 0.08) 30%,
-      hsl(var(--background) / 0.5) 52%,
-      hsl(var(--background) / 0.86) 70%,
-      hsl(var(--background) / 0.96) 100%),
+      hsl(var(--background) / 0.10) 30%,
+      hsl(var(--background) / 0.42) 45%,
+      hsl(var(--background) / 0.58) 50%,
+      hsl(var(--background) / 0.80) 56%,
+      hsl(var(--background) / 1) 62%,
+      hsl(var(--background) / 1) 100%),
     linear-gradient(180deg,
       hsl(var(--background) / 0.5) 0%,
       transparent 18%,

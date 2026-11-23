@@ -364,6 +364,22 @@ assert.match(
   assert.ok(fill, '缺少 .player-stage__backdrop-fill —— 封面宽度之外需要接续底色,否则右侧突然变纯黑');
   assert.match(fill[1], /background-size:\s*cover/, '接续底色用 cover 铺满(裁切无所谓)');
   assert.match(fill[1], /brightness\(0?\.\d+\)/, '接续底色必须压暗,不能与真封面抢视线');
+  // 接续底色的亮度上限:太亮会在渐隐区继续贡献亮部,看起来像"没隐干净"
+  {
+    const b = fill[1].match(/brightness\(\s*([\d.]+)\s*\)/);
+    assert.ok(b, '接续底色必须有明确的 brightness 值');
+    assert.ok(
+      Number(b[1]) <= 0.7,
+      `接续底色 brightness=${b[1]} 偏亮 —— 它会在渐隐区透出封面的亮部,`
+      + '表现为用户报的「渐隐没有隐到完全透明」',
+    );
+  }
+
+  // ②c 渐隐层与接续底色必须**互相配合把右侧压死**:
+  //   封面右边缘在屏幕 56~60%(正方形按高度撑满),所以 62% 之后必须一片纯色。
+  //   这里再校验一次"两层的亮度之和"不会在右半留下可感知的亮部 ——
+  //   scrim 到 1.0 时理论上完全遮挡,但只要 scrim 有任何 <1 的尾巴就会泄漏,
+  //   所以"右端必须恰好 1.0"这条(见 ②)是这里的根本保障。
   // 整屏封面层不得模糊(第三次纠正)
   assert.ok(
     !/\.player-stage__backdrop-art\s*\{[^}]*blur\(/.test(css),
@@ -420,12 +436,33 @@ assert.match(
       );
     }
 
-    // ③ 两端方向:左端要清晰(封面可辨),右端要足够暗(歌词读得清)
+    // ③ 两端方向:左端要清晰(封面可辨),右端必须**彻底压死**
+    //
+    // 这条来自第三次纠正:「渐隐没有隐到完全透明吗」——右侧仍透出封面橙色亮部。
+    // 根因量过:封面用 auto 100%,其右边缘在屏幕 56%~60%(1080/1920=56.3%);
+    // 旧色标 72% 才 .95、100% 才 .97,.95 依然透光。
+    // 所以判据收紧:右端必须**恰好 1.0**,并且从"封面右边缘之后"(62%)起就保持 1.0。
     assert.ok(stops[0].alpha <= 0.15, `左端 alpha=${stops[0].alpha} 偏大 —— 封面一开始就被压暗`);
+    const last = stops[stops.length - 1];
     assert.ok(
-      stops[stops.length - 1].alpha >= 0.9,
-      `右端 alpha=${stops[stops.length - 1].alpha} 偏小 —— 亮封面会吞掉歌词`,
+      last.alpha >= 0.999,
+      `右端 alpha=${last.alpha} 不是完全不透明 —— 会像用户报的「渐隐没有隐到完全透明」那样漏出封面亮部`,
     );
+    // 必须有一个 >=62% 且 alpha=1 的色标(封面右边缘之后立刻彻底压死)
+    const sealed = stops.find((s) => s.at >= 60 && s.at <= 70 && s.alpha >= 0.999);
+    assert.ok(
+      sealed,
+      '在 60~70% 之间必须出现 alpha=1 的色标 —— 封面右边缘(约 56~60%)之后要立刻压死,'
+      + '否则右侧仍会透出亮部',
+    );
+    // 62% 之后到结尾必须全是 1.0(不能又降回去)
+    const afterSeal = stops.filter((s) => s.at >= sealed.at);
+    for (const s of afterSeal) {
+      assert.ok(
+        s.alpha >= 0.999,
+        `${s.at}% 处 alpha=${s.alpha} —— 彻底压死之后不得再变透明`,
+      );
+    }
     // ④ 单调递增(不能忽明忽暗)
     for (let i = 1; i < stops.length; i += 1) {
       assert.ok(
