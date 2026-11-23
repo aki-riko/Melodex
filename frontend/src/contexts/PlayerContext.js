@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart, Captions } from 'lucide-react';
+import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart, Captions, Eye, Lock, Settings } from 'lucide-react';
 import {
   desktopLyricsProgressMessage,
   desktopLyricsTrackMessage,
@@ -62,6 +62,7 @@ import {
   shouldApplyProgressReport,
 } from './playerScrub.js';
 import { useBackLayer } from './backNavigation.js';
+import { pushRouteEntry } from './routeHistory.js';
 import {
   favoriteChangeSequence,
   onFavoriteChange,
@@ -1711,17 +1712,28 @@ export const PlayerBar = () => {
   // 真相源在壳侧（desktop-lyrics-settings.json）：这里只镜像状态并经 IPC 改。
   // 浏览器里没有原生歌词窗，`getLyricsSettings()` 返回 null，按钮自然不显示。
   const [lyricsVisible, setLyricsVisible] = useState(false);
+  // 锁定（= 鼠标穿透）。用户实测「锁定之后要去设置页面好麻烦，能不能在播放条这里弹出选项」。
+  // 真相源同样在壳侧；这里只镜像 + 经 IPC 改。
+  const [lyricsLocked, setLyricsLocked] = useState(false);
+  // 播放条那颗歌词按钮的弹窗（不用去设置页就能开关/锁定/跳设置）。
+  const [lyricsMenuOpen, setLyricsMenuOpen] = useState(false);
   const inDesktopShell = isDesktopShell();
 
   useEffect(() => {
     if (!inDesktopShell) return undefined;
     let cancelled = false;
     getLyricsSettings().then((value) => {
-      if (!cancelled && value) setLyricsVisible(Boolean(value.visible));
+      if (!cancelled && value) {
+        setLyricsVisible(Boolean(value.visible));
+        setLyricsLocked(Boolean(value.click_through));
+      }
     });
     // 跟随壳侧广播：托盘或设置页改了开关，这里也要跟着变。
     return attachLyricsSettingsBridge((payload) => {
-      if (payload) setLyricsVisible(Boolean(payload.visible));
+      if (payload) {
+        setLyricsVisible(Boolean(payload.visible));
+        setLyricsLocked(Boolean(payload.click_through));
+      }
     });
   }, [inDesktopShell]);
 
@@ -1733,12 +1745,37 @@ export const PlayerBar = () => {
     const updated = await updateLyricsSettings({ visible: requested });
     if (updated) {
       setLyricsVisible(Boolean(updated.visible));
+      setLyricsLocked(Boolean(updated.click_through));
     } else {
       // 保存失败：回读真实状态，不让按钮停在错误的高亮上。
       const fresh = await getLyricsSettings();
       setLyricsVisible(Boolean(fresh?.visible));
+      setLyricsLocked(Boolean(fresh?.click_through));
     }
   }, [inDesktopShell, lyricsVisible]);
+
+  /** 弹窗里的「锁定」开关。同样乐观更新 + 失败回读。 */
+  const toggleLyricsLocked = useCallback(async () => {
+    if (!inDesktopShell) return;
+    const requested = !lyricsLocked;
+    setLyricsLocked(requested);
+    const updated = await updateLyricsSettings({ click_through: requested });
+    if (updated) {
+      setLyricsVisible(Boolean(updated.visible));
+      setLyricsLocked(Boolean(updated.click_through));
+    } else {
+      const fresh = await getLyricsSettings();
+      setLyricsVisible(Boolean(fresh?.visible));
+      setLyricsLocked(Boolean(fresh?.click_through));
+    }
+  }, [inDesktopShell, lyricsLocked]);
+
+  // 弹窗打开时把返回键/点击外部都接住（与队列 popover 同一套模式）。
+  useBackLayer({
+    active: lyricsMenuOpen,
+    name: 'lyrics-menu',
+    onBack: () => { setLyricsMenuOpen(false); },
+  });
 
   // ===== 播放舞台的两档「可切换」偏好(2026-11 重做)=====
   // 布局三档(disc 唱片 / lyrics 歌词 / split 双栏)+ 色板两档(immersive 沉浸暗场 / theme 跟随主题)。
@@ -2179,8 +2216,14 @@ export const PlayerBar = () => {
                 </div>
               </div>
             </button>
-            {/* 中:控制按钮 */}
-            <button onClick={prev} className="text-muted-foreground hover:text-foreground transition-colors" title="上一首" aria-label="上一首">
+            {/* 中:控制按钮
+                ★ 每个都必须 flex-shrink-0（2026-11 修复「时间被切掉」）：
+                  这一行是 flex 容器，只有进度条是 flex-grow。
+                  窗口变窄时，浏览器会把**所有**可收缩的子项一起压 ——
+                  按钮和右侧时间标签都会被挤扁，实测截图里当前时间
+                  显示成「1:2」（本该是 1:23），因为 w-9 被压到不足 30px。
+                  给这些固定尺寸元素加 flex-shrink-0，空间不足时只压进度条。 */}
+            <button onClick={prev} className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="上一首" aria-label="上一首">
               <SkipBack size={20} fill="currentColor" />
             </button>
             <button onClick={togglePlay}
@@ -2188,36 +2231,111 @@ export const PlayerBar = () => {
               title="播放/暂停" aria-label="播放/暂停">
               <PlayPauseIcon paused={isPaused} size={20} />
             </button>
-            <button onClick={next} className="text-muted-foreground hover:text-foreground transition-colors" title="下一首" aria-label="下一首">
+            <button onClick={next} className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="下一首" aria-label="下一首">
               <SkipForward size={20} fill="currentColor" />
             </button>
             <button onClick={cycleMode}
-              className={`transition-colors ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'}`}
+              className={`flex-shrink-0 transition-colors ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'}`}
               title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
               {modeIcon}
             </button>
             <SleepTimerControl {...sleepTimerControlProps} align="center" />
-            {/* 桌面歌词开关 —— 复刻旧版 PlayerBar.qml:196-207。
-                开着时高亮（旧版 style_primary vs style_transparent），
-                提示语随状态切换；点击直接开关，不是跳设置页。
-                浏览器里没有原生歌词窗，所以只在桌面壳内显示。 */}
+            {/* 桌面歌词 —— 复刻旧版 PlayerBar.qml:196-207。
+                开着时高亮，提示语随状态切换。
+
+                ★ 2026-11 改成**弹出选项面板**（用户实测：
+                  「锁定之后要去设置页面好麻烦哦，能不能在播放条这里弹出选项」）：
+                  原来点一下只切开关，想「锁定/解锁」必须跑设置页。
+                  现在点开弹窗，三件事都在这里：
+                    · 显示桌面歌词（开关）
+                    · 锁定（= 鼠标穿透）
+                    · 桌面歌词设置…（跳设置页，保留原入口）
+                  图标本身的 `aria-pressed` 仍反映「是否显示」，
+                  但要操作锁定就得先打开这个弹窗。 */}
             {inDesktopShell && (
-              <button
-                type="button"
-                onClick={toggleLyricsVisible}
-                aria-label={lyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
-                aria-pressed={lyricsVisible}
-                className={`transition-colors ${
-                  lyricsVisible ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title={lyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
-              >
-                <Captions size={19} />
-              </button>
+              <div className="relative flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setLyricsMenuOpen((o) => !o)}
+                  aria-label="桌面歌词选项"
+                  aria-pressed={lyricsVisible}
+                  aria-expanded={lyricsMenuOpen}
+                  className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${
+                    lyricsVisible ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                  } ${lyricsMenuOpen ? 'bg-secondary' : ''}`}
+                  title={lyricsVisible ? '桌面歌词：已显示（可锁定/设置）' : '桌面歌词：已关闭'}
+                >
+                  <Captions size={19} />
+                </button>
+                {lyricsMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-bar" onClick={() => setLyricsMenuOpen(false)} />
+                    <div className="absolute bottom-full right-0 mb-3 w-64 overflow-hidden app-scroll bg-card border border-border rounded-lg shadow-popover z-popover animate-pop-in surface-acrylic">
+                      <div className="border-b border-border px-3 py-2 surface-dock">
+                        <span className="font-semibold text-sm">桌面歌词</span>
+                      </div>
+                      {/* 显示开关 */}
+                      <button
+                        type="button"
+                        onClick={toggleLyricsVisible}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Eye size={16} className="text-muted-foreground" />
+                          显示桌面歌词
+                        </span>
+                        <span className={`text-xs font-medium ${lyricsVisible ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {lyricsVisible ? '开' : '关'}
+                        </span>
+                      </button>
+                      {/* 锁定开关 */}
+                      <button
+                        type="button"
+                        onClick={toggleLyricsLocked}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Lock size={16} className="text-muted-foreground" />
+                          <span>
+                            锁定
+                            <span className="ml-1 text-xs text-muted-foreground">（鼠标穿透）</span>
+                          </span>
+                        </span>
+                        <span className={`text-xs font-medium ${lyricsLocked ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {lyricsLocked ? '开' : '关'}
+                        </span>
+                      </button>
+                      <div className="border-t border-border">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLyricsMenuOpen(false);
+                            // ★ 跳设置页必须走 pushRouteEntry + 手动派发 popstate。
+                            //   只 `location.hash = 'settings'` 会丢掉历史深度标记（返回键失效）；
+                            //   而 pushRouteEntry 只写 history、**不会**触发 App 的路由同步
+                            //   （App.js 监听的是 popstate / hashchange，pushState 两者都不派发）。
+                            //   所以这里补派一次 popstate，让 setRoute 立刻跟上。
+                            pushRouteEntry('settings');
+                            window.dispatchEvent(new PopStateEvent('popstate'));
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
+                        >
+                          <Settings size={16} className="text-muted-foreground" />
+                          桌面歌词设置…
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
-            {/* 右:进度条 */}
+            {/* 右:进度条
+                ★ 两个时间标签必须 flex-shrink-0 + 足够宽度：
+                  36px（w-9）在 tabular-nums 下刚好放下「1:23」，
+                  但一旦被 flex 压缩就会变成「1:2」。
+                  加宽到 40px 并把 shrink 关掉，长时长（「10:05」）也放得下。 */}
             <div className="flex items-center gap-2 flex-grow min-w-0">
-              <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>
+              <span className="flex-shrink-0 text-xs text-muted-foreground tabular-nums w-10 text-right">{fmtTime(progress.cur)}</span>
               {/* 用 relative 包裹:副歌标记要绝对定位到进度条的真实轨道上,
                   所以 input 与标记必须是同一坐标系的兄弟节点。 */}
               <div className="relative flex-grow min-w-0 flex items-center">
@@ -2229,7 +2347,7 @@ export const PlayerBar = () => {
                 />
                 {showChorusMarker && <ChorusMarker percent={chorusPercentValue} onSeek={seekToChorus} />}
               </div>
-              <span className="text-xs text-muted-foreground tabular-nums w-9">{fmtTime(progress.dur)}</span>
+              <span className="flex-shrink-0 text-xs text-muted-foreground tabular-nums w-10">{fmtTime(progress.dur)}</span>
             </div>
             {/* 音量: 仅桌面。窄屏(md)隐藏 —— 那里空间不够, 且大多用系统音量。
                 2026-11:水平短条 → 悬停弹出的垂直长条 + 滚轮微调(见 VolumeControl.js)。
