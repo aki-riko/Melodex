@@ -53,6 +53,26 @@ export const parseLRC = (raw) => {
 
 const unavailableLyricText = /^暂无歌词[。.!！]?$/;
 
+/**
+ * 剔除「占位行」—— 平台在没拿到歌词时会返回一条 `[00:00.00]暂无歌词`，
+ * 它带着合法时间戳，会混进正常歌词里。
+ *
+ * ★ 为什么必须**删掉**而不是只判断（踩过，用户截图报「一半着色一半没有」）：
+ *   之前只有 `hasUsableLyrics` 做"有没有真歌词"的判断，
+ *   但这条占位行仍留在数组里。桌面歌词窗拿它当普通歌词渲染，
+ *   `lineProgress` 按 t/end 算出进度 → 整行或半行被涂成"已播放色"，
+ *   用户看到的就是「暂无歌词」四个字一半粉一半白。
+ *   过滤掉之后数组为空 → 桌面歌词窗按"无歌词"回退显示歌曲名/歌手名，
+ *   与旧版 PrismQML 行为一致。
+ */
+export const stripPlaceholderLyrics = (lines) => {
+  if (!Array.isArray(lines)) return [];
+  return lines.filter((line) => {
+    const text = String(line?.text || '').trim();
+    return text && !unavailableLyricText.test(text);
+  });
+};
+
 export const hasUsableLyrics = (lines) => Array.isArray(lines) && lines.some((line) => {
   const text = String(line?.text || '').trim();
   return text && !unavailableLyricText.test(text);

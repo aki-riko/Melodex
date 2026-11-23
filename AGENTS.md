@@ -411,8 +411,53 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
   入场缩放按字号算 / 旧行结束后必须隐藏 / 同时间戳分组也算向前。
 - 已接入 `npm run test:desktop-lyrics`。
 
-#### 排查手法(可复用)
+#### 第三轮(2026-11-23 当晚,用户又抓出两条)
 
+6. **「歌词向上滚动时粉字与白字分离,就几帧」—— 量宽被祖先 transform 缩放污染。**
+   `Range.getBoundingClientRect()` 返回的是**被祖先 `transform: scale()` 缩放后**的尺寸,
+   而这个测量发生在切行动画期间 —— 主行正在 `scale(0.67 → 1)`。
+   CDP 现场量(动画各阶段):
+   ```
+   progress=0    transform=matrix(0.667,...)  raw=199.15px
+   progress=0.5  transform=matrix(0.833,...)  raw=248.94px
+   progress=1    transform=matrix(1,...)      raw=298.73px
+   ```
+   动画期间只量到真实宽度的 **2/3** → `--text-width` 偏小 → 粉色裁剪区提前截断、
+   右边露出白字;`--text-left` 也偏 → 两层横向错开。
+   因为动画只有 300ms,用户看到的就是「就几帧」。
+   修法:新增 `accumulatedScale()` 向上遍历祖先累乘 `matrix()` 的缩放,
+   `measureLineWidth()` 返回 `rect.width / scale`。
+   验证:动画 0→1 全程 `--text-width` 恒为 334.73px、`baseVsActive=0`、
+   裁剪区位置误差 0.01px。
+
+7. **「一半着色一半没有」/「暂无歌词 四个字一半粉一半白」—— 占位行没被剥掉。**
+   平台没歌词时会返回 `[00:00.65]暂无歌词`,它**带合法时间戳**。
+   前端只有 `hasUsableLyrics()` 做"有没有真歌词"的判断,这条占位行仍留在数组里
+   → 桌面歌词窗当普通歌词渲染,`lineProgress` 按 t/end 算出进度 → 整行或半行
+   被涂成已播放色。
+   修法:`playerLyrics.mjs` 新增 `stripPlaceholderLyrics()`,
+   在 `parseLRC` 之后立即过滤;剥掉后数组为空 → 歌词窗按"无歌词"回退显示歌名/歌手名。
+
+#### ★ 配色对比度:8 套里有 5 套几乎分不出已播放/未播放(设计遗留,不是 bug)
+
+实测(WCAG 相对亮度比):
+
+| 配色 | 已播放 | vs 未播放 #EEEEEE |
+|---|---|---|
+| 珊瑚绯 | #FFC6C6 | 1.28:1 |
+| 暮霞 | #EEC1D1 | 1.37:1 |
+| 樱雾 | #FDD6EB | **1.13:1** |
+| 晴澜 | #C7E4F1 | **1.15:1** |
+| 青芽 | #E6FAD0 | **1.05:1** |
+| 藤影 | #E7E3FB | **1.08:1** |
+| 杏月 | #FCE8C2 | **1.04:1** |
+| 雾银 | #D3D2D2 | 1.30:1 |
+
+这套色值是**照抄旧 PrismQML `config.py` 的**,不是本鱼选的;但 5 套配色下
+「唱到哪儿」基本看不出来。**改色值是产品决策,必须先问用户**,
+不要因为"对比度低"就擅自调整 —— 用户是按旧版样子验收的。
+
+#### 排查手法(可复用)
 - **UI 资源是编译进二进制的**(`frontendDist: "../ui"`):
   改完 `desktop/ui/*` **必须 `cargo build` 才生效**,只重启进程看到的是旧界面
   (这次浪费了一轮:磁盘 CSS 已是 `top:0`,页面计算值仍是 32px)。

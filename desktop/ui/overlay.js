@@ -85,6 +85,9 @@ let playback = {
   hasState: false,
 };
 
+/** 播放状态的完整身份：source + id。用来判断"是否换了歌"。 */
+const trackKey = (track) => (track ? `${track.source || ''}|${track.id || ''}` : '');
+
 /** 旧实现 Player.visualPosition()：暂停时用上报位置，播放时按帧插值。 */
 const effectivePosition = () => {
   if (playback.paused) return playback.position;
@@ -301,24 +304,56 @@ const secondaryMinimumPixelSize = () => Math.max(14, FONT_SIZE_MIN - 4);
 
 // ---------- 真实排版测量（定位裁剪区用）----------
 
+/** 读某个元素自身及祖先累计的视觉缩放（transform: scale 的乘积）。 */
+const accumulatedScale = (element) => {
+  let scale = 1;
+  let node = element;
+  while (node && node !== document.body && node !== document.documentElement) {
+    const transform = getComputedStyle(node).transform;
+    if (transform && transform !== 'none') {
+      // matrix(a, b, c, d, e, f) —— 水平/垂直缩放取 a / d（我们只用等比缩放）
+      const match = transform.match(/^matrix\(([^,]+),.*?([-0-9.]+),\s*([-0-9.]+),\s*([-0-9.]+)/);
+      if (match) {
+        const sx = Math.abs(Number(match[1]));
+        const sy = Math.abs(Number(match[4]));
+        if (Number.isFinite(sx) && sx > 0) scale *= sx;
+        else if (Number.isFinite(sy) && sy > 0) scale *= sy;
+      }
+    }
+    node = node.parentElement;
+  }
+  return scale > 0 ? scale : 1;
+};
+
 /**
- * 量某层文字**实际排版宽度**。
+ * 量某层文字**实际排版宽度**（已剔除祖先 transform 缩放）。
  *
  * 用 DOM 测量而不是 canvas：canvas 只算字形 advance，**不计描边外扩**，
  * 拿它当裁剪宽度会让 clip 比白底文字窄一圈，未播放色的白字从四周露出来
  * —— 观感就是「粉字外面一圈白边 + 重影」。
  *
+ * ★★ `getBoundingClientRect()` 返回的是**被祖先 transform 缩放后**的尺寸，
+ *   而这个函数在切行动画期间被调用 —— 主行正在 `scale(0.667 → 1)`。
+ *   实测（CDP 现场量）：progress=0 时量到 96px，progress=1 时才 144px，
+ *   动画期间只有真实宽度的 **2/3**。
+ *   后果：`--text-width` 偏小 → 粉色裁剪区提前截断、右边露出白字；
+ *   `--text-left` 也偏 → 两层横向错开。用户看到的正是「歌词向上滚动时
+ *   粉字与白字分离」，而且只存在几帧（动画结束 scale=1 就正常了）。
+ *   所以必须除以累计缩放，量到与 transform 无关的真实排版宽度。
+ *
  * 只在**行文字或字号变化**时量一次（结果写进 CSS 变量后复用），
  * 不放进每帧的进度更新里：Range 测量会触发布局，80ms 一次纯属自找卡顿。
  *
- * @returns {number} 文字实际宽度（px）；量不到返回 0
+ * @returns {number} 文字实际宽度（px，未缩放）；量不到返回 0
  */
 const measureLineWidth = (baseElement) => {
   if (!baseElement || !baseElement.textContent) return 0;
   const range = document.createRange();
   range.selectNodeContents(baseElement);
   const rect = range.getBoundingClientRect();
-  return rect.width || 0;
+  if (!rect.width) return 0;
+  const scale = accumulatedScale(baseElement);
+  return scale === 1 ? rect.width : rect.width / scale;
 };
 
 /**
@@ -368,6 +403,24 @@ const applyLineGeometry = (wrap, baseElement, activeElement, availableWidth, sca
   // 所以紧接着读就能拿到新字号下的真实宽度，不需要 rAF 等一帧（等一帧会闪）。
   wrap.style.setProperty('--line-font-scale', String(scale));
 
+  // ★★ canvas 估算的 scale 不够，必须用 **DOM 实测**再收敛。
+  //
+  // 踩过的坑（用户截图：白字与粉字叠在一起、边缘错位）：
+  // canvas 只算字形 advance，与 DOM 真实排版差 1~2%（描边外扩、字距取整）。
+  // 实测「答应我的家」：canvas 认为行宽 148px 放得下（scale≈0.957），
+  // 但 DOM 实际要 **172.2px** —— 比行宽多 24px。
+  // 文字溢出后被 `overflow:hidden` 从右边硬切，两层裁切基准不同，
+  // 于是白字（底层）与粉字（上层）错开、叠成双影。
+  //
+  // 这里按 DOM 实测比例再压（最多 3 轮，每轮强制同步布局，不可能死循环）。
+  let finalScale = scale;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const measured = measureLineWidth(baseElement);
+    if (!measured || measured <= availableWidth + 0.5) break;
+    finalScale *= availableWidth / measured;
+    wrap.style.setProperty('--line-font-scale', String(finalScale));
+  }
+
   // 裁剪宽度取「文字实际宽度」但上限是行内可用宽（QML WordFill :24 的
   // `min(width, baseLabel.paintedWidth)`）。
   const painted = Math.min(availableWidth, measureLineWidth(baseElement));
@@ -407,10 +460,18 @@ const refreshRenderedGeometry = () => {
     const secondarySignature = `${renderedNextText}|${secondaryBase}|${Math.round(secondaryAvailable)}`;
     if (lastSecondarySignature !== secondarySignature) {
       lastSecondarySignature = secondarySignature;
-      const secondaryScale = fitScale(
+      let secondaryScale = fitScale(
         renderedNextText, secondaryBase, secondaryAvailable, secondaryMinimumPixelSize(), 400,
       );
       lyricsShell.style.setProperty('--secondary-font-scale', String(secondaryScale));
+      // ★ 副行同样要按 DOM 实测收敛（理由见 applyLineGeometry 里的长注释）：
+      //   只靠 canvas 估算，长副行会溢出容器被右边硬切。
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const measured = measureLineWidth(nextLine);
+        if (!measured || measured <= secondaryAvailable + 0.5) break;
+        secondaryScale *= secondaryAvailable / measured;
+        lyricsShell.style.setProperty('--secondary-font-scale', String(secondaryScale));
+      }
     }
   }
 };
@@ -780,8 +841,32 @@ const applyStateMessage = (message) => {
   if (!message || (message.type !== 'track' && message.type !== 'progress')) return;
 
   if (message.type === 'track') {
-    playback.track = message.track || null;
+    const nextTrack = message.track || null;
+    const previousKey = trackKey(playback.track);
+    const nextKey = trackKey(nextTrack);
+    playback.track = nextTrack;
     playback.lyrics = Array.isArray(message.lyrics) ? message.lyrics : [];
+
+    // ★ 切歌必须把「已渲染行」状态整体重置（用户实测：会看到上一首的歌词）。
+    //
+    // 踩过的坑：这里原先只换 track/lyrics，`renderedLineIndex` 与
+    // `renderedActiveText` 仍是上一首的（比如上一首唱到第 50 行）。
+    // 新歌第一句的 index 是 0，而 syncRenderedLyrics 拿 previousIndex=50 去判
+    // canAnimateForward，同时把上一首的歌词文字当成"旧行"传给
+    // startLineTransition —— 于是屏幕上真的画出上一首那句歌词，
+    // 在 outgoing 层停留到动画结束。
+    //
+    // 判据用 trackKey（source+id）：同一首歌重复推送（歌词晚到、seek）不该重置，
+    // 否则每次进度包都会清掉当前行、画面闪一下。
+    if (previousKey !== nextKey) {
+      renderedLineIndex = -2;
+      renderedActiveText = '';
+      renderedNextText = '';
+      outgoingActiveText = '';
+      geometrySignature.delete(currentWrap);
+      lastSecondarySignature = '';
+      finishTransition();
+    }
   }
   playback.position = Math.max(0, Number(message.position) || 0);
   playback.duration = Math.max(0, Number(message.duration) || 0);

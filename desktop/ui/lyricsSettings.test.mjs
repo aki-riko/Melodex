@@ -752,4 +752,43 @@ test('切行动画只在该动画时播（同时间戳分组也要算向前）',
   assert.match(fn[0], /previousTimestamp/, '必须处理同时间戳分组');
 });
 
+test('量文字宽度必须剔除祖先 transform 缩放', () => {
+  // ★★ 用户实测：「歌词向上滚动的时候…分离了，妈的这玩意就几帧」。
+  //
+  // 根因：`Range.getBoundingClientRect()` 返回的是**被祖先 transform 缩放后**的尺寸。
+  // 切行动画期间主行正在 `scale(incomingScale → 1)`，实测（CDP 现场量）：
+  //   progress=0   transform=matrix(0.667,...)  measuredW=96px
+  //   progress=0.5 transform=matrix(0.833,...)  measuredW=120px
+  //   progress=1   transform=matrix(1,...)      measuredW=144px
+  // 动画期间只量到真实宽度的 2/3 → --text-width 偏小 → 粉色裁剪区提前截断、
+  // 右边露出白字；--text-left 也偏 → 两层横向错开。
+  // 因为动画只有 300ms，用户看到的就是「就几帧」的分离。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const fn = js.match(/const measureLineWidth = \([\s\S]*?\n\};/);
+  assert.ok(fn, '找不到 measureLineWidth');
+  assert.match(fn[0], /accumulatedScale/, '必须剔除祖先 transform 缩放');
+  assert.match(
+    fn[0],
+    /\/ *scale|rect\.width \/ scale/,
+    '量到的宽度必须除以累计缩放',
+  );
+  // 累计缩放函数本身要存在且遍历祖先
+  assert.match(js, /const accumulatedScale = \([\s\S]*?parentElement/, '需要向上遍历祖先累乘缩放');
+});
+
+test('切行动画开始前不得使用缩放状态下的旧宽度', () => {
+  // 几何签名去重的副作用：动画期间 --transition-progress 每帧在变，
+  // 但文字/字号/行宽都没变 → 签名相同 → 不会重新测量。
+  // 只要 measureLineWidth 已经是"缩放无关"的，这一点就安全（量一次即可）。
+  // 这条门禁守的是"不要又改回直接读 rect.width"。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const geomFn = js.match(/const applyLineGeometry = \([\s\S]*?\n\};/);
+  assert.ok(geomFn, '找不到 applyLineGeometry');
+  assert.doesNotMatch(
+    geomFn[0],
+    /getBoundingClientRect\(\)\.width(?! *\/)/,
+    '不得直接用 getBoundingClientRect().width 当文字宽（会被 transform 缩放污染）',
+  );
+});
+
 console.log(`\ndesktop lyrics settings contract tests passed (${passed})`);

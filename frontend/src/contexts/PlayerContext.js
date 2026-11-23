@@ -68,7 +68,7 @@ import {
   publishFavoriteChange,
   readFavoriteStatus,
 } from '../services/favoriteStatus';
-import { hasUsableLyrics, parseLRC } from './playerLyrics.mjs';
+import { hasUsableLyrics, parseLRC, stripPlaceholderLyrics } from './playerLyrics.mjs';
 import { karaokeFillPercent, lyricScrollBehavior, prefersReducedMotion, sheetExitDelay } from './playerSheetMotion.mjs';
 import {
   STAGE_LAYOUT_KEY,
@@ -1926,7 +1926,11 @@ export const PlayerBar = () => {
     setLrc([]);
     getLyric(nowPlaying)
       .then((text) => {
-        const parsed = parseLRC(text);
+        // ★ 必须剥掉「暂无歌词」这类占位行（用户截图报「一半着色一半没有」）。
+        //   平台没歌词时会返回 `[00:00.00]暂无歌词`，它带合法时间戳，
+        //   混进数组后会被当普通歌词渲染并算出进度 → 四个字一半粉一半白。
+        //   剥掉后数组为空，桌面歌词窗按"无歌词"回退显示歌名/歌手名。
+        const parsed = stripPlaceholderLyrics(parseLRC(text));
         // 旧请求可能在切歌后才返回，不能覆盖新歌状态或污染同 key 缓存。
         if (cancelled) return;
         if (hasUsableLyrics(parsed)) lyricCache.set(curKey, parsed);
