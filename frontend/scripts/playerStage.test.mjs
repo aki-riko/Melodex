@@ -360,25 +360,66 @@ assert.match(
     '整屏封面不得 scale 放大 —— inset:0 + cover 已铺满,放大只会更糊',
   );
 
-  // ② 横向渐隐层:必须存在 90deg 的 linear-gradient,且左侧透明、右侧接近实心
+  // ② 渐隐层:**50% 处硬分界**(用户看图圈出位置:"就是50%就要分界线了")
   const scrim = css.match(/\.player-stage__scrim\s*\{([\s\S]*?)\n\}/);
   assert.ok(scrim, '缺少 .player-stage__scrim —— "一半不透明、一半渐隐"就是这一层');
   assert.match(
     scrim[1],
     /linear-gradient\(90deg/,
-    '渐隐必须是**横向** 90deg 渐变(左清晰 → 右压暗),竖向压暗做不出"一半不透明"的效果',
+    '分界必须是**横向** 90deg 渐变(左清晰 → 右压暗)',
   );
-  // 左侧那一段必须几乎透明(封面原样可见)
+  // 抽出横向渐变的色标,验证 50% 处是跳变而不是缓慢过渡
+  {
+    const lines = scrim[1].split('\n');
+    let inH = false;
+    const stops = [];
+    for (const line of lines) {
+      if (line.includes('linear-gradient(90deg')) { inH = true; continue; }
+      if (inH && line.includes('linear-gradient(180deg')) break;
+      if (!inH) continue;
+      const at = line.match(/([\d.]+)%\s*,?\s*$/);
+      const a = line.match(/\/\s*([\d.]+)\s*\)/);
+      if (at && a) stops.push({ at: Number(at[1]), alpha: Number(a[1]) });
+    }
+    assert.ok(stops.length >= 3, '渐隐层色标解析失败(至少要 3 个)');
+    const beforeSplit = stops.find((s) => s.at >= 48 && s.at < 50);
+    const atSplit = stops.find((s) => s.at === 50);
+    assert.ok(beforeSplit, '缺少 50% 之前紧邻的色标(硬切需要成对写:49.9% 与 50%)');
+    assert.ok(atSplit, '缺少 50% 处的色标 —— 分界线必须正好在 50%');
+    assert.ok(
+      atSplit.alpha - beforeSplit.alpha >= 0.6,
+      `50% 处的跳变只有 ${(atSplit.alpha - beforeSplit.alpha).toFixed(2)},`
+      + '看起来仍是缓慢渐变而不是分界线(应该写成 49.9%/50% 成对色标)',
+    );
+    // 左半必须基本清晰(封面要能认出来)
+    assert.ok(
+      beforeSplit.alpha <= 0.2,
+      `分界前 alpha=${beforeSplit.alpha} 偏大 —— 左半封面被压暗了(用户要的是清晰封面)`,
+    );
+    // 右半必须足够实,歌词才读得清
+    assert.ok(
+      atSplit.alpha >= 0.85,
+      `分界后 alpha=${atSplit.alpha} 偏小 —— 右半压不够,歌词会看不清`,
+    );
+  }
+
+  // ②b 歌词区必须正好从屏幕 50% 开始,与分界线重合
+  const discLyrics = css.match(/\.player-stage--disc \.player-stage__lyrics--desktop\s*\{([\s\S]*?)\n\}/);
+  assert.ok(discLyrics, '缺少沉浸档歌词区样式');
+  assert.match(discLyrics[1], /text-align:\s*left/, '沉浸档歌词应左对齐');
   assert.match(
-    scrim[1],
-    /0\.0[0-9]/,
-    '渐隐层最左侧必须接近透明(0.0x)—— 否则封面一开始就被压暗,看不出专辑',
+    discLyrics[1],
+    /width:\s*50vw/,
+    '歌词区宽度必须是 50vw —— 用 % 是相对(去掉了 padding 的)父容器算的,'
+    + '起点会偏离屏幕正中,与分界线对不上',
   );
-  // 右侧必须接近实心(歌词要读得清)
+  // 沉浸档下 body 不得再留左右 padding(否则 50vw 的起点仍会偏移)
+  const discBody = css.match(/\.player-stage--disc \.player-stage__body\s*\{([\s\S]*?)\n\}/);
+  assert.ok(discBody, '缺少沉浸档 body 规则');
   assert.match(
-    scrim[1],
-    /0\.9[0-9]/,
-    '渐隐层最右侧必须接近实心(0.9x)—— 否则亮封面会把歌词吞掉',
+    discBody[1],
+    /padding:\s*0/,
+    '沉浸档 body 必须 padding:0 —— 留着左右 padding 会让歌词起点偏离 50% 分界线',
   );
 
   // ③ 操作全部在底栏:底栏必须有信息区 + 进度 + 控制三部分
@@ -401,12 +442,7 @@ assert.match(
     !/vinyl-wrap|turntable|tonearm/.test(desktopBlock),
     '桌面舞台不得出现黑胶圆盘(vinyl-wrap/turntable/tonearm)',
   );
-
-  // 沉浸档歌词落在右侧渐隐区
-  const discLyrics = css.match(/\.player-stage--disc \.player-stage__lyrics--desktop\s*\{([\s\S]*?)\n\}/);
-  assert.ok(discLyrics, '缺少沉浸档歌词区样式');
-  assert.match(discLyrics[1], /text-align:\s*left/, '沉浸档歌词应左对齐');
-  assert.match(discLyrics[1], /width:\s*min\(5[0-9]%/, '沉浸档歌词应占右侧约一半宽度(落在渐隐区上)');
+  // 沉浸档歌词区的位置与宽度已在 ②b 校验(50vw + 与 50% 分界线重合),此处不重复。
 }
 
 // ---- 11. 歌词"当前行"必须比普通行更大更亮(沉浸感的来源) ----

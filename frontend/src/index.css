@@ -939,21 +939,33 @@
    38%~70% 逐渐压上来,
    70% 之后接近纯背景色(歌词就落在这段,字要读得清)。
    竖向再叠一层淡淡的上下压暗,避免顶部/底部控件与亮封面糊在一起。 */
+/* ---- ② 渐隐层:**50% 处硬分界** ----
+   用户原话:「就是50%就要分界线了」(并在截图上画了红线标明位置)。
+
+   所以这里不是"从 30% 慢慢压到 70%",而是在 **50% 处直接跳变**:
+     0% ~ 49.9%   alpha 0.06→0.12  ← 左半是**清晰封面**,几乎不压暗
+     50%          alpha 0.94       ← 分界线在这里
+     100%         alpha 0.96       ← 右半是深色底,歌词落在上面
+
+   两个色标贴在同一位置(49.9% / 50%)是 CSS 里做"硬切"的标准写法 ——
+   写成 30%→70% 的均匀渐变就没有分界线了,整屏是一块渐变糊。
+
+   竖向仍保留一层很淡的上下压暗,避免顶部控件/底栏与亮封面糊在一起;
+   它不影响那条横向分界线(横向已经压到 0.94+,竖向只再叠一点)。 */
 .player-stage__scrim {
   position: absolute;
   inset: 0;
   background:
     linear-gradient(90deg,
-      hsl(var(--background) / 0.04) 0%,
-      hsl(var(--background) / 0.10) 30%,
-      hsl(var(--background) / 0.55) 52%,
-      hsl(var(--background) / 0.88) 70%,
-      hsl(var(--background) / 0.97) 100%),
+      hsl(var(--background) / 0.06) 0%,
+      hsl(var(--background) / 0.12) 49.9%,
+      hsl(var(--background) / 0.94) 50%,
+      hsl(var(--background) / 0.96) 100%),
     linear-gradient(180deg,
-      hsl(var(--background) / 0.55) 0%,
-      transparent 18%,
-      transparent 76%,
-      hsl(var(--background) / 0.72) 100%);
+      hsl(var(--background) / 0.42) 0%,
+      transparent 14%,
+      transparent 80%,
+      hsl(var(--background) / 0.55) 100%);
 }
 /* 跟随主题档:渐隐层同样压向主题背景,只是透明度略降(浅色主题上盖太实会像糊了一层灰) */
 .player-stage--theme .player-stage__scrim {
@@ -1139,13 +1151,21 @@
   background-clip: content-box;
 }
 
-/* 沉浸档:歌词靠右、占右侧约 55%,左对齐。左侧 45% 留给清晰封面。 */
+/* 沉浸档:歌词区必须**正好从 50% 开始**,与渐隐层的分界线重合。
+   ⚠ 不能靠 padding 凑:__body 上的 `padding: 0 3rem` 会把 flex 的可用宽度先缩掉,
+   于是"52%"算出来的起点根本不在屏幕 50% 处(上一版就是差了这一点)。
+   这里让 __body 在沉浸档下**去掉左右 padding**,歌词区宽度直接 = 50vw,
+   位置由 justify-content: flex-end 推到右半 —— 起点必然落在屏幕正中。 */
 .player-stage--disc .player-stage__body {
   justify-content: flex-end;
+  padding: 0;
 }
 .player-stage--disc .player-stage__lyrics--desktop {
-  width: min(52%, 44rem);
-  padding: 3rem 1.5rem 3rem 0;
+  /* 50vw 而不是 50%:百分比是相对"去掉了 padding 的父容器"算的,
+     用 vw 才是相对视口,才能和渐隐层的 50% 分界线严丝合缝。 */
+  width: 50vw;
+  max-width: 50vw;
+  padding: 3rem 2.5rem 3rem 2.5rem;
   text-align: left;
 }
 /* 歌词档:居中、更宽 */
