@@ -166,23 +166,46 @@ test('行切换动画时长 300ms（旧版 duration.slower），不是 380', () 
   assert.doesNotMatch(overlayJs, /TRANSITION_MS = 380/);
 });
 
-test('描边与阴影必须保留（白字压浅色壁纸的可见性）', () => {
+test('描边必须用 8 向 text-shadow，禁用 -webkit-text-stroke', () => {
   const cssCode = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
-  // 描边宽度随字号缩放（缩字号时描边也该跟着细，否则小字被描边糊住）
-  assert.match(cssCode, /-webkit-text-stroke:\s*calc\(1px \* var\(--line-font-scale/);
   assert.match(cssCode, /--outline-color:\s*rgba\(5, 6, 8, 0\.82\)/);
-  // ★ 阴影的 blur 必须是 **0**（硬阴影），垂直偏移 1px。
-  //   QML DesktopLyricsWindow.qml:40-41 明确写 lyricShadowBlur = 0、
-  //   lyricShadowVerticalOffset = 1。曾经写成 `0 1px 2px`（blur 2px），
-  //   那是「字发糊」的直接原因：旧版根本不模糊，只做 1px 位移把字顶出来。
-  assert.match(cssCode, /text-shadow:\s*0 1px 0 var\(--shadow-color\)/);
+
+  // ★★ 用户实测「文本有锯齿」→ 禁用 -webkit-text-stroke。
+  //   根因：Chromium 对 `paint-order: stroke fill` **只解析第一个值**
+  //   （实测 getComputedStyle().paintOrder === "stroke"），于是描边画在填充之上,
+  //   等于给每个字盖一圈 1px 黑边 → 字变脏、锯齿感明显；
+  //   叠加 DPR=1.5 时描边是 1.5 物理像素（非整数），边缘必然发虚。
   assert.doesNotMatch(
     cssCode,
-    /text-shadow:\s*0 1px 2px/,
-    '阴影 blur 必须为 0（QML shadowBlur=0）；2px 模糊会让字发糊',
+    /-webkit-text-stroke:/,
+    '不要再用 -webkit-text-stroke：Chromium 忽略 paint-order 的第二个值，描边会盖住填充',
   );
-  // paint-order 必须写，否则描边会盖住填充、字变细一圈
-  assert.match(cssCode, /paint-order:\s*stroke fill/);
+  assert.doesNotMatch(
+    cssCode,
+    /paint-order:\s*stroke fill/,
+    'paint-order 在 Chromium 里只取第一个值，写它没有意义',
+  );
+
+  // 改用 8 向 text-shadow 模拟外描边（阴影永远在文字之下 = 描边在外）
+  assert.match(cssCode, /--lyric-outline-shadow:/, '需要 8 向阴影变量');
+  assert.match(cssCode, /--lyric-outline-shadow-secondary:/, '副行需要自己的（更细）描边');
+  assert.match(cssCode, /text-shadow:\s*var\(--lyric-outline-shadow\)/, '主行使用该变量');
+  assert.match(
+    cssCode,
+    /text-shadow:\s*var\(--lyric-outline-shadow-secondary\)/,
+    '副行使用副行版本',
+  );
+  // 8 个方向：±1.2px 的 8 种组合
+  for (const dir of ['-1.2px 0', '1.2px 0', '0 -1.2px', '0 1.2px',
+    '-1.2px -1.2px', '1.2px -1.2px', '-1.2px 1.2px', '1.2px 1.2px']) {
+    assert.ok(
+      cssCode.includes(`${dir} 0 var(--outline-color)`),
+      `缺少方向 ${dir} 的描边阴影`,
+    );
+  }
+  // 旧版那个 blur=0 的硬阴影要保留（让字从背景里顶出来）
+  assert.ok(cssCode.includes('0 1px 0 var(--shadow-color)'), '硬阴影应保留');
+  assert.doesNotMatch(cssCode, /text-shadow:\s*0 1px 2px/, 'blur 必须为 0');
 });
 
 test('副行字号是主行 × 0.67 且最小 16px', () => {
@@ -707,27 +730,37 @@ test('几何变量必须写在各自行容器上，不能共用一套', () => {
   assert.match(js, /outgoingWrap\.style\.setProperty\('--fill-ratio', '1'\)/);
 });
 
-test('新行入场缩放按字号实时算，不是硬编码 0.67', () => {
-  // QML :49-50：incomingActiveScale = secondaryFontSize / max(1, lyricsFontSize)
-  // 字号 20 → 16/20 = 0.8；字号 64 → 43/64 ≈ 0.672。
-  // 硬编码 0.67 会让小字号下入场尺寸与实际副行对不上（凭空大一圈再缩回去）。
-  assert.match(overlayJs, /--incoming-scale/, '需要写入入场缩放变量');
-  const fn = overlayJs.match(/const applyFontSize = \([\s\S]*?\n\};/);
-  assert.ok(fn, '找不到 applyFontSize');
-  assert.match(
-    fn[0],
-    /secondary \/ Math\.max\(1, size\)/,
-    '入场缩放必须是 副行字号 / 主行字号',
-  );
-  // CSS 里必须用这个变量，不能写死 0.67
+test('切行动画不得用 scale（锯齿根因），只保留位移 + 淡入', () => {
+  // ★★ 用户实测「文本有锯齿」「动画不够平滑」，根因是缩放：
+  //   原方案 `scale(0.667 → 1)` 会让浏览器**每帧用新的缩放比重新栅格化字形**，
+  //   而 DPR=1.5 下缩放比还是非整数（实测 0.6667 / 0.7 / 0.75 / 0.7767 /
+  //   0.8333 / 0.89 / 0.9167 / 0.9667），抗锯齿边缘每帧重算 → 边缘抖动发虚。
+  //
+  //   现在文字**始终 scale(1)** 栅格化一次，只做 translateY + opacity。
   const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
   const currentRule = css.match(/\.current-wrap\s*\{[^}]*\}/s);
   assert.ok(currentRule, '找不到 .current-wrap 规则');
-  assert.match(currentRule[0], /var\(--incoming-scale/, '入场缩放需读变量');
+  assert.doesNotMatch(currentRule[0], /scale\(/, '.current-wrap 不得再缩放（锯齿根因）');
   assert.doesNotMatch(
     currentRule[0],
-    /scale\(0\.67\)/,
-    '不要硬编码 0.67',
+    /var\(--incoming-scale/,
+    '不再需要入场缩放变量',
+  );
+  assert.match(currentRule[0], /translateY\(/, '应保留纵向位移');
+  assert.match(currentRule[0], /opacity:\s*calc\(0\.96/, '应保留淡入');
+
+  // JS 侧不得再写 --incoming-scale（只看代码体，注释里会解释为什么去掉）
+  const jsCode = overlayJs
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+  assert.doesNotMatch(jsCode, /--incoming-scale/, 'JS 不得再写入场缩放');
+
+  // ★ will-change: transform 会强制建合成层，文字在层里按半分辨率栅格化 → 更糊
+  assert.doesNotMatch(
+    css,
+    /will-change:\s*transform/,
+    '不要用 will-change:transform：会强制合成层、文字变糊',
   );
 });
 
@@ -789,6 +822,70 @@ test('切行动画开始前不得使用缩放状态下的旧宽度', () => {
     /getBoundingClientRect\(\)\.width(?! *\/)/,
     '不得直接用 getBoundingClientRect().width 当文字宽（会被 transform 缩放污染）',
   );
+});
+
+test('窗口宽度必须固定，不随歌词内容变化', () => {
+  // ★★ 用户实测：「歌词一直在往右移动，得固定中心点往两边扩散」。
+  //
+  // 根因：窗口宽度跟着每行文字算（"贴合内容"）。CDP 实测连续三行：
+  //   「眉目缱绻中 飘零」 窗口 360 → 文字中心 x=180
+  //   「心之 所寄」       窗口 252 → 文字中心 x=126
+  //   「劫数应声而起」     窗口 312 → 文字中心 x=156
+  // 文字中心**始终等于窗口中心**（偏离 0），但窗口宽度变了 ——
+  // 于是整块歌词在屏幕上左右横移 54px。
+  //
+  // 窗口是独立原生窗口、位置由壳侧固定；只有宽度固定，文字才能真正钉住。
+  // 旧版 PrismQML 也是固定宽度（min(920, max(640, 屏宽-96))）。
+  const jsCode = overlayJs
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+
+  // 不得再按内容请求宽度
+  assert.doesNotMatch(jsCode, /contentWidthFor/, '不得再按内容算窗口宽度');
+  assert.doesNotMatch(jsCode, /requestContentWidth/, '不得再请求"贴合内容"的宽度');
+  // 必须调用同步几何的函数，且只传 contentWidth: 0（让壳侧按屏幕重算）
+  assert.match(jsCode, /syncWindowGeometry/, '需要同步窗口几何的函数');
+  assert.match(
+    jsCode,
+    /contentWidth:\s*0/,
+    'contentWidth 必须传 0，让壳侧按屏幕重算宽度而不是按内容夹取',
+  );
+
+  // 字号没变时不得重复发 IPC
+  const fn = jsCode.match(/const syncWindowGeometry = \(\) => \{[\s\S]*?\n\};/);
+  assert.ok(fn, '找不到 syncWindowGeometry');
+  assert.match(fn[0], /fontSize === lastGeometryFontSize/, '同字号不得重复请求');
+
+  // 渲染循环不得再每帧调窗口尺寸（那会随每行文字抖动）
+  const renderFn = jsCode.match(/const render = \(\) => \{[\s\S]*?\n\};/);
+  assert.ok(renderFn, '找不到 render');
+  assert.doesNotMatch(renderFn[0], /contentWidth/, 'render 里不得再传内容宽度');
+});
+
+test('渲染循环必须按显示器帧率驱动，不能用 setInterval', () => {
+  // ★★ 用户实测：「逐字逐句播放的时候，动画不够平滑」。
+  //
+  // 根因：`setInterval(render, 80)` = **12.5fps**。填色进度每 80ms 才前进一格，
+  // 而显示器是 60/120Hz，肉眼看到的就是一跳一跳的格子。
+  // 旧版 PrismQML 用 FrameAnimation（跟合成器帧走），不是定时器。
+  const jsCode = overlayJs
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+
+  assert.doesNotMatch(jsCode, /setInterval\(render/, '不得再用 setInterval 驱动渲染');
+  // 注意用 \b 与排除 MIN_ 前缀：MIN_RENDER_INTERVAL_MS 是新的帧率节流常量，合法。
+  assert.doesNotMatch(
+    jsCode,
+    /(?<!MIN_)\bRENDER_INTERVAL_MS\b/,
+    '80ms 的 RENDER_INTERVAL_MS 应删除',
+  );
+  assert.match(jsCode, /requestAnimationFrame\(renderLoop\)/, '必须用 rAF 自递归');
+  assert.match(jsCode, /startRenderLoop\(\)/, '启动处要调 startRenderLoop');
+  // 必须有帧率节流（高刷屏空转保护）
+  assert.match(jsCode, /MIN_RENDER_INTERVAL_MS/, '需要最小帧间隔常量');
 });
 
 console.log(`\ndesktop lyrics settings contract tests passed (${passed})`);

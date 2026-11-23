@@ -21,9 +21,17 @@
  *              ★ 曾经写成 `0 1px 2px`（blur 2px）—— 这是「字发糊」的直接原因：
  *                旧版 blur 就是 0，是**硬阴影**，只负责把字从背景里"顶"出来，不糊边。
  *
- * 为什么要描边：白字压在浅色壁纸上会彻底看不见。旧版用 Text.Outline 解决，
- * Web 侧等价物是 -webkit-text-stroke + paint-order: stroke fill
- * （paint-order 让填充画在描边之上，视觉上等于"描边在外、填充在内"）。
+ * 为什么要描边：白字压在浅色壁纸上会彻底看不见。旧版用 Qt 的 Text.Outline。
+ *
+ * ★★ Web 侧不能用 `-webkit-text-stroke`（用户实测：「文本有锯齿」）：
+ *   Chromium 对 `paint-order: stroke fill` **只解析第一个值**（实测
+ *   `getComputedStyle(...).paintOrder === "stroke"`），于是描边被画在填充**之上**,
+ *   等于给每个字盖了一圈 1px 黑边 —— 字变脏、边缘发毛、锯齿感明显。
+ *   叠加 DPR=1.5 时描边是 **1.5 物理像素**（非整数），抗锯齿边缘必然发虚。
+ *
+ *   改用 **8 向 text-shadow 模拟外描边**（实测截图证明字干净、描边确实在外）：
+ *   阴影永远画在文字**之下**，天然等价于「描边在外、填充在内」，
+ *   且不参与字形栅格化，不会污染笔画内部。
  */
 
 :root {
@@ -35,6 +43,39 @@
   --unplayed-color: #eeeeee;
   --outline-color: rgba(5, 6, 8, 0.82);
   --shadow-color: rgba(5, 6, 8, 0.3);
+
+  /* ---- 外描边：8 向 text-shadow（替代 -webkit-text-stroke）----
+   *
+   * 偏移量 1.2px 是"够盖住笔画外缘、又不糊字形"的折中（实测截图对比）。
+   * 最后一条 `0 1px 0 var(--shadow-color)` 是旧版那个 blur=0 的硬阴影，
+   * 让字从背景里"顶"出来。
+   *
+   * ★ 为什么不用 -webkit-text-stroke + paint-order：
+   *   Chromium 只解析 paint-order 的第一个值（实测计算值是 `stroke`），
+   *   描边被画在填充之上 → 字变脏、锯齿明显。阴影永远在文字之下，
+   *   天然等价于「描边在外、填充在内」。 */
+  --lyric-outline-shadow:
+    -1.2px 0 0 var(--outline-color),
+    1.2px 0 0 var(--outline-color),
+    0 -1.2px 0 var(--outline-color),
+    0 1.2px 0 var(--outline-color),
+    -1.2px -1.2px 0 var(--outline-color),
+    1.2px -1.2px 0 var(--outline-color),
+    -1.2px 1.2px 0 var(--outline-color),
+    1.2px 1.2px 0 var(--outline-color),
+    0 1px 0 var(--shadow-color);
+
+  /* 副行字号更小，描边相应收细（否则小字被糊住）—— 由 JS 按缩放系数覆盖。 */
+  --lyric-outline-shadow-secondary:
+    -0.8px 0 0 var(--outline-color),
+    0.8px 0 0 var(--outline-color),
+    0 -0.8px 0 var(--outline-color),
+    0 0.8px 0 var(--outline-color),
+    -0.8px -0.8px 0 var(--outline-color),
+    0.8px -0.8px 0 var(--outline-color),
+    -0.8px 0.8px 0 var(--outline-color),
+    0.8px 0.8px 0 var(--outline-color),
+    0 1px 0 var(--shadow-color);
 
   /* 逐字填色的两个量由 JS 按行单独写入（每行各一套，不能共用）。
    * 默认值保证首帧不至于炸成 0 宽或满宽。 */
@@ -137,9 +178,19 @@ body {
   white-space: nowrap;
 }
 
-/* 主行（新行）：从副行位置 + 副行字号比例，长到主行位置 + 1.0。
- * 由 JS 每帧写 --transition-progress(0..1)，这里只做线性插值；
- * 缓动在 JS 里用 InOutCubic 预先算好，避免 CSS/JS 缓动叠加两次。 */
+/* 主行（新行）：从副行位置**位移**上来，**不再缩放**。
+ *
+ * ★★ 为什么去掉 scale（用户实测：「文本有锯齿」「动画不够平滑」）：
+ *   原方案是 `scale(0.667 → 1)` 连续缩放。缩放会让浏览器**每帧用新的缩放比
+ *   重新栅格化字形**，而 DPR=1.5 下缩放比还是非整数
+ *   （实测 0.6667 / 0.7 / 0.75 / 0.7767 / 0.8333 / 0.89 / 0.9167 / 0.9667），
+ *   抗锯齿边缘每帧重算 → 边缘抖动、发虚、锯齿感明显。
+ *
+ *   现在文字**始终 scale(1)** 栅格化一次，只做 translateY + opacity：
+ *   字形位图不变，只是整体移动，边缘始终清晰。
+ *   观感上仍保留「新行从副行位置升上来」的层次（位移 + 淡入），
+ *   与旧版 QML 的意图一致，只是不再缩放。
+ */
 .current-wrap {
   left: var(--line-inset);
   right: var(--line-inset);
@@ -147,15 +198,14 @@ body {
   height: var(--active-line-height);
   font-weight: 600;
   transform-origin: center center;
-  transform:
-    translateY(calc(var(--incoming-offset) * (1 - var(--transition-progress, 1))))
-    scale(calc(
-      var(--incoming-scale, 0.67) +
-      (1 - var(--incoming-scale, 0.67)) * var(--transition-progress, 1)
-    ));
+  /* 只做纵向位移：progress 0 → 1 时从下方 incoming-offset 处升到主行位置。 */
+  transform: translateY(calc(var(--incoming-offset) * (1 - var(--transition-progress, 1))));
   /* QML :417 opacity: 0.96 + 0.04 * progress */
   opacity: calc(0.96 + 0.04 * var(--transition-progress, 1));
-  will-change: transform, opacity;
+  /* ★ 不要写 will-change: transform —— 它会强制建立合成层，
+   *   文字在合成层里按半分辨率栅格化，反而更糊。位移量很小（47px/300ms），
+   *   直接用普通重绘就够快。 */
+  backface-visibility: hidden;
 }
 
 /* 旧行：上移 45% 行高 + 淡出（progress/0.78 内完成，QML :51-54 / :380-384）。
@@ -171,7 +221,7 @@ body {
   transform: translateY(calc(-0.45 * var(--active-line-height) * var(--exit)));
   opacity: calc(1 - var(--exit));
   pointer-events: none;
-  will-change: transform, opacity;
+  /* 不写 will-change:transform —— 会强制建合成层，文字按半分辨率栅格化变糊。 */
 }
 
 /* 副行：从下方 35% 行高浮起 + 淡入（30% 后才开始，QML :55-61 / :446-451）。
@@ -186,15 +236,14 @@ body {
   font-weight: 400;
   color: var(--unplayed-color);
   text-overflow: ellipsis;
-  /* 副行描边按自己的缩放系数收细，否则小字被描边糊住 */
-  -webkit-text-stroke: calc(1px * var(--secondary-font-scale, 1)) var(--outline-color);
-  paint-order: stroke fill;
-  text-shadow: 0 1px 0 var(--shadow-color);
+  /* 副行描边：与主行同款「8 向阴影」，宽度按自己的缩放系数收细。
+   * 详见下方 --lyric-outline-shadow 的注释（-webkit-text-stroke 会让字发脏）。 */
+  text-shadow: var(--lyric-outline-shadow-secondary);
   --secondary-entry: clamp(0, calc((var(--transition-progress, 1) - 0.30) / 0.70), 1);
   transform: translateY(calc(var(--secondary-line-height) * 0.35 * (1 - var(--secondary-entry))));
   /* QML :451 opacity = entry；Label 自身另有 0.92（:458） */
   opacity: calc(0.92 * var(--secondary-entry));
-  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 
 /* ---------- 双层裁剪填色（复刻 WordFill.qml）----------
@@ -230,9 +279,8 @@ body {
   /* 字号 = 基础字号 × 适配系数（JS 写入，1 表示原始大小）。
    * 对应旧版 WordFill.qml 的 fontSizeMode: Text.Fit + minimumPixelSize。 */
   font-size: calc(var(--lyric-font-size) * var(--line-font-scale, 1));
-  -webkit-text-stroke: calc(1px * var(--line-font-scale, 1)) var(--outline-color);
-  paint-order: stroke fill;
-  text-shadow: 0 1px 0 var(--shadow-color);
+  /* 描边：8 向 text-shadow（详见文件头 --lyric-outline-shadow 的注释）。 */
+  text-shadow: var(--lyric-outline-shadow);
 }
 
 /* 底层：未播放色。QML WordFill :42 restingOpacity 0.96。 */

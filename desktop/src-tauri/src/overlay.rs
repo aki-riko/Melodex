@@ -89,6 +89,18 @@ pub fn clamp_content_width(content_width: f64, screen_width: f64) -> f64 {
     content_width.clamp(OVERLAY_MIN_WIDTH.min(ceiling), ceiling)
 }
 
+/// 目标窗口宽度：`content_width <= 0` 走**固定宽度**，否则按内容贴合。
+///
+/// ★ 现在前端固定传 0（详见 `apply_content_width` 的注释：宽度随内容变会让
+/// 歌词在屏幕上横移）。保留内容分支是为了以后需要时能切回去。
+pub fn fixed_or_content_width(content_width: f64, screen_width: f64) -> f64 {
+    if content_width <= 0.0 {
+        overlay_width(screen_width)
+    } else {
+        clamp_content_width(content_width, screen_width)
+    }
+}
+
 /// 把一个坐标夹进 `[minimum, minimum + span]`，与旧版 `clampToVisibleArea` 同式。
 ///
 /// 旧实现用 `Math.max(0, ...)` 处理「窗口比可视区还大」的情形，
@@ -193,13 +205,29 @@ pub fn apply_window_geometry(app: &AppHandle, font_size: u32) -> Result<(), Stri
         .map_err(|error| format!("设置歌词窗口尺寸失败：{error}"))
 }
 
-/// 按**歌词内容**调整窗口宽度，让透明窗口不再盖住一大片屏幕。
+/// 调整歌词窗尺寸。
 ///
-/// 为什么需要它：窗口是整块矩形，即使文字只占中间一小段，
-/// 整块（默认 920 宽）都会拦截鼠标事件，玩家/用户点下面的窗口点不到。
-/// 旧版固定 920 是因为它默认鼠标穿透；现在默认不穿透，就必须让窗口贴合内容。
+/// ## 两种模式
 ///
-/// @param content_width 内容需要的总宽度（已含左右留白），由前端用真实排版量出
+/// - `content_width > 0`：按**内容**宽度贴合（旧行为）。
+/// - `content_width <= 0`：宽度按**屏幕**重算（`overlay_width`，与旧版
+///   `min(920, max(640, 屏宽-96))` 同式），只有高度随字号变。
+///
+/// ## 为什么现在默认走「按屏幕固定宽度」
+///
+/// 用户实测：「歌词一直在往右移动，得固定中心点往两边扩散」。
+/// 根因是宽度跟着每行文字算 —— CDP 实测连续三行：
+///   「眉目缱绻中 飘零」窗口 360 → 文字中心 x=180
+///   「心之 所寄」      窗口 252 → 文字中心 x=126
+///   「劫数应声而起」    窗口 312 → 文字中心 x=156
+/// 文字中心**始终等于窗口中心**，但窗口宽度变了，于是整块歌词在屏幕上
+/// 左右横移了 54px。窗口是独立原生窗口、位置由壳侧固定，
+/// 只有宽度固定，文字才能真正钉在屏幕同一处。
+///
+/// 代价：透明区域会拦截鼠标。缓解办法是默认锁定/穿透（旧版就是这个行为），
+/// 需要操作时再解锁。
+///
+/// @param content_width 内容需要的总宽度；`<= 0` 表示"按屏幕重算"
 /// @param font_size     当前字号，用来重算高度（**不能用窗口当前高度**）
 /// @returns 是否真的调整过（受迟滞阈值控制）
 pub fn apply_content_width(
@@ -207,7 +235,7 @@ pub fn apply_content_width(
     content_width: f64,
     font_size: u32,
 ) -> Result<bool, String> {
-    if !content_width.is_finite() || content_width <= 0.0 {
+    if !content_width.is_finite() {
         return Ok(false);
     }
     let window = app
@@ -216,7 +244,9 @@ pub fn apply_content_width(
     let screen_width = primary_screen_size(app)
         .map(|(width, _height)| width)
         .unwrap_or(OVERLAY_MAX_WIDTH + OVERLAY_WIDTH_MARGIN);
-    let target_width = clamp_content_width(content_width, screen_width);
+
+    // content_width <= 0 → 按屏幕固定宽度；否则按内容贴合。
+    let target_width = fixed_or_content_width(content_width, screen_width);
 
     // ★ 高度必须按字号重新算，绝不能沿用窗口当前高度。
     //
@@ -416,6 +446,37 @@ mod tests {
         assert_eq!(overlay_width(700.0), 604.0);
         // 屏幕减留白 < 下限时，才被抬高到 OVERLAY_MIN_WIDTH
         assert_eq!(overlay_width(300.0), OVERLAY_MIN_WIDTH);
+    }
+
+    #[test]
+    fn fixed_width_mode_ignores_content() {
+        // ★ `content_width <= 0` 表示「按屏幕固定宽度」，与歌词内容无关。
+        //
+        // 用户实测「歌词一直在往右移动」：之前宽度跟着每行文字算，
+        // 短句窗口缩、长句窗口撑，而窗口位置由壳侧固定 ——
+        // 于是文字中心在屏幕上横移（实测连续三行中心 x = 180 / 126 / 156）。
+        // 固定宽度后，文字在窗口内居中就等于钉在屏幕同一处。
+        //
+        // 这里验证：0 与负数都走固定宽度分支，结果等于 overlay_width(屏宽)，
+        // 且与"内容宽度"完全无关。
+        for content in [0.0, -1.0, -9999.0] {
+            // 1920 屏 → overlay_width = min(920, max(240, 1920-96)) = 920
+            assert_eq!(
+                fixed_or_content_width(content, 1920.0),
+                overlay_width(1920.0),
+                "content={content} 应走固定宽度分支"
+            );
+            // 1000 屏 → min(920, max(240, 904)) = 904
+            assert_eq!(
+                fixed_or_content_width(content, 1000.0),
+                overlay_width(1000.0),
+                "content={content} 应走固定宽度分支（小屏）"
+            );
+        }
+
+        // 正数仍按内容贴合（保留旧路径，便于以后需要时切回）
+        assert_eq!(fixed_or_content_width(500.0, 1920.0), 500.0);
+        assert_eq!(fixed_or_content_width(200.0, 1920.0), 240.0);
     }
 
     #[test]

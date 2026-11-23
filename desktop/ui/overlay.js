@@ -20,7 +20,6 @@ const { listen } = window.__TAURI__.event;
 
 const STATE_EVENT = 'melodex:lyrics-state';
 const SETTINGS_EVENT = 'melodex:lyrics-settings';
-const RENDER_INTERVAL_MS = 80;
 
 // ---- 与旧实现对齐的常量（改之前对照 config.py / DesktopLyricsWindow.qml）----
 const FONT_SIZE_MIN = 20;
@@ -114,13 +113,9 @@ const applyFontSize = (px) => {
   const secondary = secondaryFontSizeFor(size);
   document.documentElement.style.setProperty('--lyric-font-size', `${size}px`);
   document.documentElement.style.setProperty('--secondary-font-size', `${secondary}px`);
-  // ★ 新行入场起始缩放 = 副行字号 / 主行字号（QML :49-50 的 incomingActiveScale）。
-  //   曾经硬编码成 0.67：字号 20 时旧版是 16/20 = 0.8，新版却是 0.67，
-  //   入场时的字号与实际副行对不上，表现为「新行凭空大了一截再缩回去」。
-  document.documentElement.style.setProperty(
-    '--incoming-scale',
-    String(secondary / Math.max(1, size)),
-  );
+  // 注：不再写 --incoming-scale —— 切行动画已去掉缩放（只保留位移 + 淡入）。
+  // 缩放会让浏览器每帧用新的非整数比例重新栅格化字形，是「文字有锯齿」的根因，
+  // 详见 overlay.css 里 .current-wrap 的注释。
 };
 
 const applyFontFamily = (family) => {
@@ -476,75 +471,44 @@ const refreshRenderedGeometry = () => {
   }
 };
 
-// ---------- 窗口宽度贴合内容 ----------
+// ---------- 窗口宽度：**固定**，不随内容变化 ----------
 //
-// 歌词窗是整块矩形，即使文字只占中间一小段，整块都会拦截鼠标事件，
-// 挡住下面窗口的操作。旧版固定 920 是因为它默认鼠标穿透；
-// 现在默认不穿透，窗口就必须贴合文字实际占用。
+// ★★ 为什么不再"贴合内容"（用户实测：「歌词一直在往右移动，得固定中心点
+//    往两边扩散」）：
+//   之前窗口宽度跟着每行文字算，短句窗口缩、长句窗口撑。CDP 实测连续三行：
+//     「眉目缱绻中 飘零」 窗口 360 → 文字中心 x=180
+//     「心之 所寄」       窗口 252 → 文字中心 x=126
+//     「劫数应声而起」     窗口 312 → 文字中心 x=156
+//   文字中心**始终等于窗口中心**（偏离 0），但窗口宽度变了 ——
+//   于是整块歌词在屏幕上左右横移了 54px，看起来就是"一直往右移"。
 //
-// ★ 测量必须在**离屏容器**里按基准字号做，绝不能用窗口内的实际渲染宽度：
-//   窗口一窄，字号适配就会把字缩小 → 量出来更窄 → 窗口继续缩 → 无限塌缩。
+//   窗口是独立原生的透明窗口，它的位置由壳侧固定；只有**宽度固定**，
+//   文字才能真的钉在屏幕同一处。旧版 PrismQML 也是固定宽度
+//   （`min(920, max(640, 屏宽-96))`），"贴合内容"是本鱼自己加的。
+//
+//   副作用（可接受）：透明区域会拦截鼠标。缓解办法是**默认锁定/穿透**，
+//   需要操作时再解锁 —— 这正是旧版的行为。
+//
+// 所以这里不再按内容请求宽度；宽度只在字号变化时由壳侧按屏幕重算。
 
-/** 用离屏 div 量一句文字在给定字号下的真实排版宽度。 */
-const measureTextOffscreen = (text, px, weight) => {
-  if (!text) return 0;
-  const probe = document.createElement('div');
-  probe.style.cssText = [
-    'position:absolute',
-    'left:-99999px',
-    'top:0',
-    'visibility:hidden',
-    'white-space:nowrap',
-    'pointer-events:none',
-    `font-family:${lyricFontFamily()}`,
-    `font-size:${px}px`,
-    `font-weight:${weight}`,
-  ].join(';');
-  probe.textContent = text;
-  document.body.appendChild(probe);
-  const width = probe.getBoundingClientRect().width;
-  probe.remove();
-  return width;
-};
+/** 最近一次应用的字号，用来判断要不要让壳侧重算窗口几何。 */
+let lastGeometryFontSize = 0;
 
 /**
- * 计算窗口该有多宽（含左右留白与描边余量）。
+ * 字号变化时让壳侧按屏幕重算窗口尺寸（宽度固定为屏宽推导值，高度按字号）。
  *
- * 取主行与副行里更宽的那条 —— 副行常常比主行长（翻译/下一句）。
- * 描边会向外扩约 1px、阴影偏移 1px，留 4px 余量避免最后一丝被切。
+ * 不再传 contentWidth —— 窗口宽度与歌词内容无关了。
  */
-const contentWidthFor = (mainText, secondaryText) => {
-  const baseSize = clampFontSize(settings.font_size);
-  const secondarySize = secondaryFontSizeFor(baseSize);
-  const mainWidth = measureTextOffscreen(mainText, baseSize, 600);
-  const secondaryWidth = measureTextOffscreen(secondaryText, secondarySize, 400);
-  const widest = Math.max(mainWidth, secondaryWidth);
-  if (!widest) return 0;
-  // 两行内缩不同，取更宽的那条作为约束：主行 92、副行 108。
-  const padding = secondaryWidth >= mainWidth ? SECONDARY_HORIZONTAL_PADDING : LINE_HORIZONTAL_PADDING;
-  return Math.ceil(widest + padding + 4);
-};
-
-/** 最近一次请求的内容宽度，避免每帧都发 IPC。 */
-let lastRequestedContentWidth = 0;
-
-/**
- * 请求壳侧按内容调整窗口宽度。
- *
- * 壳侧有迟滞阈值（差异 < 24px 不动），这里再挡一层「同值不重复发」，
- * 避免 render() 每 80ms 跑一次就发一条 IPC。
- */
-const requestContentWidth = (mainText, secondaryText) => {
-  const width = contentWidthFor(mainText, secondaryText);
-  if (!width) return;
-  if (Math.abs(width - lastRequestedContentWidth) < 1) return;
-  lastRequestedContentWidth = width;
+const syncWindowGeometry = () => {
+  const fontSize = clampFontSize(settings.font_size);
+  if (fontSize === lastGeometryFontSize) return;
+  lastGeometryFontSize = fontSize;
   invoke('lyrics_resize_to_content', {
-    contentWidth: width,
-    // 高度必须由壳侧按字号重算：传当前高度会让它只增不减（踩过）。
-    fontSize: clampFontSize(settings.font_size),
+    // 传 0 让壳侧走"按屏幕重算宽度"的分支（而不是按内容夹取）。
+    contentWidth: 0,
+    fontSize,
   }).catch((error) => {
-    console.warn('调整歌词窗口宽度失败', error);
+    console.warn('同步歌词窗口尺寸失败', error);
   });
 };
 
@@ -829,12 +793,45 @@ const render = () => {
     : null;
   updateFillProgress(renderedLine, effectivePosition());
 
-  // 窗口宽度贴合当前这两行文字（壳侧有迟滞，短句窗口自动缩、长句最多到 920）。
-  requestContentWidth(mainText, secondaryText);
+  // 窗口尺寸只在字号变化时同步（宽度固定，不随歌词内容变）。
+  syncWindowGeometry();
 
   // 播放/暂停图标二选一由 class 控制（旧实现 icon 随 Player.playing 切换）。
   toggleButton.classList.toggle('is-playing', !playback.paused);
   toggleButton.title = playback.paused ? '播放' : '暂停';
+};
+
+/**
+ * 渲染主循环 —— **按显示器刷新率逐帧驱动**（rAF）。
+ *
+ * ★★ 为什么不再用 `setInterval(render, 80)`（用户实测：「逐字逐句播放时
+ *    动画不够平滑」）：
+ *   80ms 一次 = **12.5fps**。填色进度每 80ms 才前进一格，而显示器是 60/120Hz，
+ *   于是肉眼看到的是一跳一跳的格子，而不是连续推进。
+ *   旧版 PrismQML 用的是 `FrameAnimation`（跟着合成器帧走），不是定时器。
+ *
+ * 现在改成 requestAnimationFrame：浏览器按显示器刷新率回调（60Hz → 16.7ms，
+ * 120Hz → 8.3ms），逐字填色每帧前进，平滑度与刷新率一致。
+ *
+ * 每帧成本必须极低：refreshRenderedGeometry / updateFillProgress 内部都有
+ * 签名去重，稳定态只做字符串比较 + 一次 CSS 变量写入。
+ */
+let renderFrame = 0;
+let lastRenderAt = 0;
+
+/** 两次 DOM 写入的最小间隔（ms）：节流到 ~60fps，避免高刷屏空转。 */
+const MIN_RENDER_INTERVAL_MS = 1000 / 60;
+
+const renderLoop = (now) => {
+  renderFrame = window.requestAnimationFrame(renderLoop);
+  if (now - lastRenderAt < MIN_RENDER_INTERVAL_MS) return;
+  lastRenderAt = now;
+  render();
+};
+
+const startRenderLoop = () => {
+  if (renderFrame) return;
+  renderFrame = window.requestAnimationFrame(renderLoop);
 };
 
 const applyStateMessage = (message) => {
@@ -946,7 +943,8 @@ invoke('get_click_through')
 // 先取设置再恢复位置：位置是否恢复取决于 settings.position_set。
 loadSettings().then(restorePosition);
 
-window.setInterval(render, RENDER_INTERVAL_MS);
+// 渲染主循环：按显示器刷新率逐帧驱动（详见 renderLoop 的注释）。
+startRenderLoop();
 
 // 启动时先隐藏，等主窗口推来第一条状态。
 setOverlayVisible(false);

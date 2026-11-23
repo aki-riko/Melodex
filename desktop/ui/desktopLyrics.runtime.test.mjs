@@ -129,29 +129,30 @@ globalThis.getComputedStyle = () => ({ getPropertyValue: () => '"Microsoft YaHei
 // startLineTransition 的 step 永远不执行 → 切行动画从不"结束" →
 // finishTransition 不被调用 → 旧行（outgoing）残留检测不到，
 // 用它做的「切歌残留上一首歌词」测试形同虚设（突变验证时不会变红）。
-// 这里让回调同步跑一次：progress 推进到结束，动画状态机走完整轮。
+// rAF 桩：**只挂起、不自动执行**。
+//
+// ★ 为什么不能"立刻执行回调"（踩过两次）：
+//   ① 切歌残留测试需要"动画进行中"的画面，自动跑完会立刻 finishTransition 清空
+//      outgoing，断言永远看到空的（突变验证时不会变红，测试形同虚设）；
+//   ② renderLoop 现在是 `requestAnimationFrame(renderLoop)` 自递归，
+//      桩里同步执行回调会**无限递归**（实测 RangeError: Maximum call stack size exceeded）。
+//
+// 所以：回调一律挂起，由测试在需要时显式 flush。
 const pendingRaf = [];
 let rafPaused = false;
 globalThis.window.requestAnimationFrame = (cb) => {
   pendingRaf.push(cb);
-  // 未暂停时立刻执行（模拟动画跑完）；暂停时只挂起，保留"动画进行中"的画面。
-  if (!rafPaused) {
-    pendingRaf.pop();
-    cb(performance.now() + 10000);
-  }
-  return pendingRaf.length + 1;
+  return pendingRaf.length;
 };
 globalThis.window.cancelAnimationFrame = () => {};
 globalThis.requestAnimationFrame = globalThis.window.requestAnimationFrame;
 globalThis.cancelAnimationFrame = () => {};
 
-/** 把挂起的 rAF 全部跑完（模拟动画结束）。 */
-const flushAnimationFrames = (maxFrames = 40) => {
-  let guard = 0;
-  while (pendingRaf.length && guard < maxFrames) {
+/** 把挂起的 rAF 跑 n 轮（模拟若干帧）。renderLoop 会再挂一轮，所以按轮数跑。 */
+const flushAnimationFrames = (rounds = 1) => {
+  for (let i = 0; i < rounds; i += 1) {
     const batch = pendingRaf.splice(0, pendingRaf.length);
     for (const cb of batch) cb(performance.now() + 10000);
-    guard += 1;
   }
 };
 
