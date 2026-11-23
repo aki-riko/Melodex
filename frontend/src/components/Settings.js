@@ -22,6 +22,7 @@ import {
 import LoadingState from './LoadingState';
 import DesktopLyricsSettings from './DesktopLyricsSettings';
 import AppearanceSettings from './AppearanceSettings';
+import SettingsSection, { SettingsRow } from './SettingsSection';
 import Portal from '../ui/Portal';
 
 const SOURCE_NOTES = {
@@ -360,7 +361,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
 
   return (
     <>
-      <div className="flex h-full min-h-[108px] flex-col rounded-md border border-border surface p-3">
+      <div className="flex h-full min-h-[108px] flex-col rounded-control border border-border surface p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">{sourceLabel(source)}</p>
@@ -369,7 +370,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             </p>
           </div>
           <div className="flex flex-shrink-0 items-center gap-1">
-            <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}>
+            <span className={`inline-flex items-center gap-1 rounded-control border px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}>
               {badge.icon}
               {badge.text}
             </span>
@@ -378,7 +379,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 type="button"
                 onClick={onRefreshStatus}
                 disabled={checkingStatus}
-                className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-6 w-6 items-center justify-center rounded-control border border-border bg-secondary text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 title="重新检查登录状态"
                 aria-label={`重新检查 ${sourceLabel(source)} 登录状态`}
               >
@@ -393,7 +394,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             <button
               onClick={startLogin}
               disabled={loginBusy}
-              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-primary bg-primary px-2 text-xs font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-control border border-primary bg-primary px-2 text-xs font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               title={`${sourceLabel(source)}扫码登录`}
             >
               <QrCode size={14} />
@@ -403,7 +404,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
           {manualSupported && (
             <button
               onClick={() => setShowManual(true)}
-              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-control border border-border bg-secondary px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               title="扫码拿不到无损时，可手动粘贴完整 Cookie"
             >
               <KeyRound size={14} />
@@ -413,7 +414,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
           {loggedIn && (
             <button
               onClick={() => onLogout(source)}
-              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-control border border-border bg-secondary px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               title={`退出 ${sourceLabel(source)} 登录`}
             >
               <LogOut size={14} />
@@ -430,7 +431,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
         // 盖不满整屏、点外部也关不掉。理由详见 ui/Portal.js。
         <Portal>
         <div className="fixed inset-0 z-modal flex items-center justify-center overlay p-4" onClick={closeQRSession}>
-          <div className="w-full max-w-sm rounded-lg border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-control border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
                 <p className="font-semibold">{sourceLabel(source)} 扫码登录</p>
@@ -443,7 +444,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             <div className="p-4">
               {(session.image_url || session.url) && status !== 'success' && (
                 <div className="flex flex-col items-center">
-                  <div className="rounded-md border border-border bg-white p-2">
+                  <div className="rounded-control border border-border bg-white p-2">
                     {session.image_url ? (
                       <img src={session.image_url} alt="登录二维码" width={192} height={192} />
                     ) : (
@@ -454,11 +455,11 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
               )}
 
               {statusNote && (
-                <p className="mt-3 rounded-md bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">{statusNote}</p>
+                <p className="mt-3 rounded-control bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">{statusNote}</p>
               )}
 
               {sodaSMS && (
-                <div className="mt-3 rounded-md bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
+                <div className="mt-3 rounded-control bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
                   {sodaSMS.mode === 'up' ? (
                     <>
                       <p>请按汽水要求发送短信。</p>
@@ -467,7 +468,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                       <button
                         onClick={sendSodaSMS}
                         disabled={sodaSMSBusy}
-                        className="mt-3 rounded-md border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
+                        className="mt-3 rounded-control border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
                       >
                         {sodaSMSBusy ? '确认中…' : '我已发送'}
                       </button>
@@ -479,7 +480,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                         <button
                           onClick={sendSodaSMS}
                           disabled={sodaSMSBusy}
-                          className="mt-3 rounded-md border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
+                          className="mt-3 rounded-control border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
                         >
                           {sodaSMSBusy ? '发送中…' : '发送验证码'}
                         </button>
@@ -490,12 +491,12 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                             value={sodaSMSCode}
                             onChange={(e) => setSodaSMSCode(e.target.value)}
                             placeholder="验证码"
-                            className="min-w-0 flex-grow rounded-md border border-border surface-control px-3 py-2 text-xs outline-none focus:border-primary"
+                            className="min-w-0 flex-grow rounded-control border border-border surface-control px-3 py-2 text-xs outline-none focus:border-primary"
                           />
                           <button
                             onClick={validateSodaSMS}
                             disabled={sodaSMSBusy}
-                            className="rounded-md border border-primary bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"
+                            className="rounded-control border border-primary bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"
                           >
                             {sodaSMSBusy ? '验证中…' : '确认'}
                           </button>
@@ -510,14 +511,14 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 <button
                   onClick={startLogin}
                   disabled={loginBusy}
-                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <QrCode size={18} />
                   {loginBusy ? '生成中' : '刷新二维码'}
                 </button>
                 <button
                   onClick={closeQRSession}
-                  className="h-10 rounded-md border border-border bg-secondary px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="h-10 rounded-control border border-border bg-secondary px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   关闭
                 </button>
@@ -532,7 +533,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
         // 同上:手填 Cookie 遮罩也要 Portal,否则只盖住页面里的一块。
         <Portal>
         <div className="fixed inset-0 z-modal flex items-center justify-center overlay p-4" onClick={() => setShowManual(false)}>
-          <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-lg border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
+          <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-control border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
                 <p className="font-semibold">手动填写 Cookie</p>
@@ -544,7 +545,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
             </div>
             <div className="overflow-y-auto p-4 app-scroll">
               {COOKIE_HELP[source] && (
-                <div className="mb-3 rounded-md bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
+                <div className="mb-3 rounded-control bg-secondary p-3 text-xs leading-relaxed text-muted-foreground">
                   <p className="mb-2 font-medium text-foreground">获取方式</p>
                   <p>1. 浏览器打开 <a href={COOKIE_HELP[source].url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline">{COOKIE_HELP[source].url}<ExternalLink size={12} /></a> 并登录会员账号</p>
                   <p>2. 按 F12 打开开发者工具,进入「网络/Network」</p>
@@ -558,13 +559,13 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 onChange={(e) => setManualCookie(e.target.value)}
                 placeholder={`粘贴 ${sourceLabel(source)} 网页版登录后的完整 Cookie...`}
                 rows={5}
-                className="w-full resize-none rounded-md border border-border bg-secondary px-3 py-2 text-sm outline-none focus:border-primary"
+                className="w-full resize-none rounded-control border border-border bg-secondary px-3 py-2 text-sm outline-none focus:border-primary"
               />
               <div className="mt-3 flex items-center gap-2">
                 <button
                   onClick={submitManual}
                   disabled={!manualCookie.trim()}
-                  className="flex h-10 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-10 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <KeyRound size={18} />
                   保存 Cookie
@@ -624,12 +625,12 @@ const Settings = () => {
       </p>
 
       {isAdmin && (
-        <section className="mb-8">
-          <h3 className="text-lg font-semibold mb-2">账号登录</h3>
-          <p className="text-xs text-muted-foreground mb-3">
-            平台会员 Cookie 为全局共享(所有用户共用同一会员链路),仅管理员可配置。
-          </p>
-          <div className="grid grid-cols-1 items-stretch gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        <SettingsSection
+          id="settings-accounts"
+          title="账号登录"
+          desc="平台会员 Cookie 为全局共享(所有用户共用同一会员链路)，仅管理员可配置。"
+        >
+          <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {sources.map((entry) => {
               const src = typeof entry === 'string' ? entry : entry.source;
               const qrSupported = typeof entry === 'string' ? true : !!entry.qr;
@@ -648,16 +649,19 @@ const Settings = () => {
               );
             })}
           </div>
-        </section>
+        </SettingsSection>
       )}
 
-      <section aria-labelledby="settings-playback">
-        <h3 id="settings-playback" className="text-xl font-semibold mb-4">播放偏好</h3>
-        <div className="flex items-center justify-between gap-4 p-4 border border-border rounded-md surface">
+      <SettingsSection
+        id="settings-playback"
+        title="播放偏好"
+        desc="这些开关只影响当前这个客户端，存在本机。"
+      >
+        <SettingsRow>
           <div className="min-w-0">
             <p className="font-semibold">播放时自动下载到服务器</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              开启后,每首开始播放(即可正常播放)的歌会自动下载到服务器。同一首本次会话只下一次。
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              开启后，每首开始播放（即可正常播放）的歌会自动下载到服务器。同一首本次会话只下一次。
             </p>
           </div>
           <button
@@ -676,27 +680,28 @@ const Settings = () => {
               autoDownloadOnPlay ? 'translate-x-6' : 'translate-x-1'}`}
               data-checked={autoDownloadOnPlay ? 'true' : 'false'} />
           </button>
-        </div>
-      </section>
+        </SettingsRow>
+      </SettingsSection>
 
       <AppearanceSettings />
 
       <DesktopLyricsSettings />
 
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-semibold">本地音乐库</h3>
+      <SettingsSection
+        id="settings-local-music"
+        title="本地音乐库"
+        desc={`下载目录：${localMusic.data?.download_dir || '—'}${
+          localMusic.data && !localMusic.data.exists ? '（目录不存在）' : ''
+        }`}
+        action={(
           <button
             onClick={() => localMusic.refetch()}
-            className="px-3 py-1.5 border border-border rounded-md surface-control font-medium text-sm transition-colors hover:bg-secondary"
+            className="rounded-control border border-border px-3 py-1.5 text-sm font-medium surface-control transition-colors hover:bg-secondary"
           >
             刷新
           </button>
-        </div>
-        <p className="text-muted-foreground text-sm mb-3">
-          下载目录:{localMusic.data?.download_dir || '—'}
-          {localMusic.data && !localMusic.data.exists && '(目录不存在)'}
-        </p>
+        )}
+      >
         {localMusic.isLoading && (
           <LoadingState
             title="加载本地音乐库"
@@ -710,21 +715,21 @@ const Settings = () => {
         )}
         {!localMusic.isLoading && <div className="space-y-2">
           {tracks.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 p-3 border border-border rounded-md surface">
+            <SettingsRow key={t.id}>
               <div className="flex-grow min-w-0">
                 <p className="font-semibold truncate">{t.name}</p>
                 <p className="text-sm text-muted-foreground truncate">{t.artist}{t.album ? ` · ${t.album}` : ''}</p>
               </div>
               <button
                 onClick={() => handleDeleteLocal(t.id)}
-                className="px-3 py-1.5 border border-border rounded-md bg-destructive text-destructive-foreground font-semibold text-sm transition-colors hover:brightness-[0.97]"
+                className="rounded-control bg-destructive px-3 py-1.5 text-sm font-semibold text-destructive-foreground transition-colors hover:brightness-[0.97]"
               >
                 删除
               </button>
-            </div>
+            </SettingsRow>
           ))}
         </div>}
-      </section>
+      </SettingsSection>
     </div>
   );
 };

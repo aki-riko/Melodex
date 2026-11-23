@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MonitorUp, Lock, Type, Palette, Move, Eye } from 'lucide-react';
+import SettingsSection from './SettingsSection';
 import {
   isDesktopShell,
   getLyricsSettings,
@@ -141,36 +142,27 @@ const DesktopLyricsSettings = () => {
 
   if (!inShell) {
     return (
-      <section className="mb-8">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-xl font-semibold">透明桌面歌词</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              桌面歌词是桌面客户端的原生窗口，浏览器里没有。
-            </p>
-          </div>
-          <MonitorUp className="flex-shrink-0 text-primary" size={24} />
-        </div>
-        <div className="space-y-2 rounded-md border border-border surface p-4 text-sm text-muted-foreground">
+      <SettingsSection
+        id="settings-desktop-lyrics"
+        title="透明桌面歌词"
+        desc="桌面歌词是桌面客户端的原生窗口，浏览器里没有。"
+        action={<MonitorUp className="flex-shrink-0 text-primary" size={24} />}
+      >
+        <div className="space-y-2 rounded-control border border-border surface p-4 text-sm leading-relaxed text-muted-foreground">
           <p>请安装并打开 Melodex 桌面客户端后再播放；浏览器内仍可在播放页查看逐字歌词与留声机视图。</p>
         </div>
-      </section>
+      </SettingsSection>
     );
   }
 
   return (
-    <section className="mb-8">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-xl font-semibold">透明桌面歌词</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            播放时显示无边框透明歌词窗，始终置顶。以下设置立即生效并自动保存。
-          </p>
-        </div>
-        <MonitorUp className="flex-shrink-0 text-primary" size={24} />
-      </div>
-
-      <div className="rounded-md border border-border surface px-4">
+    <SettingsSection
+      id="settings-desktop-lyrics"
+      title="透明桌面歌词"
+      desc="播放时显示无边框透明歌词窗，始终置顶。以下设置立即生效并自动保存。"
+      action={<MonitorUp className="flex-shrink-0 text-primary" size={24} />}
+    >
+      <div className="rounded-control border border-border surface px-4">
         {!settings ? (
           <div className="py-6 text-center text-sm text-muted-foreground">正在读取桌面歌词设置…</div>
         ) : (
@@ -220,7 +212,7 @@ const DesktopLyricsSettings = () => {
               description="从适合中文歌词显示的系统字体中选择"
             >
               <select
-                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                className="h-9 rounded-control border border-border bg-background px-2 text-sm"
                 value={settings.font_preset}
                 disabled={busy}
                 onChange={(event) => commit({ font_preset: event.target.value })}
@@ -268,7 +260,7 @@ const DesktopLyricsSettings = () => {
               description="方案同时决定已播放与未播放歌词的颜色"
             >
               <select
-                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                className="h-9 rounded-control border border-border bg-background px-2 text-sm"
                 value={settings.color_scheme}
                 disabled={busy}
                 onChange={(event) => commit({ color_scheme: event.target.value })}
@@ -289,7 +281,7 @@ const DesktopLyricsSettings = () => {
             >
               <button
                 type="button"
-                className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+                className="rounded-control border border-border px-3 py-1.5 text-sm hover:bg-muted"
                 disabled={busy}
                 onClick={handleReset}
               >
@@ -307,7 +299,7 @@ const DesktopLyricsSettings = () => {
         <li>歌词窗无边框、无背景、始终置顶；鼠标悬停时显示控制条（上一首 / 播放暂停 / 下一首 / 锁定 / 关闭）。</li>
         <li>锁定状态下鼠标会穿透歌词窗，此时不会显示控制条；需要操作时先在上方解除锁定。</li>
       </ul>
-    </section>
+    </SettingsSection>
   );
 };
 

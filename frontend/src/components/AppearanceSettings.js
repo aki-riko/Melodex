@@ -3,6 +3,7 @@ import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../theme/ThemeContext.jsx';
 import { SystemTheme, isNativeAndroid } from '../theme/ThemeContext.jsx';
 import { cn } from '../ui/cn';
+import SettingsSection from './SettingsSection';
 
 // 设置页的「外观」区:深浅色模式切换。
 //
@@ -65,15 +66,12 @@ export default function AppearanceSettings() {
   }, [themeId]);
 
   return (
-    <section aria-labelledby="settings-appearance">
-      <h3 id="settings-appearance" className="text-xl font-semibold mb-2">
-        外观
-      </h3>
-      <p className="text-xs text-muted-foreground mb-3">
-        全站使用 Fluent Design。「跟随系统」会随设备的深浅色设置自动切换。
-        只影响这个设备(和音量、播放模式一样存在本机),切换即时生效。
-      </p>
-      <div role="radiogroup" aria-label="深浅色模式" className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+    <SettingsSection
+      id="settings-appearance"
+      title="外观"
+      desc="全站使用 Fluent Design。「跟随系统」会随设备的深浅色设置自动切换。只影响这个设备（和音量、播放模式一样存在本机），切换即时生效。"
+    >
+      <div role="radiogroup" aria-label="深浅色模式" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {modes.map((item) => {
           const Icon = MODE_ICONS[item.id] || Monitor;
           const active = item.id === mode;
@@ -85,7 +83,7 @@ export default function AppearanceSettings() {
               aria-checked={active}
               onClick={() => setMode(item.id)}
               className={cn(
-                'flex items-center gap-3 rounded-lg border p-3 text-left transition-colors duration-base ease-standard',
+                'flex items-center gap-3 rounded-control border p-3 text-left transition-colors duration-base ease-standard',
                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]',
                 active
                   ? 'border-primary bg-secondary'
@@ -113,6 +111,6 @@ export default function AppearanceSettings() {
           {diagnostic}
         </p>
       )}
-    </section>
+    </SettingsSection>
   );
 }

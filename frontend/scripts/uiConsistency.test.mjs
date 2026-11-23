@@ -254,6 +254,84 @@ check('曲目数/副标题行不得用条件渲染整行（会少一行高度）
   );
 });
 
+// ---------- ⑥ 设置页分区必须走统一组件（治「每个分区各写一套」）----------
+
+check('设置页分区标题不得手写，必须用 SettingsSection', () => {
+  // ★ 真实缺陷（用户：「设置页面排版重构一下」）：
+  //   Settings.js / AppearanceSettings.js / DesktopLyricsSettings.js
+  //   三处各写各的 `<section><h3>`，导致实测出现：
+  //     · 标题字号不一（「账号登录」text-lg 18px，其余 text-xl 20px）
+  //     · 分区间距不成规律（y 间隔 324/126/126/524）
+  //     · 卡片圆角两套（rounded-md 4px vs rounded-lg 8px）
+  //   统一到 SettingsSection 后改一处即全局生效。
+  const settingsFiles = [
+    'src/components/Settings.js',
+    'src/components/AppearanceSettings.js',
+    'src/components/DesktopLyricsSettings.js',
+  ];
+
+  const offenders = [];
+  for (const rel of settingsFiles) {
+    const src = readSrc(rel);
+    // 手写分区标题的特征：<h3 带 text-xl/text-lg 且不是通过 SettingsSection 渲染的
+    for (const m of src.matchAll(/<h3[^>]*className="[^"]*text-(?:xl|lg|base)[^"]*"/g)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      const snippet = src.slice(m.index, m.index + 100);
+      offenders.push(`${rel}:${line}  ${snippet.split('\n')[0].slice(0, 70)}`);
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `设置页出现了手写的分区标题（应改用 <SettingsSection title="...">，否则字号/间距/圆角会各自为政）：\n  ${offenders.join('\n  ')}`,
+  );
+
+  // 三个文件都必须真的 import 了统一组件
+  for (const rel of settingsFiles) {
+    const src = readSrc(rel);
+    assert.match(
+      src,
+      /from '\.\/SettingsSection'/,
+      `${rel} 必须从 SettingsSection 引入统一分区组件`,
+    );
+  }
+});
+
+check('设置页卡片圆角统一用 rounded-control', () => {
+  // 同一个页面里同时出现 rounded-md / rounded-lg 就是"两套语言"。
+  // 设置页的卡片一律 rounded-control（= --radius-control，随主题变）。
+  //
+  // ★ 必须先剥注释：SettingsSection.js 的文档注释里逐字写了
+  //   「QR 卡 rounded-md(4px)，外观卡 rounded-lg(8px)」来说明历史缺陷，
+  //   不剥掉会被自己的注释判红（本鱼第一版就踩了）。
+  const settingsFiles = [
+    'src/components/Settings.js',
+    'src/components/SettingsSection.js',
+    'src/components/AppearanceSettings.js',
+    'src/components/DesktopLyricsSettings.js',
+  ];
+  const stripComments = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+
+  const offenders = [];
+  for (const rel of settingsFiles) {
+    const src = stripComments(readSrc(rel));
+    for (const m of src.matchAll(/rounded-(?:md|lg)\b/g)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:${line}  ${m[0]}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `设置页卡片圆角必须统一 rounded-control，不得混用 rounded-md/rounded-lg：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');
