@@ -320,13 +320,39 @@ const renderSecondaryLine = (text) => {
 };
 
 /**
+ * 量某一层文字**实际排版宽度**与它相对行的左偏移（用 DOM Range，不靠 canvas 估算）。
+ *
+ * ★ 为什么不能用 canvas.measureText 定裁剪区（实际踩到的 bug）：
+ *   canvas 只算字形 advance，**不计 letter-spacing 与 -webkit-text-stroke 的外扩**。
+ *   实测同一句话：canvas 651.97px，DOM 实际 665.3px —— 差 13.33px（约 2%）。
+ *   拿 canvas 值当裁剪宽度，clip 会比白底文字窄一圈、还右移几像素，
+ *   于是未播放色的白字从四周露出来，观感就是「粉字外面一圈白边 + 重影」。
+ *   canvas 仍用于字号适配的**估算**（差异不影响是否需要缩放），
+ *   但定位裁剪区必须用真实排版结果。
+ *
+ * @returns {{left:number, width:number}} 相对当前行内容盒的偏移与宽度
+ */
+const measureLineBox = (baseElement, rowElement) => {
+  const range = document.createRange();
+  range.selectNodeContents(baseElement);
+  const textRect = range.getBoundingClientRect();
+  const rowRect = rowElement.getBoundingClientRect();
+  if (!textRect.width || !rowRect.width) return null;
+  return {
+    left: textRect.left - rowRect.left,
+    width: textRect.width,
+  };
+};
+
+/**
  * 渲染主行：底层未播放色整行 + 上层已播放色被裁剪。
  * 文本只在**内容真的变了**时才写 DOM，避免每帧重排导致闪烁。
  */
 const renderCurrentLine = (line, position) => {
   const text = line?.text || '';
 
-  if (currentBase.textContent !== text) {
+  const textChanged = currentBase.textContent !== text;
+  if (textChanged) {
     currentBase.textContent = text;
     currentLine.textContent = text;
   }
@@ -334,24 +360,33 @@ const renderCurrentLine = (line, position) => {
   const ratio = lineProgress(line, position);
   currentClip.style.setProperty('--fill-ratio', String(ratio));
 
+  const baseSize = clampFontSize(settings.font_size);
+  const rowWidth = currentWrap.clientWidth;
+  const available = Math.max(0, rowWidth - LINE_HORIZONTAL_PADDING);
+
+  // 先按基础字号估一次：超宽就缩字号（等价旧版 Text.Fit）。
+  const scale = fitScale(text, baseSize, available);
+
+  if (textChanged || lyricsShell.style.getPropertyValue('--line-font-scale') !== String(scale)) {
+    lyricsShell.style.setProperty('--line-font-scale', String(scale));
+  }
+
+  // 缩放系数写进 CSS 后必须**等一帧**再量——否则量到的还是上一档字号。
+  // 用 sync 量法：先写变量，再强制读一次布局（getBoundingClientRect 会触发布局），
+  // 这样在同一帧内就能拿到新字号下的真实宽度，不需要 rAF 延迟（会闪一帧）。
+  const box = measureLineBox(currentBase, currentWrap);
+  if (!box) return;
+
   // ★ 复刻 WordFill.qml:24-25：
   //     textPaintedWidth = min(可用宽度, 文字实际宽度)
   //     textLeft         = (可用宽度 - textPaintedWidth) / 2
   //   裁剪从**文字左边缘**开始，切掉的是"已经唱过的部分"，
   //   而不是从行左边缘开始（后者对短句明显错位）。
-  const baseSize = clampFontSize(settings.font_size);
-  const rowWidth = currentWrap.clientWidth;
-  const available = Math.max(0, rowWidth - LINE_HORIZONTAL_PADDING);
-
-  // 先按基础字号量；超宽则缩字号，缩完重新量文字宽度。
-  const scale = fitScale(text, baseSize, available);
-  const scaledSize = baseSize * scale;
-  const textWidth = Math.min(available, measureText(text, scaledSize));
-  const textLeft = Math.max(0, (rowWidth - textWidth) / 2);
-
-  lyricsShell.style.setProperty('--line-font-scale', String(scale));
-  lyricsShell.style.setProperty('--text-left', `${textLeft}px`);
-  lyricsShell.style.setProperty('--text-width', `${textWidth}px`);
+  //
+  // 这里直接用 DOM 量出来的 left/width：Range 的结果已经包含 letter-spacing
+  // 与描边外扩，clip 因此能严丝合缝盖住白底，不再露白边。
+  lyricsShell.style.setProperty('--text-left', `${box.left}px`);
+  lyricsShell.style.setProperty('--text-width', `${box.width}px`);
   currentLine.style.setProperty('--line-width', `${rowWidth}px`);
 };
 

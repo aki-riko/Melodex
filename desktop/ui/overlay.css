@@ -284,12 +284,26 @@ body {
   height: 100%;
   overflow: hidden;
   pointer-events: none;
+  /* ★ 只做**垂直**居中，绝不能让水平也居中：
+   *   .current-wrap 是 flex，主轴的 column 方向 → align-items 管水平、justify-content 管垂直。
+   *   上层文字的水平位置靠 .lyric-active 的负 margin-left 精确抵消 clip 偏移，
+   *   一旦水平被居中就会再推走 ~64px（实测 textOffsetX 从 0 变 -63.68）。
+   *
+   * 做法：clip 内建立与 .current-wrap 同构的纵向 flex（column + justify-content:center），
+   * 水平方向保持 stretch/不干预，让 margin-left 继续生效。 */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
 }
 
 /* 上层：已播放色。宽度必须等于整行（含居中留白），
    否则裁剪区里文字会被挤压变形——这里给整行宽度，由外层 overflow 控制可见部分。 */
 .lyric-active {
   width: var(--line-width, 100%);
+  /* clip 用了 flex，禁止这个宽 920px 的条目被压缩/换行，
+     否则文字宽度会算错、与底层错位。 */
+  flex: 0 0 auto;
   color: var(--played-color);
   /* 抵消裁剪容器的 left 偏移：让上层文字与底层文字严格对齐。
      （上层以裁剪容器为参照，需要负偏移把它推回整行坐标原点。） */

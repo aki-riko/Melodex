@@ -222,6 +222,61 @@ test('副行独立缩放，不复用主行的适配系数', () => {
   assert.match(overlayJs, /Math\.max\(14, FONT_SIZE_MIN - 4\)/, '副行下限需复刻旧版公式');
 });
 
+test('裁剪区宽度必须用 DOM 实测，不能用 canvas 估算', () => {
+  // canvas.measureText 只算字形 advance，**不计 letter-spacing 与
+  // -webkit-text-stroke 的外扩**。实测同一句：
+  //   canvas 651.97px vs DOM 665.3px —— 差 13.33px（约 2%）
+  // 拿 canvas 值定位 clip，clip 会比白底文字窄一圈、还右移几像素，
+  // 白字从左右露出 → 同样表现为「白边」。
+  //
+  // canvas 仍可用于「要不要缩字号」的估算（差 2% 不影响判定），
+  // 但定位裁剪区必须用 Range.getBoundingClientRect（真实排版结果）。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.match(js, /measureLineBox/, '需要有基于 DOM 的行盒测量函数');
+  assert.match(js, /createRange\(\)/, '需要用 Range 量真实排版宽度');
+  assert.match(js, /getBoundingClientRect/, 'Range 结果要靠 getBoundingClientRect 取');
+  // --text-left / --text-width 必须来自 DOM 测量结果，不能来自 measureText
+  const renderFn = js.match(/const renderCurrentLine = \([\s\S]*?\n\};/);
+  assert.ok(renderFn, '找不到 renderCurrentLine');
+  assert.match(renderFn[0], /measureLineBox/, '裁剪区必须用 DOM 测量');
+  assert.doesNotMatch(
+    renderFn[0],
+    /measureText\(/,
+    'renderCurrentLine 不得再用 canvas 的 measureText 定位裁剪区',
+  );
+});
+
+test('裁剪容器与文字层必须严格重合（否则白底会露出一圈白边）', () => {
+  // ★ 实际踩到、且**靠肉眼找了两轮才定位**的 bug：
+  //   .current-wrap 是 flex + align-items:center，底层 .lyric-base 因此被垂直居中（y=49）；
+  //   而 .lyric-clip 是绝对定位普通块，里面的 .lyric-active 从 top:0 起排（y=44）。
+  //   两层垂直差 5px → 未播放色的白字在下方整条露出 → 观感是「粉字外面一圈白边」，
+  //   外加顶部看着像被切掉。水平方向本来是齐的（offsetX=0），只看横向永远找不到。
+  //
+  // 实测数据：修复前亮中性灰（#EEEEEE）6900 像素；给 clip 补垂直居中后归 0。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const clipRule = css.match(/\.lyric-clip\s*\{[^}]*\}/s);
+  assert.ok(clipRule, '找不到 .lyric-clip 规则');
+  // 必须建立纵向 flex 并垂直居中，与 .current-wrap 同构
+  assert.match(clipRule[0], /display:\s*flex/, 'clip 需为 flex 才能垂直居中上层文字');
+  assert.match(clipRule[0], /flex-direction:\s*column/);
+  assert.match(clipRule[0], /justify-content:\s*center/, 'column 方向下垂直居中靠 justify-content');
+  // 但**不能**让水平也居中：上层水平位置靠负 margin-left 精确抵消，居中会推走 ~64px
+  assert.doesNotMatch(
+    clipRule[0],
+    /align-items:\s*center/,
+    'column 方向下 align-items:center 会把上层文字水平推走，破坏 margin-left 对齐',
+  );
+  // 上层不能被 flex 压缩（`flex: 0 0 auto` 必须写在 .lyric-active 那条规则里）。
+  // 这里直接查 CSS 文本中出现该声明即可 —— 分离规则的正则容易误匹配到
+  // `.lyric-base, .lyric-active { ... }` 那条合并规则，反而是脆弱的写法。
+  assert.match(
+    css,
+    /\.lyric-active\s*\{[^}]*flex:\s*0\s+0\s+auto[^}]*\}/s,
+    'cell 内是 flex，上层禁止被压缩（flex: 0 0 auto）',
+  );
+});
+
 test('三层歌词必须真的被绝对定位（类名与 HTML 一致）', () => {
   // ★ 实际踩到的血案：CSS 里写的是 `.lyric-row`，HTML 用的是 `class="lyric-line"`，
   //   两者对不上 → 整条定位规则**从未生效** → 三层退化成 flex 流里的普通块，
