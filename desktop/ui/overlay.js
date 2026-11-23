@@ -1,12 +1,10 @@
 // 桌面歌词窗：壳内直连，不需要配对码与服务器中转。
 //
-// 视觉与交互对齐旧 PrismQML 实现（desktop-prismqml/qml/components/DesktopLyricsWindow.qml）：
-//   - 字号 20..64，默认 36（由设置文件提供，不再是 localStorage）
-//   - 副行字号 = 主行 × 0.67（最小 16）
-//   - 行切换上移淡出 / 下移淡入（380ms InOutCubic）
-//   - 逐字左右填色（CSS 渐变按 --fill 切分）
-//   - 控制条 5 按钮：上一首 / 播放暂停 / 下一首 / 锁定 / 关闭
-//   - 窗口位置持久化（走壳侧设置文件，等价旧 UserSettings 的 lyrics_x/y）
+// ★ 唯一权威是旧 PrismQML 实现，不要凭观感随手改：
+//     desktop-prismqml/qml/components/DesktopLyricsWindow.qml
+//     desktop-prismqml/qml/components/WordFill.qml
+//     desktop-prismqml/cpp/Lyrics.cpp
+//     desktop-prismqml/melodex_desktop/desktop_state.py
 //
 // 数据通道（2026-11 架构）：
 //   主窗口页面 --invoke('lyrics_push_state')--> Rust --emit--> 本窗口
@@ -30,21 +28,22 @@ const FONT_SIZE_MAX = 64;
 const FONT_SIZE_DEFAULT = 36;
 const SECONDARY_SCALE = 0.67;
 const SECONDARY_MIN_PX = 16;
-// 旧实现用 Fluent.Enums.duration.slower = 300ms（Metrics.qml:38），
-// 不是 380。帧驱动动画（FrameAnimation）本身不设时长，300 只用于行切换过渡。
+// 旧实现用 Fluent.Enums.duration.slower = **300ms**（Metrics.qml 实测值，
+// 不是 380）。帧驱动动画（FrameAnimation）本身不设时长，300 只用于行切换过渡。
 const TRANSITION_MS = 300;
 
-// 歌词行左右内边距之和，必须与 overlay.css 里 .lyrics-shell 的
-// `padding: 12px 46px 14px`（左右各 46px）一致。
-// 缩字号时可用宽度 = 行宽 - 这个值，否则量出来的可容纳宽度偏大，仍会溢出。
+// 几何常量 —— 必须与 overlay.css 逐项相等，由 lyricsSettings.test.mjs 断言。
 //
-// 46×2 = 92 与旧版等价：lyricSurface 内缩 12 + 行内 margin 34 = 46/边。
-const LINE_HORIZONTAL_PADDING = 92;
-
-// 副行在公用内边距之外再各缩 8px（旧版副行 margin 42、主行 34，差 8）。
-// 必须与 overlay.css 里 `.adjacent { left: 8px; right: 8px; }` 一致，
-// 否则量副行可用宽度时会偏大 16px，长副行仍会溢出。
-const SECONDARY_EXTRA_INSET = 8;
+// 主行文字可用宽 = 窗口宽 - (12 + 34) * 2 = 窗口宽 - 92
+//   12 = lyricSurface 相对窗口的左右内缩（QML :62 `width - 24`）
+//   34 = 主行 anchors.left/rightMargin（QML :378-379）
+// 副行文字可用宽 = 窗口宽 - (12 + 42) * 2 = 窗口宽 - 108
+//   42 = 副行 anchors.left/rightMargin（QML :444-445）
+const SURFACE_INSET = 12;
+const LINE_INSET = 34;
+const SECONDARY_INSET = 42;
+const LINE_HORIZONTAL_PADDING = (SURFACE_INSET + LINE_INSET) * 2;
+const SECONDARY_HORIZONTAL_PADDING = (SURFACE_INSET + SECONDARY_INSET) * 2;
 
 // 三层结构（复刻 DesktopLyricsWindow.qml:371-480）：
 //   outgoing = 旧行，current = 新行（从副行位置长上来），next = 副行
@@ -53,7 +52,6 @@ const outgoingBase = document.getElementById('outgoing-line-base');
 const outgoingActive = document.getElementById('outgoing-line-active');
 const currentWrap = document.getElementById('current-line-wrap');
 const currentBase = document.getElementById('current-line-base');
-const currentClip = document.getElementById('current-line-clip');
 const currentLine = document.getElementById('current-line');
 const nextLine = document.getElementById('next-line');
 const lyricsShell = document.getElementById('lyrics-shell');
@@ -61,8 +59,12 @@ const controls = document.getElementById('controls');
 const toggleButton = document.getElementById('toggle-button');
 
 let overlayVisible = false;
+// -2 表示「还没有渲染过任何行」，与旧版 `property int renderedLineIndex: -2` 一致。
 let renderedLineIndex = -2;
 let renderedActiveText = '';
+let renderedNextText = '';
+// 正在播放切换动画时的旧行文字（QML 的 outgoingActiveText）。
+let outgoingActiveText = '';
 let settings = {
   visible: true,
   click_through: true,
@@ -98,10 +100,24 @@ const clampFontSize = (value) => {
   return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(numeric)));
 };
 
+/** 副行字号 —— 复刻 config.py/overlay.rs 同式：max(16, round(主行 × 0.67))。 */
+const secondaryFontSizeFor = (fontSize) => Math.max(
+  SECONDARY_MIN_PX,
+  Math.round(clampFontSize(fontSize) * SECONDARY_SCALE),
+);
+
 const applyFontSize = (px) => {
-  document.documentElement.style.setProperty('--lyric-font-size', `${px}px`);
-  const secondary = Math.max(SECONDARY_MIN_PX, Math.round(px * SECONDARY_SCALE));
+  const size = clampFontSize(px);
+  const secondary = secondaryFontSizeFor(size);
+  document.documentElement.style.setProperty('--lyric-font-size', `${size}px`);
   document.documentElement.style.setProperty('--secondary-font-size', `${secondary}px`);
+  // ★ 新行入场起始缩放 = 副行字号 / 主行字号（QML :49-50 的 incomingActiveScale）。
+  //   曾经硬编码成 0.67：字号 20 时旧版是 16/20 = 0.8，新版却是 0.67，
+  //   入场时的字号与实际副行对不上，表现为「新行凭空大了一截再缩回去」。
+  document.documentElement.style.setProperty(
+    '--incoming-scale',
+    String(secondary / Math.max(1, size)),
+  );
 };
 
 const applyFontFamily = (family) => {
@@ -132,7 +148,7 @@ const applyClickThrough = (enabled) => {
 const applySettings = (next) => {
   if (!next || typeof next !== 'object') return;
   settings = { ...settings, ...next };
-  applyFontSize(clampFontSize(settings.font_size));
+  applyFontSize(settings.font_size);
   applyFontFamily(settings.font_family);
   applyColors(settings.played_color, settings.unplayed_color);
   applyClickThrough(settings.click_through);
@@ -208,26 +224,9 @@ const restorePosition = async () => {
   }
 };
 
-// ---------- 行切换动画 ----------
+// ---------- 字号适配（等价旧版 Text.Fit）----------
 
-const setPlainLine = (element, line) => {
-  element.textContent = line?.text || '';
-};
-
-/**
- * 整行进度（0..1），等价旧实现 `melodex::lyricProgress`（Lyrics.cpp:140）。
- *
- * 算法本体在 `lyricsCore.js` 的 `lineProgress`（有单测锁死与旧版逐条一致）：
- *   - 有 words 时按**字数加权**（totalChars = Σ max(1, len(word.s))），
- *     不是「每个词各自算比例再各画一段」——后者中英文混排时长词会填得忽快忽慢。
- *   - 无 words 时 progress = (position - t) / (end - t)。
- *
- * 这里只做一层薄封装：把 null/缺行统一成 progress 0，
- * 免得调用点各自判空（判漏一次就是「整行突然满格」）。
- */
-const lineProgress = (line, position) => coreLineProgress(line, position);
-
-/** 字号适配测量用的隐藏 canvas（避免反复读 DOM 触发重排）。 */
+/** 字号适配测量用的隐藏 canvas（只用于「要不要缩字号」的估算，不用于定位裁剪区）。 */
 const measureCanvas = document.createElement('canvas');
 const measureCtx = measureCanvas.getContext('2d');
 
@@ -240,16 +239,21 @@ const lyricFontFamily = () => {
 };
 
 /**
- * 用 canvas 量文字宽度。字体必须与渲染一致，否则量出来的宽度偏小/偏大。
- * 主行是 DemiBold(600)；副行量的是 <span>，这里不需要。
+ * 用 canvas 量文字宽度。
+ *
+ * ★ 旧版 letterSpacing 是 **0**（WordFill.qml:36 / :72 显式写 0），所以 canvas
+ *   与 DOM 排版只差描边外扩那 1px，用于「要不要缩字号」的估算完全够。
+ *   曾经 CSS 写 0.01em 字距，canvas 却按 0 量，实测同一句差 13.33px
+ *   （0.01em × 36px × 37 字 ≈ 13.3px）—— 那才是当年「裁剪区对不上」的根因。
+ *   定位裁剪区仍用真实 DOM 测量（见 measureLineWidth），不靠这个估算。
  */
-const measureText = (text, sizePx) => {
+const measureText = (text, sizePx, weight = 600) => {
   if (!text || !measureCtx) return 0;
-  measureCtx.font = `600 ${sizePx}px ${lyricFontFamily()}`;
+  measureCtx.font = `${weight} ${sizePx}px ${lyricFontFamily()}`;
   return measureCtx.measureText(text).width;
 };
 
-/** 字号适配结果缓存：key = `${text}|${baseSize}|${availableWidth}` */
+/** 字号适配结果缓存：key = `${text}|${baseSize}|${availableWidth}|${minimum}` */
 const fitCache = new Map();
 const FIT_CACHE_LIMIT = 200;
 
@@ -262,19 +266,16 @@ const FIT_CACHE_LIMIT = 200;
  *     elide: Text.ElideRight
  * → 先按设定字号排版，放不下就**等比缩小字号**，缩到最小仍放不下才省略号。
  *
- * 本鱼最初只写 text-overflow:ellipsis + 固定字号，长句子直接冲出窗口被硬切，
- * 而且因为 -webkit-text-stroke 的关系，被切掉的边缘还会糊成一片。
- *
  * @returns {number} 缩放系数（<1 表示需要缩小）；1 表示原始字号即可
  */
-const fitScale = (text, baseSize, availableWidth, minimumPixelSize = FONT_SIZE_MIN) => {
+const fitScale = (text, baseSize, availableWidth, minimumPixelSize = FONT_SIZE_MIN, weight = 600) => {
   if (!text || !availableWidth) return 1;
 
-  const key = `${text}|${baseSize}|${Math.round(availableWidth)}|${minimumPixelSize}`;
+  const key = `${text}|${baseSize}|${Math.round(availableWidth)}|${minimumPixelSize}|${weight}`;
   const cached = fitCache.get(key);
   if (cached !== undefined) return cached;
 
-  const measured = measureText(text, baseSize);
+  const measured = measureText(text, baseSize, weight);
 
   let scale = 1;
   if (measured > availableWidth && measured > 0) {
@@ -298,38 +299,132 @@ const fitScale = (text, baseSize, availableWidth, minimumPixelSize = FONT_SIZE_M
  */
 const secondaryMinimumPixelSize = () => Math.max(14, FONT_SIZE_MIN - 4);
 
+// ---------- 真实排版测量（定位裁剪区用）----------
+
 /**
- * 副行独立的字号适配 —— 复刻 `DesktopLyricsWindow.qml:462-464`。
+ * 量某层文字**实际排版宽度**。
  *
- * ★ 旧版副行有自己的 `Text.Fit`，**与主行缩放互不影响**：
- *   主行那句话很短（不需要缩），副行很长（需要缩），两者各缩各的。
- *   早期新版让副行复用主行的 `--line-font-scale`，于是副行长句会溢出、
- *   而主行短句明明不需要缩却跟着变小的反向情况也会出现。
+ * 用 DOM 测量而不是 canvas：canvas 只算字形 advance，**不计描边外扩**，
+ * 拿它当裁剪宽度会让 clip 比白底文字窄一圈，未播放色的白字从四周露出来
+ * —— 观感就是「粉字外面一圈白边 + 重影」。
+ *
+ * 只在**行文字或字号变化**时量一次（结果写进 CSS 变量后复用），
+ * 不放进每帧的进度更新里：Range 测量会触发布局，80ms 一次纯属自找卡顿。
+ *
+ * @returns {number} 文字实际宽度（px）；量不到返回 0
  */
-const renderSecondaryLine = (text) => {
-  const baseSize = Math.max(
-    SECONDARY_MIN_PX,
-    Math.round(clampFontSize(settings.font_size) * SECONDARY_SCALE),
-  );
-  const rowWidth = nextLine.clientWidth;
-  // 副行左右各有 8px 额外内缩（与 .adjacent 的 left/right 对应），
-  // 在这里扣掉才能量准可用宽度。
-  const available = Math.max(0, rowWidth - LINE_HORIZONTAL_PADDING - SECONDARY_EXTRA_INSET * 2);
-  const scale = fitScale(text, baseSize, available, secondaryMinimumPixelSize());
-  lyricsShell.style.setProperty('--secondary-font-scale', String(scale));
+const measureLineWidth = (baseElement) => {
+  if (!baseElement || !baseElement.textContent) return 0;
+  const range = document.createRange();
+  range.selectNodeContents(baseElement);
+  const rect = range.getBoundingClientRect();
+  return rect.width || 0;
+};
+
+/**
+ * 每行最近一次已应用的几何签名。
+ *
+ * ★ 为什么必须带 `availableWidth` 一起比较（踩过）：
+ *   窗口隐藏时 `clientWidth` 量到 0，几何算不出来；等窗口显示、宽度到位后，
+ *   文字与缩放系数都没变，只比「文字+缩放」会判定"不用重算"，
+ *   于是 `--text-width` 永远停在 0 → 裁剪区宽 0 → **整行填色完全不可见**。
+ *   把可用宽度纳入签名，宽度一变就自动补算。
+ */
+const geometrySignature = new WeakMap();
+
+/** 副行最近一次应用的缩放签名（含可用宽度，理由同 geometrySignature）。 */
+let lastSecondarySignature = '';
+
+/**
+ * 把一行文字的双层填色几何写进它自己的 wrapper。
+ *
+ * ★ 复刻 WordFill.qml:24-25：
+ *     textPaintedWidth = min(可用宽度, 文字实际宽度)
+ *     textLeft         = max(0, (可用宽度 - textPaintedWidth) / 2)
+ *   裁剪从**文字左边缘**开始，切掉的是"已经唱过的部分"，
+ *   而不是从行左边缘开始（后者对短句明显错位）。
+ *
+ * ★ 变量必须写在**各自 wrapper** 上，不能统一写到 .lyrics-shell：
+ *   旧行与主行文字不同宽，共用会让旧行的裁剪区按主行的宽度算、整个错位。
+ *
+ * @returns {boolean} 是否真的重新量了（量不到宽度时返回 false，下次再试）
+ */
+const applyLineGeometry = (wrap, baseElement, activeElement, availableWidth, scale, text) => {
+  if (!wrap || availableWidth <= 0) return false;
+  const signature = `${text}|${scale}|${Math.round(availableWidth)}`;
+  if (geometrySignature.get(wrap) === signature) return true;
+
+  // ★★ 顺序不能反：**先写字号，再量文字宽度**。
+  //
+  // 踩过的坑（真机截图：填色断在半路 + 文字重影）：
+  // 原来先 `measureLineWidth()` 再 `setProperty('--line-font-scale')`，
+  // 量到的是**上一个字号**下的宽度。实测 --text-width 停在 160px
+  // （旧字号 20px 时的宽度），而新字号 35px 下真实需要 281.5px →
+  //   ① 裁剪区宽度 = 160 × 进度，只覆盖文字左半边，粉色断在半路；
+  //   ② textLeft = (292-160)/2 = 66px，比真实的 5.25px 偏了 60px，
+  //      裁剪区整体右移，与底层文字错开 → 看起来像重影。
+  //
+  // measureLineWidth 内部用 Range.getBoundingClientRect，它会**强制同步布局**，
+  // 所以紧接着读就能拿到新字号下的真实宽度，不需要 rAF 等一帧（等一帧会闪）。
+  wrap.style.setProperty('--line-font-scale', String(scale));
+
+  // 裁剪宽度取「文字实际宽度」但上限是行内可用宽（QML WordFill :24 的
+  // `min(width, baseLabel.paintedWidth)`）。
+  const painted = Math.min(availableWidth, measureLineWidth(baseElement));
+  // textLeft 相对**行左边**居中（QML :25）。裁剪区从这里开始，不是从行左边缘。
+  const textLeft = Math.max(0, (availableWidth - painted) / 2);
+  // ★ --line-width 必须是**整行宽度**（上层文字按整行居中排版，再靠负 margin
+  //   抵消裁剪区偏移）。若写成文字宽度，短句的上层会被压窄再居中 → 与底层错位。
+  const rowWidth = Math.max(availableWidth, wrap.clientWidth || 0);
+
+  wrap.style.setProperty('--text-left', `${textLeft}px`);
+  wrap.style.setProperty('--text-width', `${painted}px`);
+  wrap.style.setProperty('--line-width', `${rowWidth}px`);
+  geometrySignature.set(wrap, signature);
+  return true;
+};
+
+/**
+ * 每帧核对已渲染两行的几何（文字/缩放/行宽任一变化才真正重算）。
+ *
+ * 抽成独立函数是为了让 render() 每帧调用而不必关心细节；
+ * 内部由 applyLineGeometry 的签名去重兜底，稳定态下只有几次字符串比较。
+ */
+const refreshRenderedGeometry = () => {
+  const baseSize = clampFontSize(settings.font_size);
+
+  const mainAvailable = Math.max(0, currentWrap.clientWidth || 0);
+  if (mainAvailable > 0) {
+    const mainScale = fitScale(renderedActiveText, baseSize, mainAvailable);
+    applyLineGeometry(
+      currentWrap, currentBase, currentLine, mainAvailable, mainScale, renderedActiveText,
+    );
+  }
+
+  const secondaryBase = secondaryFontSizeFor(settings.font_size);
+  const secondaryAvailable = Math.max(0, nextLine.clientWidth || 0);
+  if (secondaryAvailable > 0) {
+    const secondarySignature = `${renderedNextText}|${secondaryBase}|${Math.round(secondaryAvailable)}`;
+    if (lastSecondarySignature !== secondarySignature) {
+      lastSecondarySignature = secondarySignature;
+      const secondaryScale = fitScale(
+        renderedNextText, secondaryBase, secondaryAvailable, secondaryMinimumPixelSize(), 400,
+      );
+      lyricsShell.style.setProperty('--secondary-font-scale', String(secondaryScale));
+    }
+  }
 };
 
 // ---------- 窗口宽度贴合内容 ----------
 //
-// 问题：歌词窗是整块矩形，即使文字只占中间一小段，整块（920 宽）都会拦截
-// 鼠标事件，挡住下面窗口的操作。旧版固定 920 是因为它默认鼠标穿透；
+// 歌词窗是整块矩形，即使文字只占中间一小段，整块都会拦截鼠标事件，
+// 挡住下面窗口的操作。旧版固定 920 是因为它默认鼠标穿透；
 // 现在默认不穿透，窗口就必须贴合文字实际占用。
 //
 // ★ 测量必须在**离屏容器**里按基准字号做，绝不能用窗口内的实际渲染宽度：
 //   窗口一窄，字号适配就会把字缩小 → 量出来更窄 → 窗口继续缩 → 无限塌缩。
-//   离屏容器不受窗口宽度影响，量到的才是"这句话在基准字号下需要多宽"。
 
-/** 用离屏 div 量一句文字在给定字号下的真实排版宽度（含 letter-spacing）。 */
+/** 用离屏 div 量一句文字在给定字号下的真实排版宽度。 */
 const measureTextOffscreen = (text, px, weight) => {
   if (!text) return 0;
   const probe = document.createElement('div');
@@ -343,7 +438,6 @@ const measureTextOffscreen = (text, px, weight) => {
     `font-family:${lyricFontFamily()}`,
     `font-size:${px}px`,
     `font-weight:${weight}`,
-    'letter-spacing:0.01em',
   ].join(';');
   probe.textContent = text;
   document.body.appendChild(probe);
@@ -360,15 +454,14 @@ const measureTextOffscreen = (text, px, weight) => {
  */
 const contentWidthFor = (mainText, secondaryText) => {
   const baseSize = clampFontSize(settings.font_size);
-  const secondarySize = Math.max(
-    SECONDARY_MIN_PX,
-    Math.round(baseSize * SECONDARY_SCALE),
-  );
+  const secondarySize = secondaryFontSizeFor(baseSize);
   const mainWidth = measureTextOffscreen(mainText, baseSize, 600);
   const secondaryWidth = measureTextOffscreen(secondaryText, secondarySize, 400);
   const widest = Math.max(mainWidth, secondaryWidth);
   if (!widest) return 0;
-  return Math.ceil(widest + LINE_HORIZONTAL_PADDING + SECONDARY_EXTRA_INSET * 2 + 4);
+  // 两行内缩不同，取更宽的那条作为约束：主行 92、副行 108。
+  const padding = secondaryWidth >= mainWidth ? SECONDARY_HORIZONTAL_PADDING : LINE_HORIZONTAL_PADDING;
+  return Math.ceil(widest + padding + 4);
 };
 
 /** 最近一次请求的内容宽度，避免每帧都发 IPC。 */
@@ -394,101 +487,25 @@ const requestContentWidth = (mainText, secondaryText) => {
   });
 };
 
-/**
- * 量某一层文字**实际排版宽度**与它相对行的左偏移（用 DOM Range，不靠 canvas 估算）。
- *
- * ★ 为什么不能用 canvas.measureText 定裁剪区（实际踩到的 bug）：
- *   canvas 只算字形 advance，**不计 letter-spacing 与 -webkit-text-stroke 的外扩**。
- *   实测同一句话：canvas 651.97px，DOM 实际 665.3px —— 差 13.33px（约 2%）。
- *   拿 canvas 值当裁剪宽度，clip 会比白底文字窄一圈、还右移几像素，
- *   于是未播放色的白字从四周露出来，观感就是「粉字外面一圈白边 + 重影」。
- *   canvas 仍用于字号适配的**估算**（差异不影响是否需要缩放），
- *   但定位裁剪区必须用真实排版结果。
- *
- * @returns {{left:number, width:number}} 相对当前行内容盒的偏移与宽度
- */
-const measureLineBox = (baseElement, rowElement) => {
-  const range = document.createRange();
-  range.selectNodeContents(baseElement);
-  const textRect = range.getBoundingClientRect();
-  const rowRect = rowElement.getBoundingClientRect();
-  if (!textRect.width || !rowRect.width) return null;
-  return {
-    left: textRect.left - rowRect.left,
-    width: textRect.width,
-  };
-};
-
-/**
- * 渲染主行：底层未播放色整行 + 上层已播放色被裁剪。
- * 文本只在**内容真的变了**时才写 DOM，避免每帧重排导致闪烁。
- */
-const renderCurrentLine = (line, position) => {
-  const text = line?.text || '';
-
-  const textChanged = currentBase.textContent !== text;
-  if (textChanged) {
-    currentBase.textContent = text;
-    currentLine.textContent = text;
-  }
-
-  const ratio = lineProgress(line, position);
-  currentClip.style.setProperty('--fill-ratio', String(ratio));
-
-  const baseSize = clampFontSize(settings.font_size);
-  const rowWidth = currentWrap.clientWidth;
-  const available = Math.max(0, rowWidth - LINE_HORIZONTAL_PADDING);
-
-  // 先按基础字号估一次：超宽就缩字号（等价旧版 Text.Fit）。
-  const scale = fitScale(text, baseSize, available);
-
-  if (textChanged || lyricsShell.style.getPropertyValue('--line-font-scale') !== String(scale)) {
-    lyricsShell.style.setProperty('--line-font-scale', String(scale));
-  }
-
-  // 缩放系数写进 CSS 后必须**等一帧**再量——否则量到的还是上一档字号。
-  // 用 sync 量法：先写变量，再强制读一次布局（getBoundingClientRect 会触发布局），
-  // 这样在同一帧内就能拿到新字号下的真实宽度，不需要 rAF 延迟（会闪一帧）。
-  const box = measureLineBox(currentBase, currentWrap);
-  if (!box) return;
-
-  // ★ 复刻 WordFill.qml:24-25：
-  //     textPaintedWidth = min(可用宽度, 文字实际宽度)
-  //     textLeft         = (可用宽度 - textPaintedWidth) / 2
-  //   裁剪从**文字左边缘**开始，切掉的是"已经唱过的部分"，
-  //   而不是从行左边缘开始（后者对短句明显错位）。
-  //
-  // 这里直接用 DOM 量出来的 left/width：Range 的结果已经包含 letter-spacing
-  // 与描边外扩，clip 因此能严丝合缝盖住白底，不再露白边。
-  lyricsShell.style.setProperty('--text-left', `${box.left}px`);
-  lyricsShell.style.setProperty('--text-width', `${box.width}px`);
-  currentLine.style.setProperty('--line-width', `${rowWidth}px`);
-};
-
-/**
- * 行切换动画：复刻旧实现 DesktopLyricsWindow.qml:482-491。
- *
- * 旧版用 NumberAnimation 把 lyricTransitionProgress 从 0 线性推到 1，
- * duration = Fluent.Enums.duration.slower = **300ms**，easing = InOutCubic，
- * 然后由 QML 的绑定表达式把同一个 progress 映射到三个元素上：
- *
- *   旧行：y -= 行高*0.45*exit，opacity = 1-exit，  exit = min(1, p/0.78)
- *   新行：y 从副行位置插值到主行位置，scale 从 0.67 到 1，opacity 0.96→1
- *   副行：y 从下方 35% 行高浮起，opacity 0.92*entry，entry = max(0,(p-0.3)/0.7)
- *
- * 三个元素**共用同一个 progress**，所以是连续一体的过渡，不是各自独立淡入。
- * 本鱼之前用一个一次性 class + CSS transition，做不出「新行从副行位置长上来」。
- *
- * 这里用 requestAnimationFrame 自己推进 progress，并在 JS 里做 InOutCubic
- * （CSS 端只做线性插值，避免缓动被叠加两次）。
- */
+// ---------- 行切换动画 ----------
+//
+// 复刻旧实现 DesktopLyricsWindow.qml:482-491：
+// 旧版用 NumberAnimation 把 lyricTransitionProgress 从 0 推到 1，
+// duration = Fluent.Enums.duration.slower = **300ms**，easing = InOutCubic，
+// 然后由 QML 绑定把同一个 progress 映射到三个元素上：
+//
+//   旧行：y -= 行高*0.45*exit，opacity = 1-exit，  exit = min(1, p/0.78)
+//   新行：y 从副行位置插值到主行位置，scale = incomingScale → 1，opacity 0.96→1
+//   副行：y 从下方 35% 行高浮起，opacity = 0.92*entry，entry = max(0,(p-0.3)/0.7)
+//
+// 三个元素**共用同一个 progress**，所以是连续一体的过渡，不是各自独立淡入。
 const TRANSITION_EASE = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 let transitionFrame = 0;
 
 /** 把 progress(0..1) 写进 CSS 变量，三个元素一起动。 */
 const applyTransitionProgress = (progress) => {
-  lyricsShell.style.setProperty('--transition-progress', String(progress));
+  document.documentElement.style.setProperty('--transition-progress', String(progress));
 };
 
 /** 结束过渡：progress=1，清掉旧行文本（旧行只在过渡期可见）。 */
@@ -498,6 +515,7 @@ const finishTransition = () => {
     transitionFrame = 0;
   }
   applyTransitionProgress(1);
+  outgoingActiveText = '';
   outgoingBase.textContent = '';
   outgoingActive.textContent = '';
   outgoingWrap.style.visibility = 'hidden';
@@ -506,21 +524,31 @@ const finishTransition = () => {
 /**
  * 启动一次换行动画。
  *
- * @param {string} outgoingText 上一行的文字（作为上移淡出的"旧行"）
+ * @param {string} previousText 上一行的文字（作为上移淡出的"旧行"）
  */
-const startLineTransition = (outgoingText) => {
+const startLineTransition = (previousText) => {
   if (transitionFrame) {
     window.cancelAnimationFrame(transitionFrame);
     transitionFrame = 0;
   }
 
-  // 旧行内容与位置在动画期间可见
-  if (outgoingText) {
-    outgoingBase.textContent = outgoingText;
-    outgoingActive.textContent = outgoingText;
-    outgoingActive.style.setProperty('--line-width', `${currentWrap.clientWidth}px`);
+  // 旧行内容与位置在动画期间可见（QML :371-400 的 outgoingLyric）。
+  if (previousText) {
+    outgoingActiveText = previousText;
+    outgoingBase.textContent = previousText;
+    outgoingActive.textContent = previousText;
+    // 旧行的 progress 恒为 1（QML :387）→ 整行用已播放色。
+    outgoingWrap.style.setProperty('--fill-ratio', '1');
     outgoingWrap.style.visibility = 'visible';
+    // 旧行有自己的文字宽度，必须按它自己的文字量一遍（不能沿用主行的）。
+    const baseSize = clampFontSize(settings.font_size);
+    const available = Math.max(0, outgoingWrap.clientWidth || 0);
+    if (available > 0) {
+      const scale = fitScale(previousText, baseSize, available);
+      applyLineGeometry(outgoingWrap, outgoingBase, outgoingActive, available, scale, previousText);
+    }
   } else {
+    outgoingActiveText = '';
     outgoingWrap.style.visibility = 'hidden';
   }
 
@@ -542,6 +570,96 @@ const startLineTransition = (outgoingText) => {
   transitionFrame = window.requestAnimationFrame(step);
 };
 
+/**
+ * 是否应该播放「向前推进」的切行动画 —— 复刻 QML `canAnimateForward`（:129-148）。
+ *
+ * 两个分支：
+ *   ① 新行正好是上一行的下一行 → 动画；
+ *   ② 中间跳过若干行，但它们**与上一行时间戳完全相同**（同一 LRC 分组，
+ *      合唱/原词+翻译常同戳）→ 也算向前，动画。
+ *      否则表现为「同一句的第二行突然跳出来」。
+ */
+const canAnimateForward = (previousIndex, previousText, nextIndex, nextText) => {
+  if (previousIndex < 0 || previousText.length === 0 || nextText.length === 0) return false;
+  if (nextIndex === previousIndex + 1) return true;
+  const lines = Array.isArray(playback.lyrics) ? playback.lyrics : [];
+  if (nextIndex <= previousIndex + 1 || previousIndex >= lines.length) return false;
+
+  const previousTimestamp = Number(lines[previousIndex]?.t);
+  for (let index = previousIndex + 1; index < nextIndex; index += 1) {
+    if (Number(lines[index]?.t) !== previousTimestamp) return false;
+  }
+  return true;
+};
+
+/**
+ * 同步「已渲染」状态到新的一行 —— 复刻 QML `syncRenderedLyrics`（:150-171）。
+ *
+ * @param {boolean} animateForward 是否允许播放向前推进的动画
+ */
+const syncRenderedLyrics = (animateForward) => {
+  const frame = currentFrame();
+  const nextIndex = frame ? frame.index : -1;
+  const mainText = currentDisplayText(frame);
+  const secondaryText = nextDisplayText(frame);
+
+  const previousIndex = renderedLineIndex;
+  const previousText = renderedActiveText;
+  const shouldAnimate = animateForward
+    && canAnimateForward(previousIndex, previousText, nextIndex, mainText);
+
+  renderedLineIndex = nextIndex;
+  renderedActiveText = mainText;
+  renderedNextText = secondaryText;
+
+  renderCurrentLine(mainText);
+  renderSecondaryLine(secondaryText);
+
+  if (shouldAnimate) {
+    startLineTransition(previousText);
+  } else {
+    finishTransition();
+  }
+};
+
+/**
+ * 写主行的**文字**（底层 + 上层两层同步写）。
+ *
+ * 几何（字号缩放、裁剪区定位）不在这里做 —— 由 refreshRenderedGeometry
+ * 在 render() 每帧核对，因为窗口宽度是异步变化的，只在这里算一次会停在旧值。
+ *
+ * 也不碰进度：进度由 updateFillProgress 每帧单独更新。
+ * 曾经把「换行/换字」与「唱到哪了」混在一个函数里，render() 传进来的 `line`
+ * 是个只有 text 的残缺对象，lineProgress 读不到 t/end/words → 进度恒为 1 →
+ * 「整行一次性亮、逐字填色完全看不出来」。现在结构上就分开了。
+ *
+ * @param {string} text 要显示的文字（无歌词时是歌曲名）
+ */
+const renderCurrentLine = (text) => {
+  const value = text || '';
+  if (currentBase.textContent !== value) {
+    currentBase.textContent = value;
+    currentLine.textContent = value;
+  }
+};
+
+/** 只更新主行的填色进度（每帧都跑，必须廉价：只写一个 CSS 变量）。 */
+const updateFillProgress = (line, position) => {
+  const ratio = line ? coreLineProgress(line, position) : 0;
+  currentWrap.style.setProperty('--fill-ratio', String(ratio));
+};
+
+/**
+ * 副行：只负责写文字，字号适配由 refreshRenderedGeometry 每帧核对。
+ *
+ * 分成两步是因为窗口宽度会异步变化：只在换行时算缩放，
+ * 窗口后来变宽/变窄都不会重算（实测副行会停在旧字号上）。
+ */
+const renderSecondaryLine = (text) => {
+  const value = text || '';
+  if (nextLine.textContent !== value) nextLine.textContent = value;
+};
+
 // ---------- 渲染 ----------
 
 const setOverlayVisible = async (visible) => {
@@ -559,41 +677,50 @@ const hasLyrics = () => Boolean(
 );
 
 /**
+ * 当前该显示的歌词帧。没有歌词时不返回帧（进度按 0 处理）。
+ *
+ * 与 QML 的区别：旧版 `Player.visualLyricIndex` 在无歌词时返回 -1，
+ * 这里同样返回 null，由调用方决定回退到歌曲名/歌手名。
+ */
+const currentFrame = () => {
+  if (!hasLyrics()) return null;
+  return lyricFrame(playback.lyrics, effectivePosition());
+};
+
+/**
  * 主行/副行该显示什么。
  *
- * ★ 复刻旧实现 DesktopLyricsWindow.qml:20-25：
+ * ★ 逐字复刻旧实现 DesktopLyricsWindow.qml:20-25：
  *   activeText: activeLine ? activeLine.text : (Player.currentSong.name || "")
  *   nextText:   nextLine   ? nextLine.text   : (Player.currentSong.artist || "")
  *
- * 即**没有歌词时显示歌曲名 / 歌手名**，而不是把窗口留空。
- * 本鱼最初写成「无歌词就清空」，导致纯音乐或歌词未加载时窗口一片空白——
- * 用户看到的就是"歌词没了"。
+ * 注意两个回退**都是无条件的**，不要额外加「有歌词才回退」之类的分支：
+ *   · 还没有任何歌词（frame 为 null）→ 主行歌曲名、副行歌手名；
+ *   · 有歌词但还没唱到第一行（activeLine 为 null）→ 主行同样是歌曲名；
+ *   · 唱到最后一行（nextLine 为 null，副行索引 -1）→ 副行回退到歌手名。
+ *   本鱼曾给第 3 种情况单独返回空字符串，副行就整条空掉 ——
+ *   与旧版观感不一致，且由 desktopLyrics.runtime.test.mjs 当场抓出。
  */
-const currentDisplayText = (frame, hasLyricLines) => {
-  if (hasLyricLines && frame?.current) return frame.current.text || '';
-  if (hasLyricLines) return '';
-  return playback.track?.name || '';
-};
+const currentDisplayText = (frame) => (
+  frame?.current ? (frame.current.text || '') : (playback.track?.name || '')
+);
 
-const nextDisplayText = (frame, hasLyricLines) => {
-  if (hasLyricLines && frame?.next) return frame.next.text || '';
-  if (hasLyricLines) return '';
-  return playback.track?.artist || '';
-};
+const nextDisplayText = (frame) => (
+  frame?.next ? (frame.next.text || '') : (playback.track?.artist || '')
+);
 
 const render = () => {
-  // ★ 可见性**只**看用户开关（settings.visible），不再叠加 playback.hasState。
+  // ★ 可见性 = 用户开关 **且** 有歌可显示 —— 复刻旧实现 `desktop_state.py:40-48`：
+  //     should_show = settings.lyricsVisible and bool(current_song.get("id"))
   //
-  // 踩过的坑（用户实测：点「锁定」后歌词整个消失）：
-  // 原实现是 `setOverlayVisible(playback.hasState && settings.visible)`，
-  // 而 hasState 表示「本窗口收到过至少一条播放状态推送」，它只在主窗口页面
-  // 正在播放且桥接正常时才为 true。于是：
-  //   ① 暂停/未播放时点「锁定」→ 触发一次 render → hasState 仍为 false → 窗口被隐藏；
-  //   ② 主窗口刷新/切页时推送中断 → 歌词窗自己把自己藏起来，用户以为坏了。
-  // 而「有没有歌词可显示」这件事**壳侧已经管了**
-  // （lyrics_settings_update / tray 里都用 has_lyrics_state 判断），
-  // 前端再叠一层只会造成两处判断打架。
-  setOverlayVisible(settings.visible);
+  // 踩过的坑：曾经只看 settings.visible，于是「没在放歌」时窗口仍然显示，
+  // 但它是一片全透明、还默认不穿透的置顶矩形 —— 实测会实打实挡住下面的窗口，
+  // 用户点不到被它盖住的地方，而且屏幕上什么都看不见，无从判断是什么在挡。
+  //
+  // 注意判据是 playback.track（收到过歌曲信息就一直有），
+  // **不是** hasState/hasLyrics：暂停时 track 仍在，窗口不该消失；
+  // 纯音乐没有 LRC 时旧版显示歌曲名/歌手名，也不该消失。
+  setOverlayVisible(Boolean(settings.visible && playback.track));
 
   // 没有歌曲信息时才彻底清空（此时本来就没东西可显示）。
   if (!playback.track) {
@@ -604,40 +731,44 @@ const render = () => {
     nextLine.textContent = '';
     renderedLineIndex = -2;
     renderedActiveText = '';
+    renderedNextText = '';
+    finishTransition();
     return;
   }
 
-  const withLyrics = hasLyrics();
-  const position = effectivePosition();
-  const frame = withLyrics ? lyricFrame(playback.lyrics, position) : null;
+  const frame = currentFrame();
+  const nextIndex = frame ? frame.index : -1;
+  const mainText = currentDisplayText(frame);
+  const secondaryText = nextDisplayText(frame);
 
-  const mainText = currentDisplayText(frame, withLyrics);
-  const secondaryText = nextDisplayText(frame, withLyrics);
-
-  const changedLine = withLyrics && frame && frame.index !== renderedLineIndex;
-  const changedText = mainText !== renderedActiveText;
-
-  // 无歌词时进度恒为 0：歌曲名整体用"未播放色"显示，与旧版一致。
-  renderCurrentLine({ text: mainText }, withLyrics ? position : Number.NEGATIVE_INFINITY);
-  setPlainLine(nextLine, { text: secondaryText });
-  renderSecondaryLine(secondaryText);
-
-  // 真的换行且上一行有内容时才播切换动画（对齐旧版 canAnimateForward 的意图：
-  // 首次出现、跳行、倒退都不做「从上往下滚」那套）。
-  if (changedLine && changedText) {
-    const canAnimate = renderedActiveText.length > 0
-      && mainText.length > 0
-      && renderedLineIndex >= 0
-      && frame.index === renderedLineIndex + 1;
-    if (canAnimate) startLineTransition(renderedActiveText);
-    else finishTransition();
+  // 行索引变了 → 尝试向前动画；只是文字变了（同一行被刷新）→ 直接换，不动画。
+  if (nextIndex !== renderedLineIndex) {
+    syncRenderedLyrics(true);
+  } else if (mainText !== renderedActiveText || secondaryText !== renderedNextText) {
+    syncRenderedLyrics(false);
   }
 
-  renderedLineIndex = withLyrics && frame ? frame.index : -2;
-  renderedActiveText = mainText;
+  // ★ 每帧都重新核对几何 —— 但不能每帧都做 DOM 测量。
+  //
+  // 为什么必须每帧（真机实测踩到）：窗口宽度是**异步**经 IPC 变的
+  // （requestContentWidth → 壳侧改窗口 → 下一次布局才反映到 clientWidth）。
+  // 只在换行时算一次的话，`--line-width` 会永远停在"窗口还没变宽"那一刻的值
+  // （实测停在 164px，而实际行宽已是 292px）→ 上层文字被压缩并居中偏移
+  // → 裁剪区与底层文字错位、歌词看着像重影。
+  //
+  // 成本可控：applyLineGeometry 内部按 (文字|缩放|可用宽) 去重，
+  // 三者都没变时只做一次字符串比较，不碰 DOM。
+  refreshRenderedGeometry();
+
+  // 每帧只更新填色进度：用**已渲染那一行**的行对象与当前播放位置。
+  // （QML 的 activeLyric.progress 同样绑 renderedLineIndex 而不是 displayLineIndex，
+  //   动画期间两者会短暂不同，用错会让填色在切行瞬间跳一下。）
+  const renderedLine = renderedLineIndex >= 0
+    ? playback.lyrics[renderedLineIndex] || null
+    : null;
+  updateFillProgress(renderedLine, effectivePosition());
 
   // 窗口宽度贴合当前这两行文字（壳侧有迟滞，短句窗口自动缩、长句最多到 920）。
-  // 放在这里而不是每次 setInterval 都发：requestContentWidth 内部做了同值去重。
   requestContentWidth(mainText, secondaryText);
 
   // 播放/暂停图标二选一由 class 控制（旧实现 icon 随 Player.playing 切换）。
@@ -739,3 +870,5 @@ setOverlayVisible(false);
 // 若不初始化，CSS 里 --transition-progress 缺失会让首帧显示成"正在动画"的缩小态。
 applyTransitionProgress(1);
 outgoingWrap.style.visibility = 'hidden';
+// 旧行 progress 恒为 1（QML :387）：不初始化的话它会继承主行的动态进度。
+outgoingWrap.style.setProperty('--fill-ratio', '1');

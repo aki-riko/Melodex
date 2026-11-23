@@ -335,6 +335,95 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
 - 纯逻辑核心抽到 `desktop/ui/lyricsCore.js`,数值行为由 `lyricsCore.test.mjs`
   逐条对照 `cpp/Lyrics.cpp` 锁死。
 
+### 桌面歌词重做(2026-11-23 第二轮,用户报「一坨屎」后整块重写)
+
+用户一次性点了五条:空框挡鼠标 / 文字难看(糊、白边、重影) / 逐字填色不对 /
+切行动画不对 / 双行结构不对。**逐条都拿到了真机证据**,不是照着感觉改。
+
+#### 五个真实根因(全部有实测数据)
+
+1. **「整行一次性亮」—— 填色进度拿到的是残缺行对象。**
+   `render()` 曾写 `renderCurrentLine({ text: mainText }, position)`,
+   而函数内部又调 `lineProgress(line, position)`。这个 `line` 只有 `text`,
+   没有 `t`/`end`/`words`,于是走无 words 分支:`start=0`、`end=0+5=5`,
+   `progress = clamp((pos-0)/5)` —— **播放 5 秒后恒为 1**,逐字填色等于不存在。
+   修法:把「换行/换字」与「唱到哪了」彻底分成两个函数
+   (`renderCurrentLine` 只写文字,`updateFillProgress` 只写进度),
+   进度用 `playback.lyrics[renderedLineIndex]` 这个**真实行**。
+
+2. **「没放歌时留一个看不见的空框挡鼠标」—— 可见性只看用户开关。**
+   真机实测:窗口 535×158、`TOPMOST=true`、`WS_EX_TRANSPARENT=0`(不穿透)、
+   内容全透明 —— 屏幕上什么都没有,却实实在在挡住下面的窗口。
+   修法对齐 `desktop_state.py:40-48` 的
+   `should_show = lyricsVisible and bool(current_song.id)`:
+   `setOverlayVisible(Boolean(settings.visible && playback.track))`。
+   ★ 判据必须是 `playback.track`,**不能**是 `hasState`(暂停时会消失)
+   或 `hasLyrics()`(纯音乐会完全不显示)。
+
+3. **「两行字直接重叠」—— 行坐标被多加了 32px。**
+   QML 里 `WordFill`/`secondaryLyric` 只 `anchors.left: lyricSurface.left`,
+   **没有 anchors.top**,它们的 parent 是 Window 内容项 ——
+   所以 `y: activeLineY`(44)是**相对窗口顶部**的绝对坐标。
+   第一版把三层放进 `top:32` 的容器里,主行实际落在 32+44=76
+   (CDP 实测 `wrapRect.y=76`),副行被窗口底边切掉、看起来像重叠。
+   修法:`.lyrics-shell { top: 0 }`,只提供左右边界。
+
+4. **「逐字填色断在半路 + 重影」—— 先量宽度、后改字号。**
+   `applyLineGeometry` 原来先 `measureLineWidth()` 再
+   `setProperty('--line-font-scale')`,量到的是**上一个字号**下的宽度:
+   实测 `--text-width` 停在 160px(旧字号 20px 时),而新字号 35px 下真实需要
+   281.5px → ① 裁剪区只覆盖文字左半边,粉色断在半路;
+   ② `textLeft=(292-160)/2=66px`,比真实的 5.25px 偏 60px,裁剪区整体右移
+   → 与底层文字错开,看起来像重影。
+   修法:**先写字号,再量宽度**(`Range.getBoundingClientRect` 会强制同步布局,
+   紧接着读就是新字号下的真实宽度,不需要 rAF 等一帧)。
+   ★ `--line-width` 必须是**整行宽度**,不是文字宽度 —— 写成文字宽度会让短句的
+   上层被压窄再居中,同样错位。
+
+5. **窗口宽度异步变化后几何不重算。** `--line-width` 停在"窗口还没变宽"那一刻
+   的值(实测 164px,而实际行宽 292px)。修法:`render()` 每帧调
+   `refreshRenderedGeometry()`,靠 `(文字|缩放|可用宽)` 签名去重,
+   稳定态只做字符串比较、不碰 DOM。
+
+#### 视觉细节按 QML 逐项校准(之前"难看"的来源)
+
+- **阴影 blur 必须为 0**:QML `lyricShadowBlur = 0`、垂直偏移 1px。
+  曾写 `text-shadow: 0 1px 2px`(blur 2px)—— 那是「字发糊」的直接原因。
+- **letterSpacing 必须是 0**:QML 显式写 0。曾写 `0.01em`,
+  实测同一句差 13.33px(`0.01em × 36px × 37字`),这也是当年
+  「canvas 与 DOM 量宽差 2%」的真正来源。
+- **描边 `paint-order: stroke fill`**:让填充画在描边之上,视觉等于"描边在外"。
+- **新行入场缩放 = 副行字号 / 主行字号**(QML `incomingActiveScale`),
+  不是常数 0.67:字号 20 时是 16/20 = 0.8,64 时是 43/64 ≈ 0.672。
+- **`nextText` 回退到歌手名是无条件的**(QML `nextLine ? text : artist`):
+  唱到最后一行时副行显示歌手名。曾多判一层 `hasFrame` 导致副行空掉。
+
+#### 门禁(这次新增的)
+
+- `desktop/ui/desktopLyrics.runtime.test.mjs`(**4 项,运行期**):
+  用最小 DOM/Tauri 桩把 `overlay.js` **真的跑起来**,断言
+  ① 填色进度随位置变化(0.25→0.75,不是恒 1);
+  ② 无歌时 `set_overlay_visible(false)`;③ 有歌时 `true`;
+  ④ 换行后主/副行文字取对。
+  **静态断言看不出前两条** —— 代码"看起来调用了 lineProgress"照样是错的。
+- `lyricsSettings.test.mjs` 从 36 项扩到 **43 项**,新增 6 条锁上面每个根因:
+  填色必须用真实行对象 / 几何签名含可用宽 / 变量写在各自 wrap 上 /
+  入场缩放按字号算 / 旧行结束后必须隐藏 / 同时间戳分组也算向前。
+- 已接入 `npm run test:desktop-lyrics`。
+
+#### 排查手法(可复用)
+
+- **UI 资源是编译进二进制的**(`frontendDist: "../ui"`):
+  改完 `desktop/ui/*` **必须 `cargo build` 才生效**,只重启进程看到的是旧界面
+  (这次浪费了一轮:磁盘 CSS 已是 `top:0`,页面计算值仍是 32px)。
+- 用 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`
+  起壳,再用 CDP `Runtime.evaluate` 读真实 DOM/`getComputedStyle`/
+  `getBoundingClientRect`,比截图猜快得多;
+  `Page.captureScreenshot` 截的是页面自身渲染,**不受其它窗口遮挡**影响
+  (全屏 Blender 会盖住 TOPMOST 歌词窗,屏幕截图拍不到)。
+- 判据一律用数值交叉核对,例如「裁剪宽度 ≈ 文字宽 × 进度」误差 <1.5px、
+  「裁剪区左边 == 文字 Range 左边」误差 <1.5px。
+
 ### 未验证项(截至 2026-11-23,不要当成已修好)
 - **开机自启**:插件与菜单已接好,但**没有真的勾选并重启系统验证**(需动注册表,留待用户本人确认)。
 - **自动更新的端到端**:清单 `latest.json` 未部署,「检查→下载→安装→版本号变化」未在真实发布上跑通。

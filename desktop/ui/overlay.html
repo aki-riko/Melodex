@@ -7,13 +7,23 @@
     <link rel="stylesheet" href="overlay.css" />
   </head>
   <body class="passthrough">
-    <!-- 双行设计（对齐旧 PrismQML 实现）：
-         主行 = 当前歌词，副行 = 下一行。
-         旧实现里的 outgoingLyric 只用于行切换动画期间的上移淡出，
-         不是常驻第三行——所以这里不设 "上一行" 元素。 -->
+    <!-- 结构 1:1 对齐旧 PrismQML 实现 DesktopLyricsWindow.qml：
+           lyricSurface（内缩容器）→ outgoing / active / secondary 三层 + 控制条。
+
+         三层各自的 z 值照 QML：
+            outgoing  z=3（只在切换动画期间可见，结束后彻底隐藏）
+            active    z=2（主行）
+            secondary z=2（副行，与主行同层但 y 不同）
+            controlBar z=10、WindowDragHandle z=9（控制条盖在拖拽层之上，
+            所以双击按钮不会穿透到拖拽层把歌词关掉）。
+
+         每一行都是 WordFill.qml 的双层结构：
+            底层 = 未播放色整行
+            上层 = 已播放色整行，被宽度 = 文字宽 × 进度的容器裁剪
+         → 视觉上是「从左到右填色」，且能与描边共存（渐变做不到，见 CSS 注释）。 -->
     <main id="lyrics-shell" class="lyrics-shell" aria-label="桌面歌词">
-      <!-- 控制条：212×38 胶囊卡片，5 个按钮，鼠标悬停才淡入。
-           数值来源 desktop-prismqml/qml/components/DesktopLyricsWindow.qml:286-368。 -->
+      <!-- 控制条：5 个按钮的胶囊卡片，鼠标悬停才淡入。
+           数值来源 DesktopLyricsWindow.qml:286-368。 -->
       <div id="controls" class="controls" role="toolbar" aria-label="播放控制">
         <button type="button" data-command="prev" title="上一首" aria-label="上一首">
           <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -44,27 +54,27 @@
           </svg>
         </button>
       </div>
-      <!-- 主行：双层结构复刻旧版 WordFill.qml
-           底层 = 未播放色整行；上层 = 已播放色整行，但被一个宽度随进度增长的
-           容器裁剪，形成"左到右填色"效果（逐字填色的视觉等价物）。
 
-           三层协同复刻 DesktopLyricsWindow.qml:371-480 的切行动画：
-             1) outgoing —— 旧行（z 最高）：上移 45% 行高 + 淡出，前 78% 完成
-             2) active   —— 新行：从副行位置 + 0.67 缩放，长到主行位置 + 1.0
-             3) secondary—— 副行：从下方 35% 浮起 + 淡入，30% 后才开始
-           三者由同一个 transitionProgress(0→1, 300ms InOutCubic) 驱动。 -->
+      <!-- 旧行：只在切换动画期间可见（旧版 visible: lyricLineAdvance.running）。
+           progress 恒为 1 → 整行用「已播放色」，所以这里把 --fill-ratio 钉成 1，
+           否则会继承主行的进度、表现为"旧行也跟着半亮"。
+           它的 --text-left / --text-width 由 JS 单独测量写入（不能继承主行的）。 -->
       <div id="outgoing-line" class="lyric-line outgoing-wrap" aria-hidden="true">
         <p id="outgoing-line-base" class="lyric-base"></p>
         <div id="outgoing-line-clip" class="lyric-clip">
           <p id="outgoing-line-active" class="lyric-active"></p>
         </div>
       </div>
+
+      <!-- 主行：新行从副行位置 + incomingActiveScale 长到主行位置 + 1.0 -->
       <div id="current-line-wrap" class="lyric-line current-wrap">
         <p id="current-line-base" class="lyric-base" aria-hidden="true"></p>
         <div id="current-line-clip" class="lyric-clip">
           <p id="current-line" class="lyric-active"></p>
         </div>
       </div>
+
+      <!-- 副行：纯 Fluent.Label（单层，没有填色），字号更小、左右各多缩 8px -->
       <p id="next-line" class="lyric-line adjacent" aria-hidden="true"></p>
     </main>
     <script type="module" src="overlay.js"></script>

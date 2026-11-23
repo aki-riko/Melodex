@@ -55,9 +55,12 @@ test('控制条默认隐藏、passthrough 时不显示、悬停才淡入', () =>
   assert.match(overlayCss, /\.controls\s*\{[^}]*opacity:\s*0/s);
   assert.match(overlayCss, /\.controls\s*\{[^}]*pointer-events:\s*none/s);
   // 悬停态必须排除 passthrough（锁定时整条不响应）
+  //
+  // ★ 悬停判定挂在 body 上而不是 .lyrics-shell：shell 已内缩（左右 12、顶部 32），
+  //   指针落在窗口外圈那一条时也该出控制条 —— 旧版 HoverHandler 是**整窗**。
   assert.match(
     overlayCss,
-    /body:not\(\.passthrough\) \.lyrics-shell:hover \.controls/,
+    /body:not\(\.passthrough\):hover \.controls/,
     '锁定时不得显示控制条',
   );
 });
@@ -167,8 +170,19 @@ test('描边与阴影必须保留（白字压浅色壁纸的可见性）', () =>
   const cssCode = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
   // 描边宽度随字号缩放（缩字号时描边也该跟着细，否则小字被描边糊住）
   assert.match(cssCode, /-webkit-text-stroke:\s*calc\(1px \* var\(--line-font-scale/);
-  assert.match(cssCode, /text-shadow:\s*0 1px 2px var\(--shadow-color\)/);
   assert.match(cssCode, /--outline-color:\s*rgba\(5, 6, 8, 0\.82\)/);
+  // ★ 阴影的 blur 必须是 **0**（硬阴影），垂直偏移 1px。
+  //   QML DesktopLyricsWindow.qml:40-41 明确写 lyricShadowBlur = 0、
+  //   lyricShadowVerticalOffset = 1。曾经写成 `0 1px 2px`（blur 2px），
+  //   那是「字发糊」的直接原因：旧版根本不模糊，只做 1px 位移把字顶出来。
+  assert.match(cssCode, /text-shadow:\s*0 1px 0 var\(--shadow-color\)/);
+  assert.doesNotMatch(
+    cssCode,
+    /text-shadow:\s*0 1px 2px/,
+    '阴影 blur 必须为 0（QML shadowBlur=0）；2px 模糊会让字发糊',
+  );
+  // paint-order 必须写，否则描边会盖住填充、字变细一圈
+  assert.match(cssCode, /paint-order:\s*stroke fill/);
 });
 
 test('副行字号是主行 × 0.67 且最小 16px', () => {
@@ -207,12 +221,15 @@ test('切行动画是三层共用同一 progress（复刻旧版 NumberAnimation 
 test('副行独立缩放，不复用主行的适配系数', () => {
   // 旧版 DesktopLyricsWindow.qml:462-464：副行有自己的 Text.Fit + minimumPixelSize，
   // 与主行各缩各的。共用 --line-font-scale 会让「主行短 / 副行长」时副行溢出。
+  //
+  // 结构说明：副行是纯 Fluent.Label（单层、无填色），所以字号规则直接写在
+  // `.adjacent` 上，不再有内层 span。
   const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
-  const adjacentType = css.match(/\.adjacent \.lyric-base[\s\S]{0,240}/);
-  assert.ok(adjacentType, '找不到副行字号规则');
-  assert.match(adjacentType[0], /--secondary-font-scale/, '副行需用自己的缩放系数');
+  const adjacentRule = css.match(/\.adjacent\s*\{[^}]*\}/s);
+  assert.ok(adjacentRule, '找不到 .adjacent 规则');
+  assert.match(adjacentRule[0], /--secondary-font-scale/, '副行需用自己的缩放系数');
   assert.doesNotMatch(
-    adjacentType[0],
+    adjacentRule[0],
     /var\(--line-font-scale/,
     '副行不得复用主行的 --line-font-scale',
   );
@@ -223,58 +240,65 @@ test('副行独立缩放，不复用主行的适配系数', () => {
 });
 
 test('裁剪区宽度必须用 DOM 实测，不能用 canvas 估算', () => {
-  // canvas.measureText 只算字形 advance，**不计 letter-spacing 与
-  // -webkit-text-stroke 的外扩**。实测同一句：
-  //   canvas 651.97px vs DOM 665.3px —— 差 13.33px（约 2%）
-  // 拿 canvas 值定位 clip，clip 会比白底文字窄一圈、还右移几像素，
-  // 白字从左右露出 → 同样表现为「白边」。
+  // canvas.measureText 只算字形 advance，**不计描边外扩**。
+  // 拿 canvas 值定位 clip，clip 会比白底文字窄一圈，白字从左右露出 → 「白边」。
   //
-  // canvas 仍可用于「要不要缩字号」的估算（差 2% 不影响判定），
+  // canvas 仍可用于「要不要缩字号」的估算（差 1-2% 不影响判定），
   // 但定位裁剪区必须用 Range.getBoundingClientRect（真实排版结果）。
   const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-  assert.match(js, /measureLineBox/, '需要有基于 DOM 的行盒测量函数');
+  assert.match(js, /measureLineWidth/, '需要有基于 DOM 的行宽测量函数');
   assert.match(js, /createRange\(\)/, '需要用 Range 量真实排版宽度');
   assert.match(js, /getBoundingClientRect/, 'Range 结果要靠 getBoundingClientRect 取');
-  // --text-left / --text-width 必须来自 DOM 测量结果，不能来自 measureText
-  const renderFn = js.match(/const renderCurrentLine = \([\s\S]*?\n\};/);
-  assert.ok(renderFn, '找不到 renderCurrentLine');
-  assert.match(renderFn[0], /measureLineBox/, '裁剪区必须用 DOM 测量');
+  // 测量函数内部不得用 canvas
+  const measureFn = js.match(/const measureLineWidth = \([\s\S]*?\n\};/);
+  assert.ok(measureFn, '找不到 measureLineWidth');
+  assert.doesNotMatch(measureFn[0], /measureText\(/, '裁剪区必须用 DOM 测量');
+  // 每帧路径（updateFillProgress）只写 CSS 变量，不得做 DOM 测量（会触发布局）
+  const fillFn = js.match(/const updateFillProgress = \([\s\S]*?\n\};/);
+  assert.ok(fillFn, '找不到 updateFillProgress');
   assert.doesNotMatch(
-    renderFn[0],
-    /measureText\(/,
-    'renderCurrentLine 不得再用 canvas 的 measureText 定位裁剪区',
+    fillFn[0],
+    /getBoundingClientRect|measureLineWidth|createRange/,
+    '每帧只写一个 CSS 变量，80ms 一次不能触发排版',
   );
 });
 
 test('裁剪容器与文字层必须严格重合（否则白底会露出一圈白边）', () => {
   // ★ 实际踩到、且**靠肉眼找了两轮才定位**的 bug：
-  //   .current-wrap 是 flex + align-items:center，底层 .lyric-base 因此被垂直居中（y=49）；
-  //   而 .lyric-clip 是绝对定位普通块，里面的 .lyric-active 从 top:0 起排（y=44）。
-  //   两层垂直差 5px → 未播放色的白字在下方整条露出 → 观感是「粉字外面一圈白边」，
-  //   外加顶部看着像被切掉。水平方向本来是齐的（offsetX=0），只看横向永远找不到。
+  //   当年用 `.current-wrap{display:flex;align-items:center}` 把底层文字垂直居中，
+  //   而 .lyric-clip 里的上层从 top:0 起排，两层差了 5px →
+  //   未播放色的白字在下方整条露出 → 观感是「粉字外面一圈白边」。
   //
-  // 实测数据：修复前亮中性灰（#EEEEEE）6900 像素；给 clip 补垂直居中后归 0。
+  // 那次修法是"给 clip 再套一层 flex 去凑对齐"，仍然是脆弱的：
+  // 只要行高/字号任一变化就可能再错位。
+  //
+  // 现在的做法是从几何上根除：两层都是**绝对定位 + 同一个 line-height**，
+  // 不存在"两个不同布局模式各自算居中"的可能。
   const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const shared = css.match(/\.lyric-base,\s*\n?\.lyric-active\s*\{[^}]*\}/s);
+  assert.ok(shared, '找不到 .lyric-base/.lyric-active 合并规则');
+  assert.match(shared[0], /position:\s*absolute/, '两层必须都是绝对定位');
+  assert.match(shared[0], /line-height:\s*var\(--active-line-height\)/, '两层必须共用行高');
+
   const clipRule = css.match(/\.lyric-clip\s*\{[^}]*\}/s);
   assert.ok(clipRule, '找不到 .lyric-clip 规则');
-  // 必须建立纵向 flex 并垂直居中，与 .current-wrap 同构
-  assert.match(clipRule[0], /display:\s*flex/, 'clip 需为 flex 才能垂直居中上层文字');
-  assert.match(clipRule[0], /flex-direction:\s*column/);
-  assert.match(clipRule[0], /justify-content:\s*center/, 'column 方向下垂直居中靠 justify-content');
-  // 但**不能**让水平也居中：上层水平位置靠负 margin-left 精确抵消，居中会推走 ~64px
+  // clip 必须绝对定位并铺满行高，不能再靠 flex 拼垂直居中
+  assert.match(clipRule[0], /position:\s*absolute/);
+  assert.match(clipRule[0], /height:\s*100%/);
   assert.doesNotMatch(
     clipRule[0],
-    /align-items:\s*center/,
-    'column 方向下 align-items:center 会把上层文字水平推走，破坏 margin-left 对齐',
+    /justify-content:\s*center/,
+    '不要再用 flex 居中拼对齐：两层共用 line-height 即可，flex 方案曾错位 5px',
   );
-  // 上层不能被 flex 压缩（`flex: 0 0 auto` 必须写在 .lyric-active 那条规则里）。
-  // 这里直接查 CSS 文本中出现该声明即可 —— 分离规则的正则容易误匹配到
-  // `.lyric-base, .lyric-active { ... }` 那条合并规则，反而是脆弱的写法。
-  assert.match(
-    css,
-    /\.lyric-active\s*\{[^}]*flex:\s*0\s+0\s+auto[^}]*\}/s,
-    'cell 内是 flex，上层禁止被压缩（flex: 0 0 auto）',
-  );
+  // 上层宽度由 --line-width 给出，并用负 margin 抵消 clip 偏移
+  // （.lyric-active 有两条规则：与 .lyric-base 合并的公共几何 + 自己的特化，
+  //   所以要扫全部匹配，不能只取第一条）
+  const activeRules = [...css.matchAll(/\.lyric-active[^{]*\{[^}]*\}/gs)].map((m) => m[0]);
+  assert.ok(activeRules.length > 0, '找不到 .lyric-active 规则');
+  const activeAll = activeRules.join('\n');
+  assert.match(activeAll, /width:\s*var\(--line-width/);
+  assert.match(activeAll, /margin-left:\s*calc\(-1\s*\*\s*var\(--text-left/);
+  assert.match(activeAll, /color:\s*var\(--played-color\)/);
 });
 
 test('三层歌词必须真的被绝对定位（类名与 HTML 一致）', () => {
@@ -376,21 +400,31 @@ test('歌词窗消费设置事件，能跟随设置页/托盘的改动', () => {
   assert.match(overlayJs, /listen\(SETTINGS_EVENT/);
 });
 
-test('可见性只由用户开关决定，不叠加「是否收到过播放状态」', () => {
-  // 注意：不能用 hasLyrics() 参与可见性判断——纯音乐没有 LRC，
-  // 旧版仍会显示歌曲名/歌手名（DesktopLyricsWindow.qml:20-25）。
+test('可见性 = 用户开关 且 有歌可显示（无歌时不得留空窗挡鼠标）', () => {
+  // ★ 2026-11-23 实测确认的缺陷（用户报「桌面歌词一坨屎」时抓到）：
+  //   曾经只判 `settings.visible`，于是「没在放歌」时窗口照样显示 ——
+  //   但它是一片全透明、默认又不穿透的**置顶矩形**（实测 535×158、
+  //   WS_EX_TRANSPARENT=0），屏幕上什么都看不见，却实实在在挡住下面的窗口，
+  //   用户点不到被盖住的地方，也完全不知道是什么在挡。
   //
-  // ★ 2026-11-23 修正（用户实测：点「锁定」后歌词整个消失）：
-  //   原先这里断言的是 `setOverlayVisible(playback.hasState && settings.visible)`，
-  //   而 playback.hasState 表示「本窗口收到过至少一条推送」，只在播放且桥接正常时为 true。
-  //   于是暂停时点锁定 → 触发 render → hasState=false → 窗口被隐藏，看起来像歌词坏了。
-  //   「有没有歌词可显示」壳侧已经管（has_lyrics_state），前端再叠一层只会打架。
+  // 正确判据来自旧实现 desktop_state.py:40-48：
+  //     should_show = settings.lyricsVisible and bool(current_song.get("id"))
+  // 即**有歌才显示**。
+  //
+  // 判据必须是 playback.track（收到过歌曲信息就一直有），
+  // **不能**是 hasState / hasLyrics：
+  //   · hasState 只在播放且桥接正常时为 true → 暂停时点「锁定」会让歌词整个消失；
+  //   · 纯音乐没有 LRC → 旧版仍显示歌曲名/歌手名，也不该消失。
   const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-  assert.match(js, /setOverlayVisible\(settings\.visible\)/, '可见性只看用户开关');
+  assert.match(
+    js,
+    /setOverlayVisible\(Boolean\(settings\.visible && playback\.track\)\)/,
+    '可见性必须是「用户开关 且 有歌」，无歌时不留空窗',
+  );
   assert.doesNotMatch(
     js,
     /setOverlayVisible\([^)]*hasState/,
-    '不得再用 playback.hasState 参与可见性判断（暂停时点锁定会导致歌词消失）',
+    '不得用 playback.hasState 参与可见性判断（暂停时点锁定会导致歌词消失）',
   );
   assert.doesNotMatch(
     js,
@@ -544,19 +578,45 @@ test('填色裁剪从文字左边缘开始，不是行左边缘', () => {
   assert.match(overlayJs, /--text-width/);
 });
 
-test('行左右内边距常量与 CSS padding 一致', () => {
-  // 缩字号时可用宽度 = 行宽 - 左右 padding。两边不一致会算错。
-  const paddingMatch = overlayCss.match(/\.lyrics-shell\s*\{[^}]*padding:\s*\d+px\s+(\d+)px/s);
-  assert.ok(paddingMatch, '找不到 .lyrics-shell 的 padding');
-  const cssHorizontal = Number(paddingMatch[1]) * 2;
+test('行内缩常量与 CSS 完全一致（主行 34、副行 42、表面 12）', () => {
+  // 缩字号时可用宽度 = 行宽 - 左右内缩。两边不一致会算错，长句仍溢出。
+  //
+  // 旧版几何（DesktopLyricsWindow.qml）：
+  //   lyricSurface 左右内缩 12（`width - 24` 的一半）        :62
+  //   主行 anchors.left/rightMargin = 34                     :378-379
+  //   副行 anchors.left/rightMargin = 42                     :444-445
+  // 所以主行可用宽 = 窗口宽 - (12+34)*2 = 窗口宽 - 92，
+  //     副行可用宽 = 窗口宽 - (12+42)*2 = 窗口宽 - 108。
+  const cssVar = (name) => {
+    const m = overlayCss.match(new RegExp(`--${name}:\\s*(\\d+)px`));
+    assert.ok(m, `CSS 里找不到 --${name}`);
+    return Number(m[1]);
+  };
+  const jsNum = (name) => {
+    const m = overlayJs.match(new RegExp(`const ${name} = (\\d+)`));
+    assert.ok(m, `overlay.js 里找不到 ${name}`);
+    return Number(m[1]);
+  };
 
-  const jsMatch = overlayJs.match(/LINE_HORIZONTAL_PADDING\s*=\s*(\d+)/);
-  assert.ok(jsMatch, '找不到 LINE_HORIZONTAL_PADDING');
-  assert.equal(
-    Number(jsMatch[1]),
-    cssHorizontal,
-    `JS 常量 ${jsMatch[1]} 与 CSS 左右 padding 之和 ${cssHorizontal} 不一致`,
-  );
+  assert.equal(jsNum('SURFACE_INSET'), cssVar('surface-inset'), '表面内缩必须一致');
+  assert.equal(jsNum('LINE_INSET'), cssVar('line-inset'), '主行内缩必须一致');
+  assert.equal(jsNum('SECONDARY_INSET'), cssVar('secondary-inset'), '副行内缩必须一致');
+
+  // 派生常量必须是这两个公式算出来的，而不是另写一个魔数
+  const surface = jsNum('SURFACE_INSET');
+  const line = jsNum('LINE_INSET');
+  const secondary = jsNum('SECONDARY_INSET');
+  const derived = (name) => {
+    const m = overlayJs.match(new RegExp(`const ${name} = \\(SURFACE_INSET \\+ \\w+\\) \\* 2`));
+    assert.ok(m, `${name} 必须由 (SURFACE_INSET + ...) * 2 推导，不要另写魔数`);
+  };
+  derived('LINE_HORIZONTAL_PADDING');
+  derived('SECONDARY_HORIZONTAL_PADDING');
+  assert.equal((surface + line) * 2, 92, '主行左右合计应为 92（窗口宽 - 92）');
+  assert.equal((surface + secondary) * 2, 108, '副行左右合计应为 108（窗口宽 - 108）');
+
+  // 主行顶部偏移 = 表面 32 + 行边距 12 = 44（否则悬停控制条压住歌词）
+  assert.equal(cssVar('surface-top') + cssVar('active-line-top-margin'), cssVar('active-line-top'));
 });
 
 test('没有歌词时显示歌曲名/歌手名，而不是留空', () => {
@@ -569,6 +629,127 @@ test('没有歌词时显示歌曲名/歌手名，而不是留空', () => {
   assert.match(overlayJs, /playback\.track\?\.artist/, '无歌词时副行应回退到歌手名');
   // 只有连歌曲信息都没有时才清空
   assert.match(overlayJs, /if \(!playback\.track\)/);
+});
+
+// ---------- 2026-11-23 重做后新增的门禁：锁住这次修的四个根因 ----------
+
+test('填色进度必须拿到真实歌词行对象，不能只传 { text }', () => {
+  // ★★ 这是「整行一次性亮、逐字填色完全看不出来」的根因，最难发现：
+  //   旧代码 render() 里写的是
+  //       renderCurrentLine({ text: mainText }, position)
+  //   renderCurrentLine 内部又调 lineProgress(line, position) ——
+  //   而这个 `line` 只有 text、没有 t/end/words，于是 lineProgress 走无 words 分支：
+  //       start = Number(undefined) || 0 = 0
+  //       end   = start + 5 = 5
+  //       progress = clamp((pos - 0) / 5) → 播放 5 秒后恒为 1
+  //   → 无论唱到哪儿整行都是已播放色，进度条逻辑等于不存在。
+  //
+  //   判据：进度更新必须用 playback.lyrics[renderedLineIndex] 这个**真实行**。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.match(
+    js,
+    /playback\.lyrics\[renderedLineIndex\]/,
+    '必须按已渲染行索引取真实歌词行对象（带 t/end/words）',
+  );
+  // 禁止再把"只有 text 的字面量对象"喂给进度函数
+  assert.doesNotMatch(
+    js,
+    /coreLineProgress\(\s*\{\s*text:/,
+    '不得用 { text } 当歌词行：它没有 t/end/words，进度会恒为 1',
+  );
+  assert.doesNotMatch(
+    js,
+    /renderCurrentLine\(\s*\{\s*text:/,
+    '不得只把 { text } 传给渲染函数',
+  );
+  // updateFillProgress 必须真的调用共享核心算进度
+  const fillFn = js.match(/const updateFillProgress = \([\s\S]*?\n\};/);
+  assert.ok(fillFn, '找不到 updateFillProgress');
+  assert.match(fillFn[0], /coreLineProgress\(line, position\)/);
+});
+
+test('窗口隐藏时量不到宽度，显示后必须自动补算几何', () => {
+  // ★ 重做时实际踩到的坑：窗口隐藏状态下 `clientWidth` 是 0，
+  //   几何（--text-width）算不出来；等窗口显示、宽度到位后，
+  //   若只按「文字+缩放系数」判断是否需要重算，就会判定"没变、不用算"，
+  //   --text-width 永远停在 0 → 裁剪区宽 0 → 整行填色完全不可见。
+  //
+  //   判据：几何去重签名里必须包含可用宽度。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const geomFn = js.match(/const applyLineGeometry = \([\s\S]*?\n\};/);
+  assert.ok(geomFn, '找不到 applyLineGeometry');
+  assert.match(geomFn[0], /availableWidth <= 0\) return false/, '宽度为 0 时不得写入几何');
+  const signature = geomFn[0].match(/const signature = ([^;]+);/);
+  assert.ok(signature, '找不到几何去重签名');
+  assert.match(
+    signature[1],
+    /availableWidth/,
+    '几何签名必须含可用宽度，否则窗口从隐藏变可见后不会补算',
+  );
+});
+
+test('几何变量必须写在各自行容器上，不能共用一套', () => {
+  // 旧行与主行的文字不同宽，而且旧行的 --fill-ratio 恒为 1、主行是动态值。
+  // 共用一套（写 .lyrics-shell 或 :root）会让旧行裁剪区按主行宽度算、整个错位，
+  // 甚至让旧行整条不可见。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const geomFn = js.match(/const applyLineGeometry = \([\s\S]*?\n\};/);
+  assert.ok(geomFn, '找不到 applyLineGeometry');
+  // 三个变量都必须写到传入的 wrap 上
+  for (const name of ['--line-font-scale', '--text-left', '--text-width']) {
+    assert.match(
+      geomFn[0],
+      new RegExp(`wrap\\.style\\.setProperty\\('${name}'`),
+      `${name} 必须写到各行自己的 wrap 上`,
+    );
+  }
+  // 旧行的 fill-ratio 必须钉成 1（QML :387 progress: 1）
+  assert.match(js, /outgoingWrap\.style\.setProperty\('--fill-ratio', '1'\)/);
+});
+
+test('新行入场缩放按字号实时算，不是硬编码 0.67', () => {
+  // QML :49-50：incomingActiveScale = secondaryFontSize / max(1, lyricsFontSize)
+  // 字号 20 → 16/20 = 0.8；字号 64 → 43/64 ≈ 0.672。
+  // 硬编码 0.67 会让小字号下入场尺寸与实际副行对不上（凭空大一圈再缩回去）。
+  assert.match(overlayJs, /--incoming-scale/, '需要写入入场缩放变量');
+  const fn = overlayJs.match(/const applyFontSize = \([\s\S]*?\n\};/);
+  assert.ok(fn, '找不到 applyFontSize');
+  assert.match(
+    fn[0],
+    /secondary \/ Math\.max\(1, size\)/,
+    '入场缩放必须是 副行字号 / 主行字号',
+  );
+  // CSS 里必须用这个变量，不能写死 0.67
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const currentRule = css.match(/\.current-wrap\s*\{[^}]*\}/s);
+  assert.ok(currentRule, '找不到 .current-wrap 规则');
+  assert.match(currentRule[0], /var\(--incoming-scale/, '入场缩放需读变量');
+  assert.doesNotMatch(
+    currentRule[0],
+    /scale\(0\.67\)/,
+    '不要硬编码 0.67',
+  );
+});
+
+test('旧行只在动画期间显示，结束后必须隐藏', () => {
+  // QML :374 visible: lyricLineAdvance.running && outgoingActiveText.length > 0
+  // 若结束后不隐藏，旧行会一直压在新行上面（z=3），表现为"歌词定格不动"。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const finishFn = js.match(/const finishTransition = \([\s\S]*?\n\};/);
+  assert.ok(finishFn, '找不到 finishTransition');
+  assert.match(finishFn[0], /outgoingWrap\.style\.visibility = 'hidden'/, '结束后必须隐藏旧行');
+  assert.match(finishFn[0], /outgoingBase\.textContent = ''/, '结束后必须清空旧行文字');
+});
+
+test('切行动画只在该动画时播（同时间戳分组也要算向前）', () => {
+  // QML :129-148 canAnimateForward 的两个分支：
+  //   ① 正好下一行；② 跳过的行与上一行**时间戳完全相同**（合唱/翻译同戳）。
+  // 漏掉 ② 会让同一句的第二行"突然跳出来"，没有过渡。
+  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const fn = js.match(/const canAnimateForward = \([\s\S]*?\n\};/);
+  assert.ok(fn, '找不到 canAnimateForward');
+  assert.match(fn[0], /nextIndex === previousIndex \+ 1/, '必须支持"正好下一行"');
+  assert.match(fn[0], /previousTimestamp/, '必须处理同时间戳分组');
 });
 
 console.log(`\ndesktop lyrics settings contract tests passed (${passed})`);
