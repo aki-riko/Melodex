@@ -763,7 +763,15 @@ check('同一文件不得 type-body 与纯 text-sm 并存（两套 14px 行高�
   // ★ 判定只在**同一文件内**：不同组件各用一套是可以的（如 ui/Button.js
   //   全程 text-sm，内部自洽）。真正的问题是同一个文件里混用。
   //
-  // ★ 带 leading-* 的跳过 —— 那是刻意指定行高（如卡片标题 leading-snug）。
+  // ★ 带 leading-* 的跳过 —— 那是刻意指定行高。
+  //
+  // ★★ 已知且**刻意保留**的两处「同字号多行高」（不要当 bug 修）：
+  //   ① 卡片标题 `type-caption leading-snug`（13px/1.375=17.875px）
+  //      vs 页面副标题 `type-caption`（13px/1.4=18.2px）。
+  //      前者配 `min-h-[2lh]` 让两行标题更紧凑；实测去掉 leading-snug
+  //      卡片只高 1px（220→221）、极差仍 0，但收紧是对的设计意图。
+  //   ② 播放条内部自成一套尺寸体系（固定高度约束下重新排过行高），
+  //      与主内容区不同源是预期的。
   const offenders = [];
   for (const file of files) {
     const rel = file.replace(root, '').replace(/\\/g, '/');
