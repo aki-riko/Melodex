@@ -9,4 +9,4 @@ publish = false
 tauri-build = { version = "=2.5.4", features = [] }
 
 [dependencies]
-tauri = { version = "=2.10.1", features = ["wry"] }
+tauri = { version = "=2.10.1", features = ["macos-private-api", "wry"] }

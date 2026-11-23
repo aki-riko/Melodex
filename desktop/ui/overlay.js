@@ -308,7 +308,7 @@ const secondaryMinimumPixelSize = () => Math.max(14, FONT_SIZE_MIN - 4);
  */
 const renderSecondaryLine = (text) => {
   const baseSize = Math.max(
-    SECONDARY_MIN_SIZE,
+    SECONDARY_MIN_PX,
     Math.round(clampFontSize(settings.font_size) * SECONDARY_SCALE),
   );
   const rowWidth = nextLine.clientWidth;
@@ -317,6 +317,81 @@ const renderSecondaryLine = (text) => {
   const available = Math.max(0, rowWidth - LINE_HORIZONTAL_PADDING - SECONDARY_EXTRA_INSET * 2);
   const scale = fitScale(text, baseSize, available, secondaryMinimumPixelSize());
   lyricsShell.style.setProperty('--secondary-font-scale', String(scale));
+};
+
+// ---------- 窗口宽度贴合内容 ----------
+//
+// 问题：歌词窗是整块矩形，即使文字只占中间一小段，整块（920 宽）都会拦截
+// 鼠标事件，挡住下面窗口的操作。旧版固定 920 是因为它默认鼠标穿透；
+// 现在默认不穿透，窗口就必须贴合文字实际占用。
+//
+// ★ 测量必须在**离屏容器**里按基准字号做，绝不能用窗口内的实际渲染宽度：
+//   窗口一窄，字号适配就会把字缩小 → 量出来更窄 → 窗口继续缩 → 无限塌缩。
+//   离屏容器不受窗口宽度影响，量到的才是"这句话在基准字号下需要多宽"。
+
+/** 用离屏 div 量一句文字在给定字号下的真实排版宽度（含 letter-spacing）。 */
+const measureTextOffscreen = (text, px, weight) => {
+  if (!text) return 0;
+  const probe = document.createElement('div');
+  probe.style.cssText = [
+    'position:absolute',
+    'left:-99999px',
+    'top:0',
+    'visibility:hidden',
+    'white-space:nowrap',
+    'pointer-events:none',
+    `font-family:${lyricFontFamily()}`,
+    `font-size:${px}px`,
+    `font-weight:${weight}`,
+    'letter-spacing:0.01em',
+  ].join(';');
+  probe.textContent = text;
+  document.body.appendChild(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  return width;
+};
+
+/**
+ * 计算窗口该有多宽（含左右留白与描边余量）。
+ *
+ * 取主行与副行里更宽的那条 —— 副行常常比主行长（翻译/下一句）。
+ * 描边会向外扩约 1px、阴影偏移 1px，留 4px 余量避免最后一丝被切。
+ */
+const contentWidthFor = (mainText, secondaryText) => {
+  const baseSize = clampFontSize(settings.font_size);
+  const secondarySize = Math.max(
+    SECONDARY_MIN_PX,
+    Math.round(baseSize * SECONDARY_SCALE),
+  );
+  const mainWidth = measureTextOffscreen(mainText, baseSize, 600);
+  const secondaryWidth = measureTextOffscreen(secondaryText, secondarySize, 400);
+  const widest = Math.max(mainWidth, secondaryWidth);
+  if (!widest) return 0;
+  return Math.ceil(widest + LINE_HORIZONTAL_PADDING + SECONDARY_EXTRA_INSET * 2 + 4);
+};
+
+/** 最近一次请求的内容宽度，避免每帧都发 IPC。 */
+let lastRequestedContentWidth = 0;
+
+/**
+ * 请求壳侧按内容调整窗口宽度。
+ *
+ * 壳侧有迟滞阈值（差异 < 24px 不动），这里再挡一层「同值不重复发」，
+ * 避免 render() 每 80ms 跑一次就发一条 IPC。
+ */
+const requestContentWidth = (mainText, secondaryText) => {
+  const width = contentWidthFor(mainText, secondaryText);
+  if (!width) return;
+  if (Math.abs(width - lastRequestedContentWidth) < 1) return;
+  lastRequestedContentWidth = width;
+  invoke('lyrics_resize_to_content', {
+    contentWidth: width,
+    // 高度必须由壳侧按字号重算：传当前高度会让它只增不减（踩过）。
+    fontSize: clampFontSize(settings.font_size),
+  }).catch((error) => {
+    console.warn('调整歌词窗口宽度失败', error);
+  });
 };
 
 /**
@@ -507,8 +582,18 @@ const nextDisplayText = (frame, hasLyricLines) => {
 };
 
 const render = () => {
-  // 用户关掉歌词（settings.visible=false）后，即使还有歌在放也不能再弹出来。
-  setOverlayVisible(playback.hasState && settings.visible);
+  // ★ 可见性**只**看用户开关（settings.visible），不再叠加 playback.hasState。
+  //
+  // 踩过的坑（用户实测：点「锁定」后歌词整个消失）：
+  // 原实现是 `setOverlayVisible(playback.hasState && settings.visible)`，
+  // 而 hasState 表示「本窗口收到过至少一条播放状态推送」，它只在主窗口页面
+  // 正在播放且桥接正常时才为 true。于是：
+  //   ① 暂停/未播放时点「锁定」→ 触发一次 render → hasState 仍为 false → 窗口被隐藏；
+  //   ② 主窗口刷新/切页时推送中断 → 歌词窗自己把自己藏起来，用户以为坏了。
+  // 而「有没有歌词可显示」这件事**壳侧已经管了**
+  // （lyrics_settings_update / tray 里都用 has_lyrics_state 判断），
+  // 前端再叠一层只会造成两处判断打架。
+  setOverlayVisible(settings.visible);
 
   // 没有歌曲信息时才彻底清空（此时本来就没东西可显示）。
   if (!playback.track) {
@@ -550,6 +635,10 @@ const render = () => {
 
   renderedLineIndex = withLyrics && frame ? frame.index : -2;
   renderedActiveText = mainText;
+
+  // 窗口宽度贴合当前这两行文字（壳侧有迟滞，短句窗口自动缩、长句最多到 920）。
+  // 放在这里而不是每次 setInterval 都发：requestContentWidth 内部做了同值去重。
+  requestContentWidth(mainText, secondaryText);
 
   // 播放/暂停图标二选一由 class 控制（旧实现 icon 随 Player.playing 切换）。
   toggleButton.classList.toggle('is-playing', !playback.paused);

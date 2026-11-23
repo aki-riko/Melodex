@@ -85,13 +85,31 @@ pub fn lyrics_settings_update(
     state: State<'_, LyricsSettingsState>,
     patch: LyricsSettingsPatch,
 ) -> Result<LyricsSettingsView, String> {
+    // ★ 只有「显式改了 visible」时才去动窗口可见性。
+    //
+    // 踩过的坑（用户实测：点「锁定」后歌词直接没了）：
+    // 原实现每次都执行
+    //     set_overlay_visible(updated.visible && has_lyrics_state())
+    // 而 has_lyrics_state() 表示「最近收到过带歌词的状态推送」，
+    // 它只在播放时才有值。于是用户在暂停/未播放时点「锁定」，
+    // 这条语句会把窗口**隐藏**——明明只是切穿透，歌词却整个消失，
+    // 且设置里 visible 仍是 true，看起来像「设置没生效」。
+    //
+    // 把「可见性」与「穿透/字体/字号/配色」彻底解耦：
+    // 改后四者绝不碰窗口显隐。
+    let before = state.snapshot();
+    let visibility_changed = patch.visible.is_some() && patch.visible != Some(before.visible);
     let updated = lyrics_settings::apply_patch(&app, &state, &patch)?;
-    // 可见性/穿透属于「立即生效」项，改完要马上作用于窗口，
-    // 不能等下一次播放状态推送（推送只带歌词，不带设置）。
-    let _ = overlay::set_overlay_visible(&app, updated.visible && overlay::has_lyrics_state(&app));
-    if let Err(error) = overlay::apply_click_through(&app, updated.click_through) {
-        // 穿透切换失败不应让整次保存失败：设置已经落盘了。
-        crate::logging::warn(format!("应用歌词穿透状态失败：{error}"));
+
+    if visibility_changed {
+        let _ =
+            overlay::set_overlay_visible(&app, updated.visible && overlay::has_lyrics_state(&app));
+    }
+    if patch.click_through.is_some() {
+        if let Err(error) = overlay::apply_click_through(&app, updated.click_through) {
+            // 穿透切换失败不应让整次保存失败：设置已经落盘了。
+            crate::logging::warn(format!("应用歌词穿透状态失败：{error}"));
+        }
     }
     Ok(LyricsSettingsView::from(updated))
 }
@@ -149,6 +167,21 @@ pub fn overlay_position(app: AppHandle) -> Result<(i32, i32), String> {
 #[tauri::command]
 pub fn overlay_clamp_position(app: AppHandle) -> Result<(i32, i32), String> {
     overlay::clamp_to_visible_area(&app)
+}
+
+/// 按歌词内容调整窗口宽度（让透明窗口不解挡一大片屏幕）。
+///
+/// `content_width` 由歌词窗用真实排版量出（含左右留白）；
+/// `font_size` 用于重算高度 —— 高度是字号的一元函数，**绝不能沿用窗口当前高度**
+/// （曾经沿用，导致高度只增不减，窗口从 158 涨到 356 并卡住）。
+/// 返回是否真的调整过——受迟滞阈值控制，差异太小不动，避免逐行抖动。
+#[tauri::command]
+pub fn lyrics_resize_to_content(
+    app: AppHandle,
+    content_width: f64,
+    font_size: u32,
+) -> Result<bool, String> {
+    overlay::apply_content_width(&app, content_width, font_size)
 }
 
 /// 恢复歌词窗位置。坐标是**物理像素**，与 `overlay_position` 返回值同单位。

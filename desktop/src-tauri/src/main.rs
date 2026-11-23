@@ -44,6 +44,7 @@ fn main() {
             commands::overlay_position,
             commands::set_overlay_position,
             commands::overlay_clamp_position,
+            commands::lyrics_resize_to_content,
             commands::lyrics_settings_get,
             commands::lyrics_settings_update,
             commands::lyrics_reset_position,

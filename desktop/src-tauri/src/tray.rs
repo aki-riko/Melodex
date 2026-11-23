@@ -212,15 +212,23 @@ fn apply_lyrics_patch(
     rollback: Option<(&CheckMenuItem<Wry>, bool)>,
 ) {
     let state = app.state::<lyrics_settings::LyricsSettingsState>();
+    // 与 commands::lyrics_settings_update 同样的纪律：只有显式改了 visible 才动窗口显隐。
+    // 否则「锁定桌面歌词」（只改 click_through）在暂停时会把窗口隐藏——
+    // 用户看到的就是「点了锁定，歌词没了」。
+    let visibility_changed = patch.visible.is_some();
     match lyrics_settings::apply_patch(app, &state, &patch) {
         Ok(updated) => {
-            // 可见性立刻作用到窗口（没有歌词时保持隐藏，避免闪空窗）。
-            let _ = overlay::set_overlay_visible(
-                app,
-                updated.visible && overlay::has_lyrics_state(app),
-            );
-            if let Err(error) = overlay::apply_click_through(app, updated.click_through) {
-                logging::error(format!("应用歌词穿透失败：{error}"));
+            if visibility_changed {
+                // 没有歌词时保持隐藏，避免闪一个空窗。
+                let _ = overlay::set_overlay_visible(
+                    app,
+                    updated.visible && overlay::has_lyrics_state(app),
+                );
+            }
+            if patch.click_through.is_some() {
+                if let Err(error) = overlay::apply_click_through(app, updated.click_through) {
+                    logging::error(format!("应用歌词穿透失败：{error}"));
+                }
             }
         }
         Err(error) => {

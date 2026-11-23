@@ -15,6 +15,7 @@
     "allow-overlay-position",
     "allow-set-overlay-position",
     "allow-overlay-clamp-position",
+    "allow-lyrics-resize-to-content",
     "allow-lyrics-settings-get",
     "allow-lyrics-settings-update",
     "allow-lyrics-reset-position",

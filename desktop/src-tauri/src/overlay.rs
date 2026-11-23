@@ -29,10 +29,22 @@ pub const OVERLAY_WINDOW: &str = "overlay";
 
 /// 歌词窗最大宽度（旧版 `Math.min(920, ...)`）。
 pub const OVERLAY_MAX_WIDTH: f64 = 920.0;
-/// 歌词窗最小宽度（旧版 `Math.max(640, ...)`）。
-pub const OVERLAY_MIN_WIDTH: f64 = 640.0;
+/// 歌词窗最小宽度。
+///
+/// 旧版是 640（因为它固定不随内容变化）；现在宽度要贴合歌词文字，
+/// 短句（"嗯"）只需约 230px，所以下限必须放开，否则窗口永远缩不下来。
+/// 但**不能无限窄**：悬停控制条自身就要 212px 宽，再留一点余量，
+/// 取 240 作为物理下限（控制条放不下会溢出窗口，看起来像被切掉）。
+pub const OVERLAY_MIN_WIDTH: f64 = 240.0;
 /// 宽度相对屏幕可用宽度的留白（旧版 `Screen.width - 96`）。
 pub const OVERLAY_WIDTH_MARGIN: f64 = 96.0;
+
+/// 贴合内容时的宽度迟滞阈值（px）。
+///
+/// 每换一行都改窗口尺寸会明显抖动（尤其逐字歌词每行宽度不同）。
+/// 只有目标宽度与当前宽度差超过这个值才真正调整——
+/// 小于阈值的差异肉眼几乎看不出，不值得为它重建窗口。
+pub const CONTENT_WIDTH_HYSTERESIS: f64 = 24.0;
 
 /// 窗口高度中与字号无关的固定部分：顶部留白 46 + 底部留白 18。
 ///
@@ -68,10 +80,19 @@ pub fn overlay_width(screen_width: f64) -> f64 {
     (screen_width - OVERLAY_WIDTH_MARGIN).clamp(OVERLAY_MIN_WIDTH, OVERLAY_MAX_WIDTH)
 }
 
+/// 把「内容想要多宽」夹成合法窗口宽度。
+///
+/// 上界同时受屏幕与旧版上限约束；下界是控制条能放下的最小宽度。
+/// 这样短句窗口自动缩短、长句最多到 920（与旧版上限一致）。
+pub fn clamp_content_width(content_width: f64, screen_width: f64) -> f64 {
+    let ceiling = overlay_width(screen_width);
+    content_width.clamp(OVERLAY_MIN_WIDTH.min(ceiling), ceiling)
+}
+
 /// 把一个坐标夹进 `[minimum, minimum + span]`，与旧版 `clampToVisibleArea` 同式。
 ///
 /// 旧实现用 `Math.max(0, ...)` 处理「窗口比可视区还大」的情形，
-/// 即此时允许贴在起始边而不是产生负的可用范围。
+/// 即此时允许停在起始边而不是产生负的可用范围。
 pub fn clamp_axis(value: i32, minimum: i32, available_span: i32) -> i32 {
     let maximum = minimum + available_span.max(0);
     value.clamp(minimum, maximum)
@@ -170,6 +191,60 @@ pub fn apply_window_geometry(app: &AppHandle, font_size: u32) -> Result<(), Stri
             overlay_height(font_size),
         ))
         .map_err(|error| format!("设置歌词窗口尺寸失败：{error}"))
+}
+
+/// 按**歌词内容**调整窗口宽度，让透明窗口不再盖住一大片屏幕。
+///
+/// 为什么需要它：窗口是整块矩形，即使文字只占中间一小段，
+/// 整块（默认 920 宽）都会拦截鼠标事件，玩家/用户点下面的窗口点不到。
+/// 旧版固定 920 是因为它默认鼠标穿透；现在默认不穿透，就必须让窗口贴合内容。
+///
+/// @param content_width 内容需要的总宽度（已含左右留白），由前端用真实排版量出
+/// @param font_size     当前字号，用来重算高度（**不能用窗口当前高度**）
+/// @returns 是否真的调整过（受迟滞阈值控制）
+pub fn apply_content_width(
+    app: &AppHandle,
+    content_width: f64,
+    font_size: u32,
+) -> Result<bool, String> {
+    if !content_width.is_finite() || content_width <= 0.0 {
+        return Ok(false);
+    }
+    let window = app
+        .get_webview_window(OVERLAY_WINDOW)
+        .ok_or_else(|| "歌词窗口不存在".to_string())?;
+    let screen_width = primary_screen_size(app)
+        .map(|(width, _height)| width)
+        .unwrap_or(OVERLAY_MAX_WIDTH + OVERLAY_WIDTH_MARGIN);
+    let target_width = clamp_content_width(content_width, screen_width);
+
+    // ★ 高度必须按字号重新算，绝不能沿用窗口当前高度。
+    //
+    // 踩过的坑：一开始写成「取 inner_size().height 原样传回去」，
+    // 结果窗口高度从 158 涨到 356 并卡住——
+    // 因为高度里含 --active-line-height（按**基准字号**算），
+    // 而窄窗口下字号被 fit 缩小、行高按基数却不变，
+    // 加上几次调整叠加，高度只增不减，形成正反馈。
+    // 高度是字号的一元函数，任何时候都重算即可。
+    let target_height = overlay_height(font_size);
+
+    let current = window
+        .inner_size()
+        .map_err(|error| format!("读取歌词窗口尺寸失败：{error}"))?;
+    let width_changed = (target_width - current.width as f64).abs() >= CONTENT_WIDTH_HYSTERESIS;
+    let height_changed = (target_height - current.height as f64).abs() >= 1.0;
+    if !width_changed && !height_changed {
+        return Ok(false);
+    }
+
+    window
+        .set_size(tauri::LogicalSize::new(target_width, target_height))
+        .map_err(|error| format!("调整歌词窗口尺寸失败：{error}"))?;
+    // 变宽后右侧可能越界，拉回可视区（与旧版 onHeightChanged 的 clamp 同理）。
+    if let Err(error) = clamp_to_visible_area(app) {
+        logging::warn(format!("尺寸调整后回拉位置失败：{error}"));
+    }
+    Ok(true)
 }
 
 /// 把歌词窗拉回可视区，与旧版 `clampToVisibleArea` 等价。
@@ -332,11 +407,74 @@ mod tests {
     #[test]
     fn overlay_width_matches_legacy_formula() {
         // 旧版：Math.min(920, Math.max(640, screenWidth - 96))
+        // 新版把下限从 640 放宽到 240（要让窗口贴合短歌词），
+        // 所以只有「屏幕减留白」大于 240 时才能指望旧公式的数值。
         assert_eq!(overlay_width(1920.0), 920.0);
         assert_eq!(overlay_width(1080.0), 920.0, "984 超过上限，夹到 920");
         assert_eq!(overlay_width(1000.0), 904.0);
-        assert_eq!(overlay_width(700.0), 640.0, "屏幕太窄时取下限 640");
-        assert_eq!(overlay_width(500.0), 640.0);
+        // 屏幕减留白后仍然 ≥ 下限时，取实际值（不夹到下限）
+        assert_eq!(overlay_width(700.0), 604.0);
+        // 屏幕减留白 < 下限时，才被抬高到 OVERLAY_MIN_WIDTH
+        assert_eq!(overlay_width(300.0), OVERLAY_MIN_WIDTH);
+    }
+
+    #[test]
+    fn clamp_content_width_respects_bounds() {
+        // 短句：内容只要 200px，但不能低于控制条能放下的下限 240
+        assert_eq!(clamp_content_width(200.0, 1920.0), 240.0);
+        // 中等：直接贴合
+        assert_eq!(clamp_content_width(500.0, 1920.0), 500.0);
+        // 超长：夹到旧版上限 920
+        assert_eq!(clamp_content_width(1500.0, 1920.0), 920.0);
+        // 小屏幕：上限跟着屏幕走（屏 1000 → 上限 904）
+        assert_eq!(clamp_content_width(2000.0, 1000.0), 904.0);
+        // 屏幕比下限还窄的极端情况：取屏幕能给的宽度，不反过来撑破
+        assert_eq!(clamp_content_width(2000.0, 300.0), 240.0);
+    }
+
+    #[test]
+    fn min_width_leaves_room_for_control_bar() {
+        // 控制条自身 212px（旧版固定值）+ 左右留白，窗口下限必须容得下它，
+        // 否则悬停时控制条会溢出窗口被切掉。
+        //
+        // 用 clamp_content_width 的返回值做判据（而不是两个常量直接比）：
+        // 既能验证真实调用路径，也避免 clippy 把 `assert!(常量 >= 常量)` 判为无意义。
+        const CONTROL_BAR_WIDTH: f64 = 212.0;
+        // 不管内容多窄，夹出来的窗口宽度都必须容得下控制条。
+        let narrowest = clamp_content_width(1.0, 1920.0);
+        assert!(
+            narrowest >= CONTROL_BAR_WIDTH,
+            "最窄窗口 {narrowest} 小于控制条 {CONTROL_BAR_WIDTH}，悬停时控制条会被切掉"
+        );
+    }
+
+    #[test]
+    fn height_is_pure_function_of_font_size() {
+        // 回归：窗口高度必须只由字号决定，**不允许**沿用窗口当前高度。
+        // 曾经写成「取 inner_size().height 原样传回」，结果高度从 158 涨到 356：
+        // 窄窗口下字号被 fit 缩小、行高按基准字号却不变，反复调整只增不减。
+        //
+        // 判据：高度 = 固定余量 + (字号+20) + (副行字号+14)，逐项核一遍，
+        // 而不是「自己等于自己」那种恒真断言（clippy 会直接判为无意义）。
+        for size in [20u32, 24, 32, 36, 48, 64] {
+            let expected = OVERLAY_HEIGHT_CHROME
+                + (size as f64 + ACTIVE_LINE_EXTRA)
+                + (secondary_font_size(size) + SECONDARY_LINE_EXTRA);
+            assert_eq!(
+                overlay_height(size),
+                expected,
+                "字号 {size} 的高度必须严格按公式推导"
+            );
+        }
+        // 单调性 + 合理性：遍历所有字号，确认高度随字号递增且量级正常。
+        // 注意不能写成对单个字面量的断言（clippy 会判 `assert!(const < const)` 无意义）；
+        // 用折叠/循环让结论依赖函数返回值。
+        let sizes = [20u32, 24, 32, 36, 48, 64];
+        let heights: Vec<f64> = sizes.iter().map(|size| overlay_height(*size)).collect();
+        let ascending = heights.windows(2).all(|pair| pair[1] > pair[0]);
+        assert!(ascending, "高度应随字号单调递增：{heights:?}");
+        let reasonable = heights.iter().all(|h| *h > 80.0 && *h < 260.0);
+        assert!(reasonable, "高度量级异常：{heights:?}");
     }
 
     #[test]

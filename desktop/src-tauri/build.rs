@@ -21,6 +21,7 @@ fn main() {
             "overlay_position",
             "set_overlay_position",
             "overlay_clamp_position",
+            "lyrics_resize_to_content",
             // 歌词用户设置（本地窗口：歌词窗与设置页）
             "lyrics_settings_get",
             "lyrics_settings_update",

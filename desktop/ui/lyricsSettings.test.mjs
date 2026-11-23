@@ -376,12 +376,22 @@ test('歌词窗消费设置事件，能跟随设置页/托盘的改动', () => {
   assert.match(overlayJs, /listen\(SETTINGS_EVENT/);
 });
 
-test('可见性同时受「有歌曲状态」与「用户开关」约束', () => {
+test('可见性只由用户开关决定，不叠加「是否收到过播放状态」', () => {
   // 注意：不能用 hasLyrics() 参与可见性判断——纯音乐没有 LRC，
   // 旧版仍会显示歌曲名/歌手名（DesktopLyricsWindow.qml:20-25）。
-  // 本鱼最初把 hasLyrics() 写进可见性条件，结果纯音乐时窗口整个不出现。
+  //
+  // ★ 2026-11-23 修正（用户实测：点「锁定」后歌词整个消失）：
+  //   原先这里断言的是 `setOverlayVisible(playback.hasState && settings.visible)`，
+  //   而 playback.hasState 表示「本窗口收到过至少一条推送」，只在播放且桥接正常时为 true。
+  //   于是暂停时点锁定 → 触发 render → hasState=false → 窗口被隐藏，看起来像歌词坏了。
+  //   「有没有歌词可显示」壳侧已经管（has_lyrics_state），前端再叠一层只会打架。
   const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-  assert.match(js, /setOverlayVisible\(playback\.hasState && settings\.visible\)/);
+  assert.match(js, /setOverlayVisible\(settings\.visible\)/, '可见性只看用户开关');
+  assert.doesNotMatch(
+    js,
+    /setOverlayVisible\([^)]*hasState/,
+    '不得再用 playback.hasState 参与可见性判断（暂停时点锁定会导致歌词消失）',
+  );
   assert.doesNotMatch(
     js,
     /setOverlayVisible\([^)]*hasLyrics\(\)/,
@@ -559,16 +569,6 @@ test('没有歌词时显示歌曲名/歌手名，而不是留空', () => {
   assert.match(overlayJs, /playback\.track\?\.artist/, '无歌词时副行应回退到歌手名');
   // 只有连歌曲信息都没有时才清空
   assert.match(overlayJs, /if \(!playback\.track\)/);
-});
-
-test('窗口可见性只看「有状态 + 用户开关」，不被"有没有歌词"卡死', () => {
-  // 纯音乐没有 LRC，但窗口仍应显示歌名——不能因为 hasLyrics()=false 就隐藏。
-  const js = overlayJs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-  assert.match(
-    js,
-    /setOverlayVisible\(playback\.hasState && settings\.visible\)/,
-    '可见性不应依赖 hasLyrics()',
-  );
 });
 
 console.log(`\ndesktop lyrics settings contract tests passed (${passed})`);
