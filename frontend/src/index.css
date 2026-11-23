@@ -658,6 +658,26 @@ select {
   padding-right: 2.25rem !important;
   line-height: 1.5;
 }
+
+/* ★ 2026-11 扩散修复：select 的 line-height 必须能压过 Tailwind 的 text-* 工具类。
+ *
+ * 踩到的坑：上面 `select { line-height: 1.5 }` 的优先级是 (0,0,1)，
+ * 而 Tailwind 的 `text-sm` 是 (0,1,0) —— **类选择器胜出**，
+ * 于是 `<select className="h-9 ... text-sm">` 的 line-height 仍然是 20px，
+ * 又回到"文字在矮行盒里、视觉偏上"的老问题。
+ *
+ * 实测：设置页的两个 select（字体预设 / 配色方案）就中招了 ——
+ * `line-height: 20px`，而用户管理页那个（没写 text-*）是 24px。
+ *
+ * 修法：用属性选择器把优先级提到 (0,1,1)，
+ * 覆盖 `[class*="text-"]` 的情况；同时保留 `:where()` 让
+ * 显式写了行高的自定义 select 仍能覆盖我们（可维护性）。
+ *
+ * 不用 !important：那会让以后想给某个 select 定制行高变得不可能。
+ */
+select[class*="text-"] {
+  line-height: 1.5;
+}
 /* 深色主题下把箭头换成浅色（否则灰箭头在深底上看不清） */
 [data-theme="fluent-dark"] select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23e5e7eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");

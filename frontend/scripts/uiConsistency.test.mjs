@@ -566,6 +566,16 @@ check('select 必须 appearance:none + 自定义箭头（原生箭头位置不�
   assert.match(css, /select\s*\{[^}]*background-image:\s*url\("data:image\/svg\+xml/s, 'select 必须用 background-image 画自定义箭头');
   assert.match(css, /select\s*\{[^}]*background-position:\s*right[^;]*center/s, '箭头必须垂直居中、贴右');
   assert.match(css, /select\s*\{[^}]*line-height:\s*1\.5/s, 'select 必须显式 line-height（normal 会让字偏上）');
+  // ★ 2026-11 扩散修复：`select { line-height: 1.5 }` 的优先级是 (0,0,1)，
+  //   压不过 Tailwind 的 `text-sm`（(0,1,0)）—— 所以必须额外有一条
+  //   `select[class*="text-"]` 把优先级提到 (0,1,1)。
+  //   实测踩到：设置页两个 select 就中了这个招，
+  //   实际 line-height 还是 20px（而非 24px），文字在矮行盒里视觉偏上。
+  assert.match(
+    css,
+    /select\[class\*="text-"\]\s*\{[^}]*line-height:\s*1\.5/s,
+    '需要 select[class*="text-"] 规则：否则 Tailwind text-sm 会覆盖掉全局 line-height（设置页两个下拉框中招）',
+  );
   // 深色主题要换浅色箭头，否则灰箭头在深底看不清
   assert.match(
     css,
