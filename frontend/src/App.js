@@ -1,16 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { WifiOff } from 'lucide-react';
 import { Sidebar, MobileTabBar } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import HomeRecommendations from './components/HomeRecommendations';
-import Download from './components/Download';
-import Settings from './components/Settings';
-import MyPlaylist from './components/MyPlaylist';
-import RecentlyPlayed from './components/RecentlyPlayed';
-import LocalMusic from './components/LocalMusic';
-import OfflineMusic from './components/OfflineMusic';
-import UserManagement from './components/UserManagement';
 import AuthGate from './components/AuthGate';
 import { onDownloadSearch } from './services/downloadBus';
 import { PlayerProvider, PlayerBar, usePlayer } from './contexts/PlayerContext';
@@ -20,9 +13,39 @@ import { ServerDownloadsProvider } from './contexts/ServerDownloadsContext';
 import { FeedbackProvider } from './contexts/FeedbackContext';
 import { ThemeProvider } from './theme/ThemeContext.jsx';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
-import HelpPage from './components/HelpPage';
-import MorePage from './components/MorePage';
 import LoadingState from './components/LoadingState';
+
+// ===== 按路由代码分割（2026-11）=====
+//
+// ★ 为什么：实测主包 **586KB（gzip 187KB）**，全部页面打成一个 chunk。
+//   用户打开首页时只看到 HomeRecommendations，却要下载设置页、下载页、
+//   离线页、用户管理、帮助页的全部代码。
+//
+// ★ 拆分边界如何定（不是随便切的）：
+//   【保留静态 import — 首屏必需】
+//     · Sidebar / TopBar：每页都在，切了反而多一次请求
+//     · HomeRecommendations：默认页（section='Home'）
+//     · AuthGate：未登录时首屏就渲染，必须同步
+//     · AddToPlaylistModal：SongRow 的「+」随时触发，且体量小
+//     · LoadingState：懒加载 chunks 自己的 fallback 要用，**不能自己也懒加载**
+//   【改成 lazy() — 只在进那个页面时才加载】
+//     其余 8 个页面组件。
+//
+// ★ 关键约束：`LoadingState` 必须是**静态**的 —— 它是下面 `<Suspense fallback>`
+//   的内容。若把它也 lazy 掉，fallback 本身又需要异步加载，会出现
+//   「fallback 的 fallback」死循环式空屏。
+//
+// ★ 另一点：Suspense 边界只包**内容区**，不包 Sidebar/TopBar/PlayerBar ——
+//   否则切页时整个外壳闪一下，体验比不拆更差。
+const Download = lazy(() => import('./components/Download'));
+const Settings = lazy(() => import('./components/Settings'));
+const MyPlaylist = lazy(() => import('./components/MyPlaylist'));
+const RecentlyPlayed = lazy(() => import('./components/RecentlyPlayed'));
+const LocalMusic = lazy(() => import('./components/LocalMusic'));
+const OfflineMusic = lazy(() => import('./components/OfflineMusic'));
+const UserManagement = lazy(() => import('./components/UserManagement'));
+const HelpPage = lazy(() => import('./components/HelpPage'));
+const MorePage = lazy(() => import('./components/MorePage'));
 import CredentialNotice from './components/CredentialNotice';
 import ErrorBoundary from './ui/ErrorBoundary';
 import { useBackNavigation, setRouteBackResolver } from './contexts/backNavigation.js';
@@ -174,21 +197,33 @@ function AppShell() {
                 动画定义在 index.css 的 .fluent-page-enter(容器淡入 + 内部块错峰 3px 上浮,
                 var(--motion-base)=180ms),并已被 prefers-reduced-motion 覆盖。
                 设计换过三次,来龙去脉见 index.css「Fluent 动效系统」与 fluentMotion.test.mjs 第 6 节。 */}
-            <div
-              key={`${section}/${activeSubPath || ''}`}
-              className="container mx-auto px-4 md:px-6 py-6 max-w-6xl fluent-page-enter"
+            <Suspense
+              fallback={(
+                <div className="container mx-auto px-4 md:px-6 py-6 max-w-6xl">
+                  <LoadingState
+                    title="正在载入"
+                    detail="首次进入这个页面需要加载对应代码"
+                    rows={3}
+                  />
+                </div>
+              )}
             >
-              {section === 'Home' && <HomeRecommendations />}
-              {section === 'Download' && <Download downloadRequest={downloadRequest} />}
-              {section === 'Settings' && <Settings />}
-              {section === 'MyPlaylist' && <MyPlaylist />}
-              {section === 'Recent' && <RecentlyPlayed />}
-              {section === 'Local' && <LocalMusic />}
-              {section === 'Offline' && <OfflineMusic />}
-              {section === 'Users' && isAdmin && <UserManagement />}
-              {section === 'FAQ' && <HelpPage />}
-              {section === 'More' && <MorePage onNavigate={navigate} />}
-            </div>
+              <div
+                key={`${section}/${activeSubPath || ''}`}
+                className="container mx-auto px-4 md:px-6 py-6 max-w-6xl fluent-page-enter"
+              >
+                {section === 'Home' && <HomeRecommendations />}
+                {section === 'Download' && <Download downloadRequest={downloadRequest} />}
+                {section === 'Settings' && <Settings />}
+                {section === 'MyPlaylist' && <MyPlaylist />}
+                {section === 'Recent' && <RecentlyPlayed />}
+                {section === 'Local' && <LocalMusic />}
+                {section === 'Offline' && <OfflineMusic />}
+                {section === 'Users' && isAdmin && <UserManagement />}
+                {section === 'FAQ' && <HelpPage />}
+                {section === 'More' && <MorePage onNavigate={navigate} />}
+              </div>
+            </Suspense>
           </main>
         </div>
       </div>
