@@ -166,19 +166,21 @@ test('行切换动画时长 300ms（旧版 duration.slower），不是 380', () 
   assert.doesNotMatch(overlayJs, /TRANSITION_MS = 380/);
 });
 
-test('描边必须用 8 向 text-shadow，禁用 -webkit-text-stroke', () => {
+test('文字衬托必须是梯度光晕（软），不得用硬描边', () => {
   const cssCode = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.match(cssCode, /--outline-color:\s*rgba\(5, 6, 8, 0\.82\)/);
 
-  // ★★ 用户实测「文本有锯齿」→ 禁用 -webkit-text-stroke。
-  //   根因：Chromium 对 `paint-order: stroke fill` **只解析第一个值**
-  //   （实测 getComputedStyle().paintOrder === "stroke"），于是描边画在填充之上,
-  //   等于给每个字盖一圈 1px 黑边 → 字变脏、锯齿感明显；
-  //   叠加 DPR=1.5 时描边是 1.5 物理像素（非整数），边缘必然发虚。
+  // ★★ 用户实测两轮反馈，最终定案：
+  //   ① 「文本有锯齿」→ 禁用 -webkit-text-stroke
+  //      （Chromium 只解析 paint-order 第一个值，描边画在填充之上）；
+  //   ② 「描边太硬了，弄那种察觉不出来的很软的」→ 8 向零模糊阴影也不行
+  //      （±1.2px 无模糊 = 硬边，笔画转折处生硬）。
+  //
+  // 现方案：4 层**带模糊**的阴影，半径 0.5→2→4→8px、浓度 0.55→0.42→0.28→0.16，
+  // 从字形边缘向外平滑衰减 —— 观感是自然暗晕，不是框。
   assert.doesNotMatch(
     cssCode,
     /-webkit-text-stroke:/,
-    '不要再用 -webkit-text-stroke：Chromium 忽略 paint-order 的第二个值，描边会盖住填充',
+    '不得用 -webkit-text-stroke：Chromium 忽略 paint-order 第二个值，描边会盖住填充',
   );
   assert.doesNotMatch(
     cssCode,
@@ -186,26 +188,34 @@ test('描边必须用 8 向 text-shadow，禁用 -webkit-text-stroke', () => {
     'paint-order 在 Chromium 里只取第一个值，写它没有意义',
   );
 
-  // 改用 8 向 text-shadow 模拟外描边（阴影永远在文字之下 = 描边在外）
-  assert.match(cssCode, /--lyric-outline-shadow:/, '需要 8 向阴影变量');
-  assert.match(cssCode, /--lyric-outline-shadow-secondary:/, '副行需要自己的（更细）描边');
-  assert.match(cssCode, /text-shadow:\s*var\(--lyric-outline-shadow\)/, '主行使用该变量');
-  assert.match(
+  // 不得再用「零模糊 + 固定偏移」的硬描边（形如 `±1.2px 0 0`）
+  assert.doesNotMatch(
     cssCode,
-    /text-shadow:\s*var\(--lyric-outline-shadow-secondary\)/,
-    '副行使用副行版本',
+    /-?1\.2px\s+0\s+0\s+rgba/,
+    '不得用 1.2px 零模糊硬描边（用户反馈「太硬」）',
   );
-  // 8 个方向：±1.2px 的 8 种组合
-  for (const dir of ['-1.2px 0', '1.2px 0', '0 -1.2px', '0 1.2px',
-    '-1.2px -1.2px', '1.2px -1.2px', '-1.2px 1.2px', '1.2px 1.2px']) {
-    assert.ok(
-      cssCode.includes(`${dir} 0 var(--outline-color)`),
-      `缺少方向 ${dir} 的描边阴影`,
-    );
+
+  // 必须是 4 层、带模糊半径（第三个数 > 0）的梯度光晕
+  assert.match(cssCode, /--lyric-outline-shadow:/, '需要主行光晕变量');
+  assert.match(cssCode, /--lyric-outline-shadow-secondary:/, '需要副行光晕变量');
+  assert.match(cssCode, /text-shadow:\s*var\(--lyric-outline-shadow\)/);
+  assert.match(cssCode, /text-shadow:\s*var\(--lyric-outline-shadow-secondary\)/);
+
+  const mainShadow = cssCode.match(/--lyric-outline-shadow:\s*([\s\S]*?);/);
+  assert.ok(mainShadow, '找不到主行光晕定义');
+  const layers = mainShadow[1].match(/0 0 [\d.]+px rgba\(/g) || [];
+  assert.equal(layers.length, 4, `主行光晕应为 4 层，实际 ${layers.length} 层`);
+
+  // 半径必须递增（梯度扩散），且最内层很小、最外层较大
+  const radii = [...mainShadow[1].matchAll(/0 0 ([\d.]+)px rgba/g)].map((m) => Number(m[1]));
+  assert.deepEqual(radii, [0.5, 2, 4, 8], `光晕半径应为 0.5/2/4/8，实际 ${radii.join('/')}`);
+
+  // 浓度必须递减（由内向外变淡）
+  const alphas = [...mainShadow[1].matchAll(/rgba\(5, 6, 8, ([\d.]+)\)/g)].map((m) => Number(m[1]));
+  assert.equal(alphas.length, 4, '每层都要有透明度');
+  for (let i = 1; i < alphas.length; i += 1) {
+    assert.ok(alphas[i] < alphas[i - 1], `浓度应逐层递减，实际 ${alphas.join('/')}`);
   }
-  // 旧版那个 blur=0 的硬阴影要保留（让字从背景里顶出来）
-  assert.ok(cssCode.includes('0 1px 0 var(--shadow-color)'), '硬阴影应保留');
-  assert.doesNotMatch(cssCode, /text-shadow:\s*0 1px 2px/, 'blur 必须为 0');
 });
 
 test('副行字号是主行 × 0.67 且最小 16px', () => {

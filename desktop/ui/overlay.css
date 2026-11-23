@@ -21,17 +21,18 @@
  *              ★ 曾经写成 `0 1px 2px`（blur 2px）—— 这是「字发糊」的直接原因：
  *                旧版 blur 就是 0，是**硬阴影**，只负责把字从背景里"顶"出来，不糊边。
  *
- * 为什么要描边：白字压在浅色壁纸上会彻底看不见。旧版用 Qt 的 Text.Outline。
+ * 为什么要衬托：白字压在浅色壁纸上会彻底看不见（实测对比度仅 1.01~1.16:1）。
+ * 旧版用 Qt 的 Text.Outline（一道细描边）。Web 侧两条路都试过、都有问题：
  *
- * ★★ Web 侧不能用 `-webkit-text-stroke`（用户实测：「文本有锯齿」）：
- *   Chromium 对 `paint-order: stroke fill` **只解析第一个值**（实测
- *   `getComputedStyle(...).paintOrder === "stroke"`），于是描边被画在填充**之上**,
- *   等于给每个字盖了一圈 1px 黑边 —— 字变脏、边缘发毛、锯齿感明显。
- *   叠加 DPR=1.5 时描边是 **1.5 物理像素**（非整数），抗锯齿边缘必然发虚。
+ *   ✗ `-webkit-text-stroke`：Chromium 对 `paint-order: stroke fill` **只解析第一个值**
+ *     （实测 `getComputedStyle(...).paintOrder === "stroke"`），描边画在填充**之上**,
+ *     等于给每个字盖一圈黑边 —— 字变脏、边缘发毛、锯齿明显。
+ *   ✗ 8 向零模糊阴影（`±1.2px 0 0`）：描边确实在外了，但**零模糊 = 硬边**，
+ *     笔画转折处生硬（用户反馈「描边太硬了」）。
  *
- *   改用 **8 向 text-shadow 模拟外描边**（实测截图证明字干净、描边确实在外）：
- *   阴影永远画在文字**之下**，天然等价于「描边在外、填充在内」，
- *   且不参与字形栅格化，不会污染笔画内部。
+ *   ✓ **梯度光晕**（现方案）：4 层带模糊的阴影，半径 0.5→2→4→8px、
+ *     浓度 0.55→0.42→0.28→0.16，从字形边缘向外平滑衰减。
+ *     观感是一层察觉不到的自然暗晕，把字从背景里"托"起来，而不是"框"起来。
  */
 
 :root {
@@ -41,41 +42,40 @@
   --lyric-font-family: "Microsoft YaHei UI", "Segoe UI", "PingFang SC", sans-serif;
   --played-color: #ffc6c6;
   --unplayed-color: #eeeeee;
-  --outline-color: rgba(5, 6, 8, 0.82);
-  --shadow-color: rgba(5, 6, 8, 0.3);
 
-  /* ---- 外描边：8 向 text-shadow（替代 -webkit-text-stroke）----
+  /* ---- 文字与背景的分离：**梯度光晕**，不是描边 ----
    *
-   * 偏移量 1.2px 是"够盖住笔画外缘、又不糊字形"的折中（实测截图对比）。
-   * 最后一条 `0 1px 0 var(--shadow-color)` 是旧版那个 blur=0 的硬阴影，
-   * 让字从背景里"顶"出来。
+   * ★ 为什么必须有它（实测数据）：
+   *   未播放色 #EEEEEE 在浅色壁纸上的 WCAG 对比度只有
+   *     纯白 #FFFFFF 1.16:1 ／ 浅灰 #F5F3F0 1.05:1 ／ 米白 #F0EDE8 1.01:1
+   *   大字要求 ≥3:1 —— 也就是**完全看不见**。所以"不给任何衬托"不可行。
    *
-   * ★ 为什么不用 -webkit-text-stroke + paint-order：
-   *   Chromium 只解析 paint-order 的第一个值（实测计算值是 `stroke`），
-   *   描边被画在填充之上 → 字变脏、锯齿明显。阴影永远在文字之下，
-   *   天然等价于「描边在外、填充在内」。 */
+   * ★ 但也不能用硬描边（用户反馈「描边太硬了，弄那种察觉不出来的很软的」）：
+   *   8 向 `±1.2px 0 0` 的阴影是**零模糊**的，等于给每个字贴一圈黑边，
+   *   笔画转折处尤其生硬。
+   *
+   * ★ 现方案：**4 层梯度模糊**，半径由内向外 0.5 → 2 → 4 → 8px，
+   *   浓度对应 0.55 → 0.42 → 0.28 → 0.16。
+   *   从字形边缘向外浓度平滑衰减，没有任何"边"，
+   *   观感是一层自然的暗色光晕，把字从背景里托起来而不是框起来。
+   *   内层（0.5px / 0.55）保证近处足够压住背景，外层（8px / 0.16）负责柔化过渡。
+   *
+   * ★ 为什么不回到 -webkit-text-stroke：
+   *   Chromium 只解析 `paint-order` 的第一个值（实测计算值是 `stroke`），
+   *   描边被画在填充之上 → 字变脏、锯齿明显（上一轮已实测确认）。
+   *   阴影永远在文字之下，且模糊本身就是柔化，不会有硬边。 */
   --lyric-outline-shadow:
-    -1.2px 0 0 var(--outline-color),
-    1.2px 0 0 var(--outline-color),
-    0 -1.2px 0 var(--outline-color),
-    0 1.2px 0 var(--outline-color),
-    -1.2px -1.2px 0 var(--outline-color),
-    1.2px -1.2px 0 var(--outline-color),
-    -1.2px 1.2px 0 var(--outline-color),
-    1.2px 1.2px 0 var(--outline-color),
-    0 1px 0 var(--shadow-color);
+    0 0 0.5px rgba(5, 6, 8, 0.55),
+    0 0 2px rgba(5, 6, 8, 0.42),
+    0 0 4px rgba(5, 6, 8, 0.28),
+    0 0 8px rgba(5, 6, 8, 0.16);
 
-  /* 副行字号更小，描边相应收细（否则小字被糊住）—— 由 JS 按缩放系数覆盖。 */
+  /* 副行字号更小，光晕半径与浓度等比收小（否则小字被糊住）。 */
   --lyric-outline-shadow-secondary:
-    -0.8px 0 0 var(--outline-color),
-    0.8px 0 0 var(--outline-color),
-    0 -0.8px 0 var(--outline-color),
-    0 0.8px 0 var(--outline-color),
-    -0.8px -0.8px 0 var(--outline-color),
-    0.8px -0.8px 0 var(--outline-color),
-    -0.8px 0.8px 0 var(--outline-color),
-    0.8px 0.8px 0 var(--outline-color),
-    0 1px 0 var(--shadow-color);
+    0 0 0.5px rgba(5, 6, 8, 0.52),
+    0 0 1.5px rgba(5, 6, 8, 0.38),
+    0 0 3px rgba(5, 6, 8, 0.24),
+    0 0 6px rgba(5, 6, 8, 0.14);
 
   /* 逐字填色的两个量由 JS 按行单独写入（每行各一套，不能共用）。
    * 默认值保证首帧不至于炸成 0 宽或满宽。 */
