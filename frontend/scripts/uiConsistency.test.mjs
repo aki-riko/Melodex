@@ -752,6 +752,44 @@ check('禁止 text-[NNpx] 任意字号，用 type-* 令牌', () => {
   );
 });
 
+// ---------- ⑫ 同一文件不得 type-body 与纯 text-sm 并存 ----------
+
+check('同一文件不得 type-body 与纯 text-sm 并存（两套 14px 行高）', () => {
+  // ★ 实测（CDP 量每个元素的 fontSize+lineHeight）：
+  //   type-body = 14px/1.5 = 21px，text-sm = 14px/1.25 = 20px。
+  //   同一页面并存 → 同为 14px 的文字出现两套行高，垂直节奏散掉
+  //   （设置页实测 14px 有 20px×200 与 21px×15 两套）。
+  //
+  // ★ 判定只在**同一文件内**：不同组件各用一套是可以的（如 ui/Button.js
+  //   全程 text-sm，内部自洽）。真正的问题是同一个文件里混用。
+  //
+  // ★ 带 leading-* 的跳过 —— 那是刻意指定行高（如卡片标题 leading-snug）。
+  const offenders = [];
+  for (const file of files) {
+    const rel = file.replace(root, '').replace(/\\/g, '/');
+    const lines = readFileSync(file, 'utf8').split('\n')
+      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));
+
+    const hasTypeBody = lines.some((l) => /\btype-body\b/.test(l));
+    if (!hasTypeBody) continue;
+
+    const badLines = [];
+    lines.forEach((l, i) => {
+      if (/leading-/.test(l)) return;
+      if (/\btype-body\b/.test(l)) return;
+      if (/(?<![\w-])text-sm(?![\w-])/.test(l)) badLines.push(i + 1);
+    });
+    if (badLines.length) {
+      offenders.push(`${rel}  ${badLines.length} 处（行 ${badLines.slice(0, 5).join(',')}${badLines.length > 5 ? '…' : ''}）`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `同一文件里 type-body(21px) 与 text-sm(20px) 并存会让同为 14px 的文字有两套行高，应统一到 type-body：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

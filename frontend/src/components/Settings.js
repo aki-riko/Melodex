@@ -511,14 +511,14 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 <button
                   onClick={startLogin}
                   disabled={loginBusy}
-                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-3 type-body font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <QrCode size={18} />
                   {loginBusy ? '生成中' : '刷新二维码'}
                 </button>
                 <button
                   onClick={closeQRSession}
-                  className="flex-shrink-0 h-10 rounded-control border border-border bg-secondary px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="flex-shrink-0 h-10 rounded-control border border-border bg-secondary px-4 type-body font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   关闭
                 </button>
@@ -559,13 +559,13 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 onChange={(e) => setManualCookie(e.target.value)}
                 placeholder={`粘贴 ${sourceLabel(source)} 网页版登录后的完整 Cookie...`}
                 rows={5}
-                className="w-full resize-none rounded-control border border-border bg-secondary px-3 py-2 text-sm outline-none focus:border-primary"
+                className="w-full resize-none rounded-control border border-border bg-secondary px-3 py-2 type-body outline-none focus:border-primary"
               />
               <div className="mt-3 flex items-center gap-2">
                 <button
                   onClick={submitManual}
                   disabled={!manualCookie.trim()}
-                  className="flex flex-shrink-0 h-10 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-shrink-0 h-10 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-4 type-body font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <KeyRound size={18} />
                   保存 Cookie
@@ -715,7 +715,7 @@ const Settings = () => {
             <SettingsRow key={t.id}>
               <div className="flex-grow min-w-0">
                 <p className="font-semibold truncate">{t.name}</p>
-                <p className="text-sm text-muted-foreground truncate">{t.artist}{t.album ? ` · ${t.album}` : ''}</p>
+                <p className="type-body text-muted-foreground truncate">{t.artist}{t.album ? ` · ${t.album}` : ''}</p>
               </div>
               <SettingsActionButton
                 tone="danger"

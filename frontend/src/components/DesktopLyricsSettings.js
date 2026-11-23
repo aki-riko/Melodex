@@ -27,7 +27,7 @@ const SettingRow = ({ icon: Icon, title, description, children }) => (
     <div className="flex min-w-0 items-start gap-3">
       {Icon ? <Icon className="mt-0.5 flex-shrink-0 text-primary" size={18} /> : null}
       <div className="min-w-0">
-        <div className="text-sm font-medium">{title}</div>
+        <div className="type-body font-medium">{title}</div>
         <div className="mt-0.5 text-xs text-muted-foreground">{description}</div>
       </div>
     </div>
@@ -164,7 +164,7 @@ const DesktopLyricsSettings = () => {
     >
       <div className="rounded-control border border-border surface px-4">
         {!settings ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">正在读取桌面歌词设置…</div>
+          <div className="py-6 text-center type-body text-muted-foreground">正在读取桌面歌词设置…</div>
         ) : (
           <>
             {/* 1. 显示桌面歌词 */}
@@ -212,7 +212,7 @@ const DesktopLyricsSettings = () => {
               description="从适合中文歌词显示的系统字体中选择"
             >
               <select
-                className="h-9 rounded-control border border-border bg-background px-2 text-sm"
+                className="h-9 rounded-control border border-border bg-background px-2 type-body"
                 value={settings.font_preset}
                 disabled={busy}
                 onChange={(event) => commit({ font_preset: event.target.value })}
@@ -260,7 +260,7 @@ const DesktopLyricsSettings = () => {
               description="方案同时决定已播放与未播放歌词的颜色"
             >
               <select
-                className="h-9 rounded-control border border-border bg-background px-2 text-sm"
+                className="h-9 rounded-control border border-border bg-background px-2 type-body"
                 value={settings.color_scheme}
                 disabled={busy}
                 onChange={(event) => commit({ color_scheme: event.target.value })}
@@ -290,8 +290,8 @@ const DesktopLyricsSettings = () => {
         )}
       </div>
 
-      {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
-      {notice && !error ? <p className="mt-2 text-sm text-primary">{notice}</p> : null}
+      {error ? <p className="mt-2 type-body text-destructive">{error}</p> : null}
+      {notice && !error ? <p className="mt-2 type-body text-primary">{notice}</p> : null}
 
       <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
         <li>歌词窗无边框、无背景、始终置顶；鼠标悬停时显示控制条（上一首 / 播放暂停 / 下一首 / 锁定 / 关闭）。</li>

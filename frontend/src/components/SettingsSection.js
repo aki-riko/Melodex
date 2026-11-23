@@ -102,7 +102,7 @@ export function SettingsActionButton({ children, tone = 'default', className = '
       type="button"
       {...rest}
       className={cn(
-        'inline-flex h-8 flex-shrink-0 items-center justify-center gap-1.5 rounded-control px-3 text-sm transition-colors',
+        'inline-flex h-8 flex-shrink-0 items-center justify-center gap-1.5 rounded-control px-3 type-body transition-colors',
         tone === 'danger'
           ? 'bg-destructive font-semibold text-destructive-foreground hover:brightness-[0.97]'
           : 'border border-border font-medium surface-control hover:bg-secondary',
