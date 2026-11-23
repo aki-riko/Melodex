@@ -2292,7 +2292,16 @@ export const PlayerBar = () => {
                 {lyricsMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-bar" onClick={() => setLyricsMenuOpen(false)} />
-                    <div className="absolute bottom-full right-0 mb-3 w-64 overflow-hidden app-scroll bg-card border border-border rounded-lg shadow-popover z-popover animate-pop-in surface-acrylic">
+                    {/* ★ 弹窗定位（2026-11 修「点了没反应」的观感问题）：
+                        原来 `bottom-full right-0 mb-3` 会让弹窗从按钮**正上方**
+                        向上展开 163px，在 860px 高的窗口里一路顶到歌单列表中间
+                        （实测弹窗 y=631，按钮 y=806，中间隔了 175px）——
+                        用户视线在按钮上，弹窗出现在远处还压住正文，
+                        第一反应就是"点了没反应"。
+                        现在改成**贴按钮左侧向上展开**（`right-full mr-2 bottom-0`）：
+                        弹窗右边缘贴住按钮左边缘、底部与按钮对齐，
+                        视线不用离开按钮，也不遮歌单。 */}
+                    <div className="absolute bottom-0 right-full z-popover mr-2 w-64 overflow-hidden app-scroll rounded-lg border border-border bg-card shadow-popover animate-pop-in surface-acrylic">
                       <div className="border-b border-border px-3 py-2 surface-dock">
                         <span className="font-semibold text-sm">桌面歌词</span>
                       </div>

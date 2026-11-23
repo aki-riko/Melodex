@@ -1087,9 +1087,28 @@
       transparent 76%,
       hsl(var(--background) / 0.7) 100%);
 }
-/* 歌词档:封面更退后(它此时只是氛围),整屏纵向压暗,歌词居中 */
+/* 歌词档:封面更退后(它此时只是氛围),整屏纵向压暗,歌词居中
+ *
+ * ★ 2026-11 补横向渐隐（真机截图发现硬边）：
+ *   原来这里只有一层 180deg 纵向渐变 —— 没有任何横向过渡。
+ *   而背景是**两层拼的**：backdrop-art 用 `background-size: auto 100%`
+ *   只占左侧正方形区域（860px 高 → 860px 宽），右边 420px 由
+ *   backdrop-fill（`cover`，同一张图放大）接上。
+ *   两层在 x=860 处的交界**完全裸露** → 视觉上就是一条竖直硬切线，
+ *   看起来像"右边是另一张图"。
+ *
+ *   现在叠一层横向渐变，让 art 层右缘平滑融进 fill 层。
+ *   过渡带放在 52%~78%（正方形图在 16:9 屏上约占 67% 宽度），
+ *   与 disc 档的 45%~62% 对齐但更靠右 —— 因为这一档封面已经压得很暗，
+ *   过渡太早会把左侧清晰的封面也糊掉。 */
 .player-stage--lyrics .player-stage__scrim {
   background:
+    linear-gradient(90deg,
+      transparent 0%,
+      transparent 52%,
+      hsl(var(--background) / 0.55) 66%,
+      hsl(var(--background) / 0.92) 78%,
+      hsl(var(--background) / 1) 100%),
     linear-gradient(180deg,
       hsl(var(--background) / 0.82) 0%,
       hsl(var(--background) / 0.7) 50%,
