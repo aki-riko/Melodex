@@ -12,6 +12,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const parseArgs = (argv) => {
   const args = {};
@@ -86,11 +87,20 @@ const main = () => {
 };
 
 // 仅当作为脚本直接运行时执行；被测试 import 时不跑。
-if (process.argv[1] && import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`) {
-  try {
-    main();
-  } catch (error) {
-    console.error(`生成清单失败：${error.message}`);
-    process.exitCode = 1;
+//
+// ★ 不能用 `file://` + 手拼路径判断：Windows 上 `process.argv[1]` 是
+// `D:\其他项目\...`，拼出来是 `file://D:/...`（两斜杠），而 `import.meta.url`
+// 是 `file:///D:/...`（三斜杠）——字符串永不相等，main() 从来不会执行，
+// 表现为「命令退出码 0、什么都不输出、也什么都不写」。
+// 正确做法是拿 URL 反解出文件路径，再用 pathToFileURL 归一化后比较。
+if (process.argv[1]) {
+  const scriptUrl = pathToFileURL(resolve(process.argv[1])).href;
+  if (import.meta.url === scriptUrl) {
+    try {
+      main();
+    } catch (error) {
+      console.error(`生成清单失败：${error.message}`);
+      process.exitCode = 1;
+    }
   }
 }

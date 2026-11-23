@@ -16,6 +16,19 @@ import (
 //go:embed all:frontend_dist
 var frontendDistFS embed.FS
 
+// desktopReleaseFS 嵌入桌面客户端发布产物(latest.json 与安装包)。
+//
+// 为什么要单独 embed 而不是塞进 frontend_dist：
+//   ① 它不属于前端路由，混进去会被 SPA fallback 逻辑一并处理；
+//   ② 桌面更新器不携带 SSO 会话，也不该被当成页面。
+//
+// 目录默认只有 .gitkeep，真正产物在发版时放入（见 docs/desktop-release-updater.md）。
+// 目录为空时 /desktop/ 下的请求返回 404，而不是回退成 HTML 首页——
+// 后者会让更新器报 “error decoding response body”，且极难定位。
+//
+//go:embed all:desktop_release
+var desktopReleaseFS embed.FS
+
 // registerFrontend 在根路径托管 React 单页应用(SPA)。
 // 静态资源按真实路径返回;未命中的路径回退到 index.html(交给前端路由)。
 // API 路径(/api、/music)由各自的路由处理,不会进到这里。
@@ -32,6 +45,15 @@ func registerFrontend(r *gin.Engine) {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	}
 
+	// 桌面客户端发布产物（/desktop/latest.json 与安装包）。
+	//
+	// 必须**先于** SPA fallback 注册：更新器拿到的必须是静态文件或 404，
+	// 绝不能是 index.html。历史上没这个路由时请求会回退成 HTML，
+	// 表现是壳日志里一条
+	//   [WARN] update check failed: 检查更新失败：error decoding response body
+	// 而页面本身完全正常，非常难猜。
+	registerDesktopRelease(r)
+
 	// 根路径返回 SPA 入口
 	r.GET("/", serveIndex)
 
@@ -41,6 +63,12 @@ func registerFrontend(r *gin.Engine) {
 		p := c.Request.URL.Path
 		// API/后端路径未命中时不应返回前端页面,保持 404 语义。
 		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, RoutePrefix+"/") {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		// /desktop/ 属于发布产物目录：内部已处理，走到这里说明已被兜底，
+		// 同样返回 404，绝不回退成 HTML（否则更新器解析失败）。
+		if strings.HasPrefix(p, desktopReleasePrefix) {
 			c.Status(http.StatusNotFound)
 			return
 		}

@@ -103,6 +103,11 @@ services:
       MUSIC_DL_ACRCLOUD_ENDPOINT: ${MUSIC_DL_ACRCLOUD_ENDPOINT:-}
       MUSIC_DL_ACRCLOUD_ACCESS_KEY: ${MUSIC_DL_ACRCLOUD_ACCESS_KEY:-}
       MUSIC_DL_ACRCLOUD_ACCESS_SECRET: ${MUSIC_DL_ACRCLOUD_ACCESS_SECRET:-}
+      # 桌面客户端发布产物目录（/desktop/latest.json 与安装包）。
+      # 默认指向 data 卷下的 desktop-release/（随 data 持久化，重启不丢），
+      # 发版时把 latest.json 与 setup.exe 丢进宿主 ./data/desktop-release/ 即可，
+      # 无需重建镜像。目录不存在时该路由返回 404（不会退化成 HTML 首页）。
+      MELODEX_DESKTOP_RELEASE_DIR: ${MELODEX_DESKTOP_RELEASE_DIR:-/home/appuser/data/desktop-release}
 
 volumes:
   postgres_data:
