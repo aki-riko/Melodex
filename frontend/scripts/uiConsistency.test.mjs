@@ -332,6 +332,103 @@ check('设置页卡片圆角统一用 rounded-control', () => {
   );
 });
 
+// ---------- ⑦ 页面主标题必须用 type-hero 令牌 ----------
+
+check('页面主标题必须用 type-hero 令牌，不得手写字号', () => {
+  // ★ 实测（CDP 巡检 9 个页面）：
+  //   首页/搜索/本地/最近/更多/歌单 → `type-hero`（28px/800）✓
+  //   帮助页 → `text-4xl font-bold`（36px/700）✗
+  //   设置页/用户管理 → `text-3xl font-semibold`（30px/600）✗
+  //   同一套产品里三个不同的页面主标题字号，跨页翻动时明显跳。
+  //
+  // 项目本来就有字号阶梯（index.css）：type-hero 28/800、type-title 20/700、
+  // type-section 16/700、type-body。绕过去手写 Tailwind 类就是乱源。
+  //
+  // 例外：AuthGate / ErrorBoundary 的 `<h1>` 是**弹窗标题**不是页面标题，
+  //       用 type-title 是对的，所以这两个文件跳过。
+  const EXEMPT = ['src/components/AuthGate.js', 'src/ui/ErrorBoundary.js'];
+  const offenders = [];
+  for (const file of files) {
+    const rel = file.replace(root, '').replace(/\\/g, '/').replace(/^\//, '');
+    if (EXEMPT.some((e) => rel.endsWith(e.replace('src/', '')))) continue;
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/<h1[^>]*className="([^"]*)"/g)) {
+      const cls = m[1];
+      if (/type-hero/.test(cls)) continue;
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:${line}  ${cls.slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `页面主标题必须用 type-hero（28px/800），手写字号会让跨页翻动时标题大小不一：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+check('区块标题用 type-title/type-section，不得手写 text-xl/text-lg', () => {
+  // 同一批巡检：7 处已用 type-*，4 处手写（ProjectNotice / SettingsSection / UserManagement×2）。
+  // 都是「分组标题」语义，纯属漏改。
+  const offenders = [];
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    const stripped = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+      .join('\n');
+    for (const m of stripped.matchAll(/<h[23][^>]*className="([^"]*)"/g)) {
+      const cls = m[1];
+      if (/type-title|type-section|type-micro/.test(cls)) continue;
+      // h2/h3 里用 sr-only 或纯布局类的跳过
+      if (!/text-(xl|lg|base|3xl|2xl)/.test(cls)) continue;
+      const line = stripped.slice(0, m.index).split('\n').length;
+      offenders.push(`${file.replace(root, '').replace(/\\/g, '/')}:${line}  ${cls.slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `区块标题应使用 type-title(20px/700) 或 type-section(16px/700) 令牌：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+check('设置页操作按钮必须用 SettingsActionButton（保证等高）', () => {
+  // ★ 实测：同为文字按钮却渲染出 33px 和 52px 两种高度 ——
+  //   「删除」是 flex 容器里的直接子项，没写 flex-shrink-0 也没固定高度，
+  //   被 flex 拉伸到跟兄弟内容一样高。
+  //
+  // ★ 判定范围要收窄：QR 登录卡里的「扫码 / 手填 / 退出」有自己的
+  //   按钮组尺寸体系（h-8 / h-10 成组出现），不是松散的操作按钮，
+  //   所以只看「内容含中文、且没有成组 h-* 声明」的裸按钮。
+  const settingsFiles = [
+    'src/components/Settings.js',
+    'src/components/DesktopLyricsSettings.js',
+  ];
+  const offenders = [];
+  for (const rel of settingsFiles) {
+    const src = readSrc(rel);
+    // 匹配完整的 <button ...>...</button>，看它的 className 和文本
+    for (const m of src.matchAll(/<button\b([\s\S]{0,600}?)<\/button>/g)) {
+      const body = m[1];
+      const clsMatch = body.match(/className="([^"]*)"/);
+      if (!clsMatch) continue;
+      const cls = clsMatch[1];
+      // 只查「稀疏的操作按钮」：有内边距但没固定高度
+      if (!/\bpx-3\b/.test(cls)) continue;
+      if (/\bh-\d/.test(cls)) continue;          // 已固定高度
+      if (/min-w-0 items-center justify-center gap/.test(cls)) continue; // 成组的按钮组
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:${line}  ${cls.slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `设置页的文字按钮应改用 <SettingsActionButton>（统一 h-8 + flex-shrink-0，否则会被 flex 拉伸成不同高度）：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

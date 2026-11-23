@@ -106,7 +106,7 @@ const UserManagement = () => {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <h2 className="text-3xl font-semibold mb-2">用户管理</h2>
+      <h2 className="type-hero mb-2 text-foreground">用户管理</h2>
       <p className="text-muted-foreground mb-6 mt-3">管理账号、角色与开放注册开关。仅管理员可见。</p>
 
       {(msg || err) && (
@@ -129,7 +129,7 @@ const UserManagement = () => {
       </section>
 
       <section className="mb-8">
-        <h3 className="text-xl font-semibold mb-3">新建用户</h3>
+        <h3 className="type-title mb-3">新建用户</h3>
         <form onSubmit={onCreate} className="flex flex-wrap items-center gap-2">
           <input
             value={newUser.username}
@@ -159,7 +159,7 @@ const UserManagement = () => {
       </section>
 
       <section>
-        <h3 className="text-xl font-semibold mb-3">用户列表</h3>
+        <h3 className="type-title mb-3">用户列表</h3>
         {usersQuery.isLoading ? (
           <LoadingState
             title="加载用户列表"

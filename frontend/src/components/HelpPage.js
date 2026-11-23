@@ -79,7 +79,7 @@ function HelpTopic({ topic, expanded, onToggle }) {
         className="w-full cursor-pointer flex justify-between items-center gap-4 p-4 bg-muted text-left"
         aria-expanded={expanded}
       >
-        <h2 className="min-w-0 text-lg md:text-xl font-semibold">{topic.title}</h2>
+        <h2 className="type-title min-w-0">{topic.title}</h2>
         <Icon size={18} className="flex-shrink-0" />
       </button>
       {expanded && (
@@ -97,7 +97,7 @@ export default function HelpPage() {
   const [expandedTopic, setExpandedTopic] = useState(null);
   return (
     <div className="container mx-auto p-6">
-      <h1 className="text-4xl font-bold mb-8 text-center">常见问题</h1>
+      <h1 className="type-hero mb-8 text-center text-foreground">常见问题</h1>
       <div className="max-w-2xl mx-auto space-y-4">
         {HELP_TOPICS.map((topic) => (
           <HelpTopic

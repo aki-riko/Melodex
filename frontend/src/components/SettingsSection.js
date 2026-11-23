@@ -43,7 +43,7 @@ export default function SettingsSection({
       className={cn('mb-10 last:mb-0', className)}
     >
       <div className="mb-3 flex items-baseline justify-between gap-4">
-        <h3 id={headingId} className="text-xl font-semibold text-foreground">
+        <h3 id={headingId} className="type-title text-foreground">
           {title}
         </h3>
         {action}
@@ -81,5 +81,35 @@ export function SettingsRow({ children, className = '', interactive = false }) {
     >
       {children}
     </div>
+  );
+}
+
+/**
+ * 设置页里的**次级操作按钮**（刷新 / 重置 / 删除 这类文字按钮）。
+ *
+ * ★ 2026-11：实测发现同为文字按钮却渲染出两种高度 ——
+ *   「刷新」「重置位置」33px，而「删除」52px。
+ *   原因：后者是 `flex items-center` 容器里的直接子项，没写 `flex-shrink-0`
+ *   也没固定高度，于是被 flex 拉伸到跟兄弟内容一样高。
+ *   统一成 `h-8`（32px，= --size-compact）后必然等高。
+ *
+ * @param {object} props
+ * @param {'default'|'danger'} [props.tone] 视觉语气
+ */
+export function SettingsActionButton({ children, tone = 'default', className = '', ...rest }) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      className={cn(
+        'inline-flex h-8 flex-shrink-0 items-center justify-center gap-1.5 rounded-control px-3 text-sm transition-colors',
+        tone === 'danger'
+          ? 'bg-destructive font-semibold text-destructive-foreground hover:brightness-[0.97]'
+          : 'border border-border font-medium surface-control hover:bg-secondary',
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }

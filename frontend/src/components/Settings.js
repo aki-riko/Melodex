@@ -22,7 +22,7 @@ import {
 import LoadingState from './LoadingState';
 import DesktopLyricsSettings from './DesktopLyricsSettings';
 import AppearanceSettings from './AppearanceSettings';
-import SettingsSection, { SettingsRow } from './SettingsSection';
+import SettingsSection, { SettingsRow, SettingsActionButton } from './SettingsSection';
 import Portal from '../ui/Portal';
 
 const SOURCE_NOTES = {
@@ -468,7 +468,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                       <button
                         onClick={sendSodaSMS}
                         disabled={sodaSMSBusy}
-                        className="mt-3 rounded-control border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
+                        className="mt-3 h-8 flex-shrink-0 rounded-control border border-primary bg-primary px-3 font-medium text-primary-foreground disabled:opacity-50"
                       >
                         {sodaSMSBusy ? '确认中…' : '我已发送'}
                       </button>
@@ -480,7 +480,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                         <button
                           onClick={sendSodaSMS}
                           disabled={sodaSMSBusy}
-                          className="mt-3 rounded-control border border-primary bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50"
+                          className="mt-3 h-8 flex-shrink-0 rounded-control border border-primary bg-primary px-3 font-medium text-primary-foreground disabled:opacity-50"
                         >
                           {sodaSMSBusy ? '发送中…' : '发送验证码'}
                         </button>
@@ -496,7 +496,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                           <button
                             onClick={validateSodaSMS}
                             disabled={sodaSMSBusy}
-                            className="rounded-control border border-primary bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"
+                            className="h-8 flex-shrink-0 rounded-control border border-primary bg-primary px-3 font-medium text-primary-foreground disabled:opacity-50"
                           >
                             {sodaSMSBusy ? '验证中…' : '确认'}
                           </button>
@@ -617,7 +617,7 @@ const Settings = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <h2 className="text-3xl font-semibold mb-2 text-foreground">设置 · Settings</h2>
+      <h2 className="type-hero mb-2 text-foreground">设置 · Settings</h2>
       <p className="text-muted-foreground mb-6 mt-3">
         {isAdmin
           ? '扫码登录各平台以解锁会员/无损音质(全局共享)，管理你的本地音乐。'
@@ -694,12 +694,9 @@ const Settings = () => {
           localMusic.data && !localMusic.data.exists ? '（目录不存在）' : ''
         }`}
         action={(
-          <button
-            onClick={() => localMusic.refetch()}
-            className="rounded-control border border-border px-3 py-1.5 text-sm font-medium surface-control transition-colors hover:bg-secondary"
-          >
+          <SettingsActionButton onClick={() => localMusic.refetch()}>
             刷新
-          </button>
+          </SettingsActionButton>
         )}
       >
         {localMusic.isLoading && (
@@ -720,12 +717,12 @@ const Settings = () => {
                 <p className="font-semibold truncate">{t.name}</p>
                 <p className="text-sm text-muted-foreground truncate">{t.artist}{t.album ? ` · ${t.album}` : ''}</p>
               </div>
-              <button
+              <SettingsActionButton
+                tone="danger"
                 onClick={() => handleDeleteLocal(t.id)}
-                className="rounded-control bg-destructive px-3 py-1.5 text-sm font-semibold text-destructive-foreground transition-colors hover:brightness-[0.97]"
               >
                 删除
-              </button>
+              </SettingsActionButton>
             </SettingsRow>
           ))}
         </div>}

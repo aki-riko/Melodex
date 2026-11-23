@@ -17,7 +17,7 @@ export default function ProjectNotice() {
         className="w-full cursor-pointer flex justify-between items-center gap-4 p-4 bg-muted text-left"
         aria-expanded={expanded}
       >
-        <h2 className="min-w-0 text-lg md:text-xl font-semibold text-foreground">项目与开源说明</h2>
+        <h2 className="type-title min-w-0 text-foreground">项目与开源说明</h2>
         <Icon size={18} className="flex-shrink-0 text-foreground" />
       </button>
       {expanded && (

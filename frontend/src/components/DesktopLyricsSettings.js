@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MonitorUp, Lock, Type, Palette, Move, Eye } from 'lucide-react';
-import SettingsSection from './SettingsSection';
+import SettingsSection, { SettingsActionButton } from './SettingsSection';
 import {
   isDesktopShell,
   getLyricsSettings,
@@ -279,14 +279,12 @@ const DesktopLyricsSettings = () => {
               title="桌面歌词位置"
               description={positionText}
             >
-              <button
-                type="button"
-                className="rounded-control border border-border px-3 py-1.5 text-sm hover:bg-muted"
+              <SettingsActionButton
                 disabled={busy}
                 onClick={handleReset}
               >
                 重置位置
-              </button>
+              </SettingsActionButton>
             </SettingRow>
           </>
         )}
