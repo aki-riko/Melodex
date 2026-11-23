@@ -686,23 +686,36 @@ check('禁止裸 rounded，用 rounded-control 或 rounded-full', () => {
   // 裸 `rounded` = 硬编码 0.25rem，绕过 `--radius-control`。
   // AGENTS.md 明确：可点控件用 rounded-control（随主题变）、圆形装饰用 rounded-full。
   //
-  // ★ 必须**同时扫 className="..." 和 className={`...`}**（以及三元里的单引号串）——
-  //   第一版只扫双引号形式，结果 LoadingState 骨架屏的 3 处
-  //   `h-3 rounded loading-shimmer` 全漏了，部署后实测才暴露。
+  // ★ 必须覆盖**三种** className 写法，缺一种就会漏：
+  //   ① className="..."
+  //   ② className={`...`}
+  //   ③ className={cn('...', COND && '...', ...)}   ← SongRow 徽章用的就是这种
+  //   ③ 最初漏了，导致部署后「本地/最近」两页仍出现 185/289 处裸 rounded
+  //   ——因为一个徽章组件被列表渲染了上百次。**静态扫描漏一处，运行时就放大成上百处**。
   const offenders = [];
   for (const file of files) {
     const rel = file.replace(root, '').replace(/\\/g, '/');
-    const src = readFileSync(file, 'utf8')
+    const src = readFileSync(file, 'utf8');
+    const stripped = src
       .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
 
-    for (const m of src.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
-      const cls = m[1] || m[2] || '';
-      // 找独立的 rounded（不是 rounded-md / rounded-full / rounded-control ...）
-      if (!/(?:^|[\s"'])rounded(?![\w-])/.test(cls)) continue;
-      const line = src.slice(0, m.index).split('\n').length;
-      offenders.push(`${rel}:~${line}  ${cls.replace(/\s+/g, ' ').slice(0, 55)}`);
+    const report = (str, idx) => {
+      if (!/(?:^|[\s"'])rounded(?![\w-])/.test(str)) return;
+      const line = stripped.slice(0, idx).split('\n').length;
+      offenders.push(`${rel}:~${line}  ${str.replace(/\s+/g, ' ').slice(0, 55)}`);
+    };
+
+    // ① ② className="..." / className={`...`}
+    for (const m of stripped.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+      report(m[1] || m[2] || '', m.index);
+    }
+    // ③ className={cn('...', ...)} / className={cn(`...`, ...)} 等任意函数包裹
+    for (const m of stripped.matchAll(/className=\{(?:cn|clsx|classNames)\(([\s\S]{0,600}?)\)\}/g)) {
+      for (const lit of m[1].matchAll(/'([^']*)'|`([^`]*)`/g)) {
+        report(lit[1] || lit[2] || '', m.index);
+      }
     }
   }
   assert.deepEqual(

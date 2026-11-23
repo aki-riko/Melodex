@@ -65,7 +65,7 @@ const BADGE_TONES = {
 const Badge = ({ tone = 'neutral', title, className = '', children }) => (
   <span
     title={title}
-    className={cn('rounded px-1.5 py-0.5 type-micro font-semibold whitespace-nowrap', BADGE_TONES[tone], className)}
+    className={cn('rounded-control px-1.5 py-0.5 type-micro font-semibold whitespace-nowrap', BADGE_TONES[tone], className)}
   >
     {children}
   </span>
