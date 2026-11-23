@@ -360,7 +360,13 @@ assert.match(
     '整屏封面不得 scale 放大 —— inset:0 + cover 已铺满,放大只会更糊',
   );
 
-  // ② 渐隐层:**50% 处硬分界**(用户看图圈出位置:"就是50%就要分界线了")
+  // ② 渐隐层:**以 50% 为中心的柔和渐变**(不是硬边)
+  //
+  // 这条改过两次,别再来回折腾:
+  //   ① 用户「就是50%就要分界线了」+ 圈图 → 意思是歌词区**从 50% 开始**;
+  //      我误做成 CSS 硬切(49.9%/50% 成对色标),用户回「不是特么让你直接硬切啊」。
+  //   ② 网易云截图:封面是**平滑没入暗处**的,没有任何刀切边。
+  // 所以判据是:50% 处 alpha 约在一半左右(过渡中点),且**相邻色标之间不出现大跳变**。
   const scrim = css.match(/\.player-stage__scrim\s*\{([\s\S]*?)\n\}/);
   assert.ok(scrim, '缺少 .player-stage__scrim —— "一半不透明、一半渐隐"就是这一层');
   assert.match(
@@ -368,7 +374,6 @@ assert.match(
     /linear-gradient\(90deg/,
     '分界必须是**横向** 90deg 渐变(左清晰 → 右压暗)',
   );
-  // 抽出横向渐变的色标,验证 50% 处是跳变而不是缓慢过渡
   {
     const lines = scrim[1].split('\n');
     let inH = false;
@@ -381,29 +386,46 @@ assert.match(
       const a = line.match(/\/\s*([\d.]+)\s*\)/);
       if (at && a) stops.push({ at: Number(at[1]), alpha: Number(a[1]) });
     }
-    assert.ok(stops.length >= 3, '渐隐层色标解析失败(至少要 3 个)');
-    const beforeSplit = stops.find((s) => s.at >= 48 && s.at < 50);
-    const atSplit = stops.find((s) => s.at === 50);
-    assert.ok(beforeSplit, '缺少 50% 之前紧邻的色标(硬切需要成对写:49.9% 与 50%)');
-    assert.ok(atSplit, '缺少 50% 处的色标 —— 分界线必须正好在 50%');
+    assert.ok(stops.length >= 5, `渐隐层色标太少(${stops.length} 个),过渡会显得生硬`);
+
+    // ① 必须有跨越 50% 的过渡:找到 50% 前后最近的色标并插值
+    const before = [...stops].reverse().find((s) => s.at <= 50);
+    const after = stops.find((s) => s.at >= 50);
+    assert.ok(before && after, '必须有跨越 50% 的色标(过渡中心要在正中)');
+    const midAlpha = before.at === after.at
+      ? before.alpha
+      : before.alpha + ((50 - before.at) / (after.at - before.at)) * (after.alpha - before.alpha);
     assert.ok(
-      atSplit.alpha - beforeSplit.alpha >= 0.6,
-      `50% 处的跳变只有 ${(atSplit.alpha - beforeSplit.alpha).toFixed(2)},`
-      + '看起来仍是缓慢渐变而不是分界线(应该写成 49.9%/50% 成对色标)',
+      midAlpha >= 0.45 && midAlpha <= 0.8,
+      `50% 处 alpha≈${midAlpha.toFixed(2)} 不在 0.45~0.8 —— 过渡中心应大约"一半不透明"`,
     );
-    // 左半必须基本清晰(封面要能认出来)
+
+    // ② 不得有硬切:相邻色标的 alpha 跳变必须温和(硬切那次是 +0.82)
+    for (let i = 1; i < stops.length; i += 1) {
+      const jump = stops[i].alpha - stops[i - 1].alpha;
+      assert.ok(
+        jump <= 0.4,
+        `${stops[i - 1].at}%→${stops[i].at}% 处 alpha 跳变 ${jump.toFixed(2)} 太大 —— 那是硬切,`
+        + '网易云是平滑过渡(「不是特么让你直接硬切啊」)',
+      );
+    }
+
+    // ③ 两端方向:左端要清晰(封面可辨),右端要足够暗(歌词读得清)
+    assert.ok(stops[0].alpha <= 0.15, `左端 alpha=${stops[0].alpha} 偏大 —— 封面一开始就被压暗`);
     assert.ok(
-      beforeSplit.alpha <= 0.2,
-      `分界前 alpha=${beforeSplit.alpha} 偏大 —— 左半封面被压暗了(用户要的是清晰封面)`,
+      stops[stops.length - 1].alpha >= 0.9,
+      `右端 alpha=${stops[stops.length - 1].alpha} 偏小 —— 亮封面会吞掉歌词`,
     );
-    // 右半必须足够实,歌词才读得清
-    assert.ok(
-      atSplit.alpha >= 0.85,
-      `分界后 alpha=${atSplit.alpha} 偏小 —— 右半压不够,歌词会看不清`,
-    );
+    // ④ 单调递增(不能忽明忽暗)
+    for (let i = 1; i < stops.length; i += 1) {
+      assert.ok(
+        stops[i].alpha >= stops[i - 1].alpha - 0.01,
+        `${stops[i].at}% 处比前一色标更透明 —— 渐隐出现回跳`,
+      );
+    }
   }
 
-  // ②b 歌词区必须正好从屏幕 50% 开始,与分界线重合
+  // ②b 歌词区必须**从屏幕 50% 开始**(与过渡中点重合)
   const discLyrics = css.match(/\.player-stage--disc \.player-stage__lyrics--desktop\s*\{([\s\S]*?)\n\}/);
   assert.ok(discLyrics, '缺少沉浸档歌词区样式');
   assert.match(discLyrics[1], /text-align:\s*left/, '沉浸档歌词应左对齐');
@@ -411,15 +433,14 @@ assert.match(
     discLyrics[1],
     /width:\s*50vw/,
     '歌词区宽度必须是 50vw —— 用 % 是相对(去掉了 padding 的)父容器算的,'
-    + '起点会偏离屏幕正中,与分界线对不上',
+    + '起点会偏离屏幕正中',
   );
-  // 沉浸档下 body 不得再留左右 padding(否则 50vw 的起点仍会偏移)
   const discBody = css.match(/\.player-stage--disc \.player-stage__body\s*\{([\s\S]*?)\n\}/);
   assert.ok(discBody, '缺少沉浸档 body 规则');
   assert.match(
     discBody[1],
     /padding:\s*0/,
-    '沉浸档 body 必须 padding:0 —— 留着左右 padding 会让歌词起点偏离 50% 分界线',
+    '沉浸档 body 必须 padding:0 —— 留着左右 padding 会让歌词起点偏离 50%',
   );
 
   // ③ 操作全部在底栏:底栏必须有信息区 + 进度 + 控制三部分
