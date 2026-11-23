@@ -94,6 +94,15 @@ function PlaylistCard({ playlist, onOpen, showSource = false, className = '' }) 
 
 // 「全部推荐」:把 5 个源的推荐打散混排,再按源分组展示。
 // 混排是为了让首屏一眼能看到"不止两个源" —— 纯分组时 kugou/kuwo/migu 会被压到很下面。
+//
+// ★ 2026-11:混排行**必须设上限**（MIXED_ROW_LIMIT）。
+//   实测前：140 张卡片全部渲染进一行横向滚动，`scrollWidth / clientWidth` = 24.5 倍，
+//   即**要横向滚 24 屏**才能看完。一屏只显示 6 张 —— 实际没人会滑这么远，
+//   那 120 张纯属浪费 DOM 与滚动距离（首页 DOM 元素 3306 个，卡片占大头）。
+//   18 张 = 3 屏，覆盖了「多源混合」的表达意图，又保留了横向浏览的合理边界。
+//   完整的 140 张仍可从下面的按源分组（每组 30 张）与「分类浏览」看到，内容不丢。
+const MIXED_ROW_LIMIT = 18;
+
 function aggregateTabs(tabs) {
   const mixed = [];
   const seen = new Set();
@@ -105,10 +114,11 @@ function aggregateTabs(tabs) {
   }
   // 按各源第 1 张、第 2 张……交错,得到视觉上"多源混合"的一行
   const maxLen = Math.max(0, ...groups.map((g) => g.playlists.length));
-  for (let i = 0; i < maxLen; i += 1) {
+  for (let i = 0; i < maxLen && mixed.length < MIXED_ROW_LIMIT; i += 1) {
     for (const g of groups) {
       const pl = g.playlists[i];
       if (!pl) continue;
+      if (mixed.length >= MIXED_ROW_LIMIT) break;
       const key = `${pl.source}-${pl.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -341,7 +351,17 @@ export default function HomeRecommendations() {
 
   const tabs = (data?.tabs || []).filter((tab) => (tab.playlists || []).length > 0 || tab.error);
   const { mixed, groups } = useMemo(() => aggregateTabs(tabs), [data]);
-  const totalCount = mixed.length;
+  // ★ 副标题里的「140 张」必须是**真实总数**，不是混排行的条数。
+  //   混排行有个上限（MIXED_ROW_LIMIT=18），直接用它会把「来自 5 个源的 140 张歌单」
+  //   错写成「18 张」—— 用户会以为内容少了。
+  //   真实总数从各源分组累加，并去掉跨源重复。
+  const totalCount = useMemo(() => {
+    const keys = new Set();
+    for (const g of groups) {
+      for (const pl of g.playlists) keys.add(`${pl.source}-${pl.id}`);
+    }
+    return keys.size;
+  }, [groups]);
   const okSourceCount = groups.length;
 
   // ⚠️ 所有 hook 必须在这行「提前返回」之前调用完。
@@ -394,13 +414,18 @@ export default function HomeRecommendations() {
 
       {!isLoading && totalCount > 0 && (
         <div className="space-y-7">
-          {/* 混合推荐:首屏统一露出一行,避免 3 个源被压在折叠线以下 */}
+          {/* 混合推荐:首屏统一露出一行,避免 3 个源被压在折叠线以下
+              ★ 这一行只放前 MIXED_ROW_LIMIT 张（18 = 3 屏），
+                完整的在各源分组与「分类浏览」里 —— hint 要说明，
+                否则用户会以为总数就是这 18 张。 */}
           <section aria-labelledby="home-mixed">
             <SectionHeader
               id="home-mixed"
               title="为你推荐"
               count={`${totalCount} 张`}
-              hint="各源推荐混排"
+              hint={mixed.length < totalCount
+                ? `各源推荐混排 · 先展示 ${mixed.length} 张`
+                : '各源推荐混排'}
             />
             <ScrollRow label="为你推荐">
               {mixed.map((pl) => (

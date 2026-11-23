@@ -798,6 +798,54 @@ check('同一文件不得 type-body 与纯 text-sm 并存（两套 14px 行高�
   );
 });
 
+// ---------- ⑬ 首页混排行必须有卡片上限 ----------
+
+check('首页「为你推荐」混排行必须有卡片上限', () => {
+  // ★ 实测问题：混排行把 5 个源的**全部**歌单（140 张）塞进一行横向滚动，
+  //   scrollWidth/clientWidth = 24.5 倍 → 要横向滚 **24 屏**才能看完。
+  //   一屏只显示 6 张，实际没人会滑这么远；首页 DOM 元素 3306 个，卡片占大头。
+  //
+  // 修法：MIXED_ROW_LIMIT = 18（3 屏），并保证：
+  //   ① 副标题的「N 张」是**真实总数**（从分组累加去重），不是混排条数
+  //   ② hint 在本行被截断时提示「先展示 N 张」，否则用户会以为内容就这么多
+  const src = readSrc('src/components/HomeRecommendations.js');
+
+  assert.match(
+    src,
+    /MIXED_ROW_LIMIT\s*=\s*\d+/,
+    '混排行必须有上限常量（否则会把全部歌单塞进一行横向滚动）',
+  );
+
+  // 上限值要合理：至少 12（两屏）、最多 36（六屏）
+  const m = src.match(/MIXED_ROW_LIMIT\s*=\s*(\d+)/);
+  const limit = Number(m[1]);
+  assert.ok(
+    limit >= 12 && limit <= 36,
+    `MIXED_ROW_LIMIT = ${limit} 不合理（应在 12~36 之间：太小表达不出多源混排，太大用户滑不到头）`,
+  );
+
+  // 循环里必须真的有这个上限判断
+  assert.match(
+    src,
+    /mixed\.length\s*<\s*MIXED_ROW_LIMIT/,
+    '混排循环里必须用 MIXED_ROW_LIMIT 截断',
+  );
+
+  // totalCount 必须从 groups 统计，不能用 mixed.length（那样会把 140 写成 18）
+  assert.doesNotMatch(
+    src,
+    /const totalCount = mixed\.length/,
+    'totalCount 不能用 mixed.length —— 混排行有上限，会把真实总数写小',
+  );
+
+  // hint 必须在本行被截断时给出提示
+  assert.match(
+    src,
+    /mixed\.length < totalCount/,
+    'hint 需要判断本行是否被截断，并提示「先展示 N 张」',
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');
