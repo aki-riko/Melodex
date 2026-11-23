@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart, Captions } from 'lucide-react';
-import { pushRouteEntry } from './routeHistory.js';
 import {
   desktopLyricsProgressMessage,
   desktopLyricsTrackMessage,
@@ -25,6 +24,11 @@ import {
 } from './playerSleepTimer.js';
 import { autoDownloadOnPlayPlan, retainAutoDownloadAttempt } from './playerAutoDownload.js';
 import { attachDesktopShellBridge, attachLyricsCommandBridge, isDesktopShell, pushLyricsState } from '../platform/desktopShell.js';
+import {
+  attachLyricsSettingsBridge,
+  getLyricsSettings,
+  updateLyricsSettings,
+} from '../platform/desktopShell.js';
 import { fadeAudioVolume, shouldResumePlayback } from './playerVolumeFade.js';
 import {
   beginPlaybackTransition,
@@ -1691,6 +1695,50 @@ export const PlayerBar = () => {
     onBack: () => { setQueueOpen(false); },
   });
   const [expanded, setExpanded] = useState(false); // 点击迷你条/底栏封面展开全屏播放页
+
+  // ===== 桌面歌词开关（播放条那颗按钮）=====
+  //
+  // 复刻旧 PrismQML 的 PlayerBar 按钮（PlayerBar.qml:196-207）：
+  //   style: lyricsVisible ? style_primary : style_transparent   // 开着才高亮
+  //   toolTipText: lyricsVisible ? "隐藏桌面歌词" : "显示桌面歌词"
+  //   onClicked: DesktopState.toggleLyricsVisible()
+  //
+  // ★ 这里**必须真的开关歌词**，不能只是跳到设置页。
+  //   曾经这个按钮的 aria-label 写着「桌面歌词」、图标是字幕，点下去却只
+  //   `pushRouteEntry('settings')` —— 用户点它期待开关，结果什么都没发生。
+  //
+  // 真相源在壳侧（desktop-lyrics-settings.json）：这里只镜像状态并经 IPC 改。
+  // 浏览器里没有原生歌词窗，`getLyricsSettings()` 返回 null，按钮自然不显示。
+  const [lyricsVisible, setLyricsVisible] = useState(false);
+  const inDesktopShell = isDesktopShell();
+
+  useEffect(() => {
+    if (!inDesktopShell) return undefined;
+    let cancelled = false;
+    getLyricsSettings().then((value) => {
+      if (!cancelled && value) setLyricsVisible(Boolean(value.visible));
+    });
+    // 跟随壳侧广播：托盘或设置页改了开关，这里也要跟着变。
+    return attachLyricsSettingsBridge((payload) => {
+      if (payload) setLyricsVisible(Boolean(payload.visible));
+    });
+  }, [inDesktopShell]);
+
+  const toggleLyricsVisible = useCallback(async () => {
+    if (!inDesktopShell) return;
+    // 先翻转本地态让按钮立刻响应，再以壳侧返回值为准（写盘失败会回滚）。
+    const requested = !lyricsVisible;
+    setLyricsVisible(requested);
+    const updated = await updateLyricsSettings({ visible: requested });
+    if (updated) {
+      setLyricsVisible(Boolean(updated.visible));
+    } else {
+      // 保存失败：回读真实状态，不让按钮停在错误的高亮上。
+      const fresh = await getLyricsSettings();
+      setLyricsVisible(Boolean(fresh?.visible));
+    }
+  }, [inDesktopShell, lyricsVisible]);
+
   // ===== 播放舞台的两档「可切换」偏好(2026-11 重做)=====
   // 布局三档(disc 唱片 / lyrics 歌词 / split 双栏)+ 色板两档(immersive 沉浸暗场 / theme 跟随主题)。
   // 规则与兜底全在 playerStage.mjs(有 Node 契约测试),这里只持有状态并负责落盘。
@@ -2129,15 +2177,24 @@ export const PlayerBar = () => {
               {modeIcon}
             </button>
             <SleepTimerControl {...sleepTimerControlProps} align="center" />
-            <button
-              type="button"
-              onClick={() => { pushRouteEntry('settings'); }}
-              aria-label="桌面歌词"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="桌面歌词（桌面客户端内自动同步，无需配对）"
-            >
-              <Captions size={19} />
-            </button>
+            {/* 桌面歌词开关 —— 复刻旧版 PlayerBar.qml:196-207。
+                开着时高亮（旧版 style_primary vs style_transparent），
+                提示语随状态切换；点击直接开关，不是跳设置页。
+                浏览器里没有原生歌词窗，所以只在桌面壳内显示。 */}
+            {inDesktopShell && (
+              <button
+                type="button"
+                onClick={toggleLyricsVisible}
+                aria-label={lyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
+                aria-pressed={lyricsVisible}
+                className={`transition-colors ${
+                  lyricsVisible ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title={lyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
+              >
+                <Captions size={19} />
+              </button>
+            )}
             {/* 右:进度条 */}
             <div className="flex items-center gap-2 flex-grow min-w-0">
               <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{fmtTime(progress.cur)}</span>

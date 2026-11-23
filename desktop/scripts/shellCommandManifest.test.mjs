@@ -120,6 +120,37 @@ assert.deepEqual(
   true,
   'lyrics-bridge 必须显式声明 remote.urls，否则等于没给远程页面开',
 );
+
+// ★ 远程 origin 白名单必须**逐条可解释**，不允许出现任意域名。
+//
+// 允许的两类：
+//   ① 生产站点 https://music.9li.life/*
+//   ② 本机回环（http://127.0.0.1:*/* 与 http://localhost:*/*）
+//
+// 为什么必须有 ②：壳支持 `MELODEX_SHELL_SITE` 运行时覆盖站点（service_url.rs 明确定义了
+// loopback 例外，允许本机走 http），但 capability 的 remote.urls 若只写生产域名，
+// 主窗口 origin 一变，**所有歌词桥命令都会被拒**（实测报
+// `lyrics_settings_get not allowed on window "main" ... URL: http://127.0.0.1:8329/`）。
+// 那意味着本地开发与自托管部署根本没法验证/使用桌面歌词。
+//
+// 回环的风险等级与公网域名不同：那是用户自己的机器，能连上它的人本来就能直接改设置文件。
+// 但**绝不能**顺手加公网通配符（`https://*` 之类）——那等于把本机 IPC 面交给任意网站。
+const REMOTE_ALLOWED_PATTERNS = [
+  'https://music.9li.life/*',
+  'http://127.0.0.1:*/*',
+  'http://localhost:*/*',
+];
+assert.deepEqual(
+  [...(bridge.remote?.urls || [])].sort(),
+  [...REMOTE_ALLOWED_PATTERNS].sort(),
+  '远程 origin 白名单只允许「生产站点 + 本机回环」，新增必须显式改这里并说明理由',
+);
+for (const url of bridge.remote?.urls || []) {
+  assert.ok(
+    !/^https?:\/\/\*/.test(url) && !url.includes('*.*'),
+    `禁止通配域名（会把自己的 IPC 面交给任意网站）：${url}`,
+  );
+}
 const bridgeCommands = (bridge.permissions || [])
   .filter((p) => p.startsWith('allow-'))
   .map((p) => p.slice('allow-'.length).replaceAll('-', '_'));

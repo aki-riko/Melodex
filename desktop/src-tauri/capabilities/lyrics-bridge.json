@@ -11,6 +11,10 @@
     "allow-lyrics-reset-position"
   ],
   "remote": {
-    "urls": ["https://music.9li.life/*"]
+    "urls": [
+      "https://music.9li.life/*",
+      "http://127.0.0.1:*/*",
+      "http://localhost:*/*"
+    ]
   }
 }
