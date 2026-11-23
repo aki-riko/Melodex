@@ -3,17 +3,53 @@
 Melodex 桌面客户端使用 Tauri 2 的 updater 插件做应用内更新。本文说明**发布一次新版本**要做什么，
 以及**为什么当前自动更新还不会真正生效**。
 
-## 现状（2026-11-22）
+## 现状（2026-11-23 更新：清单已部署，`/desktop/` 路由已实现）
 
 - 壳已接入 updater：启动后台静默检查 + 托盘「检查更新…」交互式更新。
 - 公钥已写入 `desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`
   （来自 `<SIGNING-DIR>/.tauri-updater-key.pub`）。
-- **更新清单 `https://music.9li.life/desktop/latest.json` 尚未部署**，所以现在每次检查都会得到
-  `检查更新失败：error decoding response body` 并只记一条 WARN。
-  原因：后端 SPA fallback 把该路径当成前端路由，返回了 HTML 首页而不是 JSON。
-  这是预期状态，不是缺陷；部署清单后即恢复。
+- **`/desktop/` 路由已实现**（`backend/internal/web/desktop_release.go`），清单与安装包可正常访问。
+  在此之前该路径会落进 SPA fallback 返回 HTML 首页，壳每次检查只记一条
+  `检查更新失败：error decoding response body` —— 页面本身完全正常，极难定位。
+
+### 产物放哪（不用重建镜像）
+
+后端优先读环境变量 `MELODEX_DESKTOP_RELEASE_DIR` 指向的目录，没设才退回嵌入目录（占位为空）。
+compose 里默认 `MELODEX_DESKTOP_RELEASE_DIR=/home/appuser/data/desktop-release`，
+即宿主 `./data/desktop-release/`（随 data 卷持久化）。发版只需：
+
+```bash
+# 在 NAS 上
+cp latest.json Melodex_<版本>_x64-setup.exe /mnt/cache/appdata/melodex-src/data/desktop-release/
+chown 1000:1000 /mnt/cache/appdata/melodex-src/data/desktop-release/*
+```
+
+**不需要重建镜像、不需要重启容器**——路由是实时读目录的。
+
+### 验证（公网，2026-11-23 实测）
+
+```powershell
+# 清单：必须是 JSON，不能是 HTML
+curl.exe -s https://music.9li.life/desktop/latest.json
+
+# 安装包：字节数应与本地一致
+curl.exe -sI https://music.9li.life/desktop/Melodex_0.1.0_x64-setup.exe
+```
+
+实测结果：
+
+| 请求 | 结果 |
+|---|---|
+| `GET /desktop/latest.json` | 200，`application/json`，`Cache-Control: no-cache` |
+| `GET /desktop/<setup.exe>` | 200，`application/octet-stream`，3693964 字节（与本地逐字节同长） |
+| `GET /desktop/<不存在>` | 404（**不是** HTML） |
+
+> **坑**：NPM 不支持 `HEAD`，用 `-Method Head` 会得到 404，容易误判成"安装包没部署"。
+> 验证请用 `GET` 或 `curl.exe -sI`。
 
 ### 已完成的端到端验证（2026-11-22）
+
+清单未部署时先验「检查」这一段。壳体支持**运行时覆盖更新端点**：
 
 清单未部署不妨碍先验「检查」这一段。壳体支持**运行时覆盖更新端点**：
 
