@@ -41,6 +41,15 @@ func registerFrontend(r *gin.Engine) {
 
 	// 直接读出 index.html 内容返回,避免 FileServer 对 "/" 触发 "./" 目录重定向(死循环)。
 	indexHTML, _ := fs.ReadFile(sub, "index.html")
+
+	// ★ 静态资源中间件：gzip 压缩 + Cache-Control。
+	// 实测线上主 JS 包 228KB 裸传、且无缓存头（每次重新下载），
+	// 加 gzip 后首屏可省约 70%（520KB → 159KB）。详见 static_assets.go 的注释。
+	//
+	// 只应用到**静态资源出口**，不影响 /api 与 /music 的 JSON/音频流：
+	// 音频已压缩且需要 Range 请求（gzip 会破坏 Range 语义），绝不能压。
+	assetMiddleware := staticAssetMiddleware()
+
 	serveIndex := func(c *gin.Context) {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	}
@@ -54,12 +63,14 @@ func registerFrontend(r *gin.Engine) {
 	// 而页面本身完全正常，非常难猜。
 	registerDesktopRelease(r)
 
-	// 根路径返回 SPA 入口
-	r.GET("/", serveIndex)
+	// 根路径返回 SPA 入口。
+	// ★ 也要走资源中间件：HTML 同样需要 Vary + no-cache（否则发版后
+	//   用户浏览器缓存住旧 index.html，永远拿不到新 bundle 的哈希）。
+	r.GET("/", assetMiddleware, serveIndex)
 
 	// NoRoute:静态资源直出,其余回退 index.html(SPA 前端路由)。
 	// 已注册的 /api/*、/music/* 命中各自路由,不会落到 NoRoute。
-	r.NoRoute(func(c *gin.Context) {
+	r.NoRoute(assetMiddleware, func(c *gin.Context) {
 		p := c.Request.URL.Path
 		// API/后端路径未命中时不应返回前端页面,保持 404 语义。
 		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, RoutePrefix+"/") {

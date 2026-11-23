@@ -16,6 +16,21 @@ import (
 var testUserID uint
 
 func resetCollectionStateForTest() {
+	// ★ 必须先等后台预热任务退出，再重置包级缓存。
+	//
+	// 历史 bug（2026-11 全量 Review，`go test -race` 抓到的 DATA RACE）：
+	// `warmQualityCache` 起后台 goroutine 探测音质，测试清理时它可能仍在跑，
+	// 而这里直接把 `qualityWarmInFlight = sync.Map{}` 整个替换掉，
+	// 与那个 goroutine 的 LoadOrStore/Delete 撞车：
+	//
+	//   WARNING: DATA RACE
+	//   Write at ... by resetCollectionStateForTest()
+	//   Previous read at ... qualityWarmInFlight.LoadOrStore
+	//
+	// 表现是 `go test -race` 偶发 FAIL，且不指出具体用例 —— 极难排查。
+	// 修复：产品侧登记后台任务（background_warmers.go），测试侧先等它退出。
+	waitBackgroundWarmers()
+
 	closeCollectionDBForTest()
 	db = nil
 	invalidateLocalMusicScanCache()

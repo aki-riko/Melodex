@@ -315,7 +315,13 @@ func warmQualityCache(songs []model.Track, concurrency int) {
 		return
 	}
 
+	// ★ 登记必须在**启动 goroutine 之前**完成（同步执行），不能在 goroutine 内部调用。
+	//   否则「goroutine 还没跑起来登记」与「测试已经开始 Wait」会撞上，
+	//   sync.WaitGroup 的 Add 与 Wait 并发是未定义行为（可能 panic）。
+	warmDone := trackBackgroundWarmer()
+
 	go func() {
+		defer warmDone()
 		jobs := make(chan model.Track)
 		var wg sync.WaitGroup
 		for i := 0; i < concurrency; i++ {
@@ -330,7 +336,7 @@ func warmQualityCache(songs []model.Track, concurrency int) {
 					if _, loaded := qualityWarmInFlight.LoadOrStore(key, struct{}{}); loaded {
 						continue
 					}
-					_ = inspectSongQualityCached(song, song.Duration)
+					inspectQualityCachedSafely(song)
 					qualityWarmInFlight.Delete(key)
 				}
 			}()
