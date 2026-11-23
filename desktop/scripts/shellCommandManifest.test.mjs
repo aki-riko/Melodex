@@ -255,11 +255,53 @@ assert.deepEqual(
   [...ALLOWED_REMOTE_COMMANDS].sort(),
   '远程 origin 的命令集必须与白名单完全一致（新增必须显式改白名单并说明理由）',
 );
-assert.equal(
-  (bridge.permissions || []).filter((p) => p.startsWith('core:')).length,
-  0,
-  '禁止给远程 origin 开 core:* 权限',
+
+// ★ core:* 权限：原来是「一律禁止」，2026-11 实测后改为**严格白名单**。
+//
+// 为什么必须开 event 监听：
+//   主窗口（远程站点页面）用 `__TAURI__.event.listen('melodex:lyrics-settings')`
+//   订阅壳侧广播的歌词设置变更（托盘/设置页改了开关，播放条按钮要跟着变）。
+//   但 `lyrics-bridge.json` 原先**没有任何 core:* 权限** —— 实测运行时直接报：
+//     `event.listen not allowed on window "main", webview "main", URL: https://music.9li.life/`
+//   该权限在 `core:default` → `core:event:default` → `allow-listen`，
+//   而 remote capability 故意没给 core:default（避免连带开窗口/菜单/托盘等一大票能力）。
+//
+// 为什么只给 listen + unlisten 而不是整个 core:event:default：
+//   `core:event:default` 还含 **allow-emit / allow-emit-to** —— 那等于允许
+//   远程页面**伪造**任意事件广播给壳内所有窗口（包括歌词窗、设置窗），
+//   是一块不该给的攻击面。监听（listen/unlisten）是只读语义：远程页面只能
+//   **接收**壳自己发出的事件，无法伪造。
+//
+// ★ 新增任何 core:* 都必须在此显式列出并说明理由 —— 这是刻意的摩擦。
+const ALLOWED_REMOTE_CORE_PERMISSIONS = [
+  'core:event:allow-listen',
+  'core:event:allow-unlisten',
+];
+
+const remoteCorePermissions = (bridge.permissions || []).filter((p) => p.startsWith('core:'));
+assert.deepEqual(
+  [...remoteCorePermissions].sort(),
+  [...ALLOWED_REMOTE_CORE_PERMISSIONS].sort(),
+  '远程 origin 的 core:* 权限必须与白名单完全一致。'
+    + '特别注意：绝不允许 allow-emit / allow-emit-to（远程页面就能伪造事件广播给全部壳内窗口）',
 );
+
+// 反向点名：这几条无论如何都不能给远程 origin
+for (const forbidden of [
+  'core:event:allow-emit',
+  'core:event:allow-emit-to',
+  'core:window:default',
+  'core:webview:default',
+  'core:app:default',
+  'core:path:default',
+  'core:tray:default',
+  'core:menu:default',
+]) {
+  assert.ok(
+    !remoteCorePermissions.includes(forbidden),
+    `${forbidden} 绝不能给远程 origin（会把本机窗口/菜单/托盘/路径能力交给任意网页）`,
+  );
+}
 
 // 其余命令（配对凭据、穿透控制、窗口位置写入、拖动）仍只给本地窗口。
 const localOnly = registered.filter((cmd) => !ALLOWED_REMOTE_COMMANDS.includes(cmd));

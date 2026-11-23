@@ -8,7 +8,9 @@
     "allow-lyrics-send-command",
     "allow-lyrics-settings-get",
     "allow-lyrics-settings-update",
-    "allow-lyrics-reset-position"
+    "allow-lyrics-reset-position",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
   ],
   "remote": {
     "urls": [
