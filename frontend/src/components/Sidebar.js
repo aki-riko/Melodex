@@ -121,7 +121,7 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
               title="退出登录"
               aria-label="退出登录"
             >
-              <LogOut size={17} />
+              <LogOut size={18} />
             </button>
           )}
         </div>
@@ -275,7 +275,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
             title={c.name}
             aria-current={active ? 'page' : undefined}
           >
-            <Music size={15} className="flex-shrink-0" aria-hidden="true" />
+            <Music size={16} className="flex-shrink-0" aria-hidden="true" />
             <span className="truncate">{c.name}</span>
           </button>
         );

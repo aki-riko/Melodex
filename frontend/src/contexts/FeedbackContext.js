@@ -152,7 +152,7 @@ const ToastItem = ({ item, onClose, onPause, onResume }) => {
       onFocus={() => onPause(item.id)}
       onBlur={() => onResume(item.id)}
     >
-      <Icon size={17} className={cn('mt-0.5 flex-shrink-0', conf.accent)} aria-hidden="true" />
+      <Icon size={18} className={cn('mt-0.5 flex-shrink-0', conf.accent)} aria-hidden="true" />
       <p className="min-w-0 flex-grow type-body text-foreground">{item.message}</p>
       <button
         type="button"
@@ -160,7 +160,7 @@ const ToastItem = ({ item, onClose, onPause, onResume }) => {
         className="-mr-1 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
         aria-label="关闭提示"
       >
-        <X size={15} />
+        <X size={16} />
       </button>
     </div>
   );

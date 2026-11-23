@@ -128,6 +128,41 @@ module.exports = {
       minWidth: {
         touch: '2.75rem',
       },
+      // ===== 语义尺寸（2026-11 补，治「h-9/h-10/h-11/h-12 混用」）=====
+      //
+      // ★ 统计依据：全前端按钮高度用了 13 种、图标 18 种（16/17/18/20 混着来）。
+      //   同类元素尺寸不一是「看起来乱」的头号来源 —— 不是配色问题，是节奏问题。
+      //
+      // 用法：`size-icon`（图标）、`size-compact`（密集行内）、
+      //       `size-control`（常规按钮）、`size-touch`（移动触控）。
+      // 写 `h-control w-control` 都行，值来自 index.css 的两档变量。
+      spacing: {
+        'size-icon-xs': 'var(--size-icon-xs)',
+        'size-icon-sm': 'var(--size-icon-sm)',
+        'size-icon-md': 'var(--size-icon-md)',
+        'size-icon-lg': 'var(--size-icon-lg)',
+        'size-compact': 'var(--size-compact)',
+        'size-control': 'var(--size-control)',
+        'size-touch': 'var(--size-touch)',
+      },
+      width: {
+        'size-icon-xs': 'var(--size-icon-xs)',
+        'size-icon-sm': 'var(--size-icon-sm)',
+        'size-icon-md': 'var(--size-icon-md)',
+        'size-icon-lg': 'var(--size-icon-lg)',
+        'size-compact': 'var(--size-compact)',
+        'size-control': 'var(--size-control)',
+        'size-touch': 'var(--size-touch)',
+      },
+      height: {
+        'size-icon-xs': 'var(--size-icon-xs)',
+        'size-icon-sm': 'var(--size-icon-sm)',
+        'size-icon-md': 'var(--size-icon-md)',
+        'size-icon-lg': 'var(--size-icon-lg)',
+        'size-compact': 'var(--size-compact)',
+        'size-control': 'var(--size-control)',
+        'size-touch': 'var(--size-touch)',
+      },
     },
   },
   plugins: [],

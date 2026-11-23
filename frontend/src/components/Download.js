@@ -276,7 +276,7 @@ const RecentSearches = ({ items, onPick, onDelete, onClearAll }) => {
               aria-label={`删除搜索记录「${h.keyword}」`}
               className="flex min-h-touch w-8 items-center justify-center text-muted-foreground transition-colors duration-base hover:text-destructive-text"
             >
-              <X size={13} />
+              <X size={14} />
             </button>
           </span>
         ))}
@@ -811,7 +811,7 @@ const SearchPane = ({
             title={recognitionDisabled ? '听歌识曲未启用' : recognition.phase === 'recording' ? '停止录音并识别' : '听歌识曲'}
             className={recognition.phase === 'recording' ? 'border-destructive text-destructive-text' : ''}
           >
-            {recognition.phase === 'recording' ? <Square size={16} fill="currentColor" /> : <Mic size={17} />}
+            {recognition.phase === 'recording' ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
           </Button>
           <Button type="submit" variant="primary" size="lg">搜索</Button>
           <Button

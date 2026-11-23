@@ -174,7 +174,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
             aria-label="刷新歌单列表"
             title="刷新"
           >
-            <RefreshCw size={17} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
@@ -283,7 +283,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium flex-shrink-0 transition-colors ${
                     done ? 'bg-primary/10 text-primary' : 'bg-primary text-primary-foreground disabled:opacity-50'
                   }`}>
-                  {done ? <Check size={15} /> : <Download size={15} className={(busy || downloading || waitingMerge) ? 'animate-pulse' : ''} />}
+                  {done ? <Check size={16} /> : <Download size={16} className={(busy || downloading || waitingMerge) ? 'animate-pulse' : ''} />}
                   {buttonLabel}
                 </button>
               </div>

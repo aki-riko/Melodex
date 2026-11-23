@@ -2217,25 +2217,36 @@ export const PlayerBar = () => {
               </div>
             </button>
             {/* 中:控制按钮
-                ★ 每个都必须 flex-shrink-0（2026-11 修复「时间被切掉」）：
+                ★ 全部必须 flex-shrink-0（2026-11 修复「时间被切掉」）：
                   这一行是 flex 容器，只有进度条是 flex-grow。
                   窗口变窄时，浏览器会把**所有**可收缩的子项一起压 ——
                   按钮和右侧时间标签都会被挤扁，实测截图里当前时间
                   显示成「1:2」（本该是 1:23），因为 w-9 被压到不足 30px。
-                  给这些固定尺寸元素加 flex-shrink-0，空间不足时只压进度条。 */}
-            <button onClick={prev} className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="上一首" aria-label="上一首">
+
+                ★ 统一尺寸（同一批修复）：原来上一首/下一首是**裸图标**（没有盒子）、
+                  播放键 40×40、收藏键 44×44 —— 三者高度不齐、图标中心也不在一条线上。
+                  现在全部用 `h-11 w-11`（= 44px = --size-touch）的圆形盒子，
+                  图标 20px 与 18px 各归其位（主控 20、次控 18），
+                  图标中心必然落在同一条基线上。 */}
+            <button onClick={prev}
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="上一首" aria-label="上一首">
               <SkipBack size={20} fill="currentColor" />
             </button>
             <button onClick={togglePlay}
-              className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground hover:scale-105 transition-transform flex-shrink-0"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform hover:scale-105"
               title="播放/暂停" aria-label="播放/暂停">
               <PlayPauseIcon paused={isPaused} size={20} />
             </button>
-            <button onClick={next} className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="下一首" aria-label="下一首">
+            <button onClick={next}
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="下一首" aria-label="下一首">
               <SkipForward size={20} fill="currentColor" />
             </button>
             <button onClick={cycleMode}
-              className={`flex-shrink-0 transition-colors ${mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'}`}
+              className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted ${
+                mode === 'order' ? 'text-muted-foreground hover:text-foreground' : 'text-primary'
+              }`}
               title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
               {modeIcon}
             </button>
@@ -2265,7 +2276,7 @@ export const PlayerBar = () => {
                   } ${lyricsMenuOpen ? 'bg-secondary' : ''}`}
                   title={lyricsVisible ? '桌面歌词：已显示（可锁定/设置）' : '桌面歌词：已关闭'}
                 >
-                  <Captions size={19} />
+                  <Captions size={18} />
                 </button>
                 {lyricsMenuOpen && (
                   <>

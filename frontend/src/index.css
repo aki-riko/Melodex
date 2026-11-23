@@ -71,6 +71,28 @@
     --radius: 0.5rem;
     --radius-control: 4px;
 
+    /* ===== 尺寸刻度（2026-11 补，治「到处 h-9/h-10/h-11/h-12 混用」）=====
+     *
+     * ★ 为什么要有这套：统计全前端发现按钮高度用了 **13 种**、
+     *   图标尺寸 **18 种**（含 16/17/18/20 混着来）。
+     *   同类元素尺寸不一是「看起来乱」的头号来源 —— 不是配色问题，是节奏问题。
+     *
+     * 每档只给 **3 个语义尺寸**，超出就必须问「它真的不属于这三类吗」：
+     *   --size-icon   图标本身
+     *   --size-compact 密集列表行内的小控件
+     *   --size-control 常规按钮/输入框（桌面 40px，指哪打哪）
+     *   --size-touch   移动端触控下限 44px（WCAG / iOS HIG）
+     *
+     * 用 Tailwind 的 h-[var(--size-...)] 或直接用对应的类（见 tailwind.config.js 的 spacing）。
+     * 数值取 4px 的倍数，保证与 4/8/12/16 的间距刻度同源。 */
+    --size-icon-xs: 12px;
+    --size-icon-sm: 16px;
+    --size-icon-md: 18px;
+    --size-icon-lg: 20px;
+    --size-compact: 32px;
+    --size-control: 40px;
+    --size-touch: 44px;
+
     /* 材质:浅色 Mica 是"白面透出一点冷色壁纸"。浓度要比深色低 —— 白底上色偏浓会脏。 */
     --material-mica:
       radial-gradient(120% 85% at 10% -10%, hsl(212 90% 70% / 0.16), transparent 62%),
@@ -144,6 +166,15 @@
 
     --radius: 0.5rem;
     --radius-control: 4px;
+
+    /* 尺寸刻度（与浅色档同一套：尺寸不随主题变，只有颜色材质变） */
+    --size-icon-xs: 12px;
+    --size-icon-sm: 16px;
+    --size-icon-md: 18px;
+    --size-icon-lg: 20px;
+    --size-compact: 32px;
+    --size-control: 40px;
+    --size-touch: 44px;
 
     /* 材质:深色 Mica 是"深面透出一点冷色壁纸"。深色是**提亮**方向,
        与浅色的"压深"相反 —— 两套渐变不能直接互换颜色。 */

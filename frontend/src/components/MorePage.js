@@ -89,7 +89,7 @@ export default function MorePage({ onNavigate }) {
                   index > 0 && 'border-t border-border',
                 )}
               >
-                <Icon size={19} className="flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+                <Icon size={18} className="flex-shrink-0 text-muted-foreground" aria-hidden="true" />
                 <span className="min-w-0 flex-grow text-foreground">{item.label}</span>
               </button>
             );
@@ -124,7 +124,7 @@ export default function MorePage({ onNavigate }) {
                   index > 0 && 'border-t border-border',
                 )}
               >
-                <Music size={17} className="flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+                <Music size={18} className="flex-shrink-0 text-muted-foreground" aria-hidden="true" />
                 <span className="min-w-0 flex-grow truncate text-foreground">{collection.name}</span>
                 {collection.kind === 'favorite' && (
                   <span className="flex-shrink-0 rounded-full bg-primary/15 px-2 py-0.5 type-micro text-primary">

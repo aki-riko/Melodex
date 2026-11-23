@@ -60,8 +60,8 @@ export const StageToneToggle = ({ tone, onToggle, className = '' }) => {
       className={`player-stage-tone ${className}`}
     >
       {immersive
-        ? <Sun size={17} aria-hidden="true" />
-        : <Moon size={17} aria-hidden="true" />}
+        ? <Sun size={18} aria-hidden="true" />
+        : <Moon size={18} aria-hidden="true" />}
       <span>{STAGE_TONE_LABELS[tone]}</span>
     </button>
   );

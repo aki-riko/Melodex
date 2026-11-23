@@ -136,7 +136,7 @@ export default function RecentlyPlayed() {
               aria-label="清空播放记录"
               title="清空记录"
             >
-              <Trash2 size={17} />
+              <Trash2 size={18} />
             </Button>
           </div>
         </div>

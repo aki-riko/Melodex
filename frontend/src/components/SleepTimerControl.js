@@ -122,7 +122,7 @@ const SleepTimerControl = ({
                     }}
                     className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-secondary"
                   >
-                    {ActionIcon && <ActionIcon size={19} className="flex-shrink-0 text-muted-foreground" />}
+                    {ActionIcon && <ActionIcon size={18} className="flex-shrink-0 text-muted-foreground" />}
                     <span className="min-w-0 flex-grow text-sm font-medium text-foreground">{label}</span>
                     {hint && <span className="flex-shrink-0 text-xs text-muted-foreground">{hint}</span>}
                   </button>

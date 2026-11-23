@@ -158,7 +158,7 @@ const IconAction = ({ icon: Icon, label, onClick, disabled, active, danger, busy
       className,
     )}
   >
-    <Icon size={17} fill={active ? 'currentColor' : 'none'} className={busy ? 'animate-pulse' : ''} aria-hidden="true" />
+    <Icon size={18} fill={active ? 'currentColor' : 'none'} className={busy ? 'animate-pulse' : ''} aria-hidden="true" />
   </button>
 );
 

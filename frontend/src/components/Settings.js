@@ -382,7 +382,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 title="重新检查登录状态"
                 aria-label={`重新检查 ${sourceLabel(source)} 登录状态`}
               >
-                <RefreshCw size={13} className={checkingStatus ? 'animate-spin' : ''} />
+                <RefreshCw size={14} className={checkingStatus ? 'animate-spin' : ''} />
               </button>
             )}
           </div>
@@ -512,7 +512,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                   disabled={loginBusy}
                   className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <QrCode size={17} />
+                  <QrCode size={18} />
                   {loginBusy ? '生成中' : '刷新二维码'}
                 </button>
                 <button
@@ -566,7 +566,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                   disabled={!manualCookie.trim()}
                   className="flex h-10 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <KeyRound size={17} />
+                  <KeyRound size={18} />
                   保存 Cookie
                 </button>
                 {manualMsg && <span className="text-xs text-muted-foreground">{manualMsg}</span>}
