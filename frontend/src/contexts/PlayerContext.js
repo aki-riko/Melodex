@@ -2449,12 +2449,21 @@ export const PlayerBar = () => {
           data-stage-layout={stageLayout}
           data-stage-tone={stageTone}>
           {/* 整屏封面:这是舞台的**底**,不是装饰。
-              沉浸档里它是主角(左半清晰 + 右半渐隐到暗),歌词直接压在渐隐区上。
-              封面缺失时退化成纯色渐变,不留"黑屏"。 */}
+              同一张图分两层,各司其职(见 CSS):
+                · backdrop-fill —— 铺满整屏(cover),压暗后当**接续底色**,
+                  保证封面右边缘之外不会突然变成纯黑;
+                · backdrop-art  —— **高度完整显示**(auto 100%)、左对齐,
+                  正方形封面在 16:9 屏上不再上下被裁(用户:"上面感觉被裁剪了")。
+              ⚠ 不加 blur:整屏放大会把几像素的模糊放大成十几像素的糊。 */}
           <div className="player-stage__backdrop" aria-hidden="true">
-            {coverUrl
-              ? <div className="player-stage__backdrop-img" style={{ backgroundImage: `url(${coverUrl})` }} />
-              : <div className="player-stage__backdrop-empty" />}
+            {coverUrl ? (
+              <>
+                <div className="player-stage__backdrop-fill" style={{ backgroundImage: `url(${coverUrl})` }} />
+                <div className="player-stage__backdrop-art" style={{ backgroundImage: `url(${coverUrl})` }} />
+              </>
+            ) : (
+              <div className="player-stage__backdrop-empty" />
+            )}
             {/* 渐隐方向由布局档位决定(见 CSS):
                 沉浸/封面档 = 横向「左清晰 → 右渐隐」;歌词档 = 纵向压暗。 */}
             <div className="player-stage__scrim" />

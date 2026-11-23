@@ -339,25 +339,35 @@ assert.match(
 //   ② 有一层**横向**渐变(左清晰 → 右压暗),歌词落在右侧;
 //   ③ 歌名/进度/操作**全部**在底栏里,中部除歌词外不放控件。
 {
-  // ① 整屏封面层必须存在,且用 background-size:cover 铺满(不是 contain 露边)
+  // ① 整屏封面:两层分工(接续底色 + 完整显示的封面)
   assert.ok(
     /\.player-stage__backdrop\s*\{/.test(css),
     '缺少 .player-stage__backdrop —— 封面必须是整屏铺满的背景层,不是一张卡片',
   );
-  const backdropImg = css.match(/\.player-stage__backdrop-img\s*\{([\s\S]*?)\n\}/);
-  assert.ok(backdropImg, '缺少 .player-stage__backdrop-img');
-  assert.match(backdropImg[1], /background-size:\s*cover/, '封面必须 cover 铺满(contain 会露黑边,就不是整屏背景了)');
-  // ★ 整屏封面**不得再模糊**(2026-11 第三次纠正:"专辑放大糊成啥样了")。
-  //   整屏放大了数倍,哪怕 6px 的 blur 视觉上也等于十几像素的糊;叠加小尺寸源图就更明显。
-  assert.ok(
-    !/blur\(/.test(backdropImg[1]),
-    '整屏封面层不得使用 blur —— 它是实图铺满,模糊会让"认不出是哪张专辑";'
-    + '小图偏软是源图限制,应换更大的源(网易云支持 ?param=WxH),不要靠模糊掩盖',
+  // 上层:高度完整显示,不得 cover 裁切
+  const art = css.match(/\.player-stage__backdrop-art\s*\{([\s\S]*?)\n\}/);
+  assert.ok(art, '缺少 .player-stage__backdrop-art —— 封面必须"高度完整显示"那一层');
+  assert.match(
+    art[1],
+    /background-size:\s*auto 100%/,
+    '封面必须 background-size: auto 100%(高度撑满、宽度按比例)—— '
+    + '用 cover 会在 16:9 屏上把正方形封面上下各裁掉约 14%,用户报「上面感觉被裁剪了」',
   );
-  // 也不要为了配 blur 而放大(放大既损失锐度又不必要)
   assert.ok(
-    !/scale\(\s*1\.[0-9]/.test(backdropImg[1]),
-    '整屏封面不得 scale 放大 —— inset:0 + cover 已铺满,放大只会更糊',
+    !/background-size:\s*cover/.test(art[1]),
+    '完整显示那一层不得用 cover —— 那就是裁切的来源',
+  );
+  assert.match(art[1], /background-repeat:\s*no-repeat/, '完整显示的封面不得平铺');
+  assert.match(art[1], /background-position:\s*left/, '封面贴左(左边留给清晰封面,右边交给渐隐与歌词)');
+  // 底层:接续底色用 cover 铺满并压暗
+  const fill = css.match(/\.player-stage__backdrop-fill\s*\{([\s\S]*?)\n\}/);
+  assert.ok(fill, '缺少 .player-stage__backdrop-fill —— 封面宽度之外需要接续底色,否则右侧突然变纯黑');
+  assert.match(fill[1], /background-size:\s*cover/, '接续底色用 cover 铺满(裁切无所谓)');
+  assert.match(fill[1], /brightness\(0?\.\d+\)/, '接续底色必须压暗,不能与真封面抢视线');
+  // 整屏封面层不得模糊(第三次纠正)
+  assert.ok(
+    !/\.player-stage__backdrop-art\s*\{[^}]*blur\(/.test(css),
+    '整屏封面层不得使用 blur —— 它是实图,模糊会让"认不出是哪张专辑"',
   );
 
   // ② 渐隐层:**以 50% 为中心的柔和渐变**(不是硬边)
