@@ -196,7 +196,7 @@ const VolumeControl = ({
         // 两者盒高一致才能保证图标中心落在同一条基线上 —— 之前这里没有尺寸,
         // 盒子只有图标那么高(18px),与旁边的 44px 盒子错开 2px,
         // 肉眼看就是「喇叭比队列图标高一点点」。
-        className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         title={muted ? '取消静音' : '静音'}
         aria-label={muted ? '取消静音' : '静音'}
         aria-expanded={open}

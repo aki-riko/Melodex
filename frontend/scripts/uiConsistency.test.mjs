@@ -584,6 +584,127 @@ check('select 必须 appearance:none + 自定义箭头（原生箭头位置不�
   );
 });
 
+// ---------- ⑧ 全库：固定尺寸按钮必须 flex-shrink-0 ----------
+
+check('全库固定尺寸按钮必须带 flex-shrink-0', () => {
+  // ★ 全库扫描曾发现 27 处 `<button>` 带 h-N/w-N 却没有 flex-shrink-0。
+  //   实测在 800~1280px 下这些**没有真的被压缩**（父容器空间够），
+  //   但这是隐性炸弹：以后往同一行加按钮/加长文案就会瞬间暴露
+  //   （播放条那个「时间被切成 1:2」就是这么来的）。
+  //   代价极低（一个类），全部补齐。
+  //
+  // ★ 要同时查 className="..." 和 className={`...`} 两种写法 ——
+  //   第一版只正则了双引号形式，漏掉了 PlayerContext 里 3 个模板字符串按钮。
+  //
+  // ★★ 必须**先剥掉注释**再匹配（本鱼踩了两次同类坑）：
+  //   `<button ... className={`...`}>` 这种跨行模板字符串里常夹着注释，
+  //   而注释里可能带反引号/花括号，直接 `[^`]*` 会在注释处提前截断，
+  //   导致对「后半段有没有 flex-shrink-0」判断错误 ——
+  //   SleepTimerControl 就被误判成缺 guard，修了还红。
+  const stripComments = (s) => s
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')   // JSX 注释 {/* */}
+    .replace(/\/\*[\s\S]*?\*\//g, '')       // 块注释
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+
+  const offenders = [];
+  const check = (file, rawSrc) => {
+    const src = stripComments(rawSrc);
+
+    const inspect = (cls, lineNo) => {
+      if (!/\b(?:h|w)-(?:\d+|\[\d+(?:px|rem)\])/.test(cls)) return;
+      // ★ 判据：**整个 className 字符串里**出现 flex-shrink-0 就算合格。
+      //   不能只看「剥离 ${} 之后」的部分 —— 三元表达式
+      //   `${cond ? 'flex h-12 w-12 flex-shrink-0 ...' : 'inline-flex h-11 ...'}`
+      //   在剥离插值后会只剩 ` transition-colors `，把 guard 一起剥掉了，
+      //   于是原地打转：明明加了还是红。
+      if (/flex-shrink-0|shrink-0|flex-1|flex-grow|w-full|min-w-0/.test(cls)) return;
+      offenders.push(`${file}:~${lineNo}  ${cls.replace(/\s+/g, ' ').slice(0, 60)}`);
+    };
+
+    // 双引号
+    for (const m of src.matchAll(/<button\b[\s\S]{0,400}?className="([^"]*)"/g)) {
+      inspect(m[1], src.slice(0, m.index).split('\n').length);
+    }
+    // 模板字符串
+    for (const m of src.matchAll(/<button\b[\s\S]{0,400}?className=\{`([^`]*)`\}/g)) {
+      inspect(m[1], src.slice(0, m.index).split('\n').length);
+    }
+  };
+  for (const file of files) {
+    const relPath = file.replace(root, '').replace(/\\/g, '/');
+    check(relPath, readFileSync(file, 'utf8'));
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些按钮有固定尺寸但缺 flex-shrink-0，布局一变就会被压扁（播放条时间被切成「1:2」就是这么来的）：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+// ---------- ⑨ 全库：内容卡片用 .surface，不用 bg-card ----------
+
+check('内容卡片用 .surface 材质，不用 bg-card', () => {
+  // ★ 全站卡片背景有三种，各有用途：
+  //   .surface         卡片材质（半透明 + elevation-card 阴影）← 内容卡片
+  //   .surface-control 输入框/按钮底（无阴影）
+  //   bg-card          纯色（给需要完全不透明的地方：播放条、浮层）
+  //
+  // MorePage 的 4 处 / ErrorBoundary 的 1 处是内容卡片却用了 bg-card，
+  // 在浅色主题下会与背景糊在一起 —— 这正是 .surface 存在的理由。
+  //
+  // 允许 bg-card 的场景（白名单）：播放条/浮层/粘性表头这类需要不透明的地方。
+  const ALLOW = [
+    'contexts/PlayerContext.js',   // 播放条、队列浮层、粘性表头
+  ];
+  const offenders = [];
+  for (const file of files) {
+    const rel = file.replace(root, '').replace(/\\/g, '/');
+    if (ALLOW.some((a) => rel.includes(a))) continue;
+    const src = readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    for (const m of src.matchAll(/className="([^"]*\bbg-card\b[^"]*)"/g)) {
+      const cls = m[1];
+      // /50 /40 这类半透明覆盖层是刻意的，跳过
+      if (/bg-card\/\d/.test(cls)) continue;
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:${line}  ${cls.slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `内容卡片应使用 .surface（带 elevation-card 阴影），bg-card 会让卡片在浅色主题下与背景糊在一起：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+// ---------- ⑩ 全库：禁止裸 rounded（绕过主题圆角令牌）----------
+
+check('禁止裸 rounded，用 rounded-control 或 rounded-full', () => {
+  // 裸 `rounded` = 硬编码 0.25rem，绕过 `--radius-control`。
+  // AGENTS.md 明确：可点控件用 rounded-control（随主题变）、圆形装饰用 rounded-full。
+  const offenders = [];
+  for (const file of files) {
+    const rel = file.replace(root, '').replace(/\\/g, '/');
+    const src = readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+    for (const m of src.matchAll(/className="([^"]*)"/g)) {
+      const cls = m[1];
+      if (!/(?:^|\s)rounded(?:\s|$)/.test(cls)) continue;
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${rel}:${line}  ${cls.slice(0, 55)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `裸 rounded 绕过了 --radius-control（Spotify 主题该是胶囊、Fluent 是 4px）：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

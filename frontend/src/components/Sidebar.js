@@ -117,7 +117,7 @@ export function Sidebar({ currentSection, currentSubPath, onNavigate }) {
             <button
               type="button"
               onClick={logout}
-              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
+              className="flex flex-shrink-0 h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground"
               title="退出登录"
               aria-label="退出登录"
             >
@@ -194,7 +194,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
           type="button"
           onClick={() => { if (!offline) setMenuOpen((v) => !v); }}
           disabled={offline}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          className="flex flex-shrink-0 h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground disabled:opacity-50"
           title={offline ? '离线状态无法新建或导入歌单' : '新建 / 导入'}
           aria-label="新建或导入歌单"
           aria-haspopup="menu"
@@ -247,7 +247,7 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
             onBlur={() => { if (!name.trim()) setCreating(false); }}
             placeholder="歌单名，回车创建"
             aria-label="新歌单名称"
-            className="min-h-9 w-full rounded border border-border bg-secondary px-2 type-caption text-foreground outline-none focus:border-primary"
+            className="min-h-9 w-full rounded-control border border-border bg-secondary px-2 type-caption text-foreground outline-none focus:border-primary"
           />
         </form>
       )}

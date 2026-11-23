@@ -52,7 +52,7 @@ export default function MorePage({ onNavigate }) {
       </header>
 
       {user && (
-        <section className="mb-5 flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <section className="mb-5 flex items-center gap-3 rounded-lg border border-border surface px-4 py-3">
           <div className="min-w-0 flex-grow">
             <p className="truncate type-body font-semibold text-foreground">{user.username}</p>
             <p className="type-micro text-muted-foreground">
@@ -75,7 +75,7 @@ export default function MorePage({ onNavigate }) {
         <h2 id="more-nav-title" className="mb-2 px-1 type-micro font-bold uppercase tracking-wider text-muted-foreground">
           功能入口
         </h2>
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="overflow-hidden rounded-lg border border-border surface">
           {navItems.map((item, index) => {
             const Icon = item.icon;
             return (
@@ -108,11 +108,11 @@ export default function MorePage({ onNavigate }) {
         </div>
 
         {(collections || []).length === 0 ? (
-          <p className="rounded-lg border border-border bg-card px-4 py-6 text-center type-caption text-muted-foreground">
+          <p className="rounded-lg border border-border surface px-4 py-6 text-center type-caption text-muted-foreground">
             还没有歌单,可以在桌面端或「加入歌单」里新建
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="overflow-hidden rounded-lg border border-border surface">
             {collections.map((collection, index) => (
               <button
                 key={collection.id}

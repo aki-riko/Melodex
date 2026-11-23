@@ -66,7 +66,7 @@ function PlaylistCard({ playlist, onOpen, showSource = false, className = '' }) 
           <Play size={18} fill="currentColor" />
         </span>
         {showSource && (
-          <span className="absolute left-2 top-2 rounded bg-black/65 px-1.5 py-0.5 type-micro font-semibold text-white">
+          <span className="absolute left-2 top-2 rounded-control bg-black/65 px-1.5 py-0.5 type-micro font-semibold text-white">
             {sourceLabel(playlist.source)}
           </span>
         )}

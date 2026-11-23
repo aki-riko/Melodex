@@ -87,7 +87,7 @@ const CoverThumb = ({ song, size = 44 }) => {
   const showImg = url && !failed;
   return (
     <div
-      className="flex flex-shrink-0 items-center justify-center overflow-hidden rounded bg-muted"
+      className="flex flex-shrink-0 items-center justify-center overflow-hidden rounded-control bg-muted"
       style={{ width: size, height: size }}
     >
       {showImg ? (
@@ -524,7 +524,7 @@ const SongRow = ({
           </div>
           {lyricMatch && (
             <p className="mt-1 flex min-w-0 items-center gap-1.5 type-micro">
-              <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-semibold text-primary">歌词命中</span>
+              <span className="flex-shrink-0 rounded-control bg-primary/10 px-1.5 py-0.5 font-semibold text-primary">歌词命中</span>
               <span className="truncate text-foreground/90">
                 <HighlightedLyricMatch text={lyricMatch} query={lyricQuery} />
               </span>
@@ -559,7 +559,7 @@ const SongRow = ({
           onClick={handleCoverAction}
           aria-label={coverActionLabel}
           title={coverActionLabel}
-          className="flex h-11 w-11 items-center justify-center rounded-control bg-primary text-primary-foreground shadow-sm transition-[filter] duration-base hover:brightness-110 lg:hidden"
+          className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-control bg-primary text-primary-foreground shadow-sm transition-[filter] duration-base hover:brightness-110 lg:hidden"
         >
           <CoverActionIcon size={18} fill="currentColor" aria-hidden="true" />
         </button>

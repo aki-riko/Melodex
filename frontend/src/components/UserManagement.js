@@ -159,7 +159,7 @@ const UserManagement = () => {
           </select>
           <button
             type="submit"
-            className="h-10 rounded-control border border-border bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
+            className="flex-shrink-0 h-10 rounded-control border border-border bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95"
           >
             创建
           </button>

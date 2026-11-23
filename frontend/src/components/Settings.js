@@ -379,7 +379,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 type="button"
                 onClick={onRefreshStatus}
                 disabled={checkingStatus}
-                className="flex h-6 w-6 items-center justify-center rounded-control border border-border bg-secondary text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex flex-shrink-0 h-6 w-6 items-center justify-center rounded-control border border-border bg-secondary text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 title="重新检查登录状态"
                 aria-label={`重新检查 ${sourceLabel(source)} 登录状态`}
               >
@@ -518,7 +518,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 </button>
                 <button
                   onClick={closeQRSession}
-                  className="h-10 rounded-control border border-border bg-secondary px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="flex-shrink-0 h-10 rounded-control border border-border bg-secondary px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   关闭
                 </button>
@@ -549,8 +549,8 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                   <p className="mb-2 font-medium text-foreground">获取方式</p>
                   <p>1. 浏览器打开 <a href={COOKIE_HELP[source].url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline">{COOKIE_HELP[source].url}<ExternalLink size={12} /></a> 并登录会员账号</p>
                   <p>2. 按 F12 打开开发者工具,进入「网络/Network」</p>
-                  <p>3. 刷新页面,点任一请求,在「标头/Headers」里找到 <code className="rounded bg-card px-1">Cookie:</code></p>
-                  <p>4. 复制整段 Cookie 值,确认包含 <code className="rounded bg-card px-1">{COOKIE_HELP[source].key}</code></p>
+                  <p>3. 刷新页面,点任一请求,在「标头/Headers」里找到 <code className="rounded-control bg-secondary px-1">Cookie:</code></p>
+                  <p>4. 复制整段 Cookie 值,确认包含 <code className="rounded-control bg-secondary px-1">{COOKIE_HELP[source].key}</code></p>
                   <p>5. Cookie 是会过期的会话凭证,失效后需要重新扫码或重新粘贴新的 Cookie。</p>
                 </div>
               )}
@@ -565,7 +565,7 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
                 <button
                   onClick={submitManual}
                   disabled={!manualCookie.trim()}
-                  className="flex h-10 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-shrink-0 h-10 items-center justify-center gap-2 rounded-control border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <KeyRound size={18} />
                   保存 Cookie

@@ -274,7 +274,7 @@ const RecentSearches = ({ items, onPick, onDelete, onClearAll }) => {
               type="button"
               onClick={(e) => onDelete(h.keyword, e)}
               aria-label={`删除搜索记录「${h.keyword}」`}
-              className="flex min-h-touch w-8 items-center justify-center text-muted-foreground transition-colors duration-base hover:text-destructive-text"
+              className="flex flex-shrink-0 min-h-touch w-8 items-center justify-center text-muted-foreground transition-colors duration-base hover:text-destructive-text"
             >
               <X size={14} />
             </button>

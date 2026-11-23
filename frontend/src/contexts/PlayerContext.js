@@ -1665,7 +1665,7 @@ const ChorusMarker = ({ percent, onSeek }) => (
     onClick={onSeek}
     aria-label="跳到副歌"
     title="跳到副歌"
-    className="absolute -inset-y-3 flex w-3 -translate-x-1/2 items-center justify-center"
+    className="flex-shrink-0 absolute -inset-y-3 flex w-3 -translate-x-1/2 items-center justify-center"
     style={{ left: `${percent}%` }}
   >
     <span className="h-3 w-0.5 rounded-full bg-primary ring-1 ring-border" />
@@ -2212,8 +2212,8 @@ export const PlayerBar = () => {
               className="flex items-center gap-3 min-w-0 text-left group md:w-[22%] lg:w-[26%] flex-shrink-0"
               title="展开播放页" aria-label="展开播放页">
               {coverUrl
-                ? <img src={coverUrl} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0 shadow transition-transform group-hover:scale-105" />
-                : <div className="w-12 h-12 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={20} className="text-muted-foreground" /></div>}
+                ? <img src={coverUrl} alt="" className="w-12 h-12 rounded-control object-cover flex-shrink-0 shadow transition-transform group-hover:scale-105" />
+                : <div className="w-12 h-12 rounded-control bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={20} className="text-muted-foreground" /></div>}
               <div className="min-w-0">
                 <p className="truncate font-semibold text-sm group-hover:text-primary transition-colors">{nowPlaying?.name}</p>
                 <div className="mt-0.5 h-4 overflow-hidden text-xs text-muted-foreground">
@@ -2282,7 +2282,7 @@ export const PlayerBar = () => {
                   aria-label="桌面歌词选项"
                   aria-pressed={lyricsVisible}
                   aria-expanded={lyricsMenuOpen}
-                  className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${
+                  className={`flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-full transition-colors ${
                     lyricsVisible ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                   } ${lyricsMenuOpen ? 'bg-secondary' : ''}`}
                   title={lyricsVisible ? '桌面歌词：已显示（可锁定/设置）' : '桌面歌词：已关闭'}
@@ -2415,7 +2415,7 @@ export const PlayerBar = () => {
                 图标那么高,实测中心差 2px,看起来「喇叭高了一点点」)。 */}
             <div className="relative flex-shrink-0">
               <button onClick={() => setQueueOpen((o) => !o)}
-                className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${queueOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                className={`flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-full transition-colors ${queueOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                 title="播放队列" aria-label="播放队列">
                 <ListMusic size={18} />
               </button>
@@ -2493,8 +2493,8 @@ export const PlayerBar = () => {
           >
             <span key={curKey} className={`${miniTrackClass} flex min-w-0 flex-grow items-center gap-3`} style={miniTrackStyle}>
               {coverUrl
-                ? <img src={coverUrl} alt="" draggable={false} className="w-11 h-11 rounded object-cover flex-shrink-0 shadow" />
-                : <span className="w-11 h-11 rounded bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></span>}
+                ? <img src={coverUrl} alt="" draggable={false} className="w-11 h-11 rounded-control object-cover flex-shrink-0 shadow" />
+                : <span className="w-11 h-11 rounded-control bg-secondary flex items-center justify-center flex-shrink-0"><ListMusic size={18} className="text-muted-foreground" /></span>}
               <span className="min-w-0 flex-grow">
                 <Marquee text={nowPlaying?.name || ''} className="font-semibold text-sm" />
                 <span className="block text-muted-foreground text-xs truncate">{nowPlaying?.artist}</span>
@@ -2528,7 +2528,7 @@ export const PlayerBar = () => {
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
           {/* 顶部:收起 */}
           <div className="flex items-center justify-between px-4 py-3">
-            <button onClick={collapseExpanded} className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="收起">
+            <button onClick={collapseExpanded} className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="收起">
               <ChevronDown size={28} />
             </button>
             <span className="text-xs uppercase tracking-wider text-muted-foreground">正在播放</span>
@@ -2541,7 +2541,7 @@ export const PlayerBar = () => {
               style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="font-semibold">播放队列 · {queue.length} 首</span>
-                <button onClick={() => setQueueOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="关闭队列">
+                <button onClick={() => setQueueOpen(false)} className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="关闭队列">
                   <ChevronDown size={26} />
                 </button>
               </div>
@@ -2633,19 +2633,19 @@ export const PlayerBar = () => {
           {/* 控制按钮 */}
           <div className="flex items-center justify-between px-10 mt-6">
             <button onClick={cycleMode}
-              className={`flex h-12 w-12 items-center justify-center rounded-full ${mode === 'order' ? 'text-muted-foreground' : 'text-primary'}`}
+              className={`flex flex-shrink-0 h-12 w-12 items-center justify-center rounded-full ${mode === 'order' ? 'text-muted-foreground' : 'text-primary'}`}
               title={`播放模式:${MODE_LABEL[mode]}`} aria-label="播放模式">
               {modeIcon}
             </button>
-            <button onClick={prev} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="上一首">
+            <button onClick={prev} className="flex flex-shrink-0 h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="上一首">
               <SkipBack size={32} fill="currentColor" />
             </button>
             <button onClick={togglePlay}
-              className="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground"
+              className="flex flex-shrink-0 items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground"
               aria-label="播放/暂停">
               <PlayPauseIcon paused={isPaused} size={30} />
             </button>
-            <button onClick={next} className="flex h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="下一首">
+            <button onClick={next} className="flex flex-shrink-0 h-12 w-12 items-center justify-center rounded-full text-foreground" aria-label="下一首">
               <SkipForward size={32} fill="currentColor" />
             </button>
             <SleepTimerControl

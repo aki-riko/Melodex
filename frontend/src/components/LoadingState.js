@@ -12,7 +12,7 @@ export const LoadingRows = ({ rows = 5, compact = false }) => (
           <div className={`h-3 rounded loading-shimmer ${widths[index % widths.length]}`} />
           <div className={`h-2.5 rounded loading-shimmer ${widths[(index + 3) % widths.length]}`} />
         </div>
-        <div className="hidden h-3 w-16 rounded loading-shimmer md:block" />
+        <div className="hidden h-3 w-16 rounded-control loading-shimmer md:block" />
       </div>
     ))}
   </div>

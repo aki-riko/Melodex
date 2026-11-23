@@ -170,7 +170,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
             type="button"
             onClick={load}
             disabled={loading}
-            className="flex h-9 w-9 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            className="flex flex-shrink-0 h-9 w-9 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-secondary hover:text-foreground disabled:opacity-50"
             aria-label="刷新歌单列表"
             title="刷新"
           >
@@ -266,7 +266,7 @@ export default function ImportPlaylistModal({ open, onClose, onNavigate }) {
             const buttonLabel = doneStatus === 'merged' ? '已合并' : done ? '已导入' : waitingMerge ? '待确认' : busy ? '导入中' : downloading ? '下载中' : '导入';
             return (
               <div key={pl.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
-                <div className="w-11 h-11 rounded bg-secondary flex-shrink-0 overflow-hidden flex items-center justify-center">
+                <div className="w-11 h-11 rounded-control bg-secondary flex-shrink-0 overflow-hidden flex items-center justify-center">
                   {pl.cover
                     ? <img src={coverProxyUrl({ cover: pl.cover, source: active })} alt="" loading="lazy" className="w-full h-full object-cover"
                         onError={(e) => { e.target.style.display = 'none'; }} />

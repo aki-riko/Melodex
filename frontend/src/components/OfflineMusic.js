@@ -48,7 +48,7 @@ function OfflineCover({ record, offline }) {
 
   const url = blobUrl || (!offline ? coverProxyUrl(song) : '');
   return (
-    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-control bg-muted">
       {url && !failed ? (
         <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : (
@@ -122,7 +122,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
         onClick={() => onPlay(record)}
         aria-label={`播放 ${record.name || '这首歌'}`}
         title="播放"
-        className="flex h-10 w-10 items-center justify-center rounded-control bg-primary text-primary-foreground transition-[filter] duration-base hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]"
+        className="flex flex-shrink-0 h-10 w-10 items-center justify-center rounded-control bg-primary text-primary-foreground transition-[filter] duration-base hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]"
       >
         <Play size={16} fill="currentColor" aria-hidden="true" />
       </button>
@@ -131,7 +131,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
         onClick={() => onDelete(record)}
         aria-label={`删除本机缓存 ${record.name || '这首歌'}`}
         title="删除本机缓存"
-        className="flex h-10 w-10 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive-text"
+        className="flex flex-shrink-0 h-10 w-10 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive-text"
       >
         <Trash2 size={16} aria-hidden="true" />
       </button>
