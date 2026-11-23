@@ -7,10 +7,10 @@ export const LoadingRows = ({ rows = 5, compact = false }) => (
   <div className="space-y-2" aria-hidden="true">
     {Array.from({ length: rows }).map((_, index) => (
       <div key={index} className="flex items-center gap-3 rounded-md px-3 py-2">
-        <div className={`${compact ? 'h-9 w-9' : 'h-11 w-11'} flex-shrink-0 rounded loading-shimmer`} />
+        <div className={`${compact ? 'h-9 w-9' : 'h-11 w-11'} flex-shrink-0 rounded-control loading-shimmer`} />
         <div className="min-w-0 flex-grow space-y-2">
-          <div className={`h-3 rounded loading-shimmer ${widths[index % widths.length]}`} />
-          <div className={`h-2.5 rounded loading-shimmer ${widths[(index + 3) % widths.length]}`} />
+          <div className={`h-3 rounded-control loading-shimmer ${widths[index % widths.length]}`} />
+          <div className={`h-2.5 rounded-control loading-shimmer ${widths[(index + 3) % widths.length]}`} />
         </div>
         <div className="hidden h-3 w-16 rounded-control loading-shimmer md:block" />
       </div>

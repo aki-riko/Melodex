@@ -685,17 +685,24 @@ check('内容卡片用 .surface 材质，不用 bg-card', () => {
 check('禁止裸 rounded，用 rounded-control 或 rounded-full', () => {
   // 裸 `rounded` = 硬编码 0.25rem，绕过 `--radius-control`。
   // AGENTS.md 明确：可点控件用 rounded-control（随主题变）、圆形装饰用 rounded-full。
+  //
+  // ★ 必须**同时扫 className="..." 和 className={`...`}**（以及三元里的单引号串）——
+  //   第一版只扫双引号形式，结果 LoadingState 骨架屏的 3 处
+  //   `h-3 rounded loading-shimmer` 全漏了，部署后实测才暴露。
   const offenders = [];
   for (const file of files) {
     const rel = file.replace(root, '').replace(/\\/g, '/');
     const src = readFileSync(file, 'utf8')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
-    for (const m of src.matchAll(/className="([^"]*)"/g)) {
-      const cls = m[1];
-      if (!/(?:^|\s)rounded(?:\s|$)/.test(cls)) continue;
+
+    for (const m of src.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+      const cls = m[1] || m[2] || '';
+      // 找独立的 rounded（不是 rounded-md / rounded-full / rounded-control ...）
+      if (!/(?:^|[\s"'])rounded(?![\w-])/.test(cls)) continue;
       const line = src.slice(0, m.index).split('\n').length;
-      offenders.push(`${rel}:${line}  ${cls.slice(0, 55)}`);
+      offenders.push(`${rel}:~${line}  ${cls.replace(/\s+/g, ' ').slice(0, 55)}`);
     }
   }
   assert.deepEqual(
