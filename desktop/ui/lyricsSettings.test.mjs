@@ -144,18 +144,34 @@ test('已播放/未播放必须双色：底层与上层用不同颜色变量', (
   );
 });
 
-test('整行进度按字数加权，与旧实现 lyricProgress 等价', () => {
-  // 算法本体在 lyricsCore.js 的 lineProgress（逐行对照 cpp/Lyrics.cpp:140-170），
-  // 数值行为由 lyricsCore.test.mjs 逐条验证；这里守的是"实现没有被悄悄换掉"。
+test('整行进度按**视觉宽度**加权（空格不算整字），且用共享核心', () => {
+  // ★ 用户实测「逐字歌词有时候会跳着显示，主要在空格之后」。
+  //   根因：旧版 `Lyrics.cpp:lyricProgress` 用 `Σ max(1, len(word.s))` 按**字数**加权，
+  //   把空格也算成 1 整字；但空格渲染宽度只有汉字的约 0.28，
+  //   于是「字数进度」与「像素进度」出现偏差（实测最大 0.66em）→ 填色跳一下。
+  //   修法：权重改成视觉宽度（空白 0.28 / CJK 1.0 / 其他 0.55）。
+  //
+  // 数值行为由 lyricsCore.test.mjs 逐条验证；这里守的是"实现没有被悄悄换回按字数"。
   const code = [overlayJs, lyricsCoreJs]
     .map((source) => source.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n'))
     .join('\n');
-  assert.match(code, /totalChars/, '需要按总字数归一');
-  assert.match(code, /Math\.max\(1, String\(word\??\.s/, '每个词至少算 1 字');
-  assert.match(
+
+  // 必须按视觉宽度归一
+  assert.match(code, /totalWidth/, '需要按视觉总宽度归一');
+  assert.match(code, /charWidthWeight/, '需要字符宽度权重函数');
+  assert.match(code, /textWidthWeight/, '需要文本宽度加权函数');
+  // 空白权重必须是 0.28（不是 1）
+  assert.match(code, /return 0\.28/, '空格权重应为 0.28');
+  // 不得再按字数归一（旧实现特征）
+  assert.doesNotMatch(code, /totalChars/, '不得再按总字数归一（空格会被算成整字）');
+  assert.doesNotMatch(
     code,
-    /completed \/ Math\.max\(1, totalChars\)|completed\/Math\.max\(1,totalChars\)/,
+    /Math\.max\(1, String\(word\??\.s/,
+    '不得再用「每个词至少算 1 字」的字数口径',
   );
+  // 归一表达式必须用宽度分母
+  assert.match(code, /completed \/ Math\.max\(0\.28, totalWidth\)/);
+
   // overlay.js 必须真的用上共享核心，而不是自己另抄一份（两份必然分叉）
   assert.match(overlayJs, /from '\.\/lyricsCore\.js'/, 'overlay.js 需从核心导入');
   assert.match(overlayJs, /coreLineProgress|lineProgress/, 'overlay.js 需使用共享实现');
