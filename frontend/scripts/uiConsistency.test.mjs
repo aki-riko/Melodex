@@ -534,6 +534,46 @@ check('表单控件（input/select）必须固定高度，不能只靠 py', () =
   );
 });
 
+// ---------- ⑪ <select> 必须关闭原生外观 ----------
+
+check('select 必须 appearance:none + 自定义箭头（原生箭头位置不可控）', () => {
+  // ★ 实测（用户截图：「下拉按钮歪了？」）：
+  //   input 和 select 都是 40px 高、像素级中心也是 0.00px 偏移，
+  //   但 select 用的是浏览器**原生外观** —— 下拉箭头由浏览器绘制，
+  //   位置/大小/与文字间距全都不可控，在不同 WebView 版本下还会变。
+  //
+  //   并且 select 的 `line-height: normal` 让浏览器算出 20px 行盒
+  //   （input 显式 24px），虽然中心对齐，但字墨迹（ascent 13 / descent 2）
+  //   在更矮的行盒里视觉重心偏上 —— 这就是"看起来歪"的来源。
+  //
+  // 修法：appearance:none + background-image 画几何对齐的 chevron
+  //       + 显式 line-height。门禁锁住这三条。
+  const css = readSrc('src/index.css');
+  // ★ 必须锚定 `appearance` 行首（不是 -webkit-appearance）：
+  //   第一版正则写成 `appearance:\s*none`，结果被紧邻的
+  //   `-webkit-appearance: none;` 满足 —— 把 appearance 改成 auto 也判绿（漏检）。
+  //   现在要求前面只能是行首空白，不允许有 `-webkit-` 前缀。
+  assert.match(
+    css,
+    /select\s*\{[^}]*(?:^|\n)\s{2}appearance:\s*none/s,
+    'select 必须 appearance: none（关掉原生箭头；注意别被 -webkit-appearance 蒙混过关）',
+  );
+  assert.doesNotMatch(
+    css,
+    /select\s*\{[^}]*(?:^|\n)\s{2}appearance:\s*(?!none)\w+/s,
+    'select 的 appearance 必须是 none，不能是 auto/menulist 等原生值',
+  );
+  assert.match(css, /select\s*\{[^}]*background-image:\s*url\("data:image\/svg\+xml/s, 'select 必须用 background-image 画自定义箭头');
+  assert.match(css, /select\s*\{[^}]*background-position:\s*right[^;]*center/s, '箭头必须垂直居中、贴右');
+  assert.match(css, /select\s*\{[^}]*line-height:\s*1\.5/s, 'select 必须显式 line-height（normal 会让字偏上）');
+  // 深色主题要换浅色箭头，否则灰箭头在深底看不清
+  assert.match(
+    css,
+    /\[data-theme="fluent-dark"\]\s*select\s*\{[^}]*background-image/s,
+    '深色主题必须换浅色箭头（灰箭头在深底看不清）',
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

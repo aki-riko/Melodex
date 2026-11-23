@@ -623,6 +623,46 @@
   opacity: 1;
 }
 
+/* ===== 表单控件统一度量（2026-11）=====
+ *
+ * ★ 实测问题（用户截图：「下拉按钮歪了？」）：
+ *   用户管理页「新建用户」一行里，input 和 select 都是 40px 高、都居中，
+ *   但**文字视觉位置不一样**——
+ *     input  : line-height: 24px  → 文字在 24px 行盒里，整盒居中 → 看起来正
+ *     select : line-height: normal → 浏览器按字体算出 **20px** 行盒
+ *              → 20px 盒在 40px 里居中，但字体 ascent=13 / descent=2
+ *                （汉字墨迹重心偏上），所以文字整体偏上 ~2px
+ *
+ *   同时 select 还是浏览器**原生外观**（appearance: auto），
+ *   下拉箭头由浏览器绘制，位置/大小/与文字的间距全都不可控 ——
+ *   这就是"歪了"的另一半原因。
+ *
+ * 修法：
+ *   ① 给 select 显式 `line-height: 1.5`（= 24px），与 input 一致；
+ *   ② `appearance: none` 关掉原生外观，用 background-image 画一个
+ *      **几何对齐的** chevron（位置由 padding 精确控制）；
+ *   ③ 统一 padding-right 给箭头留位。
+ *
+ * 为什么不用 SVG 内联图标：<select> 不能有子元素，
+ * background-image 是唯一可控的方式。
+ */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  /* 箭头贴右边 12px，与 padding-right 一致；垂直居中 */
+  background-position: right 0.75rem center;
+  background-size: 0.75rem;
+  /* 给箭头留出位置，避免文字压到它 */
+  padding-right: 2.25rem !important;
+  line-height: 1.5;
+}
+/* 深色主题下把箭头换成浅色（否则灰箭头在深底上看不清） */
+[data-theme="fluent-dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23e5e7eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
 /* 兼容:旧的 .app-scroll 保留为别名,避免漏改处样式回退成默认滚动条 */
 .app-scroll {
   scrollbar-width: thin;
