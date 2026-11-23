@@ -42,15 +42,21 @@ const AlbumCard = ({ album, onOpen }) => (
     title={`打开专辑「${album.name}」`}
   >
     <AlbumCover album={album} />
-    <p className="mt-1.5 line-clamp-2 type-caption font-semibold leading-snug text-foreground">
+    {/* ★ 标题固定占 2 行高度（2026-11，治「卡片高低不齐」）：
+        单行标题的卡片比两行的矮 16px，同一排参差不齐。同 HomeRecommendations。 */}
+    <p className="mt-1.5 line-clamp-2 min-h-[2lh] type-caption font-semibold leading-snug text-foreground">
       {album.name}
     </p>
     <p className="mt-0.5 truncate type-micro text-muted-foreground">
       {album.creator || '未知艺人'}
     </p>
+    {/* ★ 曲目数这一行同样必须永远占位：用 `truncate` 的 span 撑,
+        缺失时留 &nbsp;，否则整卡少一行。 */}
     <p className="mt-0.5 flex items-center justify-between gap-1 type-micro text-muted-foreground">
       <span className="truncate">{sourceLabel(album.source)}</span>
-      {album.track_count > 0 && <span className="flex-none nums">{album.track_count} 首</span>}
+      <span className="flex-none nums">
+        {album.track_count > 0 ? `${album.track_count} 首` : '\u00A0'}
+      </span>
     </p>
   </button>
 );

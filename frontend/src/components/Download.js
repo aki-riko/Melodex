@@ -311,7 +311,9 @@ const PlaylistCard = ({ playlist, onOpen }) => {
           </div>
         )}
       </div>
-      <p className="mt-1.5 line-clamp-2 type-caption font-semibold leading-snug text-foreground">
+      {/* ★ 标题固定占 2 行高度（2026-11，同 HomeRecommendations 的 PlaylistCard）：
+          单行标题的卡片会比两行的矮一截，整排参差不齐。`min-h-[2lh]` 补齐。 */}
+      <p className="mt-1.5 line-clamp-2 min-h-[2lh] type-caption font-semibold leading-snug text-foreground">
         {playlist.name}
       </p>
     </button>

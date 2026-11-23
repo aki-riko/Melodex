@@ -71,10 +71,23 @@ function PlaylistCard({ playlist, onOpen, showSource = false, className = '' }) 
           </span>
         )}
       </div>
-      <p className="mt-2 line-clamp-2 type-caption font-semibold leading-snug">{playlist.name}</p>
-      {playlist.track_count > 0 && (
-        <p className="mt-0.5 type-micro text-muted-foreground nums">{playlist.track_count} 首</p>
-      )}
+      {/* ★ 标题固定占 2 行高度（2026-11，治「卡片高低不齐」）：
+          原来 `line-clamp-2` 只做上限——标题 1 行时卡片矮一截、
+          2 行时高一截，整排看过去参差不齐，是「排版地狱」最直观的一处。
+          `min-h-[2lh]` 让单行标题也占满两行，**同一排卡片必然等高**；
+          同时保留 line-clamp-2 防止超长标题撑破。
+          用 `lh` 单位而不是写死 px：字号变了高度自动跟着变。 */}
+      <p className="mt-2 line-clamp-2 min-h-[2lh] type-caption font-semibold leading-snug">
+        {playlist.name}
+      </p>
+      {/* ★「N 首」这一行必须**永远占位**，哪怕数字缺失（2026-11）：
+          原来整个 <p> 都用 `track_count > 0` 包着，于是没有曲目数的歌单
+          少一整行 —— 实测那张卡片 204px，同排其余 220px，差 16px。
+          这是**数据缺失导致布局塌陷**，纯 CSS 修不了；必须让元素存在、
+          只是内容为空/不可见，撑住行高。 */}
+      <p className="mt-0.5 type-micro text-muted-foreground nums">
+        {playlist.track_count > 0 ? `${playlist.track_count} 首` : '\u00A0'}
+      </p>
     </button>
   );
 }

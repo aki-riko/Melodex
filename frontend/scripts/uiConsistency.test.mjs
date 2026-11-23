@@ -206,6 +206,54 @@ check('播放条控制区所有固定尺寸元素都带 flex-shrink-0', () => {
   );
 });
 
+// ---------- ⑤ 卡片标题必须等高（治「同一排卡片参差不齐」）----------
+
+check('横向卡片标题用 line-clamp-2 时必须配 min-h-[2lh]', () => {
+  // ★ 真实缺陷（用户：「排版地狱看不下去」）：
+  //   `line-clamp-2` 只做**上限**——标题 1 行时卡片矮、2 行时高。
+  //   实测同一排卡片 204px vs 220px，差 16px，整排看过去参差不齐。
+  //   加 `min-h-[2lh]` 让单行标题也占满两行，同排必然等高。
+  //
+  // 判据：任何 `line-clamp-2` 出现在**卡片标题**语境（同 class 里有 type-caption）
+  // 就必须同时有 min-h-[2lh]。
+  const offenders = [];
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/className="([^"]*line-clamp-2[^"]*)"/g)) {
+      const cls = m[1];
+      if (!/type-caption/.test(cls)) continue;      // 只查卡片标题那类
+      if (/min-h-\[2lh\]/.test(cls)) continue;      // 已修
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${file.replace(root, '').replace(/\\/g, '/')}:${line}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些卡片标题只有 line-clamp-2、没有 min-h-[2lh]，单行标题会让卡片矮一截（同排参差）：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+check('曲目数/副标题行不得用条件渲染整行（会少一行高度）', () => {
+  // ★ 同类真实缺陷：`{track_count > 0 && <p>...</p>}` 在没有曲目数时
+  //   **整行消失**，卡片就矮 16px（实测那张 204px 是缺「N 首」导致的）。
+  //   正确写法是元素常驻、内容留 &nbsp; 占位。
+  const offenders = [];
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    // 找 `{xxx > 0 && (` 后紧跟含 type-micro 的 <p>
+    for (const m of src.matchAll(/\{\s*\w+(?:\.\w+)*\s*>\s*0\s*&&\s*\(?\s*<p[^>]*type-micro/g)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${file.replace(root, '').replace(/\\/g, '/')}:${line}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些地方用 \`count > 0 && <p>\` 条件渲染整行，缺数据时卡片会矮一截（应改为元素常驻 + &nbsp; 占位）：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');

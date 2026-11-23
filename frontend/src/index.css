@@ -566,7 +566,23 @@
   height: 0;
   display: none;
 }
-/* 轮播两侧渐隐遮罩:内容到边缘时自然淡出,提示"还有内容" */
+/* 轮播两侧渐隐遮罩:内容到边缘时自然淡出,提示"还有内容"
+ *
+ * ★ 2026-11 加宽 2rem → 5rem 并改用**双档渐变**（用户：「地狱排版看不下去」）。
+ *
+ *   实测数据（1920 视口，主区 982px）：
+ *     · 首屏主区右边界 1246px，卡片一路排到 2496px（scrollWidth 24084px）
+ *     · 被切的第 6 张卡片**露出 114px**（占整卡 71%），
+ *       而 2rem(32px) 的渐隐只盖住其中 28% —— 露出的 82px 是**完全实心的**，
+ *       视觉上就是"一刀切断"，这才是"看不下去"的直接原因。
+ *
+ *   5rem(80px) 能盖住 70% 的露出部分；再用双档渐变
+ *   （前 40% 就降到 25% 不透明度）让"淡出"提前发生，
+ *   被切的卡片读起来像"延续到屏幕外"，而不是"被裁掉"。
+ *
+ *   渐隐色必须是 `--background`（主区底色）而不是 `--card` ——
+ *   用卡片色会在浅色主题下比背景亮，反而显出一道白边。
+ */
 .scroll-x-wrap {
   position: relative;
 }
@@ -576,7 +592,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2rem;
+  width: 5rem;
   pointer-events: none;
   z-index: 1;
   opacity: 0;
@@ -584,11 +600,23 @@
 }
 .scroll-x-wrap::before {
   left: 0;
-  background: linear-gradient(to right, hsl(var(--background)), transparent);
+  background: linear-gradient(
+    to right,
+    hsl(var(--background)) 0%,
+    hsl(var(--background) / 0.85) 25%,
+    hsl(var(--background) / 0.25) 60%,
+    transparent 100%
+  );
 }
 .scroll-x-wrap::after {
   right: 0;
-  background: linear-gradient(to left, hsl(var(--background)), transparent);
+  background: linear-gradient(
+    to left,
+    hsl(var(--background)) 0%,
+    hsl(var(--background) / 0.85) 25%,
+    hsl(var(--background) / 0.25) 60%,
+    transparent 100%
+  );
 }
 .scroll-x-wrap[data-can-left="true"]::before,
 .scroll-x-wrap[data-can-right="true"]::after {
