@@ -67,5 +67,38 @@ export default defineConfig({
   },
   build: {
     outDir: 'build', // 沿用 CRA 的输出目录名,兼容已有部署习惯
+    // ===== 手动分包(2026-11)=====
+    //
+    // ★ 背景:主包曾 586KB(gzip 187KB),全部打成一块。
+    //   已先把 9 个页面组件改成 React.lazy()(主包 → 475KB / gzip 153KB)。
+    //   这里再把**第三方库**拆出去,目的是**长期缓存**:
+    //   库版本不变时,这些 chunk 的 hash 不变,用户发版后只需重下业务代码。
+    //
+    // ★ 为什么按这些边界分(不是按体积平均切):
+    //   · react-vendor   react/react-dom/scheduler —— 版本最稳定,几乎永不失效
+    //   · query-vendor   react-query —— 同样稳定
+    //   · net-vendor     axios —— 稳定
+    //   · icon-vendor    lucide-react —— 版本升得较快,单独一块避免连累 react
+    //   · qr-vendor      qrcode.react —— 只在设置页用,连懒加载一起走
+    //
+    // ★ 不要用「把所有 node_modules 塞进一个 vendor chunk」的粗暴写法:
+    //   那样任一库升级都会让整块 hash 变化,缓存全失效,
+    //   反而比不拆更糟(用户要重下全部依赖)。
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react-vendor';
+          if (/[\\/]node_modules[\\/](react-query|@tanstack)[\\/]/.test(id)) return 'query-vendor';
+          if (/[\\/]node_modules[\\/]axios[\\/]/.test(id)) return 'net-vendor';
+          if (/[\\/]node_modules[\\/]lucide-react[\\/]/.test(id)) return 'icon-vendor';
+          if (/[\\/]node_modules[\\/]qrcode\.react[\\/]/.test(id)) return 'qr-vendor';
+          // 其余小库交给 Rollup 自动归入主包（拆得太碎会增加请求数，反而不划算）
+          return undefined;
+        },
+      },
+    },
+    // 主包压到 500KB 以下后，这个阈值就能守住回归了
+    chunkSizeWarningLimit: 520,
   },
 });
