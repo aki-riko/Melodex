@@ -773,7 +773,13 @@ test('切行动画不得用 scale（锯齿根因），只保留位移 + 淡入',
     '不再需要入场缩放变量',
   );
   assert.match(currentRule[0], /translateY\(/, '应保留纵向位移');
-  assert.match(currentRule[0], /opacity:\s*calc\(0\.96/, '应保留淡入');
+  // 淡入幅度：起点 0.55（旧版 QML 只从 0.96 到 1，肉眼几乎看不出，
+  // 用户反馈「切行动画的手感」后加大到 0.55 起步）。终点仍是 1。
+  assert.match(
+    currentRule[0],
+    /opacity:\s*calc\(0\.55 \+ 0\.45 \* var\(--transition-progress/,
+    '应保留明显淡入（0.55 → 1）',
+  );
 
   // JS 侧不得再写 --incoming-scale（只看代码体，注释里会解释为什么去掉）
   const jsCode = overlayJs
@@ -912,6 +918,42 @@ test('渲染循环必须按显示器帧率驱动，不能用 setInterval', () =>
   assert.match(jsCode, /startRenderLoop\(\)/, '启动处要调 startRenderLoop');
   // 必须有帧率节流（高刷屏空转保护）
   assert.match(jsCode, /MIN_RENDER_INTERVAL_MS/, '需要最小帧间隔常量');
+});
+
+test('填色接缝必须软化（右边缘渐隐），且唱完后取消渐隐', () => {
+  // ★ 用户反馈「填色接缝切在字中间」：行级 LRC 只有整行 t/end，
+  //   进度线性插值，边界必然随机落在某个字的笔画中间，看着像硬切线。
+  //   修法：给裁剪容器加一条右侧渐隐（mask），让填色边界是柔和过渡。
+  const css = overlayCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const clipRule = css.match(/\.lyric-clip\s*\{[^}]*\}/s);
+  assert.ok(clipRule, '找不到 .lyric-clip 规则');
+  assert.match(clipRule[0], /--fill-softness:/, '需要软边宽度变量');
+  assert.match(clipRule[0], /mask-image:\s*linear-gradient/, '需要 mask 做渐隐');
+  assert.match(clipRule[0], /-webkit-mask-image:\s*linear-gradient/, 'Safari/WebKit 也要');
+  // 渐变必须是「右边缘透明」（to right + transparent 100%）
+  assert.match(clipRule[0], /to right/, '渐变方向应向右');
+  assert.match(clipRule[0], /transparent 100%/, '右边缘应全透明');
+
+  // ★ 收尾保护：进度到 1 时不能还有渐隐，否则最后一个字被削淡
+  assert.match(
+    css,
+    /\.lyric-clip\[data-full="1"\][\s\S]{0,80}mask-image:\s*none/,
+    '唱完后必须取消 mask，否则最后一个字被削淡',
+  );
+  // JS 要真的在 ratio >= 0.999 时设这个标记
+  const jsCode = overlayJs
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+  assert.match(jsCode, /ratio >= 0\.999/, '需要整行唱完的判据');
+  assert.match(jsCode, /dataset\.full = '1'/, '需要设置 data-full');
+  // 软边宽度必须跟字号缩放（不能写死 px，否则小字被整段糊掉）
+  assert.match(
+    clipRule[0],
+    /--fill-softness:\s*calc\(var\(--lyric-font-size\)[^)]*var\(--line-font-scale/,
+    '软边宽度应按实际字号缩放',
+  );
 });
 
 console.log(`\ndesktop lyrics settings contract tests passed (${passed})`);

@@ -116,9 +116,13 @@
   --incoming-offset: calc((var(--active-line-height) + var(--secondary-line-height)) / 2);
 
   /* 控制条：DesktopLyricsWindow.qml:286-298 的 38 高与两组 rgba。
-   * 宽度仍由内容决定（用户此前明确反馈旧版 212 写死导致两侧空 18px）。 */
+   * 宽度仍由内容决定（用户此前明确反馈旧版 212 写死导致两侧空 18px）。
+   *
+   * 淡入时长 150ms（旧实现是 Fluent `duration.fast` = 120ms）：
+   * 120ms 时 5 个按钮带缩放一起浮现，看起来是"闪一下"；
+   * 150ms 明显柔和，也仍在"瞬时响应"的范围内。 */
   --control-bar-height: 38px;
-  --control-bar-fade-ms: 120ms;
+  --control-bar-fade-ms: 150ms;
   --control-bar-bg: rgba(247, 250, 252, 0.94);
   --control-bar-border: rgba(30, 36, 41, 0.2);
   --control-icon-color: #1f2429;
@@ -200,8 +204,15 @@ body {
   transform-origin: center center;
   /* 只做纵向位移：progress 0 → 1 时从下方 incoming-offset 处升到主行位置。 */
   transform: translateY(calc(var(--incoming-offset) * (1 - var(--transition-progress, 1))));
-  /* QML :417 opacity: 0.96 + 0.04 * progress */
-  opacity: calc(0.96 + 0.04 * var(--transition-progress, 1));
+  /* ★ 淡入幅度比旧版 QML 更大（QML 只从 0.96 到 1，肉眼几乎看不出）。
+   *
+   * 用户反馈「切行动画的手感」需要再细调。原来的问题是：47px 位移在 300ms 内
+   * 跑完，而透明度只变化 4% —— 等于"只有硬邦邦的位移"，没有淡入缓冲，
+   * 观感像"啪"地弹上去。
+   *
+   * 现在把透明度起点降到 0.55：位移的同时明显淡入，
+   * 视觉上更像"浮上来"而不是"弹上去"。终点仍是 1（与 QML 一致）。 */
+  opacity: calc(0.55 + 0.45 * var(--transition-progress, 1));
   /* ★ 不要写 will-change: transform —— 它会强制建立合成层，
    *   文字在合成层里按半分辨率栅格化，反而更糊。位移量很小（47px/300ms），
    *   直接用普通重绘就够快。 */
@@ -305,10 +316,46 @@ body {
   position: absolute;
   top: 0;
   left: var(--text-left, 0px);
+  /* 裁剪宽度 = 文字宽 × 进度（与 QML WordFill 一致）。宽度本身不加密尾 ——
+   * 那条渐隐带靠 mask 在**容器内部右侧**做，不需要改变几何。 */
   width: calc(var(--text-width, 0px) * var(--fill-ratio, 0));
   height: 100%;
   overflow: hidden;
   pointer-events: none;
+
+  /* ★★ 软化填色接缝（用户反馈「填色接缝切在字中间」）。
+   *
+   * 行级 LRC 只有整行的 t/end，进度只能线性插值 —— 边界必然随机落在某个字
+   * 的笔画中间，看上去像一条硬切线（真机截图里「遗传」的「遗」是粉、「症」是白，
+   * 接缝正好切在字里）。
+   *
+   * 这里给裁剪容器加**右侧渐隐**：从 `100% - softness` 到 `100%` 由不透明
+   * 渐变到全透明。于是填色边界变成一段柔和过渡，而不是一条硬边。
+   * 底层白字始终完整，过渡区天然呈现「粉→白」的渐变，不会缺字或发虚。
+   *
+   * 软边宽度 = 0.4em（跟随实际字号缩放）：太大整段会糊，太小看不出效果。
+   * 实测 36px 时约 14px，正好盖住一个字的右半边，接缝无论如何都看不见硬线。 */
+  --fill-softness: calc(var(--lyric-font-size) * var(--line-font-scale, 1) * 0.4);
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - var(--fill-softness)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - var(--fill-softness)),
+    transparent 100%
+  );
+}
+
+/* ★ 收尾保护：进度到 1 时（整行唱完）不能还有渐隐带，
+ *   否则最后一个字的右半边会被削淡。此时直接取消 mask。 */
+.lyric-clip[data-full="1"],
+.lyric-clip--full {
+  mask-image: none;
+  -webkit-mask-image: none;
 }
 
 /* 上层：已播放色。宽度必须等于整行（含居中留白），
@@ -328,18 +375,24 @@ body {
  * 悬停判定用 body 而不是 .lyrics-shell：shell 已经内缩 12/32，
  * 指针落在窗口外圈那一条时也该出控制条（QML 的 HoverHandler 是整窗）。
  * body 带 .passthrough（=锁定/穿透）时整条不响应、不显示。
- */
+ *
+ * ★ 细节微调（用户反馈「控制条」需要再优化）：
+ *   ① 顶部留 1px 呼吸：原来 `top: 0` 胶囊紧贴窗口上沿。
+ *      **不能留更多** —— 主行在 44px、胶囊高 38，`top: 4` 就只剩 2px 间隙，
+ *      悬停时胶囊会几乎贴上歌词（原来的 6px 是舒服的）。1px 时间隙 5px。
+ *   ② 水平 padding 收到 8px、按钮间距 6px：胶囊"包住"按钮而不是松垮地框着。
+ *   ③ 图标 15px（原 14）：14px 在 32×30 的按钮里四周各空 9px，显得空。 */
 .controls {
   position: fixed;
-  top: 0;
+  top: 1px;
   left: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   width: max-content;
   height: var(--control-bar-height);
-  padding: 0 10px;
-  gap: 4px;
+  padding: 0 8px;
+  gap: 6px;
   border: 1px solid var(--control-bar-border);
   border-radius: calc(var(--control-bar-height) / 2);
   background: var(--control-bar-bg);
@@ -375,10 +428,14 @@ body:not(.passthrough) .controls:focus-within {
   transition: background-color var(--control-bar-fade-ms) ease;
 }
 
-/* 图标 14px = 旧实现 iconSize.s（Metrics.qml:177）。 */
+/* 图标 15px。
+ *
+ * 旧实现是 iconSize.s = 14px（Metrics.qml:177），但在 32×30 的按钮里
+ * 四周各空 9px，视觉上显得空、点击热区也浪费。15px 只加 1px，
+ * 比例更饱满且不会撑满按钮。 */
 .controls button svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   fill: currentColor;
 }
 

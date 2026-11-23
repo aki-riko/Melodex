@@ -52,6 +52,7 @@ const outgoingActive = document.getElementById('outgoing-line-active');
 const currentWrap = document.getElementById('current-line-wrap');
 const currentBase = document.getElementById('current-line-base');
 const currentLine = document.getElementById('current-line');
+const currentClip = document.getElementById('current-line-clip');
 const nextLine = document.getElementById('next-line');
 const lyricsShell = document.getElementById('lyrics-shell');
 const controls = document.getElementById('controls');
@@ -524,7 +525,18 @@ const syncWindowGeometry = () => {
 //   副行：y 从下方 35% 行高浮起，opacity = 0.92*entry，entry = max(0,(p-0.3)/0.7)
 //
 // 三个元素**共用同一个 progress**，所以是连续一体的过渡，不是各自独立淡入。
-const TRANSITION_EASE = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+/**
+ * 切行动画的缓动曲线。
+ *
+ * ★ 从 InOutCubic 改为 **OutCubic**（用户反馈「切行动画的手感」）：
+ *   InOutCubic 起步极慢（前 100ms 几乎没动）、中段猛冲、收尾又慢，
+ *   配合 47px 的位移会显得"黏一下 → 突然弹上去 → 再黏住"。
+ *   OutCubic 是"快起慢收"：按下即响应，末段柔和落位，
+ *   这是浮层/位移类动画的通用手感（也符合 Fluent 的 motion 规范）。
+ *
+ * 时长仍保持 300ms（`Fluent.Enums.duration.slower`）。
+ */
+const TRANSITION_EASE = (t) => 1 - Math.pow(1 - t, 3);
 
 let transitionFrame = 0;
 
@@ -668,11 +680,26 @@ const renderCurrentLine = (text) => {
   }
 };
 
-/** 只更新主行的填色进度（每帧都跑，必须廉价：只写一个 CSS 变量）。 */
+/** 只更新主行的填色进度（每帧都跑，必须廉价：只写一个 CSS 变量 + 偶尔一次属性切换）。 */
 const updateFillProgress = (line, position) => {
   const ratio = line ? coreLineProgress(line, position) : 0;
   currentWrap.style.setProperty('--fill-ratio', String(ratio));
+
+  // ★ 进度到 1 时取消右边缘的渐隐带（详见 overlay.css 里 .lyric-clip 的注释）：
+  //   否则整行唱完后最后一个字的右半边会被 mask 削淡。
+  //   只在跨过 1 的瞬间切一次属性，稳定态不做任何多余 DOM 操作。
+  const isFull = ratio >= 0.999;
+  if (currentClipFull !== isFull) {
+    currentClipFull = isFull;
+    if (currentClip) {
+      if (isFull) currentClip.dataset.full = '1';
+      else delete currentClip.dataset.full;
+    }
+  }
 };
+
+/** 上一次的「整行是否已唱完」，避免每帧都写 dataset。 */
+let currentClipFull = false;
 
 /**
  * 副行：只负责写文字，字号适配由 refreshRenderedGeometry 每帧核对。
