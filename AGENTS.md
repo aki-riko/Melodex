@@ -884,7 +884,8 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 
 ## 部署(NAS,Unraid x86_64)
 
-- 代码在 NAS `/mnt/cache/appdata/melodex-src`,Docker compose 运行,端口 **8329**。
+- 代码在 NAS **`/mnt/user/appdata/melodex-src`**（2026-11-23 核实；旧文档写的 `/mnt/cache/appdata/...`
+  也指向同一份数据，但 `find` 实查的结果是这个路径，按这个来），Docker compose 运行,端口 **8329**。
 - 访问 `https://music.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
 - **NAS 构建坑**:① 私仓 clone 用内网 `ssh://<NAS-USER>@<NAS-LAN-IP>:<NAS-SSH-PORT>/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:20-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)⑤ `npm ci` 直连官方源会卡死,传 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com`。
 - **生产现状(2026-11-12 核实)**:应用镜像是 **NAS 本地构建的 `melodex:latest`**,不是 GHCR 预构建镜像(下面「镜像发布」节的 2026-10-25 记录已过时);provider 仍用 `ghcr.io/aki-riko/melodex-provider:edge`。
@@ -897,6 +898,11 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   4. `docker compose up -d --no-build --no-deps melodex`(只重建应用容器)
   5. 验证:`docker exec melodex wget -qO- http://127.0.0.1:8329/api/v1/healthz` 应为 `{"app":"melodex","status":"ok"}`;
      改了前端静态资源时,再比对 `docker exec melodex wget -qO- http://127.0.0.1:8329/logo512.png | sha256sum` 与本地文件。
+  - **★ `GOPROXY` 必须显式传**(2026-11-23 实测踩到):Dockerfile 里 `ARG GOPROXY=direct`,
+    不传就直连 `golang.org` 拉模块,150s 后超时失败:
+    `go: golang.org/x/arch@v0.20.0: unrecognized import path ... dial tcp ... i/o timeout`。
+    ▲ 此时**前端阶段是成功的**(日志里能看到 `✓ built in 3.47s` 与新 css 哈希),
+    只有 Go 阶段挂 —— 别看到前端构建成功就以为整个构建过了。
   - **为什么传 `IMAGE_PREFIX=docker.io/library`**:Dockerfile 默认前缀是 `docker.1ms.run/library`,
     2026-11-12 该镜像站 CDN 中途断连(`failed to copy: httpReadSeeker ... EOF`),构建在拉 `alpine:3.22` 元数据时失败。
     NAS 本地已有按原名 retag 的 `alpine:3.22` / `node:20-alpine` / `golang:1.25`,换成 `docker.io/library` 前缀 + `--pull=false`
