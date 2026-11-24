@@ -200,13 +200,37 @@ const updateSettings = async (patch) => {
  * 所以在 mouseup / 窗口卸载时保存；这里再补一次「回拉后保存」，
  * 保证存下来的坐标一定是**夹进可视区之后**的值。
  */
+/**
+ * 「按在空白处、可能开始拖动」的门闩。mousedown 置 true，mouseup 消费。
+ *
+ * 存在的理由见下面 mouseup 监听处的注释：没有它，任何一次点击都会写盘。
+ * 用 `let` 而不是存进 settings —— 这是纯运行期的一次性标记，不该落盘、
+ * 也不该触发 render。
+ */
+let dragArmed = false;
+
+/**
+ * 上一次成功落盘的坐标，用于去重。
+ *
+ * ★ 为什么需要：即便加了 dragArmed 门闩，用户仍可能在拖动后点两下控制条
+ *   （不移动窗口），或者在原位置按下又松开。这些情况下坐标没变，
+ *   再写一次盘纯属浪费 —— 而 savePosition 是 3 次 IPC + 磁盘写。
+ * 只在**真正成功保存后**更新，所以保存失败时下次还会重试。
+ */
+let lastSavedPosition = null;
+
 const savePosition = async () => {
   try {
     // 先回拉再保存：旧版每次坐标变化都 clamp，落盘的永远是可显示位置。
     // 直接把用户拖到屏幕外的坐标存进设置，重启后歌词就会「消失」。
     await invoke('overlay_clamp_position');
     const [x, y] = await invoke('overlay_position');
+    // 坐标没变就不写盘（去重）。
+    if (lastSavedPosition && lastSavedPosition[0] === x && lastSavedPosition[1] === y) {
+      return;
+    }
     await invoke('lyrics_save_position', { x, y });
+    lastSavedPosition = [x, y];
   } catch (error) {
     // 位置保存失败不影响歌词显示，但必须留痕，否则「拖了不记住」无从排查。
     console.warn('保存桌面歌词位置失败', error);
@@ -949,6 +973,10 @@ lyricsShell.addEventListener('mousedown', (event) => {
   if (event.button !== 0 || event.target.closest('.controls')) return;
   // 锁定时窗是穿透的，这里本来也收不到事件；再判一次防边界情况。
   if (settings.click_through) return;
+  // 标记「这次按下可能演变成拖动」。只有 drag 真正开始过，mouseup 才值得写盘。
+  // （2026-11 全库扫描：原来 mouseup 无条件 savePosition，点一下控制条也要
+  //   写盘 —— 而 savePosition 是 3 次 IPC + 一次磁盘写。）
+  dragArmed = true;
   invoke('start_overlay_drag').catch((error) => console.warn('拖动桌面歌词窗口失败', error));
 });
 
@@ -964,10 +992,22 @@ lyricsShell.addEventListener('dblclick', async (event) => {
   await updateSettings({ visible: false });
 });
 
+// 只在「刚才真的按在空白处」之后才保存位置。
+//
+// ★ 2026-11 全库扫描修正：原来是 `mouseup → 无条件 savePosition()`，于是
+//   点一下播放/上一首按钮、点一下歌词文字，都会触发一次
+//   overlay_clamp_position + overlay_position + lyrics_save_position 三次 IPC
+//   加一次磁盘写。用户玩一阵下来是成百上千次无意义写盘。
+//   现在用 dragArmed 门闩：只有 mousedown 落在非控制条区域（即可能拖动）时，
+//   mouseup 才保存；且 savePosition 内部还会做「坐标没变就不写」的去重。
 window.addEventListener('mouseup', () => {
+  if (!dragArmed) return;
+  dragArmed = false;
   if (settings.click_through) return;
   savePosition();
 });
+// beforeunload 保留无条件保存：退出前必须把当前位置落盘，
+// 哪怕用户没拖动过 —— 期间可能发生过「回拉」把它挪进了可视区。
 window.addEventListener('beforeunload', () => {
   if (settings.click_through) return;
   savePosition();

@@ -69,7 +69,8 @@
     "preview": "vite preview",
     "test:provider-contract": "node scripts/playerProviderContract.test.mjs",
     "test:lyric-single-source": "node scripts/lyricDialogSingleSource.test.mjs",
-    "test:row-listeners": "node scripts/rowListenerBudget.test.mjs"
+    "test:row-listeners": "node scripts/rowListenerBudget.test.mjs",
+    "mutate:position-save": "node ../desktop/ui/mutatePositionSave.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.2.0",

@@ -1011,4 +1011,98 @@ test('控制条是毛玻璃胶囊（不是实心白饼）', () => {
   );
 });
 
+// ── 位置写盘节流（2026-11 全库扫描）─────────────────────────────────────────
+//
+// 真实缺陷：mouseup 原来**无条件**调 savePosition()，而 savePosition 要做
+// overlay_clamp_position + overlay_position + lyrics_save_position 三次 IPC
+// 加一次磁盘写。于是点一下播放/上一首按钮、点一下歌词文字，都触发一次写盘。
+//
+// 修法两层：
+//   ① dragArmed 门闩 —— 只有 mousedown 落在非控制条区域（可能拖动）时，
+//      mouseup 才保存；
+//   ② savePosition 内部对坐标去重 —— 位置没变就不写。
+
+test('mouseup 不得无条件保存位置（必须有 dragArmed 门闩）', () => {
+  // 取出 mouseup 监听器的完整回调体
+  const mouseUpBlock = overlayJs.match(
+    /window\.addEventListener\('mouseup',\s*\(\)\s*=>\s*\{([\s\S]*?)\n\}\);/,
+  );
+  assert.ok(mouseUpBlock, '找不到 mouseup 监听器');
+  const body = mouseUpBlock[1];
+
+  assert.match(
+    body,
+    /if\s*\(!dragArmed\)\s*return;/,
+    'mouseup 必须先判 dragArmed 再保存 —— 否则任何点击都会触发三次 IPC + 写盘',
+  );
+  assert.match(
+    body,
+    /dragArmed\s*=\s*false;/,
+    'mouseup 消费门闩后必须复位，否则一次拖动之后所有点击都会写盘',
+  );
+
+  // 门闩必须在 mousedown（非控制条区域）里被置位，否则永远不会保存
+  const mouseDownBlock = overlayJs.match(
+    /lyricsShell\.addEventListener\('mousedown',\s*\(event\)\s*=>\s*\{([\s\S]*?)\n\}\);/,
+  );
+  assert.ok(mouseDownBlock, '找不到 mousedown 监听器');
+  assert.match(
+    mouseDownBlock[1],
+    /dragArmed\s*=\s*true;/,
+    'mousedown 应置位 dragArmed（否则拖动后永远不会保存位置）',
+  );
+  assert.match(
+    mouseDownBlock[1],
+    /closest\('\.controls'\)/,
+    'mousedown 必须排除控制条 —— 点按钮不是拖动',
+  );
+});
+
+test('savePosition 必须对坐标去重（位置没变就不写盘）', () => {
+  const saveBlock = overlayJs.match(/const savePosition = async \(\) => \{([\s\S]*?)\n\};/);
+  assert.ok(saveBlock, '找不到 savePosition 定义');
+  const body = saveBlock[1];
+
+  assert.match(
+    body,
+    /lastSavedPosition/,
+    'savePosition 需要记住上次保存的坐标用于去重，否则原地点击仍会反复写盘',
+  );
+  assert.match(
+    body,
+    /if \(lastSavedPosition && lastSavedPosition\[0\] === x && lastSavedPosition\[1\] === y\)/,
+    '去重判据必须同时比较 x 与 y，任一不同都应该保存',
+  );
+  // 去重要在 clamp 之后、写入之前 —— 先 clamp 再读位置才能拿到真实落盘值
+  const clampPos = body.indexOf("invoke('overlay_clamp_position')");
+  const posRead = body.indexOf("invoke('overlay_position')");
+  const dedupePos = body.indexOf('lastSavedPosition && lastSavedPosition[0]');
+  const savePos = body.indexOf("invoke('lyrics_save_position'");
+  assert.ok(clampPos >= 0 && posRead >= 0 && dedupePos >= 0 && savePos >= 0, '步骤缺失');
+  assert.ok(
+    clampPos < posRead && posRead < dedupePos && dedupePos < savePos,
+    '顺序必须是 clamp → 读坐标 → 去重判断 → 写盘',
+  );
+
+  // 只有保存成功后才更新缓存坐标，失败时下次仍要重试
+  assert.match(
+    body,
+    /await invoke\('lyrics_save_position'[\s\S]{0,40}lastSavedPosition = \[x, y\];/,
+    'lastSavedPosition 只能在 invoke 成功之后更新，否则保存失败会永久跳过重试',
+  );
+});
+
+test('beforeunload 仍必须无条件保存位置', () => {
+  // 退出前哪怕没拖动过也要落盘：期间可能发生过「回拉」把它挪进可视区。
+  const block = overlayJs.match(
+    /window\.addEventListener\('beforeunload',\s*\(\)\s*=>\s*\{([\s\S]*?)\n\}\);/,
+  );
+  assert.ok(block, '找不到 beforeunload 监听器');
+  assert.match(block[1], /savePosition\(\)/, 'beforeunload 必须保存位置');
+  assert.ok(
+    !/dragArmed/.test(block[1]),
+    'beforeunload 不该受 dragArmed 约束 —— 退出前必须把当前位置落盘',
+  );
+});
+
 console.log(`\ndesktop lyrics settings contract tests passed (${passed})`);
