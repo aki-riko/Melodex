@@ -322,7 +322,7 @@ lyrics_reset_position / lyrics_save_position / lyrics_push_state / lyrics_send_c
 ```powershell
 cd desktop/src-tauri
 cargo fmt --check
-cargo test --locked          # 当前 39 项
+cargo test --locked          # 当前 46 项
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked
 cd ../ui; node lyricsSettings.test.mjs && node lyricsCore.test.mjs   # 36 项 + 核心 9 项
@@ -740,6 +740,60 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
   (全屏 Blender 会盖住 TOPMOST 歌词窗,屏幕截图拍不到)。
 - 判据一律用数值交叉核对,例如「裁剪宽度 ≈ 文字宽 × 进度」误差 <1.5px、
   「裁剪区左边 == 文字 Range 左边」误差 <1.5px。
+
+### 置顶失效:全屏游戏降级 + 层级守护(2026-11-24)
+
+用户报「桌面歌词没置顶」。**抓到了活体故障态**(不是推测),根因与修法如下。
+
+#### 现场证据(21:15:42 快照)
+
+```text
+exstyle=0xC0138  →  WS_EX_TOPMOST = True      ← 样式位说它是置顶窗口
+z 序 rank=15     →  上方压着 14 个「非置顶」窗口,其中 7 个几何覆盖歌词窗
+                    （Telegram / DeepSeek Harness / chrome / QQ / 微信…）
+                 对照正常态:rank=0,上方非置顶 0 个
+```
+
+#### 触发源:全屏独占应用
+
+用户原话「**刚关闭游戏**」。全屏独占游戏运行期间 Windows 把其它顶层窗口降到普通层,
+**但保留 `WS_EX_TOPMOST` 样式位**;游戏退出后它自己不会恢复。
+
+已**排除**的候选(逐个真实执行 + Win32 断言,全部不影响层级):
+改字号 36↔48 / 切鼠标穿透 / 隐藏→显示 / 换配色 / `lyrics_resize_to_content` /
+重置位置 / 主窗口最小化 / 退托盘 / 反复切前台 10 次 / `Alt+Tab`×3 / `Win+D`。
+
+> ★ **拿「全屏置顶窗口」去撞是撞不出来的** —— 那不是独占全屏,Windows 不走这条特殊路径。
+> 本鱼在这上面浪费了两轮,别重复。
+
+#### ★ 核心机制:样式位为真 ≠ 在置顶层
+
+三次独立实验的一致结论:
+
+| 手段 | 结果 |
+|---|---|
+| 只写 `SetWindowLongW(GWL_EXSTYLE, ex \| WS_EX_TOPMOST)` + `SWP_NOZORDER` 刷新 | **完全无效**,系统立刻把样式位改回去,窗口仍停在普通层 |
+| `SetWindowPos(hwnd, HWND_TOPMOST, ...)` | **立刻恢复** rank 15 → 0 |
+
+因此:**判定失位必须读真实 z 序(不能读样式位);修复只能用 z-order API(不能写样式位)**。
+
+#### 修法:`topmost_guard.rs`(**只读巡检 + 失位才动作**)
+
+- 沿 z 链从最上层走到歌词窗,统计「**非置顶** 且 **几何覆盖** 歌词窗」的窗口数,
+  `>0` 即判失位(`blockers` + `rank` 一起记进日志)。
+- 纠正走 `SetWindowPos(HWND_TOPMOST)`;带 **3s 冷却**防与别的置顶程序抢。
+- `main.rs` 起后台线程,**每 1.5s** 巡检一次。
+- 失位被捡回时记一条 `WARN`(含纠正前 rank 与遮蔽窗口数)—— 日后复发能直接从日志定位。
+- **正常时零副作用**:只读查询,不发任何窗口操作。实测正常态 6 秒零日志(不抽搐)。
+- 窗口不可见/最小化时判 `Inactive` 直接跳过,不参与争抢。
+
+#### 门禁
+
+`cargo test --locked` 46 项(新增 3 条锁上面每个设计前提):
+冷却 ≥ 巡检周期 / 失位状态必须带 rank+blockers 两个诊断数 /
+只有 `Displaced` 触发纠正(其余三态必须沉默,否则「正常态零副作用」就破了)。
+
+真机验证:人为造出故障态 → **1.5s 内自动捡回**;恢复后 6s 无重复纠正。
 
 ### 未验证项(截至 2026-11-23,不要当成已修好)
 - **开机自启**:插件与菜单已接好,但**没有真的勾选并重启系统验证**(需动注册表,留待用户本人确认)。
