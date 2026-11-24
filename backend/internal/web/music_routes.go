@@ -313,6 +313,11 @@ func saveTrackToServer(c *gin.Context, track *model.Track, settings core.WebSett
 	}
 	download, err = core.SaveDownloadedSongDataToFile(download, settings.DownloadDir)
 	if err != nil {
+		// 必须留痕:2026-11 真实事故是下载目录对容器身份不可写(appuser 写 root:root 755),
+		// 后端每次都在这里失败却只回 JSON、不打一行日志,表现为「播放不再自动缓存到 NAS」
+		// 而完全无迹可循。写入失败是可运维事件,不是静默的业务分支。
+		log.Printf("[download] save to server failed source=%q id=%q dir=%q: %v",
+			track.Source, track.ID, settings.DownloadDir, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -731,6 +736,10 @@ func setLyricSourceHeaders(c *gin.Context, requested, matched *model.Track) {
 func saveWebAssetResponse(c *gin.Context, filename string, data []byte) {
 	savedPath, savedFilename, err := saveWebAssetToLocal(filename, data)
 	if err != nil {
+		// 与 saveTrackToServer 同源:下载目录不可写时封面也存不进去。
+		// 不打日志就只能看到「保存封面失败」而查不到是权限还是路径问题。
+		log.Printf("[download] save web asset failed file=%q dir=%q: %v",
+			filename, core.GetWebSettings().DownloadDir, err)
 		writeWebAssetSaveError(c, err)
 		return
 	}

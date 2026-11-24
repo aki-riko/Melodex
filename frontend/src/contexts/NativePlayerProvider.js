@@ -119,6 +119,8 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
         if (serverSaveSucceeded(result)) return;
         // 升级失败即放弃本次会话(保留 key 不再重试);首次下载失败保留重试语义。
         retainAutoDownloadAttempt(autoDownloadedRef.current, key, plan.upgrade);
+        // 与 PlayerContext 一致:后端 200 但未真正入库也要能看见。
+        console.warn('原生播放自动下载未成功', song?.name, result);
       })
       .catch((error) => {
         retainAutoDownloadAttempt(autoDownloadedRef.current, key, plan.upgrade);

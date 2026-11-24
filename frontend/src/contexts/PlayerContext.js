@@ -908,10 +908,14 @@ const WebPlayerProvider = ({ children }) => {
         if (serverSaveSucceeded(result)) return;
         // 升级失败即放弃本次会话(保留 dlKey 不再重试);首次下载失败保留重试语义。
         retainAutoDownloadAttempt(autoDownloadedRef.current, dlKey, plan.upgrade);
+        // 后端回了 200 但 saved/recorded 不为 true:文件没真正入库。
+        // 不留痕的话用户只会看到「播放不再自动缓存」,却拿不到任何线索。
+        console.warn('自动下载到服务器未成功', song?.name, result);
       })
-      .catch(() => {
+      .catch((error) => {
         // 音质升级失败必须放弃本次会话:否则每次播放都会把同一份文件重写一次。
         retainAutoDownloadAttempt(autoDownloadedRef.current, dlKey, plan.upgrade);
+        console.warn('自动下载到服务器失败', song?.name, error);
       });
   }, [downloadedCopy, offline]);
 
