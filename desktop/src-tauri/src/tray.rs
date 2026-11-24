@@ -36,6 +36,15 @@ struct LyricsCheckItems {
 
 static LYRICS_ITEMS: Mutex<Option<LyricsCheckItems>> = Mutex::new(None);
 
+/// 「锁定桌面歌词」是否可操作。
+///
+/// 歌词没显示时锁定一个不存在的窗口没有意义，所以置灰。
+/// 这也顺带解决了两个勾选项**方向相反还并列**的观感问题：
+/// 关掉歌词后「锁定」自动变灰，不会再出现「两个都打勾像自相矛盾」。
+fn lock_available(settings: &LyricsSettings) -> bool {
+    settings.visible
+}
+
 /// 按设置同步托盘勾选状态。任何一处改了设置都应调用它。
 pub fn sync_check_items(app: &AppHandle, settings: &LyricsSettings) {
     let guard = match LYRICS_ITEMS.lock() {
@@ -54,6 +63,9 @@ pub fn sync_check_items(app: &AppHandle, settings: &LyricsSettings) {
     }
     if let Err(error) = items.click_through.set_checked(settings.click_through) {
         logging::error(format!("同步托盘「锁定桌面歌词」勾选失败：{error}"));
+    }
+    if let Err(error) = items.click_through.set_enabled(lock_available(settings)) {
+        logging::error(format!("同步托盘「锁定桌面歌词」可用性失败：{error}"));
     }
     let _ = app;
 }
@@ -75,11 +87,15 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         app,
         "click_through",
         "锁定桌面歌词（鼠标穿透）",
-        true,
+        // 歌词没显示时锁定没有意义，一并置灰（与 sync_check_items 同一判据）。
+        lock_available(&settings),
         settings.click_through,
         None::<&str>,
     )?;
-    let pairing_item = MenuItem::with_id(app, "pairing", "桌面歌词设置…", true, None::<&str>)?;
+    // 窗口 id 曾叫 "pairing"：这个菜单项原先是「设备配对」，配对流程早已删除，
+    // 窗口改作歌词设置页（见 AGENTS.md「桌面歌词：壳内直连」）。
+    let settings_item =
+        MenuItem::with_id(app, "lyrics_settings", "桌面歌词设置…", true, None::<&str>)?;
     let autostart_item = CheckMenuItem::with_id(
         app,
         "autostart",
@@ -123,7 +139,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &show_item,
             &lyrics_visible_item,
             &click_item,
-            &pairing_item,
+            &settings_item,
             &autostart_item,
             &shortcuts_submenu,
             &separator,
@@ -188,7 +204,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 ),
                 Err(error) => logging::error(format!("读取歌词锁定勾选失败：{error}")),
             },
-            "pairing" => crate::settings_window::show_settings(app),
+            "lyrics_settings" => crate::settings_window::show_settings(app),
             "check_update" => crate::updates::interactive_check(app),
             "autostart" => {
                 let requested = match autostart_for_event.is_checked() {
@@ -271,4 +287,41 @@ pub fn configure_platform(app: &mut tauri::App) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     let _ = app;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings_with(visible: bool, click_through: bool) -> LyricsSettings {
+        LyricsSettings {
+            visible,
+            click_through,
+            ..Default::default()
+        }
+    }
+
+    /// 歌词没显示时「锁定」必须置灰。
+    ///
+    /// 没有这条约束，两个语义**相反**的勾选项会并排出现（显示=要它出现、
+    /// 锁定=别理鼠标），都打勾时用户看到的是自相矛盾的状态。
+    #[test]
+    fn lock_is_unavailable_when_lyrics_hidden() {
+        assert!(!lock_available(&settings_with(false, false)));
+        assert!(!lock_available(&settings_with(false, true)));
+        assert!(lock_available(&settings_with(true, false)));
+        assert!(lock_available(&settings_with(true, true)));
+    }
+
+    /// 判据只取决于「显示」，与锁定自身取值无关 —— 否则关掉歌词但保留锁定状态时
+    /// 会算出"可用"，锁定项又亮起来。
+    #[test]
+    fn lock_availability_ignores_its_own_value() {
+        let locked_but_hidden = settings_with(false, true);
+        let unlocked_and_hidden = settings_with(false, false);
+        assert_eq!(
+            lock_available(&locked_but_hidden),
+            lock_available(&unlocked_and_hidden)
+        );
+    }
 }
