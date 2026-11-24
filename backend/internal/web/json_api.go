@@ -22,12 +22,15 @@ import (
 //
 // 安全模型:健康检查与登录/setup/register 公开;搜索/歌单/专辑/推荐等读接口默认要求登录。
 // 改写状态的敏感接口(扫码登录写 cookie、清除 cookie)挂到管理员鉴权之后。
+// RegisterJSONAPIRoutes 只做路由装配 —— 各 handler 的实现见 json_api_handlers.go。
+//
+// 2026-11 全库扫描拆分:原来 7 个 handler 以匿名闭包内联在这个函数里,
+// 单函数 128~221 行、既装配路由又藏业务逻辑,且没有一个 handler 能单独测试。
+// 现在这里每一行都是"路径 → handler"的声明,读起来能一眼看全 API 面。
 func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	api := r.Group("/api/v1")
 
-	api.GET("/healthz", func(c *gin.Context) {
-		c.JSON(200, gin.H{"app": "melodex", "status": "ok"})
-	})
+	api.GET("/healthz", jsonHealthHandler)
 
 	// 账号鉴权接口(登录/登出/注册/初始化/当前用户)。见 auth_api.go。
 	registerAuthAPIRoutes(api, opts)
@@ -39,15 +42,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 		userSecure.Use(authRequired())
 	}
 
-	// 可用音乐源列表(前端 source 选择用)
-	userSecure.GET("/sources", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"all":      core.GetAllSourceNames(),
-			"default":  core.GetDefaultSourceNames(),
-			"playlist": core.GetPlaylistSourceNames(),
-			"album":    core.GetAlbumSourceNames(),
-		})
-	})
+	userSecure.GET("/sources", jsonSourcesHandler)
 
 	// 桌面端音频播放票据:让 Qt 原生播放器直连音频流,不再经 Python 搬运媒体字节。
 	// 票据只绑定一条 GET /music/download?stream=1 查询,不可转作下载或写操作。
@@ -60,82 +55,14 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	userSecure.GET("/recognize/status", jsonRecognitionStatusHandler)
 	userSecure.POST("/recognize", rateLimitMiddleware(recognitionRateLimiter), jsonRecognizeAudioHandler)
 
-	// 歌单详情 / 专辑详情:返回歌曲列表。
-	//
-	// 两者除了「用哪个 provider 判支持 + 缓存 namespace」以外逐字相同,所以合并
-	// 成一个闭包;缓存规格统一由 newSongListCacheSpec 定义(见 api_cache_spec.go),
-	// 请求路径与后台刷新共用同一份 —— 不会出现两边行为分叉。
-	serveSongListDetail := func(c *gin.Context, isAlbum bool) {
-		id := c.Query("id")
-		src := c.Query("source")
-		if id == "" || src == "" {
-			c.JSON(400, gin.H{"error": "缺少参数 id/source"})
-			return
-		}
-		contentType := "playlist"
-		supported := core.GetPlaylistDetailFunc(src) != nil
-		if isAlbum {
-			contentType = "album"
-			supported = core.GetAlbumDetailFunc(src) != nil
-		}
-		if !supported {
-			c.JSON(400, gin.H{"error": "该源不支持查看" + contentType + "详情"})
-			return
-		}
-		serveWithAPICache(c, newSongListCacheSpec(contentType, apiCacheArgs{Source: src, ID: id}), apiCacheArgs{Source: src, ID: id})
-	}
-	userSecure.GET("/playlist", func(c *gin.Context) { serveSongListDetail(c, false) })
-	userSecure.GET("/album", func(c *gin.Context) { serveSongListDetail(c, true) })
-
-	// 每日推荐歌单:按源返回歌单列表
-	userSecure.GET("/recommend", func(c *gin.Context) {
-		sources := filterAvailableSources(c.QueryArray("sources"), core.GetRecommendSourceNames())
-		args := apiCacheArgs{Sources: sources}
-		serveWithAPICache(c, newRecommendCacheSpec(args), args)
-	})
-
-	// 我在各平台创建/收藏的个人歌单(需在设置里登录对应平台 cookie)。
-	// 依登录态返回,不缓存:各用户/各登录态的歌单不同,缓存会串。
-	userSecure.GET("/user_playlists", func(c *gin.Context) {
-		sources := filterAvailableSources(c.QueryArray("sources"), userPlaylistSourceNamesGetter())
-		out := jsonPlaylistTabsResponse{Tabs: loadPlaylistTabsJSON(sources, func(src string) ([]model.RemoteCollection, error) {
-			fn := userPlaylistsFuncProvider(src)
-			if fn == nil {
-				return nil, fmt.Errorf("该源不支持个人歌单")
-			}
-			return fn(1, 50)
-		})}
-		c.JSON(200, out)
-	})
-
-	// 歌单分类列表
-	userSecure.GET("/playlist_categories", func(c *gin.Context) {
-		sources := filterAvailableSources(c.QueryArray("sources"), core.GetPlaylistCategorySourceNames())
-		args := apiCacheArgs{Sources: sources}
-		serveWithAPICache(c, newPlaylistCategoryCacheSpec(args), args)
-	})
-
-	// 某分类下的歌单
-	userSecure.GET("/category_playlists", func(c *gin.Context) {
-		request := categoryPlaylistsRequestFromContext(c)
-		fn := core.GetCategoryPlaylistsFunc(request.Source)
-		if request.Source == "" || fn == nil {
-			c.JSON(400, gin.H{"error": "该源不支持歌单分类"})
-			return
-		}
-		args := apiCacheArgs{
-			Source: request.Source, CategoryID: request.CategoryID, Page: request.Page,
-		}
-		serveWithAPICache(c, newCategoryPlaylistsCacheSpec(args), args)
-	})
-
-	// 支持二维码登录的源(只读,登录后可见)
-	userSecure.GET("/qr_login/sources", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"sources":        core.GetQRLoginSourceNames(),
-			"cookie_sources": core.GetCookieSourceNames(),
-		})
-	})
+	// 歌单/专辑详情共用 serveSongListDetail(两者只差 provider 与缓存 namespace)。
+	userSecure.GET("/playlist", jsonPlaylistDetailHandler)
+	userSecure.GET("/album", jsonAlbumDetailHandler)
+	userSecure.GET("/recommend", jsonRecommendHandler)
+	userSecure.GET("/user_playlists", jsonUserPlaylistsHandler)
+	userSecure.GET("/playlist_categories", jsonPlaylistCategoriesHandler)
+	userSecure.GET("/category_playlists", jsonCategoryPlaylistsHandler)
+	userSecure.GET("/qr_login/sources", jsonQRLoginSourcesHandler)
 
 	// Cookie 与二维码登录管理是管理员独占(平台会员 cookie 全局共享,见隔离决策)。
 	// DisableAuth(桌面/本机模式)时注入本地管理员用户放行。
