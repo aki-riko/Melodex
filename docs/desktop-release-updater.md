@@ -7,7 +7,7 @@ Melodex 桌面客户端使用 Tauri 2 的 updater 插件做应用内更新。本
 
 - 壳已接入 updater：启动后台静默检查 + 托盘「检查更新…」交互式更新。
 - 公钥已写入 `desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`
-  （来自 `<SIGNING-DIR>/.tauri-updater-key.pub`）。
+  （来自仓库外签名材料目录中的 `.tauri-updater-key.pub`，该目录位置不在本仓库记载）。
 - **`/desktop/` 路由已实现**（`backend/internal/web/desktop_release.go`），清单与安装包可正常访问。
   在此之前该路径会落进 SPA fallback 返回 HTML 首页，壳每次检查只记一条
   `检查更新失败：error decoding response body` —— 页面本身完全正常，极难定位。
@@ -84,7 +84,9 @@ $env:MELODEX_UPDATER_ENDPOINTS = 'http://127.0.0.1:47900/latest.json'
 
 ### 2. 用私钥签名构建
 
-私钥与口令**不在仓库内**，位于 NAS：`<SIGNING-DIR>`
+私钥与口令**不在仓库内**，位于 NAS 上某个仓库外目录（具体路径见仓库外私有笔记，**本仓库公开故不记载**）。
+用 `desktop/scripts/build-signed-installer.ps1` 构建时，通过环境变量 `MELODEX_TAURI_SIGNING_DIR`
+或 `-KeyDir` 参数传入该目录。
 
 ```powershell
 # 只在本机会话内注入，不要把值写进任何文件或提交

@@ -1038,7 +1038,7 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - 代码在 NAS **`/mnt/user/appdata/melodex-src`**（2026-11-23 核实；旧文档写的 `/mnt/cache/appdata/...`
   也指向同一份数据，但 `find` 实查的结果是这个路径，按这个来），Docker compose 运行,端口 **8329**。
 - 访问 `https://music.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
-- **NAS 构建坑**:① 私仓 clone 用内网 `ssh://<NAS-USER>@<NAS-LAN-IP>:<NAS-SSH-PORT>/...`(公网回环 NAT hairpin 超时)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:20-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)⑤ `npm ci` 直连官方源会卡死,传 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com`。
+- **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@<NAS内网地址>:<内部SSH端口>/...`(公网回环 NAT hairpin 超时;真实地址见仓库外私有笔记,本仓库公开故不记载)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:20-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)⑤ `npm ci` 直连官方源会卡死,传 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com`。
 - **生产现状(2026-11-12 核实)**:应用镜像是 **NAS 本地构建的 `melodex:latest`**,不是 GHCR 预构建镜像(下面「镜像发布」节的 2026-10-25 记录已过时);provider 仍用 `ghcr.io/aki-riko/melodex-provider:edge`。
   NAS `.env` 第 7 行已改为 `MELODEX_IMAGE=melodex:latest`(此前写着 `ghcr.io/aki-riko/melodex:v0.2.1`,与实际运行不符 ——
   直接 `docker compose up -d` 会把生产悄悄退回 v0.2.1),改前备份 `.env.bak_20261112_214413`。
@@ -1215,7 +1215,7 @@ dispatch → `edge,sha-…`(extra_tag 空也回退 `edge`);owner 大写会被转
 
 ## Git
 
-- 双远程:fetch 走私仓,`git push` 一次双发 → 私仓 `git@<PRIVATE-GIT-HOST>:<GIT-NAMESPACE>/Melodex.git` + GitHub `git@github.com:aki-riko/Melodex.git`。
+- 双远程:fetch 走私仓,`git push` 一次双发 → 私仓 `git@<私有 Git 主机>:<账户>/Melodex.git` + GitHub `git@github.com:aki-riko/Melodex.git`（**本仓库公开**,内网地址/账户名不在此记载,见仓库外私有笔记）。
 - 仓库名、品牌名和界面名称统一为 **Melodex**。
 - git 身份 local:Kotori <kotori@9li.life>。每次改动提交,push 前确保 build/test 过。
 

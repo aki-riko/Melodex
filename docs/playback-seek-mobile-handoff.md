@@ -178,7 +178,7 @@ $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"
 #    生产走 GHCR:打 tag 触发 docker-publish.yml,或本地构建部署
 
 # 3. 手机上拖到约 2 分钟,然后看服务端日志
-ssh root@<NAS-LAN-IP> "docker logs melodex --since 5m 2>&1 | grep -E 'seek_req_ms|stream-range'"
+ssh root@<生产 NAS 内网地址> "docker logs melodex --since 5m 2>&1 | grep -E 'seek_req_ms|stream-range'"
 ```
 
 **验收标准**:
@@ -215,7 +215,7 @@ ssh root@<NAS-LAN-IP> "docker logs melodex --since 5m 2>&1 | grep -E 'seek_req_m
   位于 `我的文档\Melodex\AndroidRelease\`。`:app:clean FAILED` 时先 `.\gradlew.bat --stop`。
 - **本机两台设备**:`3B656W00MPC00000`(真机 PKG110)与 `emulator-5554`。装真机要加 `-s`。
   2026-11-08 08:00 复核:真机不在线,模拟器未装 `life.nineli.melodex`。
-- **不要读 `.env`**,含真实凭据。生产 NAS `<NAS-LAN-IP>`,容器 `melodex`。
+- **不要读 `.env`**,含真实凭据。生产 NAS 的内网地址见仓库外私有笔记(本仓库公开,不记载),容器名 `melodex`。
 - **容器内没有 python3**,有 `ffprobe/ffmpeg/od/dd/base64`。
   取字节:`od -An -v -tx1 -j <off> -N <n> "<file>"`(BusyBox od 支持 -j/-N)。
 - 生产日志里 `broken pipe` 是拖动中断旧请求的正常现象。

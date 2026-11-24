@@ -149,7 +149,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File desktop\prototype\script
 
 ### R4 签名私钥 —— ✅ 已就位（本鱼只确认存在，未读取任何内容）
 
-`<SIGNING-DIR>` 下三个文件均在：
+签名材料目录（位于 NAS 共享目录的某个路径，**仓库内不记载**，见仓库外私有笔记）下三个文件均在：
 `.tauri-updater-key`、`.tauri-updater-key.pub`、`.tauri-updater-password`（2026-07-23）。
 **本鱼未打开、未复制、未回显其中任何一个字节**，后续构建只通过环境变量指向路径。
 私钥一旦丢失将无法给已装用户发更新，请自行做好离线备份。
