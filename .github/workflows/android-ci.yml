@@ -67,6 +67,16 @@ jobs:
             echo "没有前端改动, 跳过前端构建。"
             echo "frontend=false" >> "$GITHUB_OUTPUT"
           fi
+          # 后端 Go:此前 170 个 Go 文件 / 78 个 _test.go 在 CI 里**零门禁**,
+          # 只有四个 workflow 里那些前端与 Rust 步骤。改 backend/** 时全绿合并,
+          # 只能在本地手动跑 —— 这是本次全库扫描发现的最高性价比缺口。
+          if echo "$changed" | grep -qE '^backend/|^\.github/workflows/android-ci\.yml$'; then
+            echo "命中后端相关路径, 跑 Go 静态检查与定向测试。"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "没有后端改动, 跳过 Go 校验。"
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
           if echo "$changed" | grep -qE '^android/|^package\.json$|^package-lock\.json$|^capacitor\.config\.json$|^\.github/workflows/android-[^/]*\.yml$'; then
             echo "命中 Android 相关路径, 跑完整校验。"
             echo "android=true" >> "$GITHUB_OUTPUT"
@@ -121,6 +131,46 @@ jobs:
           npm run test:player
           npm run test:back
           npm run test:theme
+
+      # ---- 后端 Go:静态检查 + 定向测试 ----
+      # 为什么是"定向"而不是 ./...:全量 go test 会在 CI 上吃数 GB 内存并跑很久,
+      # 而历史事故证明并发重负载会把机器压到换页。这里只跑两个真正承载业务的主包,
+      # 覆盖 internal/web(117 文件,最大)与 core(音频/下载/凭证)。
+      # 两个集成测试自带 t.Skip 环境门闩(netease_provider_integration / postgres_integration),
+      # 未设置 MELODEX_INTEGRATION / MUSIC_DL_TEST_POSTGRES_DSN 时自动跳过,不需要额外处理。
+      - name: Setup Go
+        if: steps.scope.outputs.backend == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # gofmt -l 有输出就以非零退出:格式不一致不许合并。
+      - name: Go format check
+        if: steps.scope.outputs.backend == 'true'
+        working-directory: backend
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未通过 gofmt 格式化:"
+            echo "$unformatted"
+            echo "请在本地执行 gofmt -w . 后重新提交。"
+            exit 1
+          fi
+          echo "gofmt: 全部通过"
+
+      - name: Go vet
+        if: steps.scope.outputs.backend == 'true'
+        working-directory: backend
+        run: go vet ./internal/... ./core/... ./cmd/...
+      - name: Go tests (targeted)
+        if: steps.scope.outputs.backend == 'true'
+        working-directory: backend
+        env:
+          # 限制并行度:与本地内存闸门同一套约束,避免 CI runner 被压到换页。
+          GOFLAGS: -p=2
+          GOMEMLIMIT: 4GiB
+        run: go test ./internal/... ./core/... ./cmd/... -count=1
 
       # ---- Android(需要 Android 改动才跑) ----
       - name: Setup JDK 21
