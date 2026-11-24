@@ -13,6 +13,7 @@ import {
   deleteLocalMusic,
 } from '../services/musicdl';
 import { useAuth } from '../contexts/AuthContext';
+import { useModalLayer } from '../ui/useModalLayer';
 import { sourceLabel } from '../utils/sourceLabels';
 import { loadAutoDownloadOnPlay, saveAutoDownloadOnPlay } from '../contexts/playerAutoDownload';
 import {
@@ -227,6 +228,25 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
     setSodaSMSCode('');
   };
 
+  // 两个内联弹窗的行为层(Esc / 焦点陷阱 / 返回键)。只补可访问性,**不改样式**。
+  //
+  // 为什么不直接换成 <Dialog>:Dialog 自带卡片动画(flyout-in)与 shadow-dialog,
+  // 换过去观感会变,而这里是用户明确要求保持原样的两个既有弹窗。
+  // 详见 ui/useModalLayer.js 文件头。
+  //
+  // ★ 位置必须在 closeQRSession 之后:这两个 hook 的回调引用它,
+  //   写在前面会踩 const TDZ(项目有 tdzOrder 门禁专门抓这个)。
+  const qrPanelRef = useModalLayer({
+    open: Boolean(session),
+    onClose: closeQRSession,
+    name: 'settings-qr-login',
+  });
+  const manualPanelRef = useModalLayer({
+    open: Boolean(showManual && manualSupported),
+    onClose: () => { setShowManual(false); },
+    name: 'settings-manual-cookie',
+  });
+
   useEffect(() => () => {
     loginRunRef.current += 1;
     loginBusyRef.current = false;
@@ -430,11 +450,20 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
         // position:fixed 的 containing block —— 遮罩 fixed inset-0 只盖住那一块,
         // 盖不满整屏、点外部也关不掉。理由详见 ui/Portal.js。
         <Portal>
+        {/* 只挂行为(Esc/焦点陷阱/返回键),样式与 DOM 结构原样不动 —— 用户要求不改视觉。 */}
         <div className="fixed inset-0 z-modal flex items-center justify-center overlay p-4" onClick={closeQRSession}>
-          <div className="w-full max-w-sm rounded-control border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={qrPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="qr-login-title"
+            tabIndex={-1}
+            className="w-full max-w-sm rounded-control border border-border surface-acrylic"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
-                <p className="font-semibold">{sourceLabel(source)} 扫码登录</p>
+                <p id="qr-login-title" className="font-semibold">{sourceLabel(source)} 扫码登录</p>
                 <p className="text-xs text-muted-foreground">{STATUS_TEXT[status] || status || '正在生成二维码…'}</p>
               </div>
               <button onClick={closeQRSession} className="text-muted-foreground transition-colors hover:text-foreground" aria-label="关闭二维码">
@@ -532,11 +561,20 @@ const QRLoginCard = ({ source, loggedIn, detail, onLoggedIn, onLogout, onRefresh
       {showManual && manualSupported && (
         // 同上:手填 Cookie 遮罩也要 Portal,否则只盖住页面里的一块。
         <Portal>
+        {/* 只挂行为(Esc/焦点陷阱/返回键),样式与 DOM 结构原样不动 —— 用户要求不改视觉。 */}
         <div className="fixed inset-0 z-modal flex items-center justify-center overlay p-4" onClick={() => setShowManual(false)}>
-          <div className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-control border border-border surface-acrylic" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={manualPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="manual-cookie-title"
+            tabIndex={-1}
+            className="flex max-h-[86vh] w-full max-w-lg flex-col rounded-control border border-border surface-acrylic"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="min-w-0">
-                <p className="font-semibold">手动填写 Cookie</p>
+                <p id="manual-cookie-title" className="font-semibold">手动填写 Cookie</p>
                 <p className="text-xs text-muted-foreground">{sourceLabel(source)}</p>
               </div>
               <button onClick={() => setShowManual(false)} className="text-muted-foreground transition-colors hover:text-foreground" aria-label="关闭手动填写 Cookie">
