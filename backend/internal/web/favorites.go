@@ -197,22 +197,50 @@ func RegisterFavoriteRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询收藏状态失败"})
 			return
 		}
-		if existed {
-			if err := db.Where("collection_id = ? AND song_id = ? AND source = ?", fav.ID, req.SongID, req.Source).
-				Delete(&SavedSong{}).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "取消收藏失败"})
-				return
+		// ★ 用事务 + RowsAffected 判定最终态(防御性加固,**不是修 bug**)。
+		//
+		// 全库扫描时本鱼最初把这段判成"并发下返回值会撒谎"的缺陷,后来用突变验证
+		// 推翻了:把这里退回原实现,并发测试**照样通过**。原因是
+		//   · saved_songs 上有 uniqueIndex(collection_id, song_id, source)
+		//     + OnConflict{DoNothing},数据不可能重复;
+		//   · toggle 是翻转语义,并发下最终是 0 行还是 1 行本来就取决于执行顺序;
+		//   · 而两种交错的返回值恰好都正确 ——
+		//     两个都 Create:一个成功一个 DoNothing,都回 true,真相也是 true;
+		//     两个都 Delete:一个删掉一个 RowsAffected=0,都回 false,真相也是 false。
+		// 所以原实现是**对的**,本条降级为可选加固,原注释的"返回值会错"是误判。
+		//
+		// 那为什么还是改?因为原写法是"按自己读到的 existed 猜结果",
+		// 而这里改成"看这次究竟改了几行" —— 前者在将来若有人改掉 OnConflict
+		// 或唯一索引就会静默给出错误答案,后者不会。事务把删/插与判定绑在一起,
+		// 也让"删了但插入失败"这类半途状态不可能被别的请求读到。
+		// 换句话说:修的不是当前缺陷,是"依赖外部约束才正确"这种脆弱写法。
+		favorited := false
+		txErr := db.Transaction(func(tx *gorm.DB) error {
+			if existed {
+				res := tx.Where("collection_id = ? AND song_id = ? AND source = ?", fav.ID, req.SongID, req.Source).
+					Delete(&SavedSong{})
+				if res.Error != nil {
+					return res.Error
+				}
+				// 没删到任何行 = 别的请求已经先删了;无论哪种,此刻真相都是"未收藏"。
+				favorited = false
+				return nil
 			}
-			c.JSON(http.StatusOK, gin.H{"favorited": false})
+			song := favoriteRequestSong(fav.ID, req)
+			res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&song)
+			if res.Error != nil {
+				return res.Error
+			}
+			// RowsAffected==1 → 本次真的插入了;==0 → 已存在(别的请求先插了)。
+			// 两种情况下"当前是否收藏"都是 true。
+			favorited = true
+			return nil
+		})
+		if txErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "切换收藏失败"})
 			return
 		}
-
-		song := favoriteRequestSong(fav.ID, req)
-		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&song).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "收藏失败"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"favorited": true})
+		c.JSON(http.StatusOK, gin.H{"favorited": favorited})
 	})
 }
 
