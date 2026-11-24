@@ -66,7 +66,8 @@
     "test:modal-layer": "node scripts/modalLayer.test.mjs",
     "icons": "node scripts/build-icons.mjs",
     "test:icons": "node scripts/build-icons.mjs --check",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:provider-contract": "node scripts/playerProviderContract.test.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.2.0",

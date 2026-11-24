@@ -433,8 +433,9 @@ export default function NativePlayerProvider({ context: PlayerContext, progressC
     handlePlaying: noop,
     handlePause: noop,
     handleBufferEvent: noop,
-    setIsPaused,
-    setProgress,
+    // setIsPaused / setProgress **不在这里** —— 它们属于 PlayerProgressContext
+    // (2026-11 契约测试抓出的重复暴露:P1-2 拆分时 Web 版移走了,原生版漏改,
+    //  于是同一个 setter 同时出现在控制面与进度面两个 Context 里)。
     handleTimeUpdate: noop,
     handleLoadedMetadata: noop,
     savePlayback,
@@ -445,7 +446,7 @@ export default function NativePlayerProvider({ context: PlayerContext, progressC
     nowPlaying, play, audioRef, notice, isPaused, mode, setMode, volume, setVolume,
     muted, toggleMute, queue, playFromQueue, sleepTimer, sleepRemainingMs,
     sleepStopAfterTrack, startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
-    next, prev, togglePlay, seek, setIsPaused, setProgress, savePlayback, cycleMode,
+    next, prev, togglePlay, seek, savePlayback, cycleMode,
     scrubHandlers, noop,
   ]);
 
