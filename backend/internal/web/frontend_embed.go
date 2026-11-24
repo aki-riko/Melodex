@@ -19,8 +19,9 @@ var frontendDistFS embed.FS
 // desktopReleaseFS 嵌入桌面客户端发布产物(latest.json 与安装包)。
 //
 // 为什么要单独 embed 而不是塞进 frontend_dist：
-//   ① 它不属于前端路由，混进去会被 SPA fallback 逻辑一并处理；
-//   ② 桌面更新器不携带 SSO 会话，也不该被当成页面。
+//
+//	① 它不属于前端路由，混进去会被 SPA fallback 逻辑一并处理；
+//	② 桌面更新器不携带 SSO 会话，也不该被当成页面。
 //
 // 目录默认只有 .gitkeep，真正产物在发版时放入（见 docs/desktop-release-updater.md）。
 // 目录为空时 /desktop/ 下的请求返回 404，而不是回退成 HTML 首页——

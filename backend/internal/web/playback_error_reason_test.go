@@ -132,7 +132,8 @@ func TestPaidOnlyWordingCoversDelistedNotJustVIP(t *testing.T) {
 
 // 核心回归:限流与付费曲的 retryable 必须相反。
 // 这条单独写,因为它是这次事故里最容易搞反、后果最直接的一点。
-func TestRateLimitedAndPaidOnlyAreOpposite(t *testing.T) {	_, rateLimitedRetryable := classifyPlaybackOpenError(core.ErrProviderRateLimited)
+func TestRateLimitedAndPaidOnlyAreOpposite(t *testing.T) {
+	_, rateLimitedRetryable := classifyPlaybackOpenError(core.ErrProviderRateLimited)
 	_, paidOnlyRetryable := classifyPlaybackOpenError(core.ErrProviderPaidOnly)
 	if !rateLimitedRetryable {
 		t.Fatal("限流必须是可重试 —— 等一会儿确实能播, 不许告诉用户换歌")
@@ -180,7 +181,9 @@ func TestClassifyPlaybackOpenErrorRealLogStrings(t *testing.T) {
 // 回归(2026-11-23 用户真实报告): 有会员却被告知"需要会员"。
 //
 // 现场: 「一万零一次沉溺 - 李十七」播不出, 提示
-//   「这首歌在当前音乐源已下架或需要会员才能播放」
+//
+//	「这首歌在当前音乐源已下架或需要会员才能播放」
+//
 // 用户回复"我网易云有会员", 于是合理怀疑扫码登录/账号凭证坏了。
 //
 // 实测(生产 provider 内直连): 搜「一万零一次沉溺」返回 10 条、9 条可播,

@@ -12,7 +12,9 @@ import (
 // 背景(2026-10 真实事故, 两次修正后的最终结论):
 // 「天龙八部之宿敌」播到第 17 个分块后 502。我最初归因为"原唱已下架",但实测证明
 // 那首歌在搜索结果里**第 1 条就是**(mid=001bLkWD2EYA4P),它被丢弃的真实原因是:
-//   pay: {pay_down:1, pay_month:1, pay_play:1, price_track:200}
+//
+//	pay: {pay_down:1, pay_month:1, pay_play:1, price_track:200}
+//
 // 即 QQ 付费曲 —— 取址时上游不发 purl, 于是 provider 把 20 首里的 16 首丢弃,
 // Go 侧拿到的 4 首里没有目标 mid, 就报了 no matching song identity。
 //
@@ -21,9 +23,9 @@ import (
 // 这种情况**等一会儿重试是有效的**,绝不能提示用户"已下架、换一首"。
 //
 // 所以三类必须分开:
-//   1. 限流        → retryable=true, 提示稍等重试
-//   2. 付费/无地址 → retryable=false, 提示需要会员/换源
-//   3. 其他(网络) → retryable=true
+//  1. 限流        → retryable=true, 提示稍等重试
+//  2. 付费/无地址 → retryable=false, 提示需要会员/换源
+//  3. 其他(网络) → retryable=true
 func classifyPlaybackOpenError(err error) (reason string, retryable bool) {
 	if err == nil {
 		return "播放失败", true

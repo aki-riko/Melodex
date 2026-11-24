@@ -138,9 +138,10 @@ func shouldGzip(r *http.Request, path string) bool {
 // 在并发下非常浪费。sync.Pool 是标准做法。
 //
 // 用 BestSpeed 而不是 BestCompression：
-//   BestCompression 在 JS 上只比 BestSpeed 小 ~5%，但 CPU 高 3~5 倍。
-//   静态资源压缩是一次性的（第一次请求后浏览器就缓存了），
-//   但服务器要为每个新访客压一遍，CPU 更值钱。
+//
+//	BestCompression 在 JS 上只比 BestSpeed 小 ~5%，但 CPU 高 3~5 倍。
+//	静态资源压缩是一次性的（第一次请求后浏览器就缓存了），
+//	但服务器要为每个新访客压一遍，CPU 更值钱。
 var gzipPool = sync.Pool{
 	New: func() any {
 		w, _ := gzip.NewWriterLevel(nil, gzip.BestSpeed)

@@ -316,7 +316,7 @@ var (
 // IsProviderRateLimited / IsProviderPaidOnly / IsProviderVersionGone 供上层(web 层)判断错误类型,
 // 避免上层去匹配错误字符串。
 func IsProviderRateLimited(err error) bool { return errors.Is(err, ErrProviderRateLimited) }
-func IsProviderPaidOnly(err error) bool   { return errors.Is(err, ErrProviderPaidOnly) }
+func IsProviderPaidOnly(err error) bool    { return errors.Is(err, ErrProviderPaidOnly) }
 func IsProviderVersionGone(err error) bool {
 	return errors.Is(err, ErrProviderVersionGone)
 }
@@ -352,7 +352,8 @@ func ProviderLookupKeyword(song *providermodel.Track) string {
 	return keyword
 }
 
-func normalizeProviderSearchError(err error) error {	if err == nil || IsProviderRateLimited(err) || IsProviderPaidOnly(err) {
+func normalizeProviderSearchError(err error) error {
+	if err == nil || IsProviderRateLimited(err) || IsProviderPaidOnly(err) {
 		return err
 	}
 	message := strings.ToLower(err.Error())

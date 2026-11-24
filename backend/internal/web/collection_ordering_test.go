@@ -65,7 +65,8 @@ func TestFavoriteCollectionAlwaysFirstInListing(t *testing.T) {
 
 // include_imported=1 时,imported 歌单也参与列表;favorite 仍必须置顶。
 // (这是侧栏「我的歌单」的实际请求方式 —— CollectionsContext 带 include_imported=1,
-//  否则从平台导入的引用型歌单不显示。所以这是最贴近真实路径的一条。)
+//
+//	否则从平台导入的引用型歌单不显示。所以这是最贴近真实路径的一条。)
 func TestFavoriteStaysFirstWithImportedCollections(t *testing.T) {
 	initCollectionDBForTest(t)
 	favorite, err := ensureFavoriteCollection(testUserID)

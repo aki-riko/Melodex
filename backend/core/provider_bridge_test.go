@@ -656,7 +656,8 @@ func TestResolveProviderSongFallbackSurvivesSmallCandidateLimit(t *testing.T) {
 	})
 }
 
-func resetProviderBridgeStateForTest() {	providerBridgeClientMu.Lock()
+func resetProviderBridgeStateForTest() {
+	providerBridgeClientMu.Lock()
 	providerBridgeClientURL = ""
 	providerBridgeClient = nil
 	providerBridgeClientMu.Unlock()

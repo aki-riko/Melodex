@@ -27,13 +27,13 @@ var (
 	// Apple Music 登录态(media-user-token)时拿到的也只是 AudioPrev 试听片段, 会让搜索结果
 	// 混入"验活能过、实际只有试听"的假候选。仍保留在 allProviderNames/bridge 白名单里,
 	// 需要时(如拿到 Apple 会员登录态)可显式指定 sources=apple 重新启用。
-	defaultProviderNames    = []string{"netease", "qq", "kugou", "kuwo", "migu", "qianqian", "soda"}
+	defaultProviderNames = []string{"netease", "qq", "kugou", "kuwo", "migu", "qianqian", "soda"}
 	// recommendProviderNames:能返回"推荐歌单"的源。
 	// migu 于 2026-08-15 的 b681335(歌单流程迁移到 sidecar)时被漏掉,
 	// 但 provider_bridge/platforms/migu.py 其实有 recommend()(走 search_playlist("华语")),
 	// 2026-10-25 生产实测可稳定返回 20 张。推荐内容本来就偏少,补回来。
-	recommendProviderNames  = []string{"netease", "qq", "kugou", "kuwo", "migu"}
-	userLibrarySourceNames  = []string{"netease", "qq"}
+	recommendProviderNames = []string{"netease", "qq", "kugou", "kuwo", "migu"}
+	userLibrarySourceNames = []string{"netease", "qq"}
 	// cookieSourceNames 是设置页会为它渲染一张登录卡的源。
 	//
 	// 2026-11 去掉 qq_wx:它全程只是 qq 的别名(canonicalCookieSource 把
@@ -42,8 +42,8 @@ var (
 	// (「QQ音乐 · 强凭证」与「QQ音乐 · 微信入口」),用户看着像重复或不同账号。
 	// 别名识别能力保留在 canonicalCookieSource 里(老部署若真存过 qq_wx 仍能读),
 	// 这里只是不再为它单独出一张卡。
-	cookieSourceNames       = []string{"netease", "qq", "kugou", "kuwo", "migu", "bilibili", "soda"}
-	providerDescriptions    = map[string]string{
+	cookieSourceNames    = []string{"netease", "qq", "kugou", "kuwo", "migu", "bilibili", "soda"}
+	providerDescriptions = map[string]string{
 		"apple": "Apple Music", "bilibili": "Bilibili", "fivesing": "5sing",
 		"jamendo": "Jamendo (CC)", "joox": "JOOX", "kugou": "酷狗音乐",
 		"kuwo": "酷我音乐", "migu": "咪咕音乐", "netease": "网易云音乐",

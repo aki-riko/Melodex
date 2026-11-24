@@ -244,8 +244,10 @@ func BuildCookieStatusDetail(source, cookie string, verify bool) CookieStatusDet
 // applyCredentialExpiry 用 cookie 里自带的时间字段推算有效期。
 //
 // 为什么只对 QQ 做:cookie（腾讯音乐登录态）里带
-//   psrf_musickey_createtime / musickeycreatetime  创建时间(unix 秒)
-//   keyexpiresin                                   有效期(秒,实测 259200 = 72h)
+//
+//	psrf_musickey_createtime / musickeycreatetime  创建时间(unix 秒)
+//	keyexpiresin                                   有效期(秒,实测 259200 = 72h)
+//
 // 两者相加即到期时间,完全离线可算。
 // 网易的 MUSIC_U 没有这类字段,只能靠在线探测;其余源两者都没有,标 unknown。
 func applyCredentialExpiry(detail *CookieStatusDetail, source, cookie string) {
@@ -380,16 +382,16 @@ func credentialHints(source, cookie string) map[string]bool {
 		// refresh_token 只是其中一个可选来源。于是一份"扫码登录、p_skey 齐全、但没有
 		// refresh_token"的 cookie 会被判成不可续期并催用户重扫码 —— 而它其实自己就能续。
 		return map[string]bool{
-			"has_uin":               has("str_musicid", "qqmusic_uin", "musicid", "uin"),
-			"has_music_key":         has("musickey", "qqmusic_key", "qm_keyst"),
-			"has_musickey":          names["musickey"],
-			"has_qqmusic_key":       names["qqmusic_key"],
-			"has_qm_keyst":          names["qm_keyst"],
-			"has_refresh_key":       names["refresh_key"],
-			"has_refresh_token":     has("refresh_token", "psrf_qqrefresh_token"),
-			"has_long_lived_token":  has(qqLongLivedTokenNames...),
-			"has_pt_oauth_token":    names["pt_oauth_token"],
-			"has_ps_key":            names["p_skey"],
+			"has_uin":              has("str_musicid", "qqmusic_uin", "musicid", "uin"),
+			"has_music_key":        has("musickey", "qqmusic_key", "qm_keyst"),
+			"has_musickey":         names["musickey"],
+			"has_qqmusic_key":      names["qqmusic_key"],
+			"has_qm_keyst":         names["qm_keyst"],
+			"has_refresh_key":      names["refresh_key"],
+			"has_refresh_token":    has("refresh_token", "psrf_qqrefresh_token"),
+			"has_long_lived_token": has(qqLongLivedTokenNames...),
+			"has_pt_oauth_token":   names["pt_oauth_token"],
+			"has_ps_key":           names["p_skey"],
 		}
 	case "kugou":
 		return map[string]bool{
