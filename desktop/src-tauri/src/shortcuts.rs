@@ -103,21 +103,26 @@ pub fn register_defaults<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// 供托盘与文档显示的说明文本。
-pub fn describe() -> String {
+/// 动作的中文名。未知动作原样返回，避免以后新增键位时静默丢标签。
+fn label_for_action(action: &str) -> &str {
+    match action {
+        ACTION_PLAY_PAUSE => "播放 / 暂停",
+        ACTION_PREV => "上一首",
+        ACTION_NEXT => "下一首",
+        other => other,
+    }
+}
+
+/// 供 UI 展示的「键位 + 动作名」清单，顺序与 [`BINDINGS`] 一致。
+///
+/// 托盘用它**逐个**生成菜单项（收进「播放快捷键」子菜单）。
+/// 曾经的写法是把三条键位拼成一整条禁用项 `快捷键  A / B / C`：
+/// Windows 托盘菜单按最长条目定宽，实测把整个菜单撑到约 770px，
+/// 其余条目全被甩到左侧一条缝里 —— 不要再拼成一条。
+pub fn listing() -> impl Iterator<Item = (&'static str, &'static str)> {
     BINDINGS
         .iter()
-        .map(|(key, action)| {
-            let label = match *action {
-                ACTION_PLAY_PAUSE => "播放/暂停",
-                ACTION_PREV => "上一首",
-                ACTION_NEXT => "下一首",
-                other => other,
-            };
-            format!("{label}  {key}")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .map(|(key, action)| (*key, label_for_action(action)))
 }
 
 #[cfg(test)]
@@ -145,10 +150,34 @@ mod tests {
     }
 
     #[test]
-    fn describe_lists_all_bindings() {
-        let text = describe();
-        for (key, _) in BINDINGS {
-            assert!(text.contains(key), "说明应包含 {key}");
+    fn listing_covers_every_binding_with_labels() {
+        let listing: Vec<_> = listing().collect();
+        assert_eq!(listing.len(), BINDINGS.len(), "每条键位都应出现在清单里");
+        for ((key, label), (bound_key, _)) in listing.iter().zip(BINDINGS.iter()) {
+            assert_eq!(key, bound_key, "清单顺序必须与 BINDINGS 一致");
+            assert!(!label.is_empty(), "{key} 必须有可读的中文名");
+            // 未知动作会原样返回动作字符串，说明漏配了标签。
+            assert!(
+                !label.is_ascii(),
+                "{key} 的动作名没配中文标签（拿到的是 {label}）"
+            );
+        }
+    }
+
+    /// 门禁：菜单项文本必须保持单条短小。
+    ///
+    /// Windows 托盘菜单按最长条目决定整体宽度。把三条键位拼成一条会让菜单
+    /// 被撑到 ~770px（用户实测截图），其余条目被甩到左侧一条缝里。
+    #[test]
+    fn each_listing_entry_is_short_enough_for_a_menu_item() {
+        for (key, label) in listing() {
+            let text = format!("{label}    {key}");
+            // 一条菜单项的合理上限；超过就说明又在往单条里塞多条内容。
+            assert!(
+                text.chars().count() <= 28,
+                "菜单项「{text}」过长（{} 字符），会撑宽整个托盘菜单",
+                text.chars().count()
+            );
         }
     }
 }

@@ -11,7 +11,7 @@ use std::sync::Mutex;
 
 use tauri::{
     image::Image,
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{TrayIconBuilder, TrayIconId},
     AppHandle, Manager, Wry,
 };
@@ -89,14 +89,32 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let separator = PredefinedMenuItem::separator(app)?;
-    // 快捷键说明是只读提示项：点击不做事，仅让用户知道有这些键可用。
-    let shortcuts_item = MenuItem::with_id(
-        app,
-        "shortcuts_hint",
-        format!("快捷键  {}", shortcuts::describe().replace('\n', " / ")),
-        false,
-        None::<&str>,
-    )?;
+    // 快捷键说明收进子菜单。
+    //
+    // 曾经把它压成**一条**禁用项（`快捷键  A  /  B  /  C`），Windows 托盘菜单按
+    // 最长条目定宽，实测把整个菜单撑到约 770px，其余条目全被甩在左侧一条缝里。
+    // 现在每条键位各自成项，顶层菜单宽度只由这些短标签决定。
+    //
+    // 注意：**不能**用 MenuItem 的 accelerator 参数来显示键位 —— muda 会把它注册进
+    // Windows 快捷键表（tauri 的 msg_hook 会跑 TranslateAcceleratorW），
+    // 与 global_shortcut 插件注册的同一组合键双触发。
+    let shortcut_items = shortcuts::listing()
+        .map(|(key, label)| {
+            MenuItem::with_id(
+                app,
+                format!("shortcut_hint:{key}"),
+                format!("{label}    {key}"),
+                false,
+                None::<&str>,
+            )
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let shortcut_refs = shortcut_items
+        .iter()
+        .map(|item| item as &dyn IsMenuItem<Wry>)
+        .collect::<Vec<_>>();
+    let shortcuts_submenu =
+        Submenu::with_id_and_items(app, "shortcuts_submenu", "播放快捷键", true, &shortcut_refs)?;
     let update_item = MenuItem::with_id(app, "check_update", "检查更新…", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(
@@ -107,7 +125,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &click_item,
             &pairing_item,
             &autostart_item,
-            &shortcuts_item,
+            &shortcuts_submenu,
             &separator,
             &update_item,
             &quit_item,
@@ -139,7 +157,10 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .icon_as_template(false)
         .tooltip("Melodex")
         .menu(&menu)
-        .show_menu_on_left_click(true)
+        // 左键只切换主窗口、右键才出菜单（Windows 托盘惯例）。
+        // 原先左键同时做两件事：既弹菜单（这里为 true）又 toggle_main（见下方事件处理），
+        // 两个动作抢同一个左键。
+        .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "toggle_main" => main_window::toggle_main(app),
             "lyrics_visible" => {
