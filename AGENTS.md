@@ -322,7 +322,7 @@ lyrics_reset_position / lyrics_save_position / lyrics_push_state / lyrics_send_c
 ```powershell
 cd desktop/src-tauri
 cargo fmt --check
-cargo test --locked          # 当前 46 项
+cargo test --locked          # 当前 47 项
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked
 cd ../ui; node lyricsSettings.test.mjs && node lyricsCore.test.mjs   # 36 项 + 核心 9 项
@@ -783,14 +783,28 @@ z 序 rank=15     →  上方压着 14 个「非置顶」窗口,其中 7 个几�
   `>0` 即判失位(`blockers` + `rank` 一起记进日志)。
 - 纠正走 `SetWindowPos(HWND_TOPMOST)`;带 **3s 冷却**防与别的置顶程序抢。
 - `main.rs` 起后台线程,**每 1.5s** 巡检一次。
-- 失位被捡回时记一条 `WARN`(含纠正前 rank 与遮蔽窗口数)—— 日后复发能直接从日志定位。
+- 失位被捡回时记一条 `WARN`,**必须带遮蔽者身份**:进程名 + 窗口类名 + 标题(截断 48 字),
+  最多记 3 个。
+
+  ★ **这条是补记的教训**:第一版只记 `rank` + `blockers` 两个数,上线后日志确实出现
+  「纠正前 rank=2,压着它的非置顶窗口=1 个」—— 数量有了,但**仍然不知道是谁压的**,
+  等于白记一轮。而那条日志出现的时机是**进程启动后 17 秒**,说明失位不是游戏专属的
+  偶发事件、日常就会撞上(只是被守护在 1.5s 内挡住了,用户无感知)。
+  **诊断信息必须能直接指认对象,不能只给计数。**
+
+  真机验证用的造场手法(记下来,后续复现直接用):
+  ① 挑一个普通窗口(或临时建一个)；
+  ② `SetWindowPos(lyric, HWND_NOTOPMOST)` 把歌词窗移出置顶带；
+  ③ `SetWindowPos(lyric, blockerHwnd)` 把它排到 blocker **下面**
+     —— 注意 Win32 的 `hWndInsertAfter` 是「放在它后面(更低)」,顺序搞反就造不出覆盖；
+  ④ 再写回 `WS_EX_TOPMOST` 样式位,复刻「样式=1 但层级不对」的真机形态。
 - **正常时零副作用**:只读查询,不发任何窗口操作。实测正常态 6 秒零日志(不抽搐)。
 - 窗口不可见/最小化时判 `Inactive` 直接跳过,不参与争抢。
 
 #### 门禁
 
-`cargo test --locked` 46 项(新增 3 条锁上面每个设计前提):
-冷却 ≥ 巡检周期 / 失位状态必须带 rank+blockers 两个诊断数 /
+`cargo test --locked` 47 项(新增 4 条锁上面每个设计前提):
+冷却 ≥ 巡检周期 / 失位状态必须带 rank+blockers+遮蔽者身份 / 遮蔽者最多记 3 个 /
 只有 `Displaced` 触发纠正(其余三态必须沉默,否则「正常态零副作用」就破了)。
 
 真机验证:人为造出故障态 → **1.5s 内自动捡回**;恢复后 6s 无重复纠正。
@@ -1419,3 +1433,4 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 - **无损/高音质依赖登录会员 cookie**:Provider sidecar 会把管理员保存的平台 Cookie 传给对应 Charles 客户端。网易云与 QQ 都有**扫码登录**(QQ 见 `provider_bridge/qq_login.py`),其余平台使用 Settings 的**手动填 Cookie**入口;无损能否取得最终取决于上游能力、Cookie 有效性与账号会员等级。
 - **同名歌曲排序**:见上方「搜索排序」节(综合分:相关性+上游名次+正版信号−翻唱降权,无正版信号的完全匹配封顶600,同分按真实音质降序)。无"原唱"数据,译名翻唱仍可能压过原名原唱,带歌手/用原名搜最准。
 - **浏览器播放**:Web 前端 `<audio>` 原生解码 FLAC/WAV(现代浏览器支持,playwright 真机验证 FLAC 正常播);MediaSession 已接(锁屏/通知栏/蓝牙控制)。iOS Safari 后台播放限制比 Android 弱,未充分真机验。
+
