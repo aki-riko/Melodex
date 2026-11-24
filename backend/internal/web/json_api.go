@@ -60,101 +60,38 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	userSecure.GET("/recognize/status", jsonRecognitionStatusHandler)
 	userSecure.POST("/recognize", rateLimitMiddleware(recognitionRateLimiter), jsonRecognizeAudioHandler)
 
-	// 歌单详情:返回歌曲列表
-	userSecure.GET("/playlist", func(c *gin.Context) {
+	// 歌单详情 / 专辑详情:返回歌曲列表。
+	//
+	// 两者除了「用哪个 provider 判支持 + 缓存 namespace」以外逐字相同,所以合并
+	// 成一个闭包;缓存规格统一由 newSongListCacheSpec 定义(见 api_cache_spec.go),
+	// 请求路径与后台刷新共用同一份 —— 不会出现两边行为分叉。
+	serveSongListDetail := func(c *gin.Context, isAlbum bool) {
 		id := c.Query("id")
 		src := c.Query("source")
 		if id == "" || src == "" {
 			c.JSON(400, gin.H{"error": "缺少参数 id/source"})
 			return
 		}
-		fn := core.GetPlaylistDetailFunc(src)
-		if fn == nil {
-			c.JSON(400, gin.H{"error": "该源不支持查看歌单详情"})
+		contentType := "playlist"
+		supported := core.GetPlaylistDetailFunc(src) != nil
+		if isAlbum {
+			contentType = "album"
+			supported = core.GetAlbumDetailFunc(src) != nil
+		}
+		if !supported {
+			c.JSON(400, gin.H{"error": "该源不支持查看" + contentType + "详情"})
 			return
 		}
-		args := apiCacheArgs{Source: src, ID: id}
-		key := apiCacheKey(apiCacheNamespacePlaylistDetail, args)
-		if entry, ok := getAPICacheEntry(key); ok {
-			var cached jsonSongListResponse
-			if decodeAPICachePayload(entry, &cached) {
-				cached.cachedResponseMeta = cacheMetaForEntry(entry)
-				if !entry.Fresh {
-					refreshAPICacheAsync(key, apiCacheNamespacePlaylistDetail, args)
-				}
-				if len(cached.Songs) > 0 {
-					warmQualityCache(cached.Songs, 6)
-				}
-				c.JSON(200, cached)
-				return
-			}
-		}
-		out := buildSongListDetailResponse("playlist", id, src)
-		if len(out.Songs) > 0 {
-			putAPICache(key, apiCacheNamespacePlaylistDetail, args, out)
-			warmQualityCache(out.Songs, 6)
-		}
-		c.JSON(200, out)
-	})
-
-	// 专辑详情:返回歌曲列表
-	userSecure.GET("/album", func(c *gin.Context) {
-		id := c.Query("id")
-		src := c.Query("source")
-		if id == "" || src == "" {
-			c.JSON(400, gin.H{"error": "缺少参数 id/source"})
-			return
-		}
-		fn := core.GetAlbumDetailFunc(src)
-		if fn == nil {
-			c.JSON(400, gin.H{"error": "该源不支持查看专辑详情"})
-			return
-		}
-		args := apiCacheArgs{Source: src, ID: id}
-		key := apiCacheKey(apiCacheNamespaceAlbumDetail, args)
-		if entry, ok := getAPICacheEntry(key); ok {
-			var cached jsonSongListResponse
-			if decodeAPICachePayload(entry, &cached) {
-				cached.cachedResponseMeta = cacheMetaForEntry(entry)
-				if !entry.Fresh {
-					refreshAPICacheAsync(key, apiCacheNamespaceAlbumDetail, args)
-				}
-				if len(cached.Songs) > 0 {
-					warmQualityCache(cached.Songs, 6)
-				}
-				c.JSON(200, cached)
-				return
-			}
-		}
-		out := buildSongListDetailResponse("album", id, src)
-		if len(out.Songs) > 0 {
-			putAPICache(key, apiCacheNamespaceAlbumDetail, args, out)
-			warmQualityCache(out.Songs, 6)
-		}
-		c.JSON(200, out)
-	})
+		serveWithAPICache(c, newSongListCacheSpec(contentType, apiCacheArgs{Source: src, ID: id}), apiCacheArgs{Source: src, ID: id})
+	}
+	userSecure.GET("/playlist", func(c *gin.Context) { serveSongListDetail(c, false) })
+	userSecure.GET("/album", func(c *gin.Context) { serveSongListDetail(c, true) })
 
 	// 每日推荐歌单:按源返回歌单列表
 	userSecure.GET("/recommend", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), core.GetRecommendSourceNames())
 		args := apiCacheArgs{Sources: sources}
-		key := apiCacheKey(apiCacheNamespaceRecommend, args)
-		if entry, ok := getAPICacheEntry(key); ok {
-			var cached jsonPlaylistTabsResponse
-			if decodeAPICachePayload(entry, &cached) {
-				cached.cachedResponseMeta = cacheMetaForEntry(entry)
-				if !entry.Fresh {
-					refreshAPICacheAsync(key, apiCacheNamespaceRecommend, args)
-				}
-				c.JSON(200, cached)
-				return
-			}
-		}
-		out := buildRecommendResponse(sources)
-		if playlistTabsHaveItems(out.Tabs) {
-			putAPICache(key, apiCacheNamespaceRecommend, args, out)
-		}
-		c.JSON(200, out)
+		serveWithAPICache(c, newRecommendCacheSpec(args), args)
 	})
 
 	// 我在各平台创建/收藏的个人歌单(需在设置里登录对应平台 cookie)。
@@ -175,23 +112,7 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 	userSecure.GET("/playlist_categories", func(c *gin.Context) {
 		sources := filterAvailableSources(c.QueryArray("sources"), core.GetPlaylistCategorySourceNames())
 		args := apiCacheArgs{Sources: sources}
-		key := apiCacheKey(apiCacheNamespacePlaylistCategory, args)
-		if entry, ok := getAPICacheEntry(key); ok {
-			var cached jsonPlaylistCategoriesResponse
-			if decodeAPICachePayload(entry, &cached) {
-				cached.cachedResponseMeta = cacheMetaForEntry(entry)
-				if !entry.Fresh {
-					refreshAPICacheAsync(key, apiCacheNamespacePlaylistCategory, args)
-				}
-				c.JSON(200, cached)
-				return
-			}
-		}
-		out := buildPlaylistCategoriesResponse(sources)
-		if playlistCategoriesHaveItems(out.Sources) {
-			putAPICache(key, apiCacheNamespacePlaylistCategory, args, out)
-		}
-		c.JSON(200, out)
+		serveWithAPICache(c, newPlaylistCategoryCacheSpec(args), args)
 	})
 
 	// 某分类下的歌单
@@ -202,24 +123,10 @@ func RegisterJSONAPIRoutes(r *gin.Engine, opts StartOptions) {
 			c.JSON(400, gin.H{"error": "该源不支持歌单分类"})
 			return
 		}
-		args := apiCacheArgs{Source: request.Source, CategoryID: request.CategoryID, Page: request.Page}
-		key := apiCacheKey(apiCacheNamespaceCategoryPlaylists, args)
-		if entry, ok := getAPICacheEntry(key); ok {
-			var cached jsonPlaylistListResponse
-			if decodeAPICachePayload(entry, &cached) {
-				cached.cachedResponseMeta = cacheMetaForEntry(entry)
-				if !entry.Fresh {
-					refreshAPICacheAsync(key, apiCacheNamespaceCategoryPlaylists, args)
-				}
-				c.JSON(200, cached)
-				return
-			}
+		args := apiCacheArgs{
+			Source: request.Source, CategoryID: request.CategoryID, Page: request.Page,
 		}
-		out := buildCategoryPlaylistsResponse(request.Source, request.CategoryID, request.Page)
-		if len(out.Playlists) > 0 {
-			putAPICache(key, apiCacheNamespaceCategoryPlaylists, args, out)
-		}
-		c.JSON(200, out)
+		serveWithAPICache(c, newCategoryPlaylistsCacheSpec(args), args)
 	})
 
 	// 支持二维码登录的源(只读,登录后可见)
@@ -1412,6 +1319,14 @@ func playlistCategoriesHaveItems(sources []jsonPlaylistCategorySource) bool {
 	return false
 }
 
+// refreshAPICacheAsync 后台重算一个过期缓存条目。
+//
+// 收敛(2026-11 全库扫描):原来这里是一段 5 分支 switch,把"构建函数 +
+// 是否值得缓存 + 是否预热音质"又复述了一遍 —— 与请求路径那 5 份样板是同一套
+// 逻辑的第二份拷贝,改缓存语义要同时动两处(共 10 个位置)。
+//
+// 现在统一走 apiCacheSpec:各 namespace 的构建方式只在
+// apiCacheSpecs() 里定义**一次**,请求路径与后台刷新共用。
 func refreshAPICacheAsync(key, namespace string, args apiCacheArgs) {
 	if strings.TrimSpace(key) == "" {
 		return
@@ -1421,35 +1336,14 @@ func refreshAPICacheAsync(key, namespace string, args apiCacheArgs) {
 	}
 	go func() {
 		defer apiCacheRefreshFlight.Delete(key)
-		switch namespace {
-		case apiCacheNamespaceRecommend:
-			out := buildRecommendResponse(args.Sources)
-			if playlistTabsHaveItems(out.Tabs) {
-				putAPICache(key, namespace, args, out)
-			}
-		case apiCacheNamespacePlaylistDetail:
-			out := buildSongListDetailResponse("playlist", args.ID, args.Source)
-			if len(out.Songs) > 0 {
-				putAPICache(key, namespace, args, out)
-				warmQualityCache(out.Songs, 6)
-			}
-		case apiCacheNamespaceAlbumDetail:
-			out := buildSongListDetailResponse("album", args.ID, args.Source)
-			if len(out.Songs) > 0 {
-				putAPICache(key, namespace, args, out)
-				warmQualityCache(out.Songs, 6)
-			}
-		case apiCacheNamespacePlaylistCategory:
-			out := buildPlaylistCategoriesResponse(args.Sources)
-			if playlistCategoriesHaveItems(out.Sources) {
-				putAPICache(key, namespace, args, out)
-			}
-		case apiCacheNamespaceCategoryPlaylists:
-			out := buildCategoryPlaylistsResponse(args.Source, args.CategoryID, args.Page)
-			if len(out.Playlists) > 0 {
-				putAPICache(key, namespace, args, out)
-			}
+		build, ok := refreshBuilders()[namespace]
+		if !ok {
+			// 未知 namespace:不做任何事。这在正常路径不会发生(调用方都传常量),
+			// 但保留显式分支,避免将来新增 namespace 时静默不刷新。
+			return
 		}
+		// build 内部已经做了"有内容才写缓存 + 预热",与请求路径一致。
+		build(key, args)
 	}()
 }
 
