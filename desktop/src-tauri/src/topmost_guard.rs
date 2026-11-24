@@ -28,10 +28,20 @@
 //! 周期性无条件重申置顶会让窗口每次都短暂掉出置顶层再回来（视觉上闪一下），
 //! 而且会跟其它置顶程序互相抢。只读检查是纯查询，正常时**零副作用**。
 
-use std::sync::atomic::{AtomicU32, Ordering};
+// ★ import 的平台条件化（2026-11-25 CI 抓出）：
+//   这几个只在 Windows 分支用到 —— macOS 上 guard_once 是空实现，
+//   win32 子模块整块不编译，于是 Ordering/Manager/logging 全成 unused import，
+//   在 `clippy -D warnings` 下直接失败。
+//   用 cfg 精确控制，而不是全模块 `#![allow(unused_imports)]`（那会掩盖真问题）。
+use std::sync::atomic::AtomicU32;
+#[cfg(target_os = "windows")]
+use std::sync::atomic::Ordering;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(target_os = "windows")]
+use tauri::Manager;
 
+#[cfg(target_os = "windows")]
 use crate::logging;
 
 /// 守护巡检周期（毫秒）。
@@ -46,12 +56,21 @@ pub const GUARD_INTERVAL_MS: u64 = 1_500;
 /// 检测到失位后，两次纠正之间的最小间隔（毫秒）。
 ///
 /// 防止在极端情况（某程序反复抢置顶）下变成高频争抢。
+///
+/// ★ 非 Windows 下是死代码，但这**是预期的**（2026-11-25 CI 抓出）：
+///   macOS 走 `guard_once` 的空实现（直接返回 false），不会用到冷却与纠正，
+///   于是这个常量、`LAST_RECOVER_MS`、`TopmostState`、`inspect`/`reassert`
+///   的桩全部没有调用者。macOS 的 clippy 用 `-D warnings` 会因此判死代码失败。
+///   加 `cfg_attr` 只在**非 Windows** 下豁免，Windows 侧仍然严格检查。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub const RECOVER_COOLDOWN_MS: u32 = 3_000;
 
 /// 上一次纠正的时间戳（毫秒，单调递增的上报值），0 表示从未纠正过。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 static LAST_RECOVER_MS: AtomicU32 = AtomicU32::new(0);
 
 /// 每轮守护的判定结果，用于单测纯逻辑与运行期日志区分。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TopmostState {
     /// 已在置顶层最前（上方没有「会盖住它的非置顶窗口」）。
@@ -83,6 +102,7 @@ pub fn inspect(hwnd: isize) -> TopmostState {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)] // 非 Windows 下 guard_once 是空实现，这个桩只用于保持 API 形状一致
 pub fn inspect(_hwnd: isize) -> TopmostState {
     // 非 Windows 平台由 tao 自身维护置顶语义，这里不做额外守护。
     TopmostState::Ok
@@ -95,6 +115,7 @@ pub fn reassert(hwnd: isize) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)] // 同上：保持与 Windows 版相同的函数签名，供将来跨平台复用
 pub fn reassert(_hwnd: isize) -> Result<(), String> {
     Ok(())
 }
