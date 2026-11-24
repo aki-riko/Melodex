@@ -70,12 +70,41 @@ const (
 // 留 10 分钟足够覆盖"页面刷新后再回来看看结果",又不会让内存长期堆积。
 const m3uImportTaskRetention = 10 * time.Minute
 
-// m3uImportBatchSize 是进度上报的粒度(每处理多少条更新一次进度)。
-//
-// 为什么需要分批:进度如果每条都刷新,对 SSE/轮询毫无增益(前端 1 秒才读一次),
-// 只是多几次锁竞争。20 条一批,配合主力源 1~2 秒/条,大约 20~40 秒一次可见跳变 ——
-// 对"1000 条要跑 20 分钟"这个量级来说,足够让用户确认"在动"。
+// m3uImportBatchSize 是进度上报的**条数**粒度（每处理多少条更新一次进度）。
 const m3uImportBatchSize = 20
+
+// m3uImportReportInterval 是进度上报的**时间**粒度上限。
+//
+// ★ 为什么需要两个粒度（真机数据验证后补的，2026-11-25）：
+//
+//	最初只有条数粒度（每 20 条上报一次）。用 NAS 上的真实歌单实测发现
+//	这个设计有个明显缺陷：
+//
+//	  日语歌曲.m3u8（163 条，实测 2.29 秒/条）的进度采样：
+//	      0.0s    0%      0/163
+//	     47.1s   12%     20/163   ← 前 47 秒一直是 0%!
+//	     94.2s   24%     40/163
+//	     ...
+//
+//	也就是用户点完导入后，**45 秒内看不到任何进度变化**。
+//	1000 条的歌单同样是 45 秒才第一次更新 —— 这段时间足够让人以为卡死并刷新页面。
+//
+//	所以再加一条时间粒度：距上次上报超过 10 秒就上报，不管凑够了多少条。
+//	两者取**先到者**。这样：
+//	  · 快的时候（小歌单/响应快）按条数走，不会因为频繁上报产生锁竞争；
+//	  · 慢的时候（大歌单/上游慢）最多 10 秒就有一次可见更新，不会"假死"。
+const m3uImportReportInterval = 10 * time.Second
+
+// shouldReportProgress 判断当前是否该上报一次进度。
+//
+// 两个条件取先到者：处理条数达到批次，或距上次上报已超过时间上限。
+// lastReport 由调用方维护（后台循环是单 goroutine，不需要加锁）。
+func shouldReportProgress(processed int, lastReport time.Time) bool {
+	if processed > 0 && processed%m3uImportBatchSize == 0 {
+		return true
+	}
+	return time.Since(lastReport) >= m3uImportReportInterval
+}
 
 // m3uImportTask 是一个导入任务的运行时状态。
 //

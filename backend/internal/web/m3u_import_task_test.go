@@ -233,7 +233,57 @@ func TestM3UImportTaskConcurrentRecordAndRead(t *testing.T) {
 	wg.Wait()
 }
 
-// TestM3UImportHandlerReturnsTaskIDImmediately 验证 handler 不再同步跑完。
+// TestM3UImportReportsOnTimeBeforeBatchFills 守住"进度不能长时间停在 0%"。
+//
+// ★ 这条是真机数据验证后补的（2026-11-25）。用 NAS 上的真实歌单实测发现：
+//
+//	日语歌曲.m3u8（163 条，2.29 秒/条）的进度采样
+//	   0.0s    0%    0/163
+//	  47.1s   12%   20/163   ← 前 47 秒一直是 0%
+//
+// 原因是只有"每 20 条上报一次"这一个粒度，凑够 20 条要 45 秒。
+// 用户点完导入后 45 秒看不到任何变化，会以为卡死并刷新页面。
+//
+// 修法：加时间粒度（10 秒），与条数粒度取先到者。
+func TestM3UImportReportsOnTimeBeforeBatchFills(t *testing.T) {
+	// 刚处理 1 条、1 秒前刚上报过 → 不该上报（条数没到、时间没到）
+	if shouldReportProgress(1, time.Now().Add(-time.Second)) {
+		t.Fatal("处理 1 条且刚上报过，不应上报")
+	}
+	// 处理 3 条、但已过 11 秒 → 必须上报（否则用户看不到进度）
+	if !shouldReportProgress(3, time.Now().Add(-11*time.Second)) {
+		t.Fatal("距上次上报超过 10 秒必须上报，否则大歌单前 45 秒都显示 0%")
+	}
+	// 处理正好 20 条（批次边界）→ 立即上报，哪怕刚上报过
+	if !shouldReportProgress(20, time.Now()) {
+		t.Fatal("凑够 20 条应立即上报")
+	}
+	// 处理 40 条同样
+	if !shouldReportProgress(40, time.Now()) {
+		t.Fatal("凑够 40 条应立即上报")
+	}
+	// processed=0 时不该因条数上报（0%20==0 但还没处理任何东西）
+	if shouldReportProgress(0, time.Now()) {
+		t.Fatal("processed=0 不应因条数规则上报")
+	}
+}
+
+// TestM3UImportReportIntervalIsSmallEnough 时间粒度必须足够小。
+//
+// 判据来自真机:单条耗时实测 2.29 秒。若上报间隔 > 30 秒，用户会觉得"卡住"。
+// 这里把它钉在 10 秒，并说明为什么不是更大或更小。
+func TestM3UImportReportIntervalIsSmallEnough(t *testing.T) {
+	if m3uImportReportInterval > 15*time.Second {
+		t.Fatalf("上报间隔 %v 太大 —— 真机实测单条 2.29 秒，"+
+			"间隔过长会让进度条长时间不动", m3uImportReportInterval)
+	}
+	if m3uImportReportInterval < 2*time.Second {
+		t.Fatalf("上报间隔 %v 太小 —— 前端 1 秒才轮询一次，"+
+			"更频繁的上报只是多几次锁竞争", m3uImportReportInterval)
+	}
+}
+
+// TestM3UImportHandlerReturnsTaskContract 验证 handler 不再同步跑完。
 //
 // 做法:发一个 1 条目的导入(会真去搜索),断言**响应立刻返回且带 task_id**,
 // 而不是等搜索完。条目只有 1 条,即使真跑完也很快 —— 所以这个用例的

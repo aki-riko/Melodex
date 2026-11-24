@@ -241,6 +241,8 @@ func runM3UImportTask(task *m3uImportTask, entries []m3uEntry) {
 	sources := defaultSourcesForSearchType("song")
 	matched := 0
 	processed := 0
+	// 上次上报时间:与条数粒度一起决定何时上报(见 shouldReportProgress 的说明)。
+	lastReport := time.Now()
 
 	for _, e := range entries {
 		if task.Cancelled() {
@@ -270,9 +272,12 @@ func runM3UImportTask(task *m3uImportTask, entries []m3uEntry) {
 			}
 		}
 
-		// 分批上报:每条都刷毫无增益(前端 1 秒才读一次),只是多几次锁竞争。
-		if processed%m3uImportBatchSize == 0 {
+		// 条数粒度或时间粒度，先到者上报。
+		// 真机实测:只有条数粒度时,163 条的歌单前 47 秒一直显示 0%,
+		// 用户会以为卡死。加时间粒度后最多 10 秒就有一次可见更新。
+		if shouldReportProgress(processed, lastReport) {
 			task.recordBatch(processed, matched)
+			lastReport = time.Now()
 		}
 	}
 
