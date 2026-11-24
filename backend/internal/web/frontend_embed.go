@@ -78,6 +78,19 @@ func registerFrontend(r *gin.Engine) {
 			c.Status(http.StatusNotFound)
 			return
 		}
+		// /rest/ 是 Subsonic facade。我们只实现了协议的一部分(ping/search3/
+		// stream/getCoverArt/getLyrics…),而客户端会试探性调用未实现的端点
+		// (search2 / getPodcasts / star / scrobble…)。
+		//
+		// ★ 2026-11 全库扫描修正:这里原本没有 /rest/ 白名单,于是那些未实现端点
+		//   会**回退成 index.html** —— 客户端期望 XML/JSON 却收到一页 HTML,
+		//   解析失败且报错毫无指向性(实测返回 200 + HTML,不是 404)。
+		//   Subsonic 协议要求错误也走 XML/JSON 信封,所以这里至少不能给 HTML;
+		//   保持 404 语义比"假装成功"更可诊断。
+		if strings.HasPrefix(p, "/rest/") || p == "/rest" {
+			c.Status(http.StatusNotFound)
+			return
+		}
 		// /desktop/ 属于发布产物目录：内部已处理，走到这里说明已被兜底，
 		// 同样返回 404，绝不回退成 HTML（否则更新器解析失败）。
 		if strings.HasPrefix(p, desktopReleasePrefix) {
