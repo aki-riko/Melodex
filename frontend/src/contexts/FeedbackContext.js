@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Info, TriangleAlert, X } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { useBackLayer } from './backNavigation.js';
@@ -90,16 +90,21 @@ export const FeedbackProvider = ({ children }) => {
     });
   }, []);
 
+  // value 必须稳定:feedback 被大量 effect 放进依赖数组(如 OfflineMusic 的
+  // [userId, feedback]),四个内联箭头函数每次渲染都变会让那些 effect 白跑;
+  // 同时 SongRow 等列表行也消费它,不稳定的 value 会让 React.memo 完全失效。
+  const value = useMemo(() => ({
+    notify,
+    success: (message) => notify(message, 'success'),
+    error: (message) => notify(message, 'error'),
+    warning: (message) => notify(message, 'warning'),
+    info: (message) => notify(message, 'info'),
+    confirm,
+    prompt,
+  }), [notify, confirm, prompt]);
+
   return (
-    <FeedbackContext.Provider value={{
-      notify,
-      success: (message) => notify(message, 'success'),
-      error: (message) => notify(message, 'error'),
-      warning: (message) => notify(message, 'warning'),
-      info: (message) => notify(message, 'info'),
-      confirm,
-      prompt,
-    }}>
+    <FeedbackContext.Provider value={value}>
       {children}
       <ToastStack
         items={toasts}

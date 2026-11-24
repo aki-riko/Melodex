@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import * as api from '../services/collections';
 import { useAuth } from './AuthContext';
 
@@ -20,7 +20,11 @@ export const CollectionsProvider = ({ children }) => {
       const list = await api.listCollections({ includeImported: true });
       setCollections(list);
       return list;
-    } catch { /* 忽略,UI 自行兜底 */ }
+    } catch (error) {
+      // 不能静默吞:否则侧栏只会显示"我的歌单为空",而用户区分不出
+      // "真没建过歌单"和"加载失败了"。至少留一条可检索的日志。
+      console.warn('[collections] 歌单列表加载失败', error);
+    }
     return [];
   }, [offline]);
 
@@ -44,8 +48,15 @@ export const CollectionsProvider = ({ children }) => {
     await api.addSongToCollection(id, song);
   }, [offline]);
 
+  // value 必须稳定:SongRow 等列表行消费此 context,渲染期内联对象会让
+  // React.memo 完全失效(每行每次父级渲染都被判为"props 变了")。
+  const value = useMemo(
+    () => ({ collections, refresh, create, remove, addSong, addTarget, setAddTarget }),
+    [collections, refresh, create, remove, addSong, addTarget],
+  );
+
   return (
-    <Ctx.Provider value={{ collections, refresh, create, remove, addSong, addTarget, setAddTarget }}>
+    <Ctx.Provider value={value}>
       {children}
     </Ctx.Provider>
   );

@@ -92,6 +92,24 @@ import { resolveQuality } from '../utils/quality.js';
 
 const PlayerContext = createContext(null);
 
+// 播放进度单独一个 Context(2026-11 拆分)。
+//
+// ★ 为什么要拆:进度由音频元素的 timeupdate 驱动,约 4Hz 更新,而它原先混在
+//   PlayerContext 的 value 里 —— 那个 value 是渲染期内联对象,于是**每次进度变化
+//   都会让所有 usePlayer() 消费者重渲染**。实测所有外部消费者(App/Download/
+//   LocalMusic/MyPlaylist/PlaylistSongs/RecentlyPlayed/OfflineMusic)一个都不读
+//   progress,只读 play/isPlaying/togglePlay —— 它们纯粹在白重渲染。
+//
+// 拆分口径:
+//   · PlayerContext       —— 稳定的控制面(play/next/togglePlay/mode/volume/...),
+//                             value 用 useMemo 包,只有这些值真变时才换引用;
+//   · PlayerProgressContext —— 只有 cur/dur + 那几个 setter,给进度条与歌词订阅。
+//                             读它就会按 4Hz 重渲染,所以**只允许真正需要逐帧的
+//                             组件订阅**(目前仅 PlayerBar 自身)。
+//
+// ★ 别把 progress 塞回上面那个 Context:那等于把本次修复整个回退。
+const PlayerProgressContext = createContext(null);
+
 const songSourceText = (song) => (song?.source ? sourceLabel(song.source) : '');
 const lyricCache = new Map();
 
@@ -1482,22 +1500,45 @@ const WebPlayerProvider = ({ children }) => {
     onKeyUp: () => endScrub(scrubRef.current),
   }), []);
 
+  // 控制面 value:必须 useMemo —— 否则 Provider 每次渲染(包括 4Hz 的进度 tick)
+  // 都会造出一个新对象,所有消费者照样全部重渲染,拆分就白做了。
+  // 依赖列表 = value 里用到的每个状态/回调;回调本身都已被 useCallback 稳定。
+  const controlValue = useMemo(() => ({
+    nowPlaying, play, audioRef, notice, isPaused, mode, setMode,
+    volume, setVolume, muted, toggleMute,
+    cachedCoverUrl: cachedCover.url,
+    queue, playFromQueue,
+    sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
+    startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
+    isPlaying: (s) => nowPlaying && songIdentityKey(nowPlaying) === songIdentityKey(s),
+    next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent,
+    handleTimeUpdate, handleLoadedMetadata, savePlayback,
+    cycleMode,
+    scrubHandlers,
+    usesNativePlayback: false,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cachedCover.url: cachedCover 是 useRef 风格对象,内部 url 即真相
+  }), [
+    nowPlaying, play, isPaused, mode, setMode, volume, setVolume, muted, toggleMute,
+    cachedCover.url, queue, playFromQueue,
+    sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
+    startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
+    next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying,
+    handlePause, handleBufferEvent, handleTimeUpdate, handleLoadedMetadata, savePlayback,
+    cycleMode, scrubHandlers,
+  ]);
+
+  // 进度 value:故意**不**做稳定化 —— 它的语义就是"每帧都变"。
+  // 只被真正需要逐帧的组件订阅(PlayerBar 内的进度条/时间/歌词)。
+  const progressValue = useMemo(
+    () => ({ progress, setIsPaused, setProgress }),
+    [progress],
+  );
+
   return (
-    <PlayerContext.Provider value={{
-      nowPlaying, play, audioRef, notice, isPaused, progress, mode, setMode,
-      volume, setVolume, muted, toggleMute,
-      cachedCoverUrl: cachedCover.url,
-      queue, playFromQueue,
-      sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
-      startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
-      isPlaying: (s) => nowPlaying && songIdentityKey(nowPlaying) === songIdentityKey(s),
-      next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent, setIsPaused, setProgress,
-      handleTimeUpdate, handleLoadedMetadata, savePlayback,
-      cycleMode,
-      scrubHandlers,
-      usesNativePlayback: false,
-    }}>
-      {children}
+    <PlayerContext.Provider value={controlValue}>
+      <PlayerProgressContext.Provider value={progressValue}>
+        {children}
+      </PlayerProgressContext.Provider>
     </PlayerContext.Provider>
   );
 };
@@ -1505,7 +1546,11 @@ const WebPlayerProvider = ({ children }) => {
 export const PlayerProvider = ({ children }) => {
   const { offline } = useAuth();
   if (isNativeAndroidPlayback() && !offline) {
-    return <NativePlayerProvider context={PlayerContext}>{children}</NativePlayerProvider>;
+    return (
+      <NativePlayerProvider context={PlayerContext} progressContext={PlayerProgressContext}>
+        {children}
+      </NativePlayerProvider>
+    );
   }
   return <WebPlayerProvider>{children}</WebPlayerProvider>;
 };
@@ -1513,6 +1558,18 @@ export const PlayerProvider = ({ children }) => {
 export const usePlayer = () => {
   const ctx = useContext(PlayerContext);
   if (!ctx) throw new Error('usePlayer 必须在 PlayerProvider 内使用');
+  return ctx;
+};
+
+/**
+ * 播放进度(4Hz 更新)。**只在真正需要逐帧的组件里用** —— 读它的组件会随
+ * 每次 timeupdate 重渲染。普通组件要用「当前在放什么歌」请读 usePlayer().nowPlaying。
+ *
+ * 独立于 usePlayer 是刻意的:见文件顶部 PlayerProgressContext 的说明。
+ */
+export const usePlayerProgress = () => {
+  const ctx = useContext(PlayerProgressContext);
+  if (!ctx) throw new Error('usePlayerProgress 必须在 PlayerProvider 内使用');
   return ctx;
 };
 
@@ -1679,9 +1736,9 @@ const ChorusMarker = ({ percent, onSeek }) => (
 // 常驻底部播放器条:封面/标题 + 上/播/下 + 进度条 + 播放模式
 export const PlayerBar = () => {
   const {
-    nowPlaying, audioRef, notice, isPaused, progress, mode,
+    nowPlaying, audioRef, notice, isPaused, mode,
     next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying, handlePause, handleBufferEvent,
-    setIsPaused, setProgress, cycleMode,
+    cycleMode,
     volume, setVolume, muted, toggleMute,
     queue, playFromQueue,
     sleepTimer, sleepRemainingMs, sleepStopAfterTrack,
@@ -1691,6 +1748,9 @@ export const PlayerBar = () => {
     handleTimeUpdate, handleLoadedMetadata, savePlayback,
     scrubHandlers,
   } = usePlayer();
+  // 进度单独订阅(4Hz)。PlayerBar 本来就要随进度刷新进度条/时间/歌词,
+  // 所以这里读它不会带来额外重渲染;而页面级组件读不到它,就不会被拖下水。
+  const { progress, setProgress } = usePlayerProgress();
 
   const [queueOpen, setQueueOpen] = useState(false);
   // 队列面板(桌面 popover / 移动全屏覆盖层)也要能被返回键收掉。

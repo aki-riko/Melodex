@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   Download,
@@ -649,4 +649,30 @@ const SongRow = ({
 };
 
 export { getStreamUrl };
-export default SongRow;
+
+/**
+ * 自定义比较:memo 要挡住的是"父级因无关状态变化而重渲染",不是"这行真的该更新"。
+ *
+ * 逐个比而不是浅比,是因为调用处普遍写 `onPlay={(s) => onPlay(s, songs)}` ——
+ * 箭头函数每次渲染都是新引用,浅比会让 memo 永远失效、等于没加。
+ * 这里刻意**不比较** onPlay/onShowLyric/onRemove 这些回调:它们只在被点击时
+ * 才调用,而闭包里捕获的 songs 列表与 song 本体是同一份(见各调用处),所以
+ * 沿用上一次的引用不会读到陈旧数据。onTogglePlayback 则要比较 —— 它被
+ * 键盘 Enter 路径同步调用,且上层确实会因播放态切换而换实现。
+ *
+ * song/isPlaying/isPaused 用身份比较:它们是这一个列表项唯一真正的渲染输入。
+ */
+const sameRowProps = (prev, next) => (
+  prev.song === next.song
+  && prev.index === next.index
+  && prev.isPlaying === next.isPlaying
+  && prev.isPaused === next.isPaused
+  && prev.liveInfo === next.liveInfo
+  && prev.lyricQuery === next.lyricQuery
+  && prev.removeTitle === next.removeTitle
+  && prev.removeHint === next.removeHint
+  && prev.onTogglePlayback === next.onTogglePlayback
+  && prev.onFavoriteChange === next.onFavoriteChange
+);
+
+export default memo(SongRow, sameRowProps);

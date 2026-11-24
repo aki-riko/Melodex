@@ -41,7 +41,7 @@ const loadMode = () => {
   return ['order', 'loop', 'repeat', 'shuffle'].includes(value) ? value : 'loop';
 };
 
-export default function NativePlayerProvider({ context: PlayerContext, children }) {
+export default function NativePlayerProvider({ context: PlayerContext, progressContext: PlayerProgressContext, children }) {
   const [nowPlaying, setNowPlaying] = useState(null);
   const [notice, setNotice] = useState('');
   const [isPaused, setIsPaused] = useState(true);
@@ -398,50 +398,68 @@ export default function NativePlayerProvider({ context: PlayerContext, children 
   }, [clearSleepTimer, isPaused, sleepStopAfterTrack, sleepTimer]);
 
   const noop = useCallback(() => {}, []);
+  // 与 WebPlayerProvider 同一套拆分(见 PlayerContext.js 顶部说明):
+  // 控制面用 useMemo 稳定,进度单独一个 Provider —— 否则 4Hz 的进度会让
+  // 所有 usePlayer() 消费者跟着重渲染。
+  const controlValue = useMemo(() => ({
+    nowPlaying,
+    play,
+    audioRef,
+    notice,
+    isPaused,
+    mode,
+    setMode,
+    volume,
+    setVolume,
+    muted,
+    toggleMute,
+    cachedCoverUrl: '',
+    queue,
+    playFromQueue,
+    sleepTimer,
+    sleepRemainingMs,
+    sleepStopAfterTrack,
+    startSleepTimer,
+    cancelSleepTimer,
+    setSleepStopAfterTrack,
+    isPlaying: (song) => Boolean(nowPlaying) && songIdentityKey(nowPlaying) === songIdentityKey(song),
+    next,
+    prev,
+    togglePlay,
+    seek,
+    handleError: noop,
+    handleEnded: noop,
+    handlePlay: noop,
+    handlePlaying: noop,
+    handlePause: noop,
+    handleBufferEvent: noop,
+    setIsPaused,
+    setProgress,
+    handleTimeUpdate: noop,
+    handleLoadedMetadata: noop,
+    savePlayback,
+    cycleMode,
+    scrubHandlers,
+    usesNativePlayback: true,
+  }), [
+    nowPlaying, play, audioRef, notice, isPaused, mode, setMode, volume, setVolume,
+    muted, toggleMute, queue, playFromQueue, sleepTimer, sleepRemainingMs,
+    sleepStopAfterTrack, startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
+    next, prev, togglePlay, seek, setIsPaused, setProgress, savePlayback, cycleMode,
+    scrubHandlers, noop,
+  ]);
+
+  // 进度:故意不稳定化,语义就是"每帧都变"。
+  const progressValue = useMemo(
+    () => ({ progress, setIsPaused, setProgress }),
+    [progress],
+  );
+
   return (
-    <PlayerContext.Provider value={{
-      nowPlaying,
-      play,
-      audioRef,
-      notice,
-      isPaused,
-      progress,
-      mode,
-      setMode,
-      volume,
-      setVolume,
-      muted,
-      toggleMute,
-      cachedCoverUrl: '',
-      queue,
-      playFromQueue,
-      sleepTimer,
-      sleepRemainingMs,
-      sleepStopAfterTrack,
-      startSleepTimer,
-      cancelSleepTimer,
-      setSleepStopAfterTrack,
-      isPlaying: (song) => Boolean(nowPlaying) && songIdentityKey(nowPlaying) === songIdentityKey(song),
-      next,
-      prev,
-      togglePlay,
-      seek,
-      handleError: noop,
-      handleEnded: noop,
-      handlePlay: noop,
-      handlePlaying: noop,
-      handlePause: noop,
-      handleBufferEvent: noop,
-      setIsPaused,
-      setProgress,
-      handleTimeUpdate: noop,
-      handleLoadedMetadata: noop,
-      savePlayback,
-      cycleMode,
-      scrubHandlers,
-      usesNativePlayback: true,
-    }}>
-      {children}
+    <PlayerContext.Provider value={controlValue}>
+      <PlayerProgressContext.Provider value={progressValue}>
+        {children}
+      </PlayerProgressContext.Provider>
     </PlayerContext.Provider>
   );
 }
