@@ -25,7 +25,7 @@ func startProviderLogin(c *gin.Context) {
 	}
 	challenge, err := start()
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondInternalError(c, "发起登录失败, 请稍后重试", err)
 		return
 	}
 	c.JSON(http.StatusOK, challenge)
@@ -45,7 +45,7 @@ func pollProviderLogin(c *gin.Context) {
 	}
 	result, err := poll(key)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondInternalError(c, "登录状态检查失败", err)
 		return
 	}
 	if result != nil && result.Phase == model.LoginSucceeded {

@@ -297,7 +297,7 @@ func serveOwnedServerCopyPath(c *gin.Context, relativePath string) {
 func saveTrackToServer(c *gin.Context, track *model.Track, settings core.WebSettings, embed bool) {
 	download, err := core.DownloadSongDataWithTemplate(track, embed, embed, settings.DownloadFilenameTemplate)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondInternalError(c, "下载失败, 请稍后重试", err)
 		return
 	}
 	unlock := lockServerDownloadIdentity(track.Source, track.ID, track.Name, track.Artist)
@@ -318,7 +318,7 @@ func saveTrackToServer(c *gin.Context, track *model.Track, settings core.WebSett
 		// 而完全无迹可循。写入失败是可运维事件,不是静默的业务分支。
 		log.Printf("[download] save to server failed source=%q id=%q dir=%q: %v",
 			track.Source, track.ID, settings.DownloadDir, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "保存到服务器失败", err)
 		return
 	}
 	relativePath := relPathUnderDir(settings.DownloadDir, download.SavedPath)
@@ -747,7 +747,7 @@ func saveWebAssetResponse(c *gin.Context, filename string, data []byte) {
 }
 
 func writeWebAssetSaveError(c *gin.Context, err error) {
-	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+	respondInternalError(c, "保存资源失败", err)
 }
 
 func saveWebAssetToLocal(filename string, data []byte) (string, string, error) {

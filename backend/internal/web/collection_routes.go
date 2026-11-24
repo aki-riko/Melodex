@@ -78,7 +78,7 @@ func createCollectionRoute(c *gin.Context) {
 		Kind: collectionKindManual, ContentType: collectionContentPlaylist, Source: localMusicSource,
 	}
 	if err := db.Create(&collection).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建失败: " + err.Error()})
+		respondInternalError(c, "创建歌单失败", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"id": collection.ID, "name": collection.Name})
@@ -112,11 +112,11 @@ func importCollectionRoute(c *gin.Context) {
 		return
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "导入失败: " + err.Error()})
+		respondInternalError(c, "导入歌单失败", err)
 		return
 	}
 	if err := db.Create(collection).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "导入失败: " + err.Error()})
+		respondInternalError(c, "导入歌单失败", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"id": collection.ID, "name": collection.Name})
@@ -134,12 +134,12 @@ func mergeImportedCollectionRoute(c *gin.Context, imported *Collection, targetID
 	}
 	tracks, err := loadImportedCollectionSongs(imported)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取平台歌单失败: " + err.Error()})
+		respondInternalError(c, "读取平台歌单失败", err)
 		return
 	}
 	added, err := saveSongsToManualCollection(target.ID, tracks)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "合并失败: " + err.Error()})
+		respondInternalError(c, "合并歌单失败", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -206,7 +206,7 @@ func listCollectionSongsRoute(c *gin.Context) {
 	}
 	songs, err := collectionSongsJSON(collection)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取歌曲失败: " + err.Error()})
+		respondInternalError(c, "获取歌单歌曲失败", err)
 		return
 	}
 	c.JSON(http.StatusOK, songs)
@@ -245,7 +245,7 @@ func addCollectionSongRoute(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误，缺少 id 或 source"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "添加失败: " + err.Error()})
+		respondInternalError(c, "添加歌曲失败", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

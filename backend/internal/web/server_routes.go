@@ -116,7 +116,7 @@ func updateSettingsRoute(c *gin.Context) {
 		return
 	}
 	if err := core.SaveWebSettings(settings); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "保存设置失败, 请稍后重试", err)
 		return
 	}
 	c.JSON(http.StatusOK, effectiveSettingsForUser(currentUserID(c)))
@@ -134,7 +134,7 @@ func updateUserPreferencesRoute(c *gin.Context) {
 		return
 	}
 	if err := saveUserPref(userID, preferences); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "保存偏好失败, 请稍后重试", err)
 		return
 	}
 	c.JSON(http.StatusOK, effectiveSettingsForUser(userID))

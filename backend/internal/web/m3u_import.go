@@ -159,7 +159,7 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 			Source:      "local",
 		}
 		if err := db.Create(&coll).Error; err != nil {
-			c.JSON(500, gin.H{"error": "创建歌单失败: " + err.Error()})
+			respondInternalError(c, "创建歌单失败", err)
 			return
 		}
 

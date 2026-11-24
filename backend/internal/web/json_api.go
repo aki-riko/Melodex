@@ -373,7 +373,7 @@ func jsonSearchCacheDeleteHandler(c *gin.Context) {
 		seen[key] = struct{}{}
 		n, err := deleteCachedSearchKey(key)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			respondInternalError(c, "清除搜索缓存失败", err)
 			return
 		}
 		deleted += n

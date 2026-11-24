@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -423,7 +424,7 @@ func recognizeWithAudD(ctx context.Context, cfg recognitionConfig, input recogni
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	resp, err := recognitionHTTPClient(cfg.Timeout).Do(req)
 	if err != nil {
-		return nil, &recognitionStatusError{Status: http.StatusBadGateway, Message: "识曲服务请求失败: " + err.Error()}
+		return nil, &recognitionStatusError{Status: http.StatusBadGateway, Message: recognitionTransportFailureMessage(cfg, err)}
 	}
 	defer resp.Body.Close()
 
@@ -538,7 +539,7 @@ func recognizeWithACRCloud(ctx context.Context, cfg recognitionConfig, input rec
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	resp, err := recognitionHTTPClient(cfg.Timeout).Do(req)
 	if err != nil {
-		return nil, &recognitionStatusError{Status: http.StatusBadGateway, Message: "识曲服务请求失败: " + err.Error()}
+		return nil, &recognitionStatusError{Status: http.StatusBadGateway, Message: recognitionTransportFailureMessage(cfg, err)}
 	}
 	defer resp.Body.Close()
 
@@ -629,4 +630,20 @@ func stringFromNestedMap(m map[string]interface{}, first, second string) string 
 		return ""
 	}
 	return stringFromMap(nested, second)
+}
+
+// recognitionTransportFailureMessage 把"识曲服务请求失败"的内部细节留在日志,
+// 只回一句固定文案。
+//
+// 为什么不能直接拼 err.Error():recognitionHTTPClient 的传输错误会带出
+// 完整的上游 URL、可能含 query 里的鉴权参数、以及 net/http 的底层错误串
+// (例如 `Post "https://...?token=xxx": dial tcp 10.0.0.5:443: connect: ...`)。
+// 这些既不该给普通用户看,也不该出现在响应体里被代理/日志留存。
+//
+// 但完整错误必须进服务端日志 —— 否则"识曲为什么总失败"就无从排查,
+// 这正是本项目反复强调的"可观测性不能省"。
+func recognitionTransportFailureMessage(cfg recognitionConfig, err error) string {
+	log.Printf("[recognition] 识曲服务请求失败 provider=%s timeout=%s: %v",
+		cfg.Provider, cfg.Timeout, err)
+	return "识曲服务请求失败, 请稍后重试"
 }
