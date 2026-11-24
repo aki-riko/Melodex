@@ -41,6 +41,8 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import requests
+
 from provider_bridge.platform_http import PlatformHTTP
 
 
@@ -225,6 +227,26 @@ def _eapi_params(song_id: str, level: str | None = None) -> str:
         }),
     }
     return EapiCryptoUtils.encryptparams(url=EAPI_URL, payload=payload)
+
+
+def _shared_session(session: Any | None) -> Any:
+    """一次搜索内共享的 requests.Session(2026-11 全库扫描修正)。
+
+    ★ 为什么需要:原来 session 一路都是 None:
+        search_by_lyric → _payloads_for(6 线程池) → resolve_play_url(session=None)
+        → PlatformHTTP("", None) → self.session = requests.Session()  ← **每首歌一个**
+
+      于是 20 首候选 = 20 个独立连接池,每首都重新 TCP+TLS 握手。sidecar 本身是
+      ThreadingHTTPServer,多请求叠加时对上游就是「N 首 × M 并发」条新连接 ——
+      这与本项目"绝不提高上游并发"的纪律(见 chorus_lookup.py 的注释)方向相反,
+      也容易被上游判定为异常流量。
+
+    ★ 线程安全边界:requests.Session **不保证线程安全**。这里能共享是因为
+      并发路径上的用法是只读的 —— 各线程只发 GET、cookie 走显式 Cookie 头
+      (见 platform_http.py 的调用方优先规则),_eapi_params 也不改 session 状态。
+      若将来要在并发路径里改 session(cookie jar / 认证头),必须改成每线程一个。
+    """
+    return session if session is not None else requests.Session()
 
 
 def _cookies_for(cookie: str) -> str:
@@ -500,6 +522,7 @@ def search_by_lyric(
     limit = min(max(strict_integer(limit) or 20, 1), 100)
     if not keyword:
         return []
+    session = _shared_session(session)
     client = PlatformHTTP(cookie, session)
     matches = lyric_matches(client, keyword, limit)[:limit]
     if not matches:
@@ -547,6 +570,7 @@ def search_songs(
     limit = min(max(strict_integer(limit) or 20, 1), 100)
     if not keyword:
         return []
+    session = _shared_session(session)
     client = PlatformHTTP(cookie, session)
     try:
         matches = song_matches(client, keyword, limit)[:limit]
