@@ -21,20 +21,34 @@ const (
 	webAuthSettingsKey              = "web_auth_settings"
 )
 
+// WebSettings 是系统级（全体用户共享）的设置。
+//
+// ★ 2026-11 全库扫描:删除了 4 个 `Vg*` 字段(VgChangeCover / VgChangeAudio /
+// VgChangeLyric / VgExportVideo)。它们是 **videogen 功能的配置**,
+// 而 videogen 已于 2026-06 整体剥离(前端组件/引擎/导航删除,
+// 后端 RegisterVideogenRoutes 不再注册,只剩一个不挂载的 videogen.go)。
+//
+// 为什么能安全删:
+//
+//	· 全库除定义与一处契约测试外**零使用**(grep 已核实);
+//	· 持久化走 json.Unmarshal,而 Go 的 encoding/json 对**未知字段是静默忽略**,
+//	  所以已部署实例的 settings JSON 里若还留着 "vgChangeCover": true,
+//	  读的时候会被丢掉、不会报错,也不会影响其它字段;
+//	· 写回时自然不再包含它们,存量数据随着一次保存就干净了。
+//
+// 留着它们的害处:任何读 WebSettings 的人都会以为"视频生成还有配置入口",
+// 从而去找一个不存在的功能 —— 死配置比死代码更误导,因为它出现在结构体里,
+// 看起来像是活的能力。
 type WebSettings struct {
 	DownloadDir              string `json:"downloadDir"`
 	WebPageSize              int    `json:"webPageSize"`
 	DownloadFilenameTemplate string `json:"downloadFilenameTemplate"`
 	CliPageSize              int    `json:"cliPageSize"`
 	EmbedDownload            bool   `json:"embedDownload"`
-	VgChangeCover            bool   `json:"vgChangeCover"`
 	DownloadConcurrency      int    `json:"downloadConcurrency"`
 	DownloadToLocal          bool   `json:"downloadToLocal"`
-	VgChangeAudio            bool   `json:"vgChangeAudio"`
 	DisableFloatingLyrics    bool   `json:"disableFloatingLyrics"`
 	AutoSwitchInvalidSources bool   `json:"autoSwitchInvalidSources"`
-	VgChangeLyric            bool   `json:"vgChangeLyric"`
-	VgExportVideo            bool   `json:"vgExportVideo"`
 }
 
 type WebAuthSettings struct {
