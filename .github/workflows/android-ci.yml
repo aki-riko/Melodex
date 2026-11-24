@@ -144,6 +144,7 @@ jobs:
           npm run test:modal-layer
           npm run test:provider-contract
           npm run test:lyric-single-source
+          npm run test:row-listeners
 
       # ---- 后端 Go:静态检查 + 定向测试 ----
       # 为什么是"定向"而不是 ./...:全量 go test 会在 CI 上吃数 GB 内存并跑很久,
