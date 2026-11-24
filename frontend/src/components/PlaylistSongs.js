@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import { useQuery } from 'react-query';
 import { Download, HardDriveDownload, ListPlus, Music, Play } from 'lucide-react';
-import { getPlaylistDetail, getLyric } from '../services/musicdl';
+import { getPlaylistDetail } from '../services/musicdl';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,7 +11,7 @@ import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import Button from '../ui/Button';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
-import Dialog from '../ui/Dialog';
+import { LyricDialog, useSongLyric } from './useSongLyric';
 
 // 歌单歌曲列表(点开某歌单后)。
 // 批量三件套已抽到 hooks/useBulkActions,与 Download 页的远端歌单详情共用同一份实现
@@ -20,7 +19,7 @@ import Dialog from '../ui/Dialog';
 const PlaylistSongs = ({ meta, onBack }) => {
   const { play, isPlaying, isPaused, togglePlay } = usePlayer();
   const { user, offline } = useAuth();
-  const [lyric, setLyric] = useState(null);
+  const songLyric = useSongLyric();
   const userId = user?.id || 0;
   const taskKey = `user:${userId}:${meta.source}:${meta.id}`;
 
@@ -31,15 +30,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
   );
   useCachedRefresh(state, !!meta);
 
-  const showLyric = async (song) => {
-    setLyric({ song, text: '加载中…' });
-    try {
-      const t = await getLyric(song);
-      setLyric({ song, text: t || '无歌词' });
-    } catch {
-      setLyric({ song, text: '歌词加载失败' });
-    }
-  };
+  const showLyric = songLyric.open;
 
   const songs = state.data?.songs || [];
   const {
@@ -156,19 +147,7 @@ const PlaylistSongs = ({ meta, onBack }) => {
         </>
       )}
 
-      <Dialog
-        open={!!lyric}
-        onClose={() => setLyric(null)}
-        title={lyric ? lyric.song.name : ''}
-        size="lg"
-      >
-        {lyric && (
-          <>
-            <p className="mb-3 type-caption text-muted-foreground">{lyric.song.artist}</p>
-            <pre className="whitespace-pre-wrap font-sans type-body text-foreground">{lyric.text}</pre>
-          </>
-        )}
-      </Dialog>
+      <LyricDialog {...songLyric.viewProps} />
     </div>
   );
 };

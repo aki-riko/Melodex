@@ -67,7 +67,8 @@
     "icons": "node scripts/build-icons.mjs",
     "test:icons": "node scripts/build-icons.mjs --check",
     "preview": "vite preview",
-    "test:provider-contract": "node scripts/playerProviderContract.test.mjs"
+    "test:provider-contract": "node scripts/playerProviderContract.test.mjs",
+    "test:lyric-single-source": "node scripts/lyricDialogSingleSource.test.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.2.0",

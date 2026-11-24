@@ -18,11 +18,10 @@ import {
 import { useBulkActions } from '../hooks/useBulkActions';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
-import { getLyric } from '../services/musicdl';
 import Button from '../ui/Button';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
-import Dialog from '../ui/Dialog';
+import { LyricDialog, useSongLyric } from './useSongLyric';
 import { MenuPopover, MenuItem } from '../ui/Menu';
 import { useBackLayer } from '../contexts/backNavigation.js';
 import { pushRouteEntry } from '../contexts/routeHistory.js';
@@ -42,7 +41,7 @@ const EMPTY_SONGS = [];
 export default function MyPlaylist() {
   // {collectionId, name?, kind?}:只是「要打开哪个歌单」,不是数据本身。
   const [selection, setSelection] = useState(null);
-  const [lyric, setLyric] = useState(null);
+  const songLyric = useSongLyric();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
 
@@ -165,16 +164,6 @@ export default function MyPlaylist() {
 
     // 收藏(加回「我喜欢」):按原下标插回,没有原位置就追加到末尾。
     queryClient.setQueryData(queryKey, (old) => insertSongIntoList(old, song, removedAt >= 0 ? removedAt : undefined));
-  };
-
-  const handleShowLyric = async (song) => {
-    setLyric({ song, text: '加载中…' });
-    try {
-      const text = await getLyric(song);
-      setLyric({ song, text: text || '无歌词' });
-    } catch {
-      setLyric({ song, text: '歌词加载失败' });
-    }
   };
 
   const handleDeleteCollection = async () => {
@@ -317,7 +306,7 @@ export default function MyPlaylist() {
                 onPlay={(s) => play(s, songs)}
                 isPaused={isPaused}
                 onTogglePlayback={togglePlay}
-                onShowLyric={handleShowLyric}
+                onShowLyric={songLyric.open}
                 onRemove={handleRemove}
                 onFavoriteChange={handleRowFavoriteChange}
                 removeTitle={rowRemoveTitle}
@@ -328,19 +317,7 @@ export default function MyPlaylist() {
         </>
       )}
 
-      <Dialog
-        open={!!lyric}
-        onClose={() => setLyric(null)}
-        title={lyric ? lyric.song.name : ''}
-        size="lg"
-      >
-        {lyric && (
-          <>
-            <p className="mb-3 type-caption text-muted-foreground">{lyric.song.artist}</p>
-            <pre className="whitespace-pre-wrap font-sans type-body text-foreground">{lyric.text}</pre>
-          </>
-        )}
-      </Dialog>
+      <LyricDialog {...songLyric.viewProps} />
     </div>
   );
 }

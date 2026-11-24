@@ -5,7 +5,6 @@ import {
   getRecommend,
   getPlaylistDetail,
   getAlbumDetail,
-  getLyric,
   getSearchHistory,
   clearSearchHistory,
   clearSearchCache,
@@ -39,7 +38,7 @@ import Segmented from '../ui/Segmented';
 import StatusLine from '../ui/StatusLine';
 import ScrollRow from '../ui/ScrollRow';
 import EmptyState from '../ui/EmptyState';
-import Dialog from '../ui/Dialog';
+import { LyricDialog, useSongLyric } from './useSongLyric';
 import LoadingState from './LoadingState';
 import { cn } from '../ui/cn';
 
@@ -936,16 +935,7 @@ const SearchPane = ({
 };
 
 // ===== 歌词弹窗 =====
-const LyricDialog = ({ lyric, onClose }) => (
-  <Dialog open={!!lyric} onClose={onClose} title={lyric ? lyric.song.name : ''} size="lg">
-    {lyric && (
-      <>
-        <p className="mb-3 type-caption text-muted-foreground">{lyric.song.artist}</p>
-        <pre className="whitespace-pre-wrap font-sans type-body text-foreground">{lyric.text}</pre>
-      </>
-    )}
-  </Dialog>
-);
+// 组件本体与加载状态机已抽到 useSongLyric.jsx(三个页面共用,见那里的说明)。
 
 // ===== 页面 =====
 const Download = ({ downloadRequest }) => {
@@ -956,7 +946,7 @@ const Download = ({ downloadRequest }) => {
   const [query, setQuery] = useState('');
   const [openPlaylist, setOpenPlaylist] = useState(null);
   const [openAlbum, setOpenAlbum] = useState(null);
-  const [lyric, setLyric] = useState(null);
+  const songLyric = useSongLyric();
 
   useEffect(() => {
     const kw = downloadRequest?.keyword;
@@ -1058,15 +1048,7 @@ const Download = ({ downloadRequest }) => {
 
   const handlePlay = (song, list) => play(song, list);
 
-  const handleShowLyric = async (song) => {
-    setLyric({ song, text: '加载中…' });
-    try {
-      const text = await getLyric(song);
-      setLyric({ song, text: text || '无歌词' });
-    } catch {
-      setLyric({ song, text: '歌词加载失败' });
-    }
-  };
+  const handleShowLyric = songLyric.open;
 
   const switchTab = (next) => {
     setTab(next);
@@ -1141,7 +1123,7 @@ const Download = ({ downloadRequest }) => {
         />
       )}
 
-      <LyricDialog lyric={lyric} onClose={() => setLyric(null)} />
+      <LyricDialog {...songLyric.viewProps} />
     </div>
   );
 };
