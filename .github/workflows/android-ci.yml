@@ -140,6 +140,7 @@ jobs:
           npm run test:back
           npm run test:theme
           npm run test:render-budget
+          npm run test:duration
 
       # ---- 后端 Go:静态检查 + 定向测试 ----
       # 为什么是"定向"而不是 ./...:全量 go test 会在 CI 上吃数 GB 内存并跑很久,

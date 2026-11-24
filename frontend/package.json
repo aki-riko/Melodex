@@ -62,6 +62,7 @@
     "test:theme": "node scripts/themeContract.test.mjs && node scripts/themeContrast.test.mjs && node scripts/fluentMotion.test.mjs",
     "test:ui-consistency": "node scripts/uiConsistency.test.mjs",
     "test:render-budget": "node scripts/playerRenderBudget.test.mjs",
+    "test:duration": "node scripts/durationFormat.test.mjs",
     "icons": "node scripts/build-icons.mjs",
     "test:icons": "node scripts/build-icons.mjs --check",
     "preview": "vite preview"

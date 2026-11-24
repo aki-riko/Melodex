@@ -89,6 +89,7 @@ import {
 } from './playerMiniSwipe.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
 import { resolveQuality } from '../utils/quality.js';
+import { formatPlaybackTime } from '../utils/displayFormat';
 
 const PlayerContext = createContext(null);
 
@@ -1579,11 +1580,13 @@ export const usePlayerProgress = () => {
   return ctx;
 };
 
-const fmtTime = (s) => {
-  if (!s || !isFinite(s)) return '0:00';
-  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, '0')}`;
-};
+// 播放时间统一走 utils/displayFormat 的口径(2026-11 全库扫描修正)。
+//
+// 这里原本有一个私有 fmtTime,不折小时:75 分钟的合集在播放条显示 `75:03`,
+// 而同一屏 SongRow 显示 `1:15:03`。displayFormat.js 头部注释批评过的正是这件事,
+// 只是当年没改播放器自身。现在统一到 formatPlaybackTime(未开始时给 '0:00',
+// 不用列表口径的 '—' —— 播放器显示 '— / —' 会被当成故障)。
+const fmtTime = formatPlaybackTime;
 
 const MODE_LABEL = { order: '顺序', loop: '列表循环', repeat: '单曲循环', shuffle: '随机' };
 

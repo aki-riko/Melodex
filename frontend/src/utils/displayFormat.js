@@ -18,6 +18,24 @@ export function formatDuration(seconds) {
   return `${m}:${pad(s)}`;
 }
 
+/**
+ * 播放进度专用:秒 → mm:ss / h:mm:ss,**未开始(0 或非法)显示 '0:00' 而不是 '—'**。
+ *
+ * 为什么不能直接用 formatDuration:播放条/播放页在音频还没加载完时 dur 是 0,
+ * 那一刻显示 `— / —` 会让人以为"坏了";而 `0:00 / 0:00` 是播放器的通用语义
+ * (所有主流播放器都这么显示)。这是**唯一**需要与列表口径不同的地方,
+ * 所以单列一个函数而不是散落回调用点自己写。
+ *
+ * 2026-11 全库扫描修正:播放器此前有一个私有的 fmtTime,不折小时 ——
+ * 75 分钟的合集在播放条显示 `75:03`,而同一屏 SongRow 显示 `1:15:03`。
+ * 本ファイル头部注释点名批评过的正是这件事,只是当年没改播放器自身。
+ */
+export function formatPlaybackTime(seconds) {
+  const total = Math.round(Number(seconds));
+  if (!Number.isFinite(total) || total < 0) return '0:00';
+  return formatDuration(total);
+}
+
 /** 毫秒 → 同 formatDuration(保留旧调用点兼容)。 */
 export function formatDurationMs(ms) {
   const value = Number(ms);
