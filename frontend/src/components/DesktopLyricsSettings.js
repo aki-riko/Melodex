@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MonitorUp, Lock, Type, Palette, Move, Eye } from 'lucide-react';
 import SettingsSection, { SettingsActionButton } from './SettingsSection';
 import {

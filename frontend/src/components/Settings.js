@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from 'react-query';
 import { QRCodeCanvas } from 'qrcode.react';
 import { AlertTriangle, CheckCircle2, ExternalLink, KeyRound, LogOut, QrCode, RefreshCw, X } from 'lucide-react';

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Clock, Menu, X } from 'lucide-react';
 import { SLEEP_TIMER_PRESETS_MINUTES, formatSleepTimerRemaining } from '../contexts/playerSleepTimer.js';
 import { useBackLayer } from '../contexts/backNavigation.js';

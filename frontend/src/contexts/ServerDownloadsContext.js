@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { getServerDownloads, SERVER_DOWNLOADS_CHANGED } from '../services/musicdl';
 import { useAuth } from './AuthContext';

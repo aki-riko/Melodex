@@ -1,4 +1,3 @@
-import React from 'react';
 import { cn } from './cn';
 
 // 分段控件。替代此前搜索页那三张「推荐排序 / 高音质优先 / 文件更小」大卡片 ——

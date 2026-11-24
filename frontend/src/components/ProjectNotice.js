@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 
 const PROJECT_URL = 'https://github.com/aki-riko/Melodex';

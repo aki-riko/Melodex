@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, HardDriveDownload, Music, Play, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 import {

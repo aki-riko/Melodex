@@ -1,4 +1,3 @@
-import React from 'react';
 import { createPortal } from 'react-dom';
 
 // 浮层出口:把浮层挂到 document.body,脱离页面内容树的坐标系。

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { ChevronLeft, Disc3, Download, Play, RotateCw, Upload } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';

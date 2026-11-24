@@ -1,4 +1,3 @@
-import React from 'react';
 import { cn } from './cn';
 
 // 统一空状态。此前空态有三种:一行小灰字、什么都没有、和加载态共用同一个组件。

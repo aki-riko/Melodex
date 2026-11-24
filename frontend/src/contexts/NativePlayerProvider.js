@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getStreamUrl, coverProxyUrl, recordPlayHistory, reportPlaybackDiagnostic, saveToServer, serverSaveSucceeded } from '../services/musicdl.js';
 import { normalizeSong } from '../utils/songFields.js';
 import { songIdentityKey } from '../utils/songIdentity.js';

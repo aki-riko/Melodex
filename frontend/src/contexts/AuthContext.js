@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getMe, login as apiLogin, logout as apiLogout, setupAdmin, register as apiRegister } from '../services/musicdl';
 import { authSnapshotsEqual } from './appWakePolicy.js';
 

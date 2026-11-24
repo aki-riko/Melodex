@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Clock, Download, HardDriveDownload, HelpCircle, Home, LogOut, Menu,
-  Music, Plus, Search, Settings, Users, X,
+  Music, Plus, Search, Settings, Users,
 } from 'lucide-react';
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';

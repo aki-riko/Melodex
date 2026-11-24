@@ -1,4 +1,3 @@
-import React from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { Clock, Download, Play, Trash2 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';

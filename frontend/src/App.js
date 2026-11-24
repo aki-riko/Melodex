@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { WifiOff } from 'lucide-react';
 import { Sidebar, MobileTabBar } from './components/Sidebar';

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Music } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 

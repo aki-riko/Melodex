@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useInfiniteQuery } from 'react-query';
 import { Compass, Music, Play, RefreshCw } from 'lucide-react';
 import { getRecommend, getPlaylistCategories, getCategoryPlaylists, coverProxyUrl } from '../services/musicdl';

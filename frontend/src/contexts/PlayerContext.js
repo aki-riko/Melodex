@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { SkipBack, SkipForward, Play, Pause, ListMusic, ChevronDown, Heart, Captions, Eye, Lock, Settings } from 'lucide-react';
 import {
   desktopLyricsProgressMessage,
@@ -85,7 +85,7 @@ import {
 } from './playerStage.mjs';
 import { StageLayoutSwitch, StageToneToggle } from '../components/PlayerStageChrome';
 import {
-  TAP_SLOP_PX, dragOffset, lockSwipeAxis, marqueeDurationSec, miniEnterKind, resolveSwipe,
+  dragOffset, lockSwipeAxis, marqueeDurationSec, miniEnterKind, resolveSwipe,
 } from './playerMiniSwipe.mjs';
 import { chorusPercent, parseChorusRange } from './playerChorus.mjs';
 import { resolveQuality } from '../utils/quality.js';

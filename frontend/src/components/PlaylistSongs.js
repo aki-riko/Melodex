@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from 'react-query';
 import { Download, HardDriveDownload, ListPlus, Music, Play } from 'lucide-react';
 import { getPlaylistDetail, getLyric } from '../services/musicdl';

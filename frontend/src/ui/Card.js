@@ -1,4 +1,3 @@
-import React from 'react';
 import { cn } from './cn';
 
 // 统一卡片/面板。此前"卡片"在 6 个文件里有 6 种写法

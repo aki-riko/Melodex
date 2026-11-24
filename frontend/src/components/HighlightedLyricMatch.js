@@ -1,5 +1,3 @@
-import React from 'react';
-
 const lyricTokenSplitRe = /[\s/\\|,\uFF0C.\u3002;\uFF1B:\uFF1A!\uFF01?\uFF1F\u3001]+/;
 
 const buildCompactLookup = (text) => {

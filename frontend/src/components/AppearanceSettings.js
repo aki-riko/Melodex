@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../theme/ThemeContext.jsx';
 import { SystemTheme, isNativeAndroid } from '../theme/ThemeContext.jsx';

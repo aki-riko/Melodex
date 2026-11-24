@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from './cn';
 import Portal from './Portal';
 import { computeMenuPosition, pickBoundary, VIEWPORT_MARGIN } from './menuPosition';

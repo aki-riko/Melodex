@@ -1,4 +1,3 @@
-import React from 'react';
 import { AlignLeft, Columns2, Disc3, Moon, Sun } from 'lucide-react';
 import {
   STAGE_LAYOUT_LABELS,
