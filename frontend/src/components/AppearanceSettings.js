@@ -23,7 +23,7 @@ const MODE_ICONS = {
 };
 
 export default function AppearanceSettings() {
-  const { mode, setMode, modes, isDark, themeId } = useTheme();
+  const { mode, setMode, modes, themeId } = useTheme();
   const [diagnostic, setDiagnostic] = useState('');
 
   // 自检:把「原生报的系统值 / matchMedia 报的值 / 实际生效的主题」摆出来。

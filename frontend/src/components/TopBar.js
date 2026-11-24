@@ -12,7 +12,8 @@ import { useBackLayer } from '../contexts/backNavigation.js';
 //  · 下拉建议此前只有 role="listbox"/"option" 却没有键盘导航与 aria-activedescendant,
 //    读屏与键盘用户实际用不了。现在补 ↑↓/Enter/Esc 与 aria-selected。
 //  · 关层靠 onBlur + 120ms 延时(脆弱),改为锚点判定 + 全局 pointerdown。
-export default function TopBar({ currentSection, onNavigate }) {
+// currentSection 属 props 契约(父组件会传),当前未参与渲染,按 _ 前缀约定显式表示"收下不用"。
+  export default function TopBar({ currentSection: _currentSection, onNavigate }) {
   const [kw, setKw] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -26,7 +27,9 @@ export default function TopBar({ currentSection, onNavigate }) {
   });
 
   const query = kw.trim();
-  const historyItems = history.data || [];
+  // 必须 memo:`history.data || []` 在 data 为空时每次渲染都新建一个空数组,
+  // 下面两个 useMemo 的依赖引用就永远在变 —— memo 等于没写。
+  const historyItems = useMemo(() => history.data || [], [history.data]);
   const relatedItems = useMemo(() => {
     const normalized = query.toLowerCase();
     if (!normalized) return historyItems.slice(0, 6);

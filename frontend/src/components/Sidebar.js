@@ -290,7 +290,8 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
 // 抽屉的 75vh 高度上限会让歌单一多就变成嵌套滚动,而且它没有真实 URL。
 // 改成页面后:内容用整页高度、可直达/刷新/前进后退、返回键天然可用,
 // 也与桌面侧栏语义一致 —— 底部 Tab 是「页面切换器」,不是弹层开关。
-export function MobileTabBar({ currentSection, currentSubPath, onNavigate }) {
+// currentSubPath 属 props 契约(父组件会传),当前 UI 未用到,按 _ 前缀约定显式表示"收下不用"。
+  export function MobileTabBar({ currentSection, currentSubPath: _currentSubPath, onNavigate }) {
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-tabbar flex items-stretch border-t border-border surface-dock lg:hidden"

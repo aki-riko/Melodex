@@ -48,7 +48,6 @@ export const createHistoryBackGuard = ({
   onRouteBack = () => false,
 } = {}) => {
   let armed = false;
-  let ignoreNextPop = false;
   // 主动 back() 回收哨兵时,浏览器可能延迟到下一帧才派发 popstate。
   // 用计数而不是布尔,避免"回收 → 立刻又上膛"时把上膛后的那次真实 pop 吞掉。
   let pendingIgnore = 0;

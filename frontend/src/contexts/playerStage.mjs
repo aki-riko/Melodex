@@ -40,7 +40,6 @@ export const STAGE_TONE_LABELS = { immersive: '沉浸暗场', theme: '跟随主�
  *   · 手机根本不读它(移动端仍是旧的「封面 ↔ 歌词」隐式切换,由 showLyric 决定)。
  * 参数保留只是为了调用方签名稳定(以前按 desktop 分过),传什么都返回同一档。
  */
-// eslint-disable-next-line no-unused-vars
 export const defaultStageLayout = () => 'disc';
 
 /** 色板默认沉浸暗场:音乐播放页的常态是暗场(用户要的就是"沉浸式")。 */

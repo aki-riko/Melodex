@@ -663,7 +663,11 @@ const SearchPane = ({
   });
   useEffect(() => {
     if (query) history.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 有意只依赖 query:目的是"每次发起新搜索时刷一次最近搜索"。
+    // history 是 react-query 的结果对象,每次渲染都是新引用;把它列进来会让
+    // 本 effect 每次渲染都 refetch 一次 —— 而 refetch 本身又会触发重渲染,
+    // 直接变成无限请求循环。refetch 是稳定方法,不需要进依赖。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上:history 进依赖会造成无限 refetch
   }, [query]);
 
   const [clearingSearchCache, setClearingSearchCache] = useState(false);
@@ -963,7 +967,11 @@ const Download = ({ downloadRequest }) => {
       setKeyword(kw);
       setQuery(kw);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 有意只依赖 ts:downloadRequest 是外部推来的"去下载"请求对象,
+    // ts 是它的唯一变化标识。keyword 等字段与 ts 同批写入,读它们不会独立变化;
+    // 反过来若把 setKeyword/setQuery 等放进依赖,每次渲染的 setter 引用变化
+    // 都会重跑这段"预填搜索词"逻辑,把用户正在编辑的输入框覆盖掉。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上:ts 是唯一的"新请求"标识
   }, [downloadRequest?.ts]);
 
   const search = useQuery(
@@ -991,7 +999,11 @@ const Download = ({ downloadRequest }) => {
       search.refetch();
     }, PENDING_REFETCH_DELAY_MS);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 有意只依赖 pendingSourcesKey(逗号拼接的稳定字符串),而不是 search 对象:
+    // search 是 react-query 结果,每次渲染新引用;把它列进依赖会让这句
+    // "25 秒后再拉一次"在每次渲染时重置计时器 —— 永远等不到 25 秒。
+    // pendingSourcesKey 相同的两次结果视为同一批待补齐源,不需要重置。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上:search 进依赖会导致计时器永远重置
   }, [pendingSourcesKey]);
 
   const recommend = useQuery(

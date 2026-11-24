@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { Download, Ellipsis, HardDriveDownload, Play, Trash2 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';

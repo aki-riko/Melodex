@@ -74,7 +74,7 @@ const Badge = ({ tone = 'neutral', title, className = '', children }) => (
 // 从歌名/专辑名文本推断是否伴奏/无人声版本(平台无独立字段,只能靠命名标记)。
 const instrumentalLabelOf = (song) => {
   const text = `${song?.name || ''} ${song?.album || ''}`;
-  if (/[(（\[【][^)）\]】]*(instrumental|inst\.?|off\s*vocal|karaoke|カラオケ|伴奏)[^)）\]】]*[)）\]】]/i.test(text)) {
+  if (/[(（[【][^)）]】]*(instrumental|inst\.?|off\s*vocal|karaoke|カラオケ|伴奏)[^)）]】]*[)）]】]/i.test(text)) {
     return '伴奏';
   }
   if (/伴奏/.test(text) || /off\s*vocal/i.test(text)) return '伴奏';

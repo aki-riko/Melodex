@@ -1329,6 +1329,13 @@ const WebPlayerProvider = ({ children }) => {
 
     const switchKey = switchAttemptKey(cur);
     const canSwitchSource = !offline && cur.source && cur.source !== 'local' && cur.name && !switchTriedRef.current.has(switchKey);
+    // ★ failureReason 必须在**函数作用域**声明,不能写在下面的 if 块里
+    //   (2026-11 全库扫描时被 ESLint no-undef 抓出的真实缺陷):
+    //   块内 `let` 出了块就不存在,而下面的"已自动切换下一首 / 队列到头"两段
+    //   提示也在用它 —— 一旦走到那些分支,运行时会抛 ReferenceError,
+    //   表现是"点歌失败后播放器彻底没反应"(连兜底提示都不出来)。
+    //   这条路径平时不易触发,所以一直没暴露。
+    let failureReason = '';
     if (canSwitchSource) {
       switchTriedRef.current.add(switchKey);
       // 换源前先问清"到底为什么放不出":
@@ -1339,7 +1346,6 @@ const WebPlayerProvider = ({ children }) => {
       // 往返无所谓,开播路径不受影响),拿到真实原因后提示用户,而不是笼统一句"无法播放"。
       // 真实事故(2026-11-22):酷我付费曲 fpay=1 连取址都不发 → 404,用户只看到
       // "当前源无法播放,正在自动换源",既不知道是要会员,也不知道换源是不是正解。
-      let failureReason = '';
       try {
         const probe = await probePlaybackAvailability(cur);
         if (probe && probe.ok === false && probe.reason) failureReason = probe.reason;
@@ -1392,7 +1398,7 @@ const WebPlayerProvider = ({ children }) => {
     } else {
       setNotice(`「${cur.name}」暂时无法播放(可换源或稍后再试)。`);
     }
-  }, [buildPlayerDiagnostic, cancelPlaybackFade, loadAudioForSong, nowPlaying, offline, startPlay, userId]);
+  }, [cancelPlaybackFade, loadAudioForSong, nowPlaying, offline, startPlay, userId]);
 
   // MediaSession:PC 全局媒体键 / 锁屏 / 通知栏 / 蓝牙耳机控制 + 元数据
   useEffect(() => {
@@ -1745,12 +1751,12 @@ export const PlayerBar = () => {
     startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
     cachedCoverUrl,
     usesNativePlayback,
-    handleTimeUpdate, handleLoadedMetadata, savePlayback,
+    handleTimeUpdate, handleLoadedMetadata,
     scrubHandlers,
   } = usePlayer();
   // 进度单独订阅(4Hz)。PlayerBar 本来就要随进度刷新进度条/时间/歌词,
   // 所以这里读它不会带来额外重渲染;而页面级组件读不到它,就不会被拖下水。
-  const { progress, setProgress } = usePlayerProgress();
+  const { progress } = usePlayerProgress();
 
   const [queueOpen, setQueueOpen] = useState(false);
   // 队列面板(桌面 popover / 移动全屏覆盖层)也要能被返回键收掉。
@@ -1897,7 +1903,9 @@ export const PlayerBar = () => {
   const chorusDurationSec = Number(progress.dur) > 0 ? Number(progress.dur) : Number(nowPlaying?.duration || 0);
   const chorusRange = useMemo(
     () => parseChorusRange(nowPlaying?.extra, chorusDurationSec),
-    [curKey, nowPlaying, chorusDurationSec],
+    // curKey 不必列:它就是 nowPlaying 的派生 key,nowPlaying 变时 curKey 必变,
+    // 多列一个只会多一层误判(换歌但内容相同也会重算)。
+    [nowPlaying, chorusDurationSec],
   );
   const chorusPercentValue = chorusPercent(chorusRange, chorusDurationSec);
   // 没有可信副歌数据(或时长未知算不出位置)时一律不渲染标记,不做空壳。
@@ -1915,7 +1923,8 @@ export const PlayerBar = () => {
   // 服务器副本优先,因为它来自真实落盘文件的 ext/size_bytes。
   const qualityBadge = useMemo(
     () => resolveQuality(null, downloadedCopy(nowPlaying), nowPlaying),
-    [curKey, nowPlaying, downloadedCopy],
+    // curKey 同上:是 nowPlaying 的派生值,不必单列。
+    [nowPlaying, downloadedCopy],
   );
 
   // 收藏状态:当前歌切换时查询;点心形切换并乐观更新。
@@ -2076,8 +2085,10 @@ export const PlayerBar = () => {
       currentIndex: lyricIdx,
     });
     pushLyricsState(trackMessage).catch(() => {});
-    // 切歌/歌词变化才推整包；进度由下面的定时器推。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 切歌/歌词变化才推整包;进度由下一个 effect 的 250ms 定时器推。
+    // 有意不列 progress/isPaused:它们 4Hz 变化,列进来会让"推送整包"每秒跑 4 次,
+    // 而整包含全部歌词行(可达上百行),IPC 与序列化都白烧。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上:进度走独立定时器,此处只推整包
   }, [nowPlaying?.id, nowPlaying?.source, lrc, lyricIdx]);
 
   useEffect(() => {

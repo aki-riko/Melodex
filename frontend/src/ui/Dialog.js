@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from './cn';
 import Portal from './Portal';

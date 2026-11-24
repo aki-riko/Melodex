@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Disc3 } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 import { sourceLabel } from '../utils/sourceLabels';

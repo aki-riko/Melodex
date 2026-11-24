@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { getServerDownloads, SERVER_DOWNLOADS_CHANGED } from '../services/musicdl';
 import { useAuth } from './AuthContext';
@@ -25,6 +25,9 @@ export function ServerDownloadsProvider({ children }) {
     getServerDownloads,
     serverDownloadsQueryOptions({ userId, offline }),
   );
+  // 唤醒重算用 ref 读 refetch,避免整个 query 对象进 effect 依赖(见第一个 effect 的说明)。
+  const refetchRef = useRef(downloadsQuery.refetch);
+  refetchRef.current = downloadsQuery.refetch;
 
   useEffect(() => {
     if (userId <= 0 || offline) return undefined;
@@ -32,7 +35,11 @@ export function ServerDownloadsProvider({ children }) {
     const reconciler = createWakeReconciler({
       isVisible: () => document.visibilityState === 'visible',
       isOnline: () => navigator.onLine !== false,
-      reconcile: () => { downloadsQuery.refetch(); },
+      // 走 refetchRef 而不是直接闭包 downloadsQuery:依赖数组里已经精确列了
+      // downloadsQuery.refetch,而 lint 要求列出"体内读到的整个对象"。
+      // 用 ref 读取既满足"只在触发时取最新值",也不必让整个 query 对象进依赖
+      // (它是每次渲染的新引用,进去就会反复重建 reconciler/监听器)。
+      reconcile: () => { refetchRef.current?.(); },
     });
     const onVisibilityChange = () => reconciler.onVisibilityChange();
     const onOnline = () => reconciler.onOnline();
@@ -86,7 +93,12 @@ export function ServerDownloadsProvider({ children }) {
 
     window.addEventListener(SERVER_DOWNLOADS_CHANGED, onChanged);
     return () => window.removeEventListener(SERVER_DOWNLOADS_CHANGED, onChanged);
-  }, [queryClient, queryKey]);
+    // ★ userId 必须在依赖里(2026-11 全库扫描修正的真 bug):onChanged 内部用
+    //   serverDownloadEventBelongsToUser(detail, userId) 判断事件是否属于当前用户,
+    //   而闭包捕获的是**注册时的那个 userId**。漏掉它 → 切换账号后监听器仍是旧的,
+    //   于是「A 的迟到下载响应」会被当成 B 的事件写进 B 的缓存(与上面那段注释
+    //   想防的正是同一件事,只是防不住)。queryKey 已含 userId,一并列出。
+  }, [queryClient, queryKey, userId]);
 
   const downloadedKeys = useMemo(() => {
     const keys = new Set();

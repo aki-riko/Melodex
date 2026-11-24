@@ -32,7 +32,7 @@ export const readRouteDepth = (history = globalThis.history) => {
  */
 export const pushRouteEntry = (
   targetHash,
-  { history = globalThis.history, location = globalThis.location } = {},
+  { history = globalThis.history, location: _location = globalThis.location } = {},
 ) => {
   const depth = readRouteDepth(history) + 1;
   const hash = String(targetHash || '').replace(/^#/, '');

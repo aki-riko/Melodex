@@ -257,8 +257,12 @@ export const getLyric = async (song) => {
     const text = await request;
     rememberLyricResult(key, text || '');
     return text;
+  // 失败不缓存(所以 catch 里不写 rememberLyricResult):网络抖一下不该让这首歌
+  // 5 分钟内都拿不到歌词。这里的 catch 只做一件事 —— 显式 rethrow,让"失败必须
+  // 向上抛"这条契约在代码里看得见:调用方据此才能提示"歌词加载失败",
+  // 而不是把空字符串误判成"这首歌没歌词"。(lyricDedupe.test.mjs 断言此契约。)
+  // eslint-disable-next-line no-useless-catch -- 语义等价的 catch 是刻意的契约标记,见上
   } catch (err) {
-    // 失败不缓存:网络抖一下不该让这首歌 5 分钟内都拿不到歌词。
     throw err;
   } finally {
     lyricInFlight.delete(key);

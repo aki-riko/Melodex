@@ -349,8 +349,16 @@ export default function HomeRecommendations() {
     name: playlist.name,
   });
 
-  const tabs = (data?.tabs || []).filter((tab) => (tab.playlists || []).length > 0 || tab.error);
-  const { mixed, groups } = useMemo(() => aggregateTabs(tabs), [data]);
+  // tabs 必须自己 memo:它是 filter 产物,每次渲染都是新数组引用。
+  // 若把它直接当下面 useMemo 的依赖,那个 useMemo 会在每次渲染都重算 ——
+  // 等于没 memo(aggregateTabs 要做分组/去重/限条数,不是零成本)。
+  const tabs = useMemo(
+    () => (data?.tabs || []).filter((tab) => (tab.playlists || []).length > 0 || tab.error),
+    [data],
+  );
+  // 依赖写 tabs 而不是 data:useMemo 体内读的是 tabs,两者虽同源,
+  // 但直接依赖真正被读的值,将来 tabs 派生逻辑加输入时不会静默漏更新。
+  const { mixed, groups } = useMemo(() => aggregateTabs(tabs), [tabs]);
   // ★ 副标题里的「140 张」必须是**真实总数**，不是混排行的条数。
   //   混排行有个上限（MIXED_ROW_LIMIT=18），直接用它会把「来自 5 个源的 140 张歌单」
   //   错写成「18 张」—— 用户会以为内容少了。

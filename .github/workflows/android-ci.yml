@@ -101,6 +101,14 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # 依赖数组门禁:此前项目完全没有 ESLint,却有 5 处惰性 eslint-disable 注释
+      # (没 lint 就没人读),94 个 useEffect 的依赖数组纯靠人肉。这里只开
+      # react-hooks 两条规则,不开风格规则(见 eslint.config.mjs 说明)。
+      - name: ESLint (react-hooks rules)
+        if: steps.scope.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm run lint -- --max-warnings=9999
+
       - name: Build frontend
         if: steps.scope.outputs.frontend == 'true'
         working-directory: frontend

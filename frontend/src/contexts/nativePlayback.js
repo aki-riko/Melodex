@@ -47,7 +47,7 @@ export const nativePlaybackSnapshot = (state, queue) => {
       cur: Math.max(0, Number(state?.positionMs) || 0) / 1000,
       dur: resolvePlaybackDuration(reportedDuration, songDuration),
     },
-    isPaused: !Boolean(state?.isPlaying),
+    isPaused: !state?.isPlaying,
     isPlaying: Boolean(state?.isPlaying),
     playWhenReady: Boolean(state?.playWhenReady),
     playbackState: Number(state?.playbackState) || 0,
