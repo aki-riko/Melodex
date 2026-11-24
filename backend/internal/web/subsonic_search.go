@@ -125,13 +125,26 @@ func (s *songExtraStore) put(key string, extra map[string]string) {
 	s.data[key] = cloned
 }
 
+// get 返回 store 内部的**副本**,不是引用。
+//
+// put 一直有 clone,get 原来没有 —— 这是漏的一半(2026-11 全库扫描发现,
+// 由 subsonic_extra_store_test.go 复现:调用方拿到 map 后往里面写,
+// 会篡改其他并发请求读到的同一首歌的 extra,`-race` 下也是数据竞争)。
+// 当前调用方(decodeOnlineSongID)只是把结果赋给 song.Extra,而 Track.Extra
+// 会沿搜索/换源链路被 copyLyricMatchExtra 之类写 —— 一旦写进来就污染全局表。
+// 深拷贝成本极低(extra 通常只有几个键),换掉这个隐患很值。
 func (s *songExtraStore) get(key string) map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if v, ok := s.data[key]; ok {
-		return v
+	v, ok := s.data[key]
+	if !ok || len(v) == 0 {
+		return nil
 	}
-	return nil
+	cloned := make(map[string]string, len(v))
+	for k, val := range v {
+		cloned[k] = val
+	}
+	return cloned
 }
 
 // extraKey 由 source+id 派生,作为 extra 映射表的键。
