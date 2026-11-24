@@ -230,9 +230,17 @@ def _eapi_params(song_id: str, level: str | None = None) -> str:
 def _cookies_for(cookie: str) -> str:
     """设备 cookie(eapi 需要) + 管理员保存的账号 cookie 合成一个 Cookie 头。
 
-    注意: 这里必须显式传 Cookie 头而不是用 PlatformHTTP(cookie) —— 它的 request()
-    会无条件用会话 cookie 覆盖调用方传进来的 Cookie 头(platform_http.py:47-48),
-    那样设备 cookie 就丢了。
+    历史上这里必须在调用侧预先拼好整条 Cookie,因为 PlatformHTTP.request()
+    会无条件用会话 cookie 覆盖调用方传进来的 Cookie 头(那时 platform_http.py
+    是 `request_headers["Cookie"] = self.cookie`,写在 headers.update() 之后),
+    设备 cookie 就丢了。
+
+    ★ 2026-11 全库扫描已修掉那个根因:现在 PlatformHTTP 是"调用方显式给的
+      Cookie 头优先",只有调用方没给时才补会话 cookie。所以**这个拼装仍然是
+      对的、也仍然推荐** —— 因为 eapi 需要"设备 cookie + 账号 cookie"合并成
+      一条,而同一 cookie 名出现两次时服务端取哪个是未定义行为,让调用方
+      自己拼成确定的一条更可靠。区别在于:以后新写的调用方**不再需要绕开**
+      PlatformHTTP 也能安全地传自己的 Cookie 了。
     """
     cookies = dict(EAPI_DEVICE_COOKIES)
     for part in (cookie or "").split(";"):
