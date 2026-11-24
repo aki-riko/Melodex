@@ -126,8 +126,10 @@ class FakeBackend:
 class QQSourceTests(unittest.TestCase):
     def setUp(self):
         self.work_dir = tempfile.mkdtemp(prefix="qq-test-")
-        with qq_source._status_lock:
-            qq_source._status.clear()
+        # 用 StatusRecorder.clear() 而不是直接摸 _status_lock/_status:
+        # 后两者在 2026-11 收敛时被封进了 recorder,直接访问会把
+        # "锁与数据必须成对使用"这个约束漏回测试侧。
+        qq_source._status.clear()
 
     def run_search(self, backend, keyword="晴天", limit=20, cookie="", work_dir=None, probe=None):
         probe = probe or (lambda _url, _cookie: (True, 206))

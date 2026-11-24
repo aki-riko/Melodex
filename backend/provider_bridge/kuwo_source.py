@@ -24,6 +24,8 @@
 
 from __future__ import annotations
 
+from .status_recorder import StatusRecorder
+
 from .collection_common import strict_string, strict_integer
 
 import logging
@@ -82,20 +84,19 @@ PLAYABLE_EXTENSIONS = LOSSLESS_EXTENSIONS | {"mp3", "aac", "m4a", "ogg", "wma"}
 ENCRYPTED_EXTENSIONS = {"mgg", "mflac", "mmp4", "zp", "m4a_encrypted"}
 
 # 最近一次请求的观测快照, 供 /health 暴露(与 qq_source/netease_source 同口径)。
-_status_lock = threading.Lock()
-_status: dict[str, Any] = {}
+#
+# 用公共的 StatusRecorder(见 status_recorder.py):锁与数据封在一起,
+# 不会被"只改了其中一个全局量"的改动拆散。
+_status = StatusRecorder()
 
 
 def _record_status(**fields: Any) -> None:
-    with _status_lock:
-        _status.update(fields)
-        _status["updated_at"] = int(time.time())
+    _status.record(**fields)
 
 
 def status() -> dict[str, Any]:
     """返回最近一次酷我请求的观测快照(未发生过请求时为空字典)。"""
-    with _status_lock:
-        return dict(_status)
+    return _status.snapshot()
 
 
 def _is_paid_item(item: dict[str, Any]) -> bool:

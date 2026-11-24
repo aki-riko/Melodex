@@ -27,6 +27,8 @@ jymaster/dolby/sky/jyeffect/hires/lossless/exhigh/standard 全阶梯逐档重试
 
 from __future__ import annotations
 
+from .status_recorder import StatusRecorder
+
 from .collection_common import strict_string, strict_integer
 
 import json
@@ -113,26 +115,23 @@ def _assert_not_cooling_down(keyword: str) -> None:
 
 # 最近一次网易搜索的观测快照, 供 /health 暴露。限流和"真的没有这首歌"在日志里
 # 长得完全不一样, 但都需要能在不进容器翻日志的情况下被巡检看到。
-_status_lock = threading.Lock()
-_status: dict[str, Any] = {}
+#
+# 用公共的 StatusRecorder(见 status_recorder.py):锁与数据封在一起,
+# 不会被"只改了其中一个全局量"的改动拆散。
+#
+# rate_limited 通过 reset_each_record 表达"每次请求都显式重写"的语义 ——
+# 只 update 不重置的话, 一旦撞过一次 405 就会永久显示 rate_limited=True,
+# 后面明明搜成功 /health 还在报限流, 巡检会被这条假信号带偏。
+_status = StatusRecorder(reset_each_record={"rate_limited": False})
 
 
 def _record_status(**fields: Any) -> None:
-    with _status_lock:
-        _status.update(fields)
-        # rate_limited 是"最近一次请求是否被限流"的结论性字段, 每次请求都要显式重写。
-        # 只 update 不重置的话, 一旦撞过一次 405 就会永久显示 rate_limited=True,
-        # 后面明明搜成功 /health 还在报限流 —— 巡检会被这条假信号带偏。
-        _status.setdefault("rate_limited", False)
-        if "rate_limited" not in fields:
-            _status["rate_limited"] = False
-        _status["updated_at"] = int(time.time())
+    _status.record(**fields)
 
 
 def status() -> dict[str, Any]:
     """返回最近一次网易搜索/取地址的观测快照(未发生过请求时为空字典)。"""
-    with _status_lock:
-        snapshot = dict(_status)
+    snapshot = _status.snapshot()
     # 冷却窗是"现在还能不能搜"的实时状态, 与最近一次请求结果分开暴露:
     # 巡检时先看这里, 就不必去翻日志确认该等多久。
     remaining = _remaining_cooldown()

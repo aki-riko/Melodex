@@ -25,6 +25,8 @@
 
 from __future__ import annotations
 
+from .status_recorder import StatusRecorder
+
 from .collection_common import strict_string, strict_integer
 
 import base64
@@ -145,20 +147,19 @@ _device_cache = ""
 
 # 最近一次 QQ 请求的观测快照。QQ 之前整条失效时是完全静默的(搜索恒返回 0 首、日志里
 # 什么都没有), 所以除了日志之外, 这里再留一份可被 /health 读到的状态, 便于巡检和监控。
-_status_lock = threading.Lock()
-_status: dict[str, Any] = {}
+#
+# 用公共的 StatusRecorder(见 status_recorder.py):锁与数据封在一起,
+# 不会被"只改了其中一个全局量"的改动拆散。
+_status = StatusRecorder()
 
 
 def _record_status(**fields: Any) -> None:
-    with _status_lock:
-        _status.update(fields)
-        _status["updated_at"] = int(time.time())
+    _status.record(**fields)
 
 
 def status() -> dict[str, Any]:
     """返回最近一次 QQ 请求的观测快照(未发生过请求时为空字典)。"""
-    with _status_lock:
-        return dict(_status)
+    return _status.snapshot()
 
 
 def _bool_env(name: str, default: bool) -> bool:
