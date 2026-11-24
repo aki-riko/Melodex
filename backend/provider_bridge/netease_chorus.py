@@ -22,6 +22,8 @@ QQ 侧没有任何可用接口(500003 模块已不存在), 所以本源是这条
 
 from __future__ import annotations
 
+from .collection_common import strict_string, strict_integer
+
 import json
 import logging
 import os
@@ -40,19 +42,6 @@ NETEASE_REFERER = "https://music.163.com/"
 # 一次批量请求的 id 上限。实测单页候选 ≤ 100, 而整串 id 会进 query string ——
 # 100 个 10 位数字约 1.1KB, 仍远在上游可接受范围内, 与搜索 limit 上限对齐即可。
 MAX_BATCH_IDS = 100
-
-
-def _string(value: Any) -> str:
-    if value is None or value == "NULL":
-        return ""
-    return str(value).strip()
-
-
-def _integer(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
 
 
 def chorus_enabled() -> bool:
@@ -77,7 +66,7 @@ def build_chorus_map(payload: Any) -> dict[str, dict[str, int]]:
     只保留能自证合理的记录(起点为正、终点晚于起点); 其余行直接丢弃 —— 前端要在
     进度条上画区间, 脏数据画出来的标记比不画更误导人。返回空 dict 表示这批歌没有数据。
     """
-    if not isinstance(payload, dict) or _integer(payload.get("code")) != 200:
+    if not isinstance(payload, dict) or strict_integer(payload.get("code")) != 200:
         return {}
     entries = payload.get("chorus")
     if not isinstance(entries, list):
@@ -86,9 +75,9 @@ def build_chorus_map(payload: Any) -> dict[str, dict[str, int]]:
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        song_id = _string(entry.get("id"))
-        start = _integer(entry.get("startTime"))
-        end = _integer(entry.get("endTime"))
+        song_id = strict_string(entry.get("id"))
+        start = strict_integer(entry.get("startTime"))
+        end = strict_integer(entry.get("endTime"))
         if not song_id or start <= 0 or end <= start:
             continue
         out[song_id] = {"start": start, "end": end}
@@ -106,7 +95,7 @@ def cached_chorus_for(
     out: dict[str, dict[str, int]] = {}
     with _chorus_cache_lock:
         for value in song_ids or []:
-            key = _string(value)
+            key = strict_string(value)
             if not key:
                 continue
             hit = _chorus_cache.get(key)
@@ -134,7 +123,7 @@ def fetch_chorus_map(
     """
     numeric_ids: list[int] = []
     for value in song_ids or []:
-        text = _string(value)
+        text = strict_string(value)
         if not text.isdigit():
             continue
         number = int(text)

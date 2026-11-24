@@ -25,6 +25,8 @@ KRC 密文 = 4 字节头 + (正文 XOR 16 字节固定密钥) 的 zlib 流; 解�
 
 from __future__ import annotations
 
+from .collection_common import strict_string, strict_integer
+
 import base64
 import binascii
 import logging
@@ -62,28 +64,15 @@ GOOD_ENOUGH_WORD_LINES = 15
 MAX_TRY_CANDIDATES = 3
 
 
-def _string(value: Any) -> str:
-    if value is None or value == "NULL":
-        return ""
-    return str(value).strip()
-
-
-def _integer(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
 def _normalize(value: Any) -> str:
     """归一化用于比对: 去空白/标点/全半角差异, 大小写不敏感。"""
-    text = unicodedata.normalize("NFKC", _string(value)).casefold()
+    text = unicodedata.normalize("NFKC", strict_string(value)).casefold()
     return "".join(char for char in text if char.isalnum())
 
 
 def decode_krc(content: str) -> str:
     """解 base64 -> 去 4 字节头 -> 固定密钥 XOR -> zlib, 得到 KRC 明文。"""
-    raw = _string(content)
+    raw = strict_string(content)
     if not raw:
         return ""
     try:
@@ -196,8 +185,8 @@ def _download_url(identifier: str, accesskey: str) -> str:
 
 def _candidate_krc(client: PlatformHTTP, candidate: dict[str, Any]) -> str:
     """取单个候选的 KRC 并转成内联逐字 LRC; 失败返回空串。"""
-    identifier = _string(candidate.get("id"))
-    accesskey = _string(candidate.get("accesskey"))
+    identifier = strict_string(candidate.get("id"))
+    accesskey = strict_string(candidate.get("accesskey"))
     if not identifier or not accesskey:
         return ""
     try:
@@ -207,7 +196,7 @@ def _candidate_krc(client: PlatformHTTP, candidate: dict[str, Any]) -> str:
         return ""
     if not isinstance(payload, dict):
         return ""
-    raw = decode_krc(_string(payload.get("content")))
+    raw = decode_krc(strict_string(payload.get("content")))
     if not raw:
         return ""
     return krc_to_verbatim_lrc(raw)
@@ -222,17 +211,17 @@ def fetch_verbatim_lyric(
     session: Any | None = None,
 ) -> str:
     """按歌名/歌手取酷狗逐字歌词(KRC); 取不到词级数据或失败时返回空串。"""
-    name = _string(name)
-    artist = _string(artist)
+    name = strict_string(name)
+    artist = strict_string(artist)
     if not name:
         return ""
     # 关键词形状与快照一致(它用的是搜索结果里的 filename, 形如 "歌手 - 歌名")。
     keyword = f"{artist} - {name}" if artist else name
     query = {"ver": "1", "man": "yes", "client": "pc", "keyword": keyword}
-    if _integer(duration_s):
-        query["duration"] = str(_integer(duration_s))
-    if _string(file_hash):
-        query["hash"] = _string(file_hash)
+    if strict_integer(duration_s):
+        query["duration"] = str(strict_integer(duration_s))
+    if strict_string(file_hash):
+        query["hash"] = strict_string(file_hash)
     try:
         client = PlatformHTTP("", session)
         payload = client.get(f"{KRC_SEARCH_URL}?{urllib.parse.urlencode(query)}")

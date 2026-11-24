@@ -16,6 +16,8 @@ YRC 原始形状(实测):
 
 from __future__ import annotations
 
+from .collection_common import strict_string
+
 import logging
 import os
 import re
@@ -33,12 +35,6 @@ NETEASE_REFERER = "https://music.163.com/"
 # 与 snapshot/旧实现一致的解析形状: 行头 [start,dur], 词单元 (start,dur,extra)text。
 YRC_LINE_RE = re.compile(r"^\[(\d+),(\d+)\](.*)$")
 YRC_WORD_RE = re.compile(r"\((\d+),(\d+),\d+\)([^(\[]*)")
-
-
-def _string(value: Any) -> str:
-    if value is None or value == "NULL":
-        return ""
-    return str(value).strip()
 
 
 def _segments(content: str, line_start: int) -> list[tuple[int, str]]:
@@ -86,7 +82,7 @@ def verbatim_lyric_enabled() -> bool:
 
 def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None) -> str:
     """取网易逐字歌词(YRC)并转成内联逐字 LRC; 没有词级数据或失败时返回空串。"""
-    song_id = _string(song_id)
+    song_id = strict_string(song_id)
     if not song_id.isdigit():
         return ""
     try:
@@ -110,7 +106,7 @@ def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None) -> str:
         LOGGER.warning("[netease] 逐字歌词请求失败 id=%s: %s", song_id, error)
         return ""
     node = payload.get("yrc")
-    raw = _string(node.get("lyric")) if isinstance(node, dict) else ""
+    raw = strict_string(node.get("lyric")) if isinstance(node, dict) else ""
     if not raw:
         return ""
     converted = yrc_to_verbatim_lrc(raw)

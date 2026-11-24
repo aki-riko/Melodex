@@ -27,6 +27,8 @@ jymaster/dolby/sky/jyeffect/hires/lossless/exhigh/standard 全阶梯逐档重试
 
 from __future__ import annotations
 
+from .collection_common import strict_string, strict_integer
+
 import json
 import logging
 import os
@@ -207,19 +209,6 @@ PROVIDER_COMMIT = "b4cecd9d450ede6f5c8d4df08763668256dfee58"
 LOSSLESS_EXTENSIONS = {"flac", "wav", "alac", "ape", "wv", "tta", "dsf", "dff"}
 
 
-def _string(value: Any) -> str:
-    if value is None or value == "NULL":
-        return ""
-    return str(value).strip()
-
-
-def _integer(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
 def _eapi_params(song_id: str, level: str | None = None) -> str:
     """用快照的 EapiCryptoUtils 加密参数(快照只被 import, 不修改)。"""
     from musicdl.modules.utils.neteaseutils import EapiCryptoUtils
@@ -256,9 +245,9 @@ def _cookies_for(cookie: str) -> str:
 
 def _artists(raw: dict[str, Any]) -> str:
     names = [
-        _string(artist.get("name"))
+        strict_string(artist.get("name"))
         for artist in (raw.get("artists") or raw.get("ar") or [])
-        if isinstance(artist, dict) and _string(artist.get("name"))
+        if isinstance(artist, dict) and strict_string(artist.get("name"))
     ]
     return ", ".join(names)
 
@@ -284,7 +273,7 @@ def fetch_lyric(song_id: str, *, cookie: str = "", session: Any | None = None) -
     原生搜歌为了保持低延迟不会给每个候选额外请求歌词；播放页按需取歌词时
     再走这条接口，避免把“搜索结果没有 lyric”误当成“歌曲没有歌词”。
     """
-    song_id = _string(song_id)
+    song_id = strict_string(song_id)
     if not song_id.isdigit():
         return ""
     client = PlatformHTTP(cookie, session)
@@ -308,7 +297,7 @@ def fetch_lyric(song_id: str, *, cookie: str = "", session: Any | None = None) -
         LOGGER.warning("[netease] 按 ID 取歌词失败 id=%s: %s", song_id, error)
         return ""
     node = payload.get("lrc") if isinstance(payload, dict) else None
-    lyric = _string(node.get("lyric")) if isinstance(node, dict) else ""
+    lyric = strict_string(node.get("lyric")) if isinstance(node, dict) else ""
     return lyric
 
 
@@ -319,18 +308,18 @@ def _search(client: PlatformHTTP, keyword: str, limit: int, search_type: int) ->
         {"s": keyword, "type": search_type, "limit": limit, "offset": 0},
         headers=NETEASE_HEADERS,
     )
-    if isinstance(payload, dict) and _integer(payload.get("code")) == RATE_LIMIT_CODE:
+    if isinstance(payload, dict) and strict_integer(payload.get("code")) == RATE_LIMIT_CODE:
         # 上游把"限流"也塞进 200 响应里(旧端点尤其如此)。这里必须显式抛出去:
         # 静默返回 [] 会和"真的没这首歌"混成一个日志, 让人误判成搜索/匹配逻辑坏了。
         # 同时开启冷却窗, 阻止紧接着的重试继续消耗上游配额。
         _trip_rate_limit_cooldown()
         raise NeteaseRateLimited(
-            f"网易搜索被限流: {_string(payload.get('msg')) or '操作频繁'}"
+            f"网易搜索被限流: {strict_string(payload.get('msg')) or '操作频繁'}"
         )
     songs = (payload.get("result") or {}).get("songs") if isinstance(payload, dict) else None
     if not isinstance(songs, list):
         return []
-    return [song for song in songs if isinstance(song, dict) and _integer(song.get("id"))]
+    return [song for song in songs if isinstance(song, dict) and strict_integer(song.get("id"))]
 
 
 def song_details(client: PlatformHTTP, song_ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -353,8 +342,8 @@ def song_details(client: PlatformHTTP, song_ids: list[str]) -> dict[str, dict[st
         return {}
     out: dict[str, dict[str, Any]] = {}
     for song in songs:
-        if isinstance(song, dict) and _string(song.get("id")):
-            out[_string(song.get("id"))] = song
+        if isinstance(song, dict) and strict_string(song.get("id")):
+            out[strict_string(song.get("id"))] = song
     return out
 
 
@@ -365,7 +354,7 @@ def _request_url(client: PlatformHTTP, params: str, cookie: str) -> dict[str, An
     )
     data = payload.get("data") if isinstance(payload, dict) else None
     item = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else None
-    if not item or not _string(item.get("url")):
+    if not item or not strict_string(item.get("url")):
         return {}
     return item
 
@@ -381,7 +370,7 @@ def resolve_play_url(song_id: str, cookie: str, session: Any | None = None) -> d
       3. 回退成功打一条 INFO 日志(配置档位 → 最终档位), 便于巡检"到底封在哪一档"。
          传输异常不触发回退(避免一次上游故障被放大成三次请求), 与改动前一样直接返回 {}。
     """
-    song_id = _string(song_id)
+    song_id = strict_string(song_id)
     if not song_id:
         return {}
     levels = request_levels()
@@ -403,7 +392,7 @@ def resolve_play_url(song_id: str, cookie: str, session: Any | None = None) -> d
             if index:
                 LOGGER.info(
                     "[netease] 音质回退 id=%s: %s 无地址 → 最终档位 %s(实际返回 %s)",
-                    song_id, levels[0], level, _string(item.get("level")) or level,
+                    song_id, levels[0], level, strict_string(item.get("level")) or level,
                 )
             return item
     return {}
@@ -414,7 +403,7 @@ def _extension(url: str, level: dict[str, Any]) -> str:
     suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     if suffix and len(suffix) <= 5 and suffix.isalnum():
         return suffix
-    return _string(level.get("type")).lower()
+    return strict_string(level.get("type")).lower()
 
 
 def build_payload(
@@ -426,14 +415,14 @@ def build_payload(
     """与快照 song_to_payload 形状对齐的 payload(前端/Go 侧按同一套字段消费)。"""
     resolution = resolution or {}
     detail = detail or {}
-    song_id = _string(raw.get("id"))
-    url = _string(resolution.get("url"))
+    song_id = strict_string(raw.get("id"))
+    url = strict_string(resolution.get("url"))
     ext = _extension(url, resolution) if url else ""
     # 搜索结果里的 album 只有 id/name(没有 picUrl), 封面要取详情那份。
     album = _album(raw)
     detail_album = _album(detail)
-    cover = _string(album.get("picUrl")) or _string(detail_album.get("picUrl"))
-    album_name = _string(album.get("name")) or _string(detail_album.get("name"))
+    cover = strict_string(album.get("picUrl")) or strict_string(detail_album.get("picUrl"))
+    album_name = strict_string(album.get("name")) or strict_string(detail_album.get("name"))
     extra: dict[str, str] = {
         "_rank": str(rank),
         "provider": "charles-musicdl",
@@ -444,20 +433,20 @@ def build_payload(
     # 时长口径: 旧搜索接口用 `duration`, cloudsearch(pc) 用 `dt`, 详情接口又回到
     # `duration` —— 三者都是毫秒。按序取第一个非零值, 否则详情请求失败时时长会丢。
     duration_ms = (
-        _integer(raw.get("duration"))
-        or _integer(raw.get("dt"))
-        or _integer(detail.get("duration"))
-        or _integer(detail.get("dt"))
+        strict_integer(raw.get("duration"))
+        or strict_integer(raw.get("dt"))
+        or strict_integer(detail.get("duration"))
+        or strict_integer(detail.get("dt"))
     )
     return {
         "id": song_id,
-        "name": _string(raw.get("name")),
+        "name": strict_string(raw.get("name")),
         "artist": _artists(raw),
         "album": album_name,
         "album_id": "",
-        "duration": _integer(duration_ms / 1000),
-        "size": _integer(resolution.get("size")),
-        "bitrate": _integer(resolution.get("br")) // 1000,
+        "duration": strict_integer(duration_ms / 1000),
+        "size": strict_integer(resolution.get("size")),
+        "bitrate": strict_integer(resolution.get("br")) // 1000,
         "source": "netease",
         "url": url,
         "ext": ext,
@@ -475,12 +464,12 @@ def _payloads_for(
     cookie: str,
     session: Any | None,
 ) -> list[dict[str, Any]]:
-    song_ids = [_string(song.get("id")) for song in matches]
+    song_ids = [strict_string(song.get("id")) for song in matches]
     details = song_details(client, song_ids)
     with ThreadPoolExecutor(max_workers=min(6, len(song_ids))) as pool:
         resolutions = list(pool.map(lambda sid: resolve_play_url(sid, cookie, session), song_ids))
     return [
-        build_payload(raw, details.get(_string(raw.get("id"))), resolution, rank)
+        build_payload(raw, details.get(strict_string(raw.get("id"))), resolution, rank)
         for rank, (raw, resolution) in enumerate(zip(matches, resolutions))
     ]
 
@@ -500,8 +489,8 @@ def search_by_lyric(
     session: Any | None = None,
 ) -> list[dict[str, Any]]:
     """按歌词片段搜歌, 返回与普通搜索同形状的 payload 列表。"""
-    keyword = _string(keyword)
-    limit = min(max(_integer(limit) or 20, 1), 100)
+    keyword = strict_string(keyword)
+    limit = min(max(strict_integer(limit) or 20, 1), 100)
     if not keyword:
         return []
     client = PlatformHTTP(cookie, session)
@@ -547,8 +536,8 @@ def search_songs(
     同一条路径, 吞掉之后 Go 侧只会看到 "no matching songs", 表现成"这首歌没货",
     真实原因(被上游限流)就彻底丢了。
     """
-    keyword = _string(keyword)
-    limit = min(max(_integer(limit) or 20, 1), 100)
+    keyword = strict_string(keyword)
+    limit = min(max(strict_integer(limit) or 20, 1), 100)
     if not keyword:
         return []
     client = PlatformHTTP(cookie, session)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .collection_common import strict_string, strict_integer
+
 import json
 import logging
 import tempfile
@@ -58,30 +60,17 @@ def load_client_class(source: str):
     return getattr(sources, SOURCE_CLASSES[source])
 
 
-def _string(value: Any) -> str:
-    if value is None or value == "NULL":
-        return ""
-    return str(value).strip()
-
-
-def _integer(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
 def song_to_payload(song: Any, source: str, rank: int) -> dict[str, Any]:
     raw = song.todict() if hasattr(song, "todict") else dict(song)
     status = raw.get("download_url_status") or {}
     probe = status.get("probe_status") if isinstance(status, dict) else {}
     if not isinstance(probe, dict):
         probe = {}
-    size = _integer(raw.get("file_size_bytes") or probe.get("file_size_bytes"))
+    size = strict_integer(raw.get("file_size_bytes") or probe.get("file_size_bytes"))
     headers = raw.get("default_download_headers") or {}
     raw_data = raw.get("raw_data") or {}
-    lyric = _string(raw.get("lyric"))
-    ext = _string(raw.get("ext")).removeprefix(".").lower()
+    lyric = strict_string(raw.get("lyric"))
+    ext = strict_string(raw.get("ext")).removeprefix(".").lower()
     extra = {
         "_rank": str(rank),
         "provider": "charles-musicdl",
@@ -91,23 +80,23 @@ def song_to_payload(song: Any, source: str, rank: int) -> dict[str, Any]:
         extra["lyric"] = lyric
     if headers:
         extra["download_headers"] = json.dumps(headers, ensure_ascii=False, separators=(",", ":"))
-    if isinstance(raw_data, dict) and _string(raw_data.get("play_auth")):
-        extra["play_auth"] = _string(raw_data.get("play_auth"))
+    if isinstance(raw_data, dict) and strict_string(raw_data.get("play_auth")):
+        extra["play_auth"] = strict_string(raw_data.get("play_auth"))
     if ext in {"flac", "wav", "alac", "ape", "wv", "tta", "dsf", "dff"}:
         extra["has_lossless"] = "1"
     return {
-        "id": _string(raw.get("identifier")),
-        "name": _string(raw.get("song_name")),
-        "artist": _string(raw.get("singers")),
-        "album": _string(raw.get("album")),
+        "id": strict_string(raw.get("identifier")),
+        "name": strict_string(raw.get("song_name")),
+        "artist": strict_string(raw.get("singers")),
+        "album": strict_string(raw.get("album")),
         "album_id": "",
-        "duration": _integer(raw.get("duration_s")),
+        "duration": strict_integer(raw.get("duration_s")),
         "size": size,
-        "bitrate": _integer(raw.get("bitrate")),
+        "bitrate": strict_integer(raw.get("bitrate")),
         "source": source,
-        "url": _string(raw.get("download_url")),
+        "url": strict_string(raw.get("download_url")),
         "ext": ext,
-        "cover": _string(raw.get("cover_url")),
+        "cover": strict_string(raw.get("cover_url")),
         "link": "",
         "extra": extra,
         "is_invalid": not bool(raw.get("download_url")),
@@ -135,14 +124,14 @@ def _fetch_verbatim_lyric(source: str, song: dict[str, Any]) -> str:
     (mock.patch.object(netease_lyric, "fetch_verbatim_lyric"))。
     """
     if source == "netease":
-        return netease_lyric.fetch_verbatim_lyric(_string(song.get("id")))
+        return netease_lyric.fetch_verbatim_lyric(strict_string(song.get("id")))
     if source == "kugou":
         # 酷狗按歌名/歌手检索(identifier 就是音频文件 hash, 一并带上提高命中)。
         return kugou_lyric.fetch_verbatim_lyric(
-            _string(song.get("name")),
-            _string(song.get("artist")),
-            duration_s=_integer(song.get("duration")),
-            file_hash=_string(song.get("id")),
+            strict_string(song.get("name")),
+            strict_string(song.get("artist")),
+            duration_s=strict_integer(song.get("duration")),
+            file_hash=strict_string(song.get("id")),
         )
     return ""
 
@@ -159,7 +148,7 @@ def _enrich_verbatim_lyrics(songs: list[dict[str, Any]], source: str) -> None:
     module = {"netease": netease_lyric, "kugou": kugou_lyric}.get(source)
     if not songs or module is None or not module.verbatim_lyric_enabled():
         return
-    targets = [song for song in songs if _string(song.get("name"))]
+    targets = [song for song in songs if strict_string(song.get("name"))]
     if not targets:
         return
     try:
@@ -205,7 +194,7 @@ def _enrich_netease_chorus(songs: list[dict[str, Any]]) -> None:
     if not songs or not netease_chorus.chorus_enabled():
         return
 
-    song_ids = [_string(song.get("id")) for song in songs if _string(song.get("id"))]
+    song_ids = [strict_string(song.get("id")) for song in songs if strict_string(song.get("id"))]
     if not song_ids:
         return
 
@@ -216,7 +205,7 @@ def _enrich_netease_chorus(songs: list[dict[str, Any]]) -> None:
         LOGGER.warning("[netease] 副歌缓存查询异常: %s", error)
         cached = {}
     for song in songs:
-        item = cached.get(_string(song.get("id")))
+        item = cached.get(strict_string(song.get("id")))
         if not item:
             continue
         extra = song.get("extra")
@@ -312,11 +301,11 @@ def search(
         # 测试注入的 factory 不参与合并(否则不同用例会互相串结果)。
         return _search_impl(payload, client_factory=client_factory, work_dir=work_dir)
     key = (
-        _string(payload.get("source")).lower(),
-        _string(payload.get("keyword")),
-        _integer(payload.get("limit")),
-        _integer(payload.get("search_type")),
-        _string(payload.get("cookie")),
+        strict_string(payload.get("source")).lower(),
+        strict_string(payload.get("keyword")),
+        strict_integer(payload.get("limit")),
+        strict_integer(payload.get("search_type")),
+        strict_string(payload.get("cookie")),
     )
     return _run_single_flight(key, lambda: _search_impl(payload, client_factory=None, work_dir=work_dir))
 
@@ -327,16 +316,16 @@ def _search_impl(
     client_factory: Callable[..., Any] | None = None,
     work_dir: str,
 ) -> dict[str, Any]:
-    source = _string(payload.get("source")).lower()
-    keyword = _string(payload.get("keyword"))
-    limit = min(max(_integer(payload.get("limit")) or 20, 1), 100)
+    source = strict_string(payload.get("source")).lower()
+    keyword = strict_string(payload.get("keyword"))
+    limit = min(max(strict_integer(payload.get("limit")) or 20, 1), 100)
     if source not in SOURCE_CLASSES:
         raise ValueError(f"unsupported source: {source}")
     if not keyword:
         raise ValueError("keyword is required")
-    cookie = _string(payload.get("cookie"))
+    cookie = strict_string(payload.get("cookie"))
     # search_type 由 Go 侧传入: 0=普通搜歌, 7=按歌词片段检索。
-    search_type = _integer(payload.get("search_type"))
+    search_type = strict_integer(payload.get("search_type"))
     # 网易的歌词检索: Go 侧 type=lyric 会对 netease 也发 search_type=7, 但快照只会把关键词
     # 当歌名搜(搜歌词片段得到一堆同名垃圾), 所以这里换成网易自己的歌词检索接口(type=1006)。
     # 实测匿名可用(搜「都 是勇敢的」→ 孤勇者/陈奕迅原唱第 1 名)。
@@ -458,9 +447,9 @@ def lyric(payload: dict[str, Any]) -> dict[str, str]:
     搜索不再内联歌词(QQ 实测占 63% 搜索耗时, 网易 ~0.5s), 改由播放/歌词面板按需调用;
     这里要保证懒加载拿到的歌词**不比内联时差**, 所以网易先试逐字(YRC)再回退行级。
     """
-    source = _string(payload.get("source")).lower()
-    song_id = _string(payload.get("id"))
-    cookie = _string(payload.get("cookie"))
+    source = strict_string(payload.get("source")).lower()
+    song_id = strict_string(payload.get("id"))
+    cookie = strict_string(payload.get("cookie"))
     if not source or not song_id:
         raise ValueError("source and id are required")
     if source == "netease":

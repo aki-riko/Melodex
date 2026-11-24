@@ -25,6 +25,8 @@
 
 from __future__ import annotations
 
+from .collection_common import strict_string, strict_integer
+
 import base64
 import json
 import logging
@@ -159,19 +161,6 @@ def status() -> dict[str, Any]:
         return dict(_status)
 
 
-def _string(value: Any) -> str:
-    if value is None or value == "NULL":
-        return ""
-    return str(value).strip()
-
-
-def _integer(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
 def _bool_env(name: str, default: bool) -> bool:
     raw = os.environ.get(name, "").strip().lower()
     if raw == "":
@@ -218,7 +207,7 @@ def cookie_map(cookie: str) -> dict[str, str]:
 
 def _first_present(*values: Any) -> str:
     for value in values:
-        text = _string(value)
+        text = strict_string(value)
         if text:
             return text
     return ""
@@ -242,10 +231,10 @@ def credential_state(cookie: str) -> dict[str, Any]:
         cookies.get("qqmusic_key"),
         cookies.get("qm_keyst"),
     )
-    created_at = _integer(
+    created_at = strict_integer(
         _first_present(cookies.get("musickeyCreateTime"), cookies.get("psrf_musickey_createtime"))
     )
-    lifetime = _integer(cookies.get("keyExpiresIn"))
+    lifetime = strict_integer(cookies.get("keyExpiresIn"))
     expires_at = created_at + lifetime if created_at and lifetime else 0
     now = int(time.time())
     expired = bool(expires_at and now >= expires_at)
@@ -337,9 +326,9 @@ def refresh_musickey(cookie: str, *, session: Any | None = None) -> dict[str, An
             data = (payload.get("req") or {}).get("data") if isinstance(payload, dict) else None
             if not isinstance(data, dict):
                 continue
-            musickey = _string(data.get("musickey"))
-            created_at = _integer(data.get("musickeyCreateTime"))
-            expires_in = _integer(data.get("keyExpiresIn"))
+            musickey = strict_string(data.get("musickey"))
+            created_at = strict_integer(data.get("musickeyCreateTime"))
+            expires_in = strict_integer(data.get("keyExpiresIn"))
             if not musickey:
                 continue
             refreshed = dict(cookies)
@@ -355,7 +344,7 @@ def refresh_musickey(cookie: str, *, session: Any | None = None) -> dict[str, An
                 ("access_token", "access_token"), ("refresh_token", "refresh_token"),
                 ("openid", "openid"), ("unionid", "unionid"),
             ):
-                value = _string(data.get(key))
+                value = strict_string(data.get(key))
                 if value:
                     refreshed[name] = value
             new_cookie = "; ".join(f"{key}={value}" for key, value in refreshed.items() if value)
@@ -371,7 +360,7 @@ def refresh_musickey(cookie: str, *, session: Any | None = None) -> dict[str, An
 
 def _device_id(work_dir: str) -> str:
     """返回本机稳定的 QQ 客户端设备号(env 覆盖 → 持久化文件 → 现场生成)。"""
-    configured = _string(os.environ.get("MELODEX_QQ_QIMEI36")).lower()
+    configured = strict_string(os.environ.get("MELODEX_QQ_QIMEI36")).lower()
     if configured:
         return configured
     global _device_cache
@@ -516,7 +505,7 @@ def _search_items(
 ) -> tuple[list[dict[str, Any]], int]:
     response = _post(client, _search_request(keyword, limit, device_id, search_type))
     node = response.get(f"{SEARCH_MODULE}.{SEARCH_METHOD}") or {}
-    code = _integer(node.get("code"))
+    code = strict_integer(node.get("code"))
     items = ((node.get("data") or {}).get("body") or {}).get("item_song") or []
     return [item for item in items if isinstance(item, dict)], code
 
@@ -611,16 +600,16 @@ def _vkey_pass(
             url=endpoint,
         )
         node = response.get("req_1") or {}
-        code = _integer(node.get("code"))
+        code = strict_integer(node.get("code"))
         entries = ((node.get("data") or {}).get("midurlinfo") or [])
         resolved: list[tuple[str, str, str, str]] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            purl = _string(entry.get("purl")) or _string(entry.get("wifiurl"))
+            purl = strict_string(entry.get("purl")) or strict_string(entry.get("wifiurl"))
             if not purl:
                 continue
-            target = sent.get(_string(entry.get("filename")))
+            target = sent.get(strict_string(entry.get("filename")))
             if target is None:
                 continue
             mid, quality, ext = target
@@ -734,7 +723,7 @@ AUTH_SUPPRESS_SECONDS = 600
 
 def _state_fingerprint(state: dict[str, Any]) -> str:
     """用 uin 标明"这个账号"; 续期换 key 不影响熔断(见上方注释)。"""
-    return _string(state.get("uin"))
+    return strict_string(state.get("uin"))
 
 
 def _auth_pass_suppressed(state: dict[str, Any]) -> bool:
@@ -814,16 +803,16 @@ def _qrc_lyric(client: PlatformHTTP, item: dict[str, Any]) -> str:
     album = item.get("album") if isinstance(item.get("album"), dict) else {}
     singers = item.get("singer") if isinstance(item.get("singer"), list) else []
     artist = ", ".join(
-        _string(singer.get("name")) for singer in singers
-        if isinstance(singer, dict) and _string(singer.get("name"))
+        strict_string(singer.get("name")) for singer in singers
+        if isinstance(singer, dict) and strict_string(singer.get("name"))
     )
     param = qq_qrc.qrc_request_param(
-        _string(item.get("mid")),
-        song_id=_integer(item.get("id")),
-        name=_string(item.get("title")) or _string(item.get("name")),
+        strict_string(item.get("mid")),
+        song_id=strict_integer(item.get("id")),
+        name=strict_string(item.get("title")) or strict_string(item.get("name")),
         artist=artist,
-        album=_string(album.get("name")),
-        duration_s=_integer(item.get("interval")),
+        album=strict_string(album.get("name")),
+        duration_s=strict_integer(item.get("interval")),
     )
     response = _post(client, {
         "comm": _plain_comm(),
@@ -840,7 +829,7 @@ def _qrc_lyric(client: PlatformHTTP, item: dict[str, Any]) -> str:
 
 def _lyric(item: dict[str, Any], cookie: str) -> tuple[str, bool]:
     """返回 (歌词, 是否逐字)。逐字优先走 QRC, 失败回退 base64 行级 LRC。"""
-    mid = _string(item.get("mid"))
+    mid = strict_string(item.get("mid"))
     try:
         client = PlatformHTTP(cookie)
         if qq_qrc.verbatim_enabled():
@@ -849,7 +838,7 @@ def _lyric(item: dict[str, Any], cookie: str) -> tuple[str, bool]:
                 return verbatim, True
         response = _post(client, _lyric_request(mid))
         node = response.get("req_1") or {}
-        raw = _string((node.get("data") or {}).get("lyric"))
+        raw = strict_string((node.get("data") or {}).get("lyric"))
         if not raw:
             return "", False
         # 带 qrc=1 的响应里 lyric 是十六进制 QRC 载荷, 不能按 base64 解 —— 上面已单独处理。
@@ -872,7 +861,7 @@ def _remember_song_meta(items: list[dict[str, Any]]) -> None:
         return
     with _song_meta_lock:
         for item in items:
-            mid = _string(item.get("mid")) if isinstance(item, dict) else ""
+            mid = strict_string(item.get("mid")) if isinstance(item, dict) else ""
             if mid:
                 _song_meta[mid] = item
         while len(_song_meta) > SONG_META_LIMIT:
@@ -885,7 +874,7 @@ def fetch_lyric(song_id: str, *, cookie: str = "") -> str:
     优先用搜索时缓存的元数据走完整 QRC 逐字链路; 缓存未命中(比如重启后直接播放历史歌单)
     时退回只凭 mid 的行级 LRC —— 拿不到逐字, 但不会没有歌词。
     """
-    mid = _string(song_id)
+    mid = strict_string(song_id)
     if not mid:
         return ""
     with _song_meta_lock:
@@ -897,7 +886,7 @@ def fetch_lyric(song_id: str, *, cookie: str = "") -> str:
     try:
         client = PlatformHTTP(cookie)
         response = _post(client, _lyric_request(mid))
-        raw = _string(((response.get("req_1") or {}).get("data") or {}).get("lyric"))
+        raw = strict_string(((response.get("req_1") or {}).get("data") or {}).get("lyric"))
         if not raw:
             return ""
         return base64.b64decode(raw).decode("utf-8", "ignore").strip()
@@ -907,7 +896,7 @@ def fetch_lyric(song_id: str, *, cookie: str = "") -> str:
 
 
 def _lyrics_for(items: list[dict[str, Any]], cookie: str) -> dict[str, tuple[str, bool]]:
-    mids = [_string(item.get("mid")) for item in items]
+    mids = [strict_string(item.get("mid")) for item in items]
     # 默认**不**在搜索里内联歌词: 实测 5 个关键词带歌词 21.30s / 不带 7.84s, 歌词占了
     # 63% 的搜索耗时(每首一次 QRC + 一次行级请求)。而用户很少会读搜索列表里的每一首歌词,
     # 真正播放时前端会按需调 /music/lyric 再取 —— 与网易原生实现的懒加载口径一致。
@@ -933,26 +922,26 @@ def _payload(
     lyric: str,
     lyric_verbatim: bool = False,
 ) -> dict[str, Any]:
-    mid = _string(item.get("mid"))
-    duration = _integer(item.get("interval"))
+    mid = strict_string(item.get("mid"))
+    duration = strict_integer(item.get("interval"))
     file_info = item.get("file") if isinstance(item.get("file"), dict) else {}
     album = item.get("album") if isinstance(item.get("album"), dict) else {}
     singers = item.get("singer") if isinstance(item.get("singer"), list) else []
     artist = ", ".join(
-        _string(singer.get("name")) for singer in singers
-        if isinstance(singer, dict) and _string(singer.get("name"))
+        strict_string(singer.get("name")) for singer in singers
+        if isinstance(singer, dict) and strict_string(singer.get("name"))
     )
     quality_code, ext, download_url = resolved
     size_key, nominal_bitrate = next(
         ((key, nominal) for code, _ext, key, nominal in QUALITY_LADDER if code == quality_code),
         ("", 0),
     )
-    size = _integer(file_info.get(size_key)) if size_key else 0
+    size = strict_integer(file_info.get(size_key)) if size_key else 0
     # 有真实体积时按体积/时长反算码率(更准), 否则退回该档位的标称码率, 都不假装知道。
     bitrate = nominal_bitrate
     if size and duration > 0:
         bitrate = int(round(size * 8 / duration / 1000))
-    album_mid = _string(album.get("mid"))
+    album_mid = strict_string(album.get("mid"))
     extra: dict[str, Any] = {
         "_rank": str(rank),
         "provider": "melodex-native",
@@ -971,9 +960,9 @@ def _payload(
         extra["has_lossless"] = "1"
     return {
         "id": mid,
-        "name": _string(item.get("title")) or _string(item.get("name")),
+        "name": strict_string(item.get("title")) or strict_string(item.get("name")),
         "artist": artist,
-        "album": _string(album.get("name")),
+        "album": strict_string(album.get("name")),
         "album_id": "",
         "duration": duration,
         "size": size,
@@ -1024,10 +1013,10 @@ def search(
     search_type: int = SEARCH_TYPE_SONG,
     refreshed_cookie_sink: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    keyword = _string(keyword)
+    keyword = strict_string(keyword)
     if not keyword:
         return []
-    limit = min(max(_integer(limit) or DEFAULT_LIMIT, 1), MAX_LIMIT)
+    limit = min(max(strict_integer(limit) or DEFAULT_LIMIT, 1), MAX_LIMIT)
     state = credential_state(cookie)
     # musickey 只有 3 天寿命, 过期后 VIP/无损曲全部拿不到地址(实测可播率 10/10 → 2/10)。
     # 但 cookie 里的 pt_oauth_token/p_skey 寿命长得多, 可以自动换出新 key, 用户不必
@@ -1065,7 +1054,7 @@ def search(
         )
         return []
 
-    mids = [_string(item.get("mid")) for item in items]
+    mids = [strict_string(item.get("mid")) for item in items]
     mids = [mid for mid in mids if mid]
     # 记下元数据, 供播放时按 mid 惰性取逐字歌词(见 fetch_lyric)。
     _remember_song_meta([item for item in items if isinstance(item, dict)])
@@ -1073,11 +1062,11 @@ def search(
 
     playable = [mid for mid in mids if mid in resolved]
     missing = [mid for mid in mids if mid not in resolved]
-    lyrics = _lyrics_for([item for item in items if _string(item.get("mid")) in resolved], cookie)
+    lyrics = _lyrics_for([item for item in items if strict_string(item.get("mid")) in resolved], cookie)
 
     songs: list[dict[str, Any]] = []
     for rank, item in enumerate(items):
-        mid = _string(item.get("mid"))
+        mid = strict_string(item.get("mid"))
         quality = resolved.get(mid)
         if quality is None:
             continue

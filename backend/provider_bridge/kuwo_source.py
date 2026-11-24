@@ -24,6 +24,8 @@
 
 from __future__ import annotations
 
+from .collection_common import strict_string, strict_integer
+
 import logging
 import threading
 import time
@@ -96,19 +98,6 @@ def status() -> dict[str, Any]:
         return dict(_status)
 
 
-def _string(value: Any) -> str:
-    if value is None or value == "NULL":
-        return ""
-    return str(value).strip()
-
-
-def _integer(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
 def _is_paid_item(item: dict[str, Any]) -> bool:
     """判断搜索结果是否为"无 cookie 只能听试听片段"的付费曲。
 
@@ -119,9 +108,9 @@ def _is_paid_item(item: dict[str, Any]) -> bool:
     注意 **不能用 `payInfo.refrain_start`**: 那是"副歌起点"(卡拉OK跳转用), 每首歌
     都有非零值(实测连免费曲也有 79683ms), 误用它会把所有歌都判成付费。
     """
-    if _integer(item.get("fpay")) > 0:
+    if strict_integer(item.get("fpay")) > 0:
         return True
-    pay = _integer(item.get("PAY"))
+    pay = strict_integer(item.get("PAY"))
     if pay:
         return (pay & PAID_PAY_MASK) > (PAID_PAY_VALUE & PAID_PAY_MASK)
     return False
@@ -134,7 +123,7 @@ def _minfo_levels(item: dict[str, Any]) -> list[dict[str, Any]]:
     比快照那样自己编 `2000kflac` 去试探准确得多, 且零额外请求。
     """
     levels: list[dict[str, Any]] = []
-    for entry in _string(item.get("MINFO")).split(";"):
+    for entry in strict_string(item.get("MINFO")).split(";"):
         fields: dict[str, str] = {}
         for part in entry.split(","):
             name, separator, value = part.partition(":")
@@ -146,7 +135,7 @@ def _minfo_levels(item: dict[str, Any]) -> list[dict[str, Any]]:
         ext = fields.get("format", "").lower()
         levels.append({
             "level": level,
-            "bitrate": _integer(fields.get("bitrate")),
+            "bitrate": strict_integer(fields.get("bitrate")),
             "ext": ext,
             "size": _parse_size_bytes(fields.get("size", "")),
         })
@@ -155,7 +144,7 @@ def _minfo_levels(item: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _parse_size_bytes(raw: str) -> int:
     """把 `52.83Mb` 之类的字符串换算成字节(拿不到就返回 0)。"""
-    text = _string(raw)
+    text = strict_string(raw)
     for suffix, factor in (("Mb", 1024 * 1024), ("MB", 1024 * 1024), ("KB", 1024), ("kb", 1024)):
         if text.endswith(suffix):
             try:
@@ -208,8 +197,8 @@ def _level_param(level: dict[str, Any]) -> str:
     上游会回 **mgg 加密容器** —— 看着 200 成功, 实际 ffmpeg 解不开, 播放必然失败。
     仅当拿不到 bitrate 时才退化为纯数字(`128` 实测也能拿到 mp3)。
     """
-    bitrate = _integer(level.get("bitrate"))
-    ext = _string(level.get("ext")).lower()
+    bitrate = strict_integer(level.get("bitrate"))
+    ext = strict_string(level.get("ext")).lower()
     if not bitrate:
         return ""
     if ext:
@@ -233,7 +222,7 @@ def resolve_play_url(
       3. 返回的 `rid` 必须与请求一致(试听片段回固定 rid);
       4. 返回的 `duration` 必须与搜索声明吻合(试听片段只有 11 秒)。
     """
-    song_id = _string(song_id)
+    song_id = strict_string(song_id)
     if not song_id:
         return {}
     level = level or {}
@@ -250,7 +239,7 @@ def resolve_play_url(
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
         return {}
-    download_url = _string(data.get("url"))
+    download_url = strict_string(data.get("url"))
     if not download_url:
         return {}
     ext = _extension_from(data.get("format"), download_url)
@@ -258,12 +247,12 @@ def resolve_play_url(
         # 加密专有格式: 拿到的字节 ffmpeg/浏览器解不开, 宁可标不可播也不能交给前端。
         LOGGER.info("[kuwo] 拒收非通用格式 id=%s format=%s", song_id, ext or "unknown")
         return {}
-    response_rid = _string(data.get("rid"))
+    response_rid = strict_string(data.get("rid"))
     if response_rid and response_rid != song_id:
         # 试听片段固定回另一个 rid(实测恒为 260839262), 说明这不是我们要的那首。
         LOGGER.info("[kuwo] 返回片段与请求不符 id=%s 实际=%s(判定为试听)", song_id, response_rid)
         return {}
-    duration = _integer(data.get("duration"))
+    duration = strict_integer(data.get("duration"))
     if expected_duration_seconds > 0 and duration > 0:
         tolerance = max(
             DURATION_TOLERANCE_SECONDS,
@@ -279,14 +268,14 @@ def resolve_play_url(
         "url": download_url,
         "duration": duration,
         "ext": ext,
-        "bitrate": _integer(data.get("bitrate")) or _integer(level.get("bitrate")),
-        "size": _integer(level.get("size")),
+        "bitrate": strict_integer(data.get("bitrate")) or strict_integer(level.get("bitrate")),
+        "size": strict_integer(level.get("size")),
     }
 
 
 def _extension_from(raw_format: Any, url: str) -> str:
     """确定音频扩展名: 优先用响应 `format`, 退回 URL 后缀。"""
-    ext = _string(raw_format).lower()
+    ext = strict_string(raw_format).lower()
     if ext:
         return ext
     path = urllib.parse.urlparse(url).path
@@ -304,7 +293,7 @@ def _search_items(client: PlatformHTTP, keyword: str, limit: int) -> list[dict[s
         return []
     return [
         item for item in items
-        if isinstance(item, dict) and _string(item.get("MUSICRID"))
+        if isinstance(item, dict) and strict_string(item.get("MUSICRID"))
     ]
 
 
@@ -321,11 +310,11 @@ def _chorus_range(item: dict[str, Any], duration: int) -> tuple[int, int] | None
     pay_info = item.get("payInfo")
     if not isinstance(pay_info, dict):
         return None
-    start = _integer(pay_info.get("refrain_start"))
-    end = _integer(pay_info.get("refrain_end"))
+    start = strict_integer(pay_info.get("refrain_start"))
+    end = strict_integer(pay_info.get("refrain_end"))
     if start <= 0 or end <= start:
         return None
-    total_ms = _integer(duration) * 1000
+    total_ms = strict_integer(duration) * 1000
     if total_ms <= 0:
         return None
     tolerance = max(DURATION_TOLERANCE_SECONDS * 1000, int(total_ms * DURATION_TOLERANCE_RATIO))
@@ -341,15 +330,15 @@ def build_payload(
 ) -> dict[str, Any]:
     """与快照 song_to_payload 形状对齐的 payload(Go/前端按同一套字段消费)。"""
     resolution = resolution or {}
-    raw_id = _string(item.get("MUSICRID")).removeprefix("MUSIC_")
-    duration = _integer(item.get("DURATION"))
+    raw_id = strict_string(item.get("MUSICRID")).removeprefix("MUSIC_")
+    duration = strict_integer(item.get("DURATION"))
     level = _pick_level(item)
-    url = _string(resolution.get("url"))
+    url = strict_string(resolution.get("url"))
     # 如实上报真实给到的格式与码率(拿不到地址时退回 MINFO 的最佳可解码档位做展示值)。
-    ext = _string(resolution.get("ext")) or level["ext"]
-    bitrate = _integer(resolution.get("bitrate")) or level["bitrate"]
-    size = _integer(resolution.get("size")) or level["size"]
-    cover = _string(item.get("hts_MVPIC")) or _string(item.get("web_albumpic_short"))
+    ext = strict_string(resolution.get("ext")) or level["ext"]
+    bitrate = strict_integer(resolution.get("bitrate")) or level["bitrate"]
+    size = strict_integer(resolution.get("size")) or level["size"]
+    cover = strict_string(item.get("hts_MVPIC")) or strict_string(item.get("web_albumpic_short"))
     if cover and not cover.startswith("http"):
         cover = f"https://img4.kuwo.cn/star/albumcover/{cover}" if not cover.startswith("/") else f"https://img4.kuwo.cn{cover}"
     extra: dict[str, str] = {
@@ -357,7 +346,7 @@ def build_payload(
         "provider": "melodex-native",
         "provider_commit": PROVIDER_COMMIT,
         "provider_lookup": " ".join(
-            part for part in (_string(item.get("SONGNAME")), _string(item.get("ARTIST"))) if part
+            part for part in (strict_string(item.get("SONGNAME")), strict_string(item.get("ARTIST"))) if part
         ),
     }
     if ext in LOSSLESS_EXTENSIONS:
@@ -374,10 +363,10 @@ def build_payload(
         extra["chorus_end_ms"] = str(chorus[1])
     return {
         "id": raw_id,
-        "name": _string(item.get("SONGNAME")) or _string(item.get("NAME")),
-        "artist": _string(item.get("ARTIST")),
-        "album": _string(item.get("ALBUM")),
-        "album_id": _string(item.get("ALBUMID")),
+        "name": strict_string(item.get("SONGNAME")) or strict_string(item.get("NAME")),
+        "artist": strict_string(item.get("ARTIST")),
+        "album": strict_string(item.get("ALBUM")),
+        "album_id": strict_string(item.get("ALBUMID")),
         "duration": duration,
         "size": size,
         "bitrate": bitrate,
@@ -400,8 +389,8 @@ def search(
     session: Any | None = None,
 ) -> list[dict[str, Any]]:
     """原生搜歌: 每首 1 次取址请求, 付费曲/试听片段明确标为不可播。"""
-    keyword = _string(keyword)
-    limit = min(max(_integer(limit) or 20, 1), 100)
+    keyword = strict_string(keyword)
+    limit = min(max(strict_integer(limit) or 20, 1), 100)
     if not keyword:
         return []
     client = PlatformHTTP(cookie, session)
@@ -417,7 +406,7 @@ def search(
         return []
 
     def resolve(item: dict[str, Any]) -> dict[str, Any]:
-        song_id = _string(item.get("MUSICRID")).removeprefix("MUSIC_")
+        song_id = strict_string(item.get("MUSICRID")).removeprefix("MUSIC_")
         if _is_paid_item(item):
             # 付费曲连取址请求都不发: 省一次往返, 且防止把固定试听片段当整曲。
             return {}
@@ -427,7 +416,7 @@ def search(
             return {}
         return resolve_play_url(
             song_id,
-            expected_duration_seconds=_integer(item.get("DURATION")),
+            expected_duration_seconds=strict_integer(item.get("DURATION")),
             level=level,
             cookie=cookie,
             session=session,
@@ -454,7 +443,7 @@ def search(
 
 def fetch_lyric(song_id: str, *, cookie: str = "", session: Any | None = None) -> str:
     """按 rid 取行级 LRC(尽力而为; 失败的曲目上游返回 status=301)。"""
-    song_id = _string(song_id)
+    song_id = strict_string(song_id)
     if not song_id:
         return ""
     client = PlatformHTTP(cookie, session)
@@ -474,7 +463,7 @@ def fetch_lyric(song_id: str, *, cookie: str = "", session: Any | None = None) -
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        text = _string(entry.get("lineLyric"))
+        text = strict_string(entry.get("lineLyric"))
         if not text:
             continue
         try:
