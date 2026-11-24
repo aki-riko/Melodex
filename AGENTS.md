@@ -213,13 +213,37 @@ lyrics_reset_position / lyrics_save_position / lyrics_push_state / lyrics_send_c
 **这条现在有机器门禁**:`npm run test:shell-commands`
 (`desktop/scripts/shellCommandManifest.test.mjs`)解析三处并要求集合相等:
 `generate_handler!` ↔ `commands()` ↔ `capabilities/*.json` 的 `allow-*`。
-漏一条立刻红并指名道姓;它同时守着「远程只能拿歌词桥两条、不得有 core:*」这条安全底线。
+漏一条立刻红并指名道姓;它还守着远程 IPC 面白名单(见下)+ 窗口归属两条底线。
 
-**安全边界(两档)**:
+**安全边界(两档)** —— 以下与 `capabilities/*.json` 实际内容一致,**以文件为准**:
+
 - `capabilities/default.json` → 只覆盖本地窗口(`overlay`/`settings`),含全部 13 条本地命令。
-- `capabilities/lyrics-bridge.json` → 覆盖 `main` + `remote.urls: https://music.9li.life/*`,
-  **只有** `lyrics_push_state` / `lyrics_send_command`。
-  远程页面能做的唯一一件事就是把「在放什么歌」告诉本机歌词窗——本来就是它要显示的内容。
+- `capabilities/lyrics-bridge.json` → 覆盖 `main` + `remote.urls`(生产站点 + 本机回环),
+  实际授予 **5 条命令 + 2 条 `core:event`**:
+
+  | 权限 | 为什么给远程 |
+  |---|---|
+  | `lyrics_push_state` | 把「在放什么歌」告诉本机歌词窗 —— 本来就是它要显示的内容 |
+  | `lyrics_send_command` | 歌词窗上的播放/上下首按钮要把命令回传给主窗口 |
+  | `lyrics_settings_get` | 主窗口设置页要读本机歌词偏好(字号/配色/字体/位置) |
+  | `lyrics_settings_update` | 主窗口设置页要改上面这些偏好 |
+  | `lyrics_reset_position` | 设置页「恢复默认位置」 |
+  | `core:event:allow-listen` / `allow-unlisten` | 上面这些回传都靠 Tauri event,没有这两条收不到 |
+
+  **它们的语义自限**:全部只作用于「本机歌词窗的显示偏好与播放状态」,
+  不接受任意路径 / URL / 命令名,也不触碰文件系统、网络、进程。最坏情况是
+  「远程页面改了歌词字号或位置」,而那本来就是它自己该显示的东西。
+
+  ★ **`lyrics_settings_update` 的 patch 含 `position_x`/`position_y`** ——
+  也就是说远程页面**确实能把本机歌词窗挪到任意坐标**。这是既有实现,
+  与被判为「本地窗口专用」的 `set_overlay_position` 语义重叠。当前接受这一扩张
+  (设置页在主窗口、迁移到本地设置窗成本更高;且歌词窗本就在用户自己屏幕上);
+  但**新增任何一条权限都必须在此表和 `ALLOWED_REMOTE_COMMANDS` 里显式登记**,
+  让评审必须看见 —— 这是刻意的摩擦。
+
+- **不得**给任何远程 origin 开文件/网络/进程类权限或 `core:*` 中除
+  `event:allow-listen`/`allow-unlisten` 以外的能力。
+
 - 设置窗(原配对窗)**不自动弹出**,需从托盘「桌面歌词设置…」打开。
   配对命令(`pair_device`/`clear_pairing` 等)为兼容历史凭据保留,但设置页已不再提供配对 UI。
 
@@ -243,10 +267,13 @@ lyrics_reset_position / lyrics_save_position / lyrics_push_state / lyrics_send_c
   关掉歌词后可从托盘或设置页重新打开(但旧 PrismQML 有同样的托盘项,别删)。
 
 ### 三条不可退让的规则
-1. **远程页面的 IPC 面只能到「歌词桥」这两条**。`capabilities/default.json` 只列
-   `overlay`/`settings` 本地窗口;`capabilities/lyrics-bridge.json` 只给 `main` + 站点 origin
-   开 `lyrics_push_state` / `lyrics_send_command`。**禁止**再往 `lyrics-bridge.json` 加别的命令,
-   也禁止给任何远程 origin 开 `core:*` 或文件/网络/进程类权限。
+1. **远程页面的 IPC 面只能是「歌词桥」那 5 条 + 2 条 event**。`capabilities/default.json`
+   只列 `overlay`/`settings` 本地窗口;`capabilities/lyrics-bridge.json` 只给 `main` +
+   `remote.urls` 开 `lyrics_push_state` / `lyrics_send_command` /
+   `lyrics_settings_get` / `lyrics_settings_update` / `lyrics_reset_position`
+   与 `core:event:allow-listen` / `allow-unlisten`(完整清单与逐条理由见上面那张表)。
+   **禁止**给任何远程 origin 开文件/网络/进程类权限,也禁止 `core:*` 里除这两条 event 外
+   的任何能力。**新增一条必须同时改实现、`ALLOWED_REMOTE_COMMANDS` 和上面那张表。**
 2. **导航白名单**。只允许站点同源与登录网关(`auth.<父域>`,且父域限 `9li.life`)同源;
    其余外链交给系统浏览器。禁止为了"方便"把 `on_navigation` 改成恒 `true`。
 3. **关闭 = 隐藏到托盘,只有托盘「退出」才真退出**。`allow_exit()` 是唯一出口。
@@ -344,7 +371,7 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
   (对应旧版 `onHeightChanged → clampToVisibleArea`)。
 - **位置保存前先 clamp**(旧版每次坐标变化都夹)。否则拖到屏幕外后存下的坐标
   会让歌词"重启后消失"。为此新增本地命令 `overlay_clamp_position`
-  (**仅本地窗口**;远程白名单仍是 5 条不变)。
+  (**仅本地窗口**;远程白名单不变 —— 仍是那 5 条 + 2 条 event,见上面的权限表)。
 - 纯逻辑核心抽到 `desktop/ui/lyricsCore.js`,数值行为由 `lyricsCore.test.mjs`
   逐条对照 `cpp/Lyrics.cpp` 锁死。
 
