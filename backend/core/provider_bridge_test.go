@@ -127,6 +127,112 @@ func TestProviderLyricsLoadsNativeNeteaseLyricAfterSearchCacheMiss(t *testing.T)
 	}
 }
 
+// 懒加载源的歌词必须能按 ID 现取 —— 这条对**所有**源成立, 不是 netease 专属。
+//
+// 事故背景(2026-11-24 用户真实报告): 歌单里 QQ 源的歌全部「暂无歌词」。
+// 根因是 ab66886「歌词改懒加载」把 QQ 也改成搜索不内联歌词, 而 providerLyrics 里
+// 那段"按 ID 补取"只写了 netease 分支 —— QQ 于是落到 resolveProviderSong 拿到空的
+// extra.lyric, 报 "provider returned no lyrics"。上游实测一直有词(遗症 5613 字符 /
+// 一万零一次沉溺 7798 字符), 纯粹是我们没去要。
+//
+// 更糟的是下载链路(collectDownloadEnrichment)也走同一个 GetLyricFunc, 所以那批歌
+// 内嵌歌词同样是空的, 连"服务器副本"兜底都救不回来 —— 一个源漏了就是全线漏。
+//
+// 因此门禁按**源列表**跑, 不只测 netease: 以后哪个源改懒加载却忘了补取, 这里立刻红。
+func TestProviderLyricsFetchesLazilyForEverySource(t *testing.T) {
+	// 三个源都在 sidecar 的 /v1/lyric 里实现了按 ID 取词(见 provider_bridge/app.py);
+	// 其余源仍是搜索时内联, 不在此列。
+	for _, source := range []string{"netease", "qq", "kuwo"} {
+		source := source
+		t.Run(source, func(t *testing.T) {
+			resetProviderBridgeStateForTest()
+			defer resetProviderBridgeStateForTest()
+
+			var lyricRequests int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v1/search":
+					// 懒加载形态: 搜索结果**不带** extra.lyric。
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"songs": []map[string]any{{
+							"id": "lazy-id", "name": "遗症", "artist": "格林Colin",
+							"source": source, "duration": 198,
+							"extra": map[string]string{"_rank": "0"},
+						}},
+					})
+				case "/v1/lyric":
+					lyricRequests++
+					_ = json.NewEncoder(w).Encode(map[string]string{
+						"lyric": "[00:01.00]第一句\n[00:03.50]第二句",
+					})
+				default:
+					t.Errorf("unexpected provider request: %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			t.Setenv(providerBridgeURLEnv, server.URL)
+
+			songs, err := GetSearchFunc(source)("遗症")
+			if err != nil || len(songs) != 1 {
+				t.Fatalf("search songs = %#v, err = %v", songs, err)
+			}
+			if got := songs[0].Extra["lyric"]; got != "" {
+				t.Fatalf("搜索不该内联歌词, 但 extra.lyric = %q", got)
+			}
+
+			lyric, err := GetLyricFunc(source)(&songs[0])
+			if err != nil || lyric != "[00:01.00]第一句\n[00:03.50]第二句" {
+				t.Fatalf("%s 歌词 = %q, err = %v(懒加载后必须按 ID 现取)", source, lyric, err)
+			}
+			if lyricRequests != 1 {
+				t.Fatalf("%s /v1/lyric 请求数 = %d, want 1", source, lyricRequests)
+			}
+		})
+	}
+}
+
+// 搜索时已内联的歌词必须原样复用, 不能被一次"按 ID 现取"覆盖成行级歌词。
+//
+// 内联的那份往往是逐字(QRC/YRC), 现取可能只回行级 —— 白白降级用户体验,
+// 而且每次播放都多打一次上游。
+func TestProviderLyricsPrefersEmbeddedLyric(t *testing.T) {
+	resetProviderBridgeStateForTest()
+	defer resetProviderBridgeStateForTest()
+
+	var lyricRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"songs": []map[string]any{{
+					"id": "inline-id", "name": "晴天", "artist": "周杰伦", "source": "qq",
+					"extra": map[string]string{"lyric": "[00:00.000]晴[00:00.300]天"},
+				}},
+			})
+		case "/v1/lyric":
+			lyricRequests++
+			_ = json.NewEncoder(w).Encode(map[string]string{"lyric": "[00:00.00]行级晴天"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv(providerBridgeURLEnv, server.URL)
+
+	songs, err := GetSearchFunc("qq")("晴天")
+	if err != nil || len(songs) != 1 {
+		t.Fatalf("search songs = %#v, err = %v", songs, err)
+	}
+	lyric, err := GetLyricFunc("qq")(&songs[0])
+	if err != nil || lyric != "[00:00.000]晴[00:00.300]天" {
+		t.Fatalf("内联歌词被覆盖了: %q, err = %v", lyric, err)
+	}
+	if lyricRequests != 0 {
+		t.Fatalf("有内联歌词时不该再发 /v1/lyric, 实际 %d 次", lyricRequests)
+	}
+}
+
 // QQ 的歌词搜索必须真的按歌词片段检索(search_type=7), 普通搜歌必须仍是 0;
 // 这条链路的参数一旦写错, 用户按歌词搜歌就会静默退化成"按标题搜", 只有翻唱同名噪音。
 func TestQQLyricSearchSendsLyricSearchType(t *testing.T) {

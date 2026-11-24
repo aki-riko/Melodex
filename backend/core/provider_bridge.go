@@ -399,9 +399,25 @@ func providerLyrics(source string, song *providermodel.Track) (string, error) {
 			return lyric, nil
 		}
 	}
-	// 原生网易快速搜索不为每个候选额外取歌词，因此搜索缓存里可能没有
-	// extra.lyric。播放页按歌曲 ID 按需补取，不能把“缓存无 lyric”当成无歌词。
-	if song != nil && strings.EqualFold(strings.TrimSpace(source), "netease") {
+	// 搜索不再内联歌词的那些源(见 ab66886「歌词改懒加载」), extra.lyric 必然为空,
+	// 必须按歌曲 ID 向 sidecar 的 /v1/lyric 现取 —— 不能把"缓存里没有 lyric"当成"这首歌没歌词"。
+	//
+	// **这里必须是全源通用, 不能再只写 netease**(2026-11-24 真实事故):
+	// 那次懒加载把 QQ 也改成了搜索不内联, 但这段补取只对 netease 生效, 于是 QQ 歌曲
+	// 一路落到下面的 resolveProviderSong, 拿到的仍是空的 extra.lyric, 最后报
+	// "provider returned no lyrics"。用户看到的现象就是歌单里 QQ 的歌全部「暂无歌词」,
+	// 而这批歌**在下载时内嵌的歌词也一起是空的**(下载走同一个 GetLyricFunc),
+	// 所以连"服务器副本"那条兜底都救不回来。
+	//
+	// 实测对照(2026-11-24, 真实上游):
+	//   QQ   遗症 - 格林Colin      /v1/lyric 返回 5613 字符逐字 QRC
+	//   QQ   一万零一次沉溺         /v1/lyric 返回 7798 字符逐字 QRC
+	// 上游一直有词, 纯粹是我们没去要。
+	//
+	// 不对源做白名单: sidecar 的 /v1/lyric 目前实现 qq/netease/kuwo 三家(其余源是搜索时
+	// 内联, 走到这里是真没词), 以后它多支持一家, Go 侧无需再改。不支持的源会在本地
+	// sidecar 立刻回 400, 只是一次零网络往返的空调用, 代价可以忽略。
+	if song != nil && strings.TrimSpace(song.ID) != "" {
 		if client, err := getProviderBridgeClient(); err == nil {
 			if lyric, lyricErr := client.Lyric(context.Background(), bridge.LyricRequest{
 				Source: source,
