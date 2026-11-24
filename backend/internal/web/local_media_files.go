@@ -107,21 +107,6 @@ func sanitizeLocalMusicUploadName(name string) (string, error) {
 	return base + ext, nil
 }
 
-func uniqueLocalMusicPath(dir, filename string) string {
-	ext := filepath.Ext(filename)
-	base := strings.TrimSuffix(filename, ext)
-	for sequence := 0; ; sequence++ {
-		name := filename
-		if sequence > 0 {
-			name = fmt.Sprintf("%s (%d)%s", base, sequence, ext)
-		}
-		candidate := filepath.Join(dir, name)
-		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
-			return candidate
-		}
-	}
-}
-
 type localProbeResult struct {
 	Album    string
 	Artist   string

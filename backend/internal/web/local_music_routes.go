@@ -2,7 +2,6 @@ package web
 
 import (
 	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -213,14 +212,4 @@ func newSavedSongFromLocalTrack(collectionID uint, track *localMusicTrack, extra
 	song.Duration = track.Duration
 	song.AddedAt = addedAt
 	return song
-}
-
-func validateLocalCollectionTarget(collection *Collection) error {
-	if collection == nil {
-		return errors.New("missing collection")
-	}
-	if collection.isImported() {
-		return errors.New("imported collections are read-only")
-	}
-	return nil
 }

@@ -22,10 +22,6 @@ func StartDesktop(port string) {
 	runWebServer(port, StartOptions{DisableAuth: true, ListenHost: "127.0.0.1"})
 }
 
-func StartWithOptions(port string, options StartOptions) {
-	runWebServer(port, options)
-}
-
 func runWebServer(port string, options StartOptions) {
 	core.CM.Load()
 	InitDB()
