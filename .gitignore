@@ -65,3 +65,23 @@ android/signing.properties
 # 真机诊断截图(临时产物,不进仓库)
 frontend/*.png
 !frontend/public/**/*.png
+
+# 临时排查产物(2026-11 全库扫描补)
+#
+# 背景:.tmp-observations/ 这类目录此前**没有显式忽略规则** —— 它之所以显示
+# 为已忽略,仅仅因为里面唯一的文件是 *.log、被上面那条 `*.log` 顺带盖住了。
+# 一旦有人往里放一个 .json/.ps1(排查脚本很容易这么干),整个目录立刻变成
+# "未跟踪",一不小心就被 git add . 带进提交。
+#
+# 而这类目录装的正是临时诊断脚本与观测记录 —— 本项目的纪律是"证据摘录进
+# docs/,脚本该删就删",不该整目录进仓库。
+#
+# 用 `.tmp-*` 覆盖 `.tmp-observations` / `.tmp-inspect-*.ps1` 等既有形态。
+# ★ 探针脚本只限制在**根目录**且限定扩展名:`/_probe*.cjs`。
+#   最开始写成不锚定的 `_probe*`,结果把已跟踪的
+#   `desktop-prismqml/cpp/tests/playback_probe.cpp` 也匹配进去了 ——
+#   gitignore 的 glob 会跨目录匹配,必须用前导 / 锚定在根。
+.tmp-*/
+.tmp-*
+/_probe*.cjs
+/_probe*.mjs

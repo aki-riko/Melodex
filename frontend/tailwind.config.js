@@ -3,10 +3,21 @@ module.exports = {
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
-  // 本项目只有暗色主题(Spotify 风),不存在浅色模式。
-  // 显式声明 'class' 而非默认 'media':否则使用者的 OS 若是浅色,
-  // `dark:` 变体会失效(SongRow 的 amber 徽章曾因此对比度不足)。
-  // 由于全站只有暗色,组件里不应再写 dark: 变体。
+  // ★ 2026-11 全库扫描修正：以下两段注释原先都写着「本项目只有暗色主题
+  //   (Spotify 风)，不存在浅色模式」—— 那是 Spotify 皮肤时期的说法，
+  //   该皮肤已于 2026-11 彻底移除。现状是 **单套 Fluent Design、深浅两档**
+  //   (fluent-light / fluent-dark，见 src/theme/themes.js)。
+  //
+  //   这两句过期注释的危害不是"难看"，而是会**误导后续改动**：
+  //   看到「不存在浅色模式」就会放心写只适配深色的颜色值，
+  //   而浅色档下那套值会直接糊在白底上（AGENTS.md 里记着这条坑：
+  //   浅色照抄深色，白卡片会淹没在白底里）。
+  //
+  // darkMode: 'class' 这个**设置本身仍然保留**且理由不变：
+  //   显式声明 'class' 而非默认 'media'，否则使用者的 OS 若是浅色，
+  //   `dark:` 变体会失效(SongRow 的 amber 徽章曾因此对比度不足)。
+  //   只是"全站只有暗色"这个前提已不成立 —— 现在主题由 <html data-theme>
+  //   上的 fluent-light / fluent-dark 决定，组件读 token 而不是写 dark:。
   darkMode: 'class',
   theme: {
     extend: {
@@ -68,7 +79,9 @@ module.exports = {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
-        // 控件圆角:随主题变化(Spotify 主题=9999px 胶囊,Fluent 主题=4px 小圆角)。
+        // 控件圆角:随主题变化(见 index.css 的两档变量:
+        // Fluent 深浅两档都是 4px 一类的小圆角;Spotify 时期的 9999px 胶囊已随
+        // 该皮肤一起移除 —— 这条注释原先仍写着「Spotify 主题=9999px 胶囊」)。
         // 可点控件(按钮/输入框/芯片/图标钮)用它,视觉圆形装饰才继续用 rounded-full。
         control: 'var(--radius-control)',
       },
@@ -98,7 +111,9 @@ module.exports = {
       },
       boxShadow: {
         subtle: '0 8px 24px rgba(0,0,0,0.18)',
-        elevated: '0 16px 40px rgba(0,0,0,0.28)',
+        // ★ 2026-11 全库扫描删除 `elevated`(0 16px 40px):全库零引用。
+        //   它和 popover / dialog 语义重叠，留着只会让人不知道该用哪个。
+        //   浮层统一用 popover / dialog。
         // 浮层统一阴影(替代各处 shadow-xl / shadow-2xl 混用)
         popover: '0 12px 32px rgba(0,0,0,0.5)',
         dialog: '0 24px 64px rgba(0,0,0,0.6)',
