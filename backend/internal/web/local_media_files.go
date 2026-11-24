@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -615,7 +616,20 @@ func removeUserOwnedLocalFile(track *localMusicTrack, userID uint, rel string) e
 	if err := os.Remove(track.absPath); err == nil {
 		return nil
 	} else {
-		_ = recordDownload(userID, rel, localMusicSource, track.ID, track.Name, track.Artist)
+		// 删文件失败 → 回滚刚删掉的归属记录,让"文件还在、记录也在"而不是
+		// "文件还在、没人认领"。
+		//
+		// ★ 回滚本身也可能失败(2026-11 全库扫描修正):原写 `_ = recordDownload(...)`,
+		//   一旦失败就是"文件还躺在盘上、但归属记录已丢" —— 该用户在本地库里
+		//   再也看不到这个文件,管理员却能在磁盘上看到它;而且没有任何日志,
+		//   事后完全查不出发生过什么。
+		//   这里改成记日志:回滚失败属于"需要人工介入"的状态,必须留痕。
+		if rollbackErr := recordDownload(userID, rel, localMusicSource, track.ID, track.Name, track.Artist); rollbackErr != nil {
+			log.Printf(
+				"[local-music] 删除文件失败后的归属回滚也失败, 该文件将成为无主记录 user=%d rel=%q removeErr=%v rollbackErr=%v",
+				userID, rel, err, rollbackErr,
+			)
+		}
 		return err
 	}
 }

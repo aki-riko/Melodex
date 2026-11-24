@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -182,10 +183,15 @@ func getCachedQuality(song model.Track, duration int) (qualityInspectResult, boo
 
 	if row.Valid && row.SizeBytes > 0 && row.BitrateNum == 0 && duration > 0 {
 		row.Bitrate, row.BitrateNum = qualityBitrate(row.SizeBytes, duration)
-		_ = currentDB.Model(&qualityCacheRow{}).Where("key = ?", key).Updates(map[string]interface{}{
+		// 缓存回写失败只意味着下次还要重算,不影响本次返回 —— 但仍记日志:
+		// 若持续失败(表结构/磁盘/权限),"音质信息永远补不上"会是个没有任何
+		// 痕迹的现象(2026-11 全库扫描修正:原来用 `_ =` 完全静默)。
+		if err := currentDB.Model(&qualityCacheRow{}).Where("key = ?", key).Updates(map[string]interface{}{
 			"bitrate":     row.Bitrate,
 			"bitrate_num": row.BitrateNum,
-		}).Error
+		}).Error; err != nil {
+			log.Printf("[quality-cache] 回写 bitrate 失败 key=%s: %v", key, err)
+		}
 	}
 
 	return qualityInspectResult{
