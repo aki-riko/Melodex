@@ -163,19 +163,100 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 			return
 		}
 
-		// 逐条按歌名搜索匹配,取综合排序第1(原唱优先)加入歌单。
-		sources := defaultSourcesForSearchType("song")
-		matched := 0
-		for _, e := range entries {
-			query := e.Title
-			songs, _ := concurrentKeywordSearch(query, "song", sources)
-			if len(songs) == 0 {
-				continue
-			}
+		// 逐条按歌名搜索匹配是**分钟级**工作(1000 条 × 主力源 1~2 秒),
+		// 不能在请求里同步跑 —— 原实现把前端 600 秒超时撞穿,用户看到"导入失败"
+		// 而歌单其实已经建好并在继续填歌。现在改为:建歌单 → 启动后台任务 →
+		// 立刻返回 task_id,前端轮询进度。详见 m3u_import_task.go 的说明。
+		task, existing := newM3UImportTask(uid, coll.Name, len(entries), coll.ID)
+		if existing != nil {
+			// 该用户已有进行中的导入:不重复启动(每条都打全源搜索,
+			// 并发导入会把上游打爆,与项目"绝不提高上游并发"的纪律相反)。
+			c.JSON(200, gin.H{
+				"task_id":         existing.ID,
+				"id":              existing.collectionID,
+				"name":            existing.Name,
+				"total":           existing.Total,
+				"state":           existing.State(),
+				"already_running": true,
+			})
+			return
+		}
+
+		go runM3UImportTask(task, entries)
+
+		c.JSON(200, gin.H{
+			"task_id": task.ID,
+			"id":      coll.ID,
+			"name":    coll.Name,
+			"total":   len(entries),
+			"state":   m3uImportRunning,
+		})
+	})
+
+	// 查询导入进度。前端每 ~1 秒轮询一次,直到 state 变成 done/failed/cancelled。
+	colAPI.GET("/import_m3u/tasks/:id", func(c *gin.Context) {
+		uid := currentUserID(c)
+		if uid == 0 {
+			c.JSON(401, gin.H{"error": "请先登录"})
+			return
+		}
+		task := lookupM3UImportTask(c.Param("id"), uid)
+		if task == nil {
+			// 用户不匹配与不存在一律 404 —— 不泄露他人任务是否存在。
+			c.JSON(404, gin.H{"error": "导入任务不存在或已过期"})
+			return
+		}
+		c.JSON(200, task.progress())
+	})
+
+	// 取消导入。后台循环会在下一条开始前退出,已导入的歌曲保留。
+	colAPI.DELETE("/import_m3u/tasks/:id", func(c *gin.Context) {
+		uid := currentUserID(c)
+		if uid == 0 {
+			c.JSON(401, gin.H{"error": "请先登录"})
+			return
+		}
+		task := lookupM3UImportTask(c.Param("id"), uid)
+		if task == nil {
+			c.JSON(404, gin.H{"error": "导入任务不存在或已过期"})
+			return
+		}
+		task.Cancel()
+		c.JSON(200, task.progress())
+	})
+}
+
+// runM3UImportTask 是导入的后台执行体。
+//
+// 逐条搜索匹配,每 m3uImportBatchSize 条上报一次进度;用户取消时尽快退出
+// (已导入的歌曲保留 —— 半份歌单比全丢更有用,且用户可以再导一次)。
+//
+// ★ 这里的每一步都要能容忍"进程里还有别的请求在跑":用的是全局 db 句柄,
+//
+//	与原有实现一致(原本也是在请求 goroutine 里直接用的)。
+func runM3UImportTask(task *m3uImportTask, entries []m3uEntry) {
+	// 任务结束时:标记终态 + 从 byUser 摘掉(否则同一用户永远只能有一个历史 id)。
+	defer task.detach()
+
+	sources := defaultSourcesForSearchType("song")
+	matched := 0
+	processed := 0
+
+	for _, e := range entries {
+		if task.Cancelled() {
+			task.finish(m3uImportCancelled, "已取消,已导入的歌曲保留", processed, matched)
+			return
+		}
+
+		query := e.Title
+		songs, _ := concurrentKeywordSearch(query, "song", sources)
+		processed++
+
+		if len(songs) > 0 {
 			sortSongsByRelevance(songs, query)
 			best := songs[0]
 			saved := SavedSong{
-				CollectionID: coll.ID,
+				CollectionID: task.collectionID,
 				SongID:       best.ID,
 				Source:       best.Source,
 				Name:         best.Name,
@@ -189,12 +270,11 @@ func registerM3UImport(colAPI *gin.RouterGroup) {
 			}
 		}
 
-		c.JSON(200, gin.H{
-			"id":      coll.ID,
-			"name":    coll.Name,
-			"total":   len(entries),
-			"matched": matched,
-			"skipped": len(entries) - matched,
-		})
-	})
+		// 分批上报:每条都刷毫无增益(前端 1 秒才读一次),只是多几次锁竞争。
+		if processed%m3uImportBatchSize == 0 {
+			task.recordBatch(processed, matched)
+		}
+	}
+
+	task.finish(m3uImportDone, "", processed, matched)
 }

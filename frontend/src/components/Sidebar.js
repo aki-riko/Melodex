@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Clock, Download, HardDriveDownload, HelpCircle, Home, LogOut, Menu,
   Music, Plus, Search, Settings, Users,
@@ -6,7 +6,8 @@ import {
 import { useCollections } from '../contexts/CollectionsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
-import { importM3U } from '../services/collections';
+import { useM3UImport } from '../hooks/useM3UImport';
+import { broadcastImportProgress } from '../services/importProgressBus';
 import { requestOpenPlaylist } from '../services/playlistBus';
 import ImportPlaylistModal from './ImportPlaylistModal';
 import { MenuPopover, MenuItem } from '../ui/Menu';
@@ -144,6 +145,30 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
   const btnRef = React.useRef(null);
   const activeCollectionId = currentSection === 'MyPlaylist' && currentSubPath != null ? String(currentSubPath) : null;
 
+  // m3u 导入已改为"提交即返回 + 轮询进度"(见 hooks/useM3UImport 的说明)。
+  // 完成时刷新侧栏歌单列表并提示结果。
+  const importTask = useM3UImport({
+    onDone: (snapshot) => {
+      refresh();
+      const tail = snapshot.skipped > 0 ? `,${snapshot.skipped} 首未匹配` : '';
+      feedback.success(
+        `导入完成：共 ${snapshot.total} 条，匹配 ${snapshot.matched} 首${tail}`,
+      );
+      // 完成后广播 null,让歌单页顶部隐藏进度条。
+      broadcastImportProgress(null);
+    },
+  });
+
+  // 把 hook 的进度变化转成广播 —— 歌单页顶部据此显示进度条。
+  // 用 effect 而不是在 poll 回调里直接派发:hook 不知道 UI 要不要这个数据,
+  // 让订阅方决定,职责更清楚。
+  useEffect(() => {
+    if (!importTask.task) return;
+    // 已结束的终态也广播一次(前端可以据此显示"已完成"再自行隐藏),
+    // 但紧接着 onDone 会广播 null 收尾。
+    broadcastImportProgress(importTask.task);
+  }, [importTask.task]);
+
   const openNew = (c, nm) => {
     if (c && c.id != null) {
       onNavigate('MyPlaylist', c.id);
@@ -174,13 +199,18 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
     try {
       const content = await f.text();
       const base = f.name.replace(/\.(m3u8?|M3U8?)$/, '');
-      const r = await importM3U(base || '导入歌单', content);
+      // 提交即返回(后端改为后台逐条匹配 + 轮询进度,见 hooks/useM3UImport)。
+      const created = await importTask.start(base || '导入歌单', content);
+      // 歌单已经建好了,立刻刷新列表并跳过去 —— 用户能马上看到歌单在长大。
       await refresh();
-      feedback.success(`导入「${r.name}」:共 ${r.total} 条，匹配 ${r.matched} 首${r.skipped ? `,${r.skipped} 首未匹配` : ''}`);
-      openNew({ id: r.id }, r.name);
+      openNew({ id: created.id }, created.name);
+      if (created.already_running) {
+        feedback.info('该账号已有一个导入正在进行，已为你接入它的进度');
+      }
     } catch (err) {
       feedback.error(`导入失败:${err?.response?.data?.error || err.message || '未知错误'}`);
     } finally {
+      // 轮询仍可能在跑,但"选文件"这个动作本身完成了。
       setImporting(false);
     }
   };

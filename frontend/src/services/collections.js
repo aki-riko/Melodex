@@ -51,10 +51,34 @@ export const removeSongFromCollection = async (id, song) => {
   return data;
 };
 
-// 导入 m3u/m3u8(content=文件全文)→ 新建歌单并按歌名搜索匹配入库
-// 每首一次多源搜索,大歌单可能耗时数分钟,故单独放宽超时到 10 分钟。
+// 导入 m3u/m3u8(content=文件全文)→ 新建歌单并按歌名搜索匹配入库。
+//
+// ★ 2026-11 全库扫描改契约:提交**立即返回**,不再同步等搜索完。
+//   原因:条目上限 1000、每条一次全源搜索(主力源实测 1~2 秒),同步跑要
+//   1000~2000 秒,而这里原来设的 600 秒超时必然先到 —— 用户看到"导入失败",
+//   但后端其实已建好歌单并在继续填歌,刷新一下歌单又出现了。
+//
+//   现在的形状:
+//     POST   /import_m3u            → { task_id, id, name, total, state }
+//     GET    /import_m3u/tasks/:id  → { state, total, processed, matched,
+//                                      skipped, percent, message }
+//     DELETE /import_m3u/tasks/:id  → 取消(已导入的歌曲保留)
+//
+//   所以这里不再需要 10 分钟超时,普通请求超时即可。
 export const importM3U = async (name, content) => {
-  const { data } = await client.post(`${BASE}/import_m3u`, { name, content }, { timeout: 600000 });
+  const { data } = await client.post(`${BASE}/import_m3u`, { name, content });
+  return data;
+};
+
+// 查询 m3u 导入进度。前端轮询直到 state 不再是 'running'。
+export const getImportM3UTask = async (taskId) => {
+  const { data } = await client.get(`${BASE}/import_m3u/tasks/${encodeURIComponent(taskId)}`);
+  return data;
+};
+
+// 取消 m3u 导入。已导入的歌曲保留(半份歌单比全丢更有用)。
+export const cancelImportM3UTask = async (taskId) => {
+  const { data } = await client.delete(`${BASE}/import_m3u/tasks/${encodeURIComponent(taskId)}`);
   return data;
 };
 

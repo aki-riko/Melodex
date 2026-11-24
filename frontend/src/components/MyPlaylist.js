@@ -22,6 +22,7 @@ import Button from '../ui/Button';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
 import { LyricDialog, useSongLyric } from './useSongLyric';
+import ImportProgressBar from './ImportProgressBar';
 import { MenuPopover, MenuItem } from '../ui/Menu';
 import { useBackLayer } from '../contexts/backNavigation.js';
 import { pushRouteEntry } from '../contexts/routeHistory.js';
@@ -201,6 +202,9 @@ export default function MyPlaylist() {
 
   return (
     <div>
+      {/* m3u 导入进度:进度条自己订阅 importProgressBus,没有导入任务时渲染 null。
+          放在 header 之前 —— 用户点完导入就被导航到这里,第一眼就能看到进度。 */}
+      <ImportProgressBar />
       <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
         <CoverMosaic items={songs} icon={Play} iconSize={36} />
         <div className="min-w-0 flex-1">
