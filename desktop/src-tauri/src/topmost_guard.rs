@@ -52,12 +52,20 @@ pub const RECOVER_COOLDOWN_MS: u32 = 3_000;
 static LAST_RECOVER_MS: AtomicU32 = AtomicU32::new(0);
 
 /// 每轮守护的判定结果，用于单测纯逻辑与运行期日志区分。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TopmostState {
     /// 已在置顶层最前（上方没有「会盖住它的非置顶窗口」）。
     Ok,
     /// 失位：上方存在几何覆盖它的非置顶窗口。
-    Displaced { blockers: usize, rank: usize },
+    ///
+    /// `blockers` / `rank` 是数量诊断，`detail` 是**遮蔽者身份**。
+    /// 身份必须有：2026-11-24 第一次上线后，日志只记了「rank=2, 压着 1 个」，
+    /// 结果仍然不知道是谁压的，等于白记一轮 —— 所以这次把进程名/类名/标题一起带上。
+    Displaced {
+        blockers: usize,
+        rank: usize,
+        detail: String,
+    },
     /// 窗口不存在 / 不可见 / 已最小化 —— 此时不必管层级。
     Inactive,
     /// 查询失败（取不到 HWND 等），保持沉默，下轮再试。
@@ -117,7 +125,12 @@ pub fn guard_once(app: &AppHandle) -> bool {
         return false;
     };
     let state = inspect(hwnd);
-    let TopmostState::Displaced { blockers, rank } = state else {
+    let TopmostState::Displaced {
+        blockers,
+        rank,
+        detail,
+    } = state
+    else {
         return false;
     };
 
@@ -132,7 +145,7 @@ pub fn guard_once(app: &AppHandle) -> bool {
         Ok(()) => {
             LAST_RECOVER_MS.store(now, Ordering::SeqCst);
             logging::warn(format!(
-                "桌面歌词失位已拉回置顶层（纠正前 rank={rank}，压着它的非置顶窗口={blockers} 个）"
+                "桌面歌词失位已拉回置顶层（纠正前 rank={rank}，压着它的非置顶窗口={blockers} 个；遮蔽者：{detail}）"
             ));
             true
         }
@@ -169,6 +182,21 @@ mod win32 {
             cx: i32,
             cy: i32,
             flags: u32,
+        ) -> i32;
+        fn GetWindowThreadProcessId(hwnd: *mut std::ffi::c_void, pid: *mut u32) -> u32;
+        fn GetClassNameW(hwnd: *mut std::ffi::c_void, buffer: *mut u16, max: i32) -> i32;
+        fn GetWindowTextW(hwnd: *mut std::ffi::c_void, buffer: *mut u16, max: i32) -> i32;
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut std::ffi::c_void;
+        fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+        fn QueryFullProcessImageNameW(
+            process: *mut std::ffi::c_void,
+            flags: u32,
+            buffer: *mut u16,
+            size: *mut u32,
         ) -> i32;
     }
 
@@ -211,6 +239,86 @@ mod win32 {
         (ex & WS_EX_TOPMOST) != 0
     }
 
+    /// 读窗口标题（失败返回空串）。
+    fn window_title(hwnd: *mut std::ffi::c_void) -> String {
+        let mut buffer = [0u16; 128];
+        // SAFETY: buffer 长度与传入上限一致，GetWindowTextW 会写入并补零。
+        let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+        if len <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buffer[..len as usize])
+    }
+
+    /// 读窗口类名（失败返回空串）。
+    fn window_class(hwnd: *mut std::ffi::c_void) -> String {
+        let mut buffer = [0u16; 96];
+        // SAFETY: 同 window_title。
+        let len = unsafe { GetClassNameW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+        if len <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buffer[..len as usize])
+    }
+
+    /// 读窗口所属进程的可执行文件名（不含目录）。
+    ///
+    /// 打不开进程（权限/已退出）时返回空串——日志少一个字段，不影响守护逻辑。
+    fn process_name(hwnd: *mut std::ffi::c_void) -> String {
+        let mut pid: u32 = 0;
+        // SAFETY: 纯查询。
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+        if pid == 0 {
+            return String::new();
+        }
+        // PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        // SAFETY: 句柄在使用后立即关闭；失败时返回空串。
+        let handle = unsafe { OpenProcess(0x1000, 0, pid) };
+        if handle.is_null() {
+            return String::new();
+        }
+        let mut buffer = [0u16; 512];
+        let mut size = buffer.len() as u32;
+        // SAFETY: buffer/size 成对传入，成功时 size 被改写为实际长度。
+        let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut size) };
+        unsafe { CloseHandle(handle) };
+        if ok == 0 || size == 0 {
+            return String::new();
+        }
+        let full = String::from_utf16_lossy(&buffer[..size as usize]);
+        // 只保留文件名：完整路径又长又含用户名，日志里没必要。
+        full.rsplit(['\\', '/']).next().unwrap_or("").to_string()
+    }
+
+    /// 拼一行「遮蔽者身份」，给日志用。
+    fn describe_blocker(hwnd: *mut std::ffi::c_void) -> String {
+        let name = process_name(hwnd);
+        let class = window_class(hwnd);
+        let title = window_title(hwnd);
+        let mut parts: Vec<String> = Vec::new();
+        if !name.is_empty() {
+            parts.push(name);
+        }
+        if !class.is_empty() {
+            parts.push(format!("[{class}]"));
+        }
+        if !title.is_empty() {
+            // 标题可能很长，截断避免日志爆行。
+            let clipped: String = title.chars().take(48).collect();
+            let ellipsis = if title.chars().count() > 48 {
+                "…"
+            } else {
+                ""
+            };
+            parts.push(format!("「{clipped}{ellipsis}」"));
+        }
+        if parts.is_empty() {
+            "未知窗口".to_string()
+        } else {
+            parts.join(" ")
+        }
+    }
+
     fn intersects(a: Rect, b: Rect) -> bool {
         !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
     }
@@ -239,6 +347,9 @@ mod win32 {
 
         let mut rank = 0usize;
         let mut blockers = 0usize;
+        // 最多记这么多个遮蔽者身份，避免一个全屏弹窗叠一堆时把日志撑爆。
+        const MAX_NAMED_BLOCKERS: usize = 3;
+        let mut names: Vec<String> = Vec::new();
         // SAFETY: 沿 z 序向下走，只读。
         let mut current = unsafe { GetTopWindow(std::ptr::null_mut()) };
         let mut steps = 0usize;
@@ -255,6 +366,9 @@ mod win32 {
                         rank += 1;
                         if !is_topmost(current) && intersects(rect, target_rect) {
                             blockers += 1;
+                            if names.len() < MAX_NAMED_BLOCKERS {
+                                names.push(describe_blocker(current));
+                            }
                         }
                     }
                 }
@@ -264,7 +378,11 @@ mod win32 {
         }
 
         if blockers > 0 {
-            TopmostState::Displaced { blockers, rank }
+            TopmostState::Displaced {
+                blockers,
+                rank,
+                detail: names.join(" / "),
+            }
         } else {
             TopmostState::Ok
         }
@@ -308,16 +426,28 @@ mod tests {
 
     #[test]
     fn displaced_state_carries_diagnostics() {
-        // 失位状态必须带上 rank 与 blockers 两个数：
-        // 用户报障时这条日志是唯一能证明「确实失过位、且压在谁下面」的证据。
+        // 失位状态必须带上 rank / blockers / detail 三样：
+        // 前两个是数量诊断，detail 是**遮蔽者身份**（进程名+类名+标题）。
+        //
+        // 这条是补记的教训：第一版只记 rank+blockers，上线后日志出现
+        // 「rank=2，压着 1 个」却仍然不知道是谁压的，等于白记一轮。
         let state = TopmostState::Displaced {
             blockers: 7,
             rank: 15,
+            detail: "chrome [Chrome_WidgetWin_1]「某页面」".to_string(),
         };
         match state {
-            TopmostState::Displaced { blockers, rank } => {
+            TopmostState::Displaced {
+                blockers,
+                rank,
+                detail,
+            } => {
                 assert_eq!(blockers, 7);
                 assert_eq!(rank, 15);
+                assert!(
+                    detail.contains("chrome"),
+                    "detail 必须能指出是谁压的，实际：{detail}"
+                );
             }
             other => panic!("期望 Displaced，实际 {other:?}"),
         }
@@ -336,10 +466,24 @@ mod tests {
                 state,
                 TopmostState::Displaced {
                     blockers: 1,
-                    rank: 1
+                    rank: 1,
+                    detail: String::new(),
                 },
                 "{state:?} 不应被当成失位"
             );
         }
+    }
+
+    #[test]
+    fn blocker_names_are_capped() {
+        // 遮蔽者身份最多记 3 个：全屏弹窗叠加时可能有十几个窗口同时覆盖，
+        // 全记会把一行日志撑成几 KB。这里用 detail 的拼接格式做契约断言。
+        let names = ["a.exe", "b.exe", "c.exe"];
+        let detail = names.join(" / ");
+        assert_eq!(
+            detail.matches(" / ").count(),
+            2,
+            "三个名字之间应有 2 个分隔符"
+        );
     }
 }
