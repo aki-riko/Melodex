@@ -38,7 +38,6 @@ func newWebRouter(options StartOptions) (*gin.Engine, error) {
 	registerMediaAndLibraryRoutes(api, adminAPI, userAPI, options)
 
 	RegisterJSONAPIRoutes(router, options)
-	RegisterDesktopLyricsRoutes(router, options)
 	RegisterSubsonicRoutes(router)
 	registerFrontend(router)
 	return router, nil

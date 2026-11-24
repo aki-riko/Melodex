@@ -175,6 +175,19 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 一次性配对码 + 设备令牌。新客户端里**播放与歌词窗同进程**,那套配对纯属历史包袱,
 表现为「必须先配对才能看歌词」的体验断裂。已删除。
 
+> **2026-11-24 补删:后端那套中转服务本体也清掉了。**
+> 那次「已删除」只删了客户端的配对流程(界面 + PrismQML),后端 1051 行仍在:
+> `desktop_lyrics_auth.go`(345,配对/设备令牌/WS 握手)+ `desktop_lyrics_hub.go`
+> (441,浏览器↔设备的消息路由)+ `desktop_lyrics_test.go`(265)。
+> `server_routes.go` 还挂着 `RegisterDesktopLyricsRoutes`,`/api/v1/desktop-lyrics/*`
+> 与两条 WebSocket 端点一直对外可访问;**前端三个配对 API 零调用点**,等于一整块
+> 没有人用的服务面在线上开着。现已整体删除,连带 `DesktopLyricsDevice` 表也移出
+> AutoMigrate(`users.go` 里那 4 处删表 + 4 处断连一并清理)。
+>
+> **Rust 侧的 `pair_device` / `clear_pairing` 命令仍在**(那是另一回事:Tauri 本地
+> IPC,为兼容历史凭据保留,build.rs/capabilities 三处对齐)。不要把它们和上面这批
+> 已删的后端 HTTP/WS 服务混为一谈。
+
 **现设计**(`desktop/src-tauri/src/lyrics_bridge.rs`):
 
 ```

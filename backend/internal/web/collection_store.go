@@ -24,7 +24,7 @@ func InitDB() {
 	models := []interface{}{
 		&Collection{}, &SavedSong{}, &User{}, &DownloadRecord{}, &userPrefRow{},
 		&searchCacheRow{}, &apiCacheRow{}, &searchHistoryRow{}, &playHistoryRow{},
-		&qualityCacheRow{}, &DesktopLyricsDevice{},
+		&qualityCacheRow{},
 	}
 	if err := db.AutoMigrate(models...); err != nil {
 		panic("Failed to migrate database: " + err.Error())
