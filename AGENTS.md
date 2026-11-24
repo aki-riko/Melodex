@@ -967,7 +967,9 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   别只发一个字段:那是整份覆盖,`embedDownload` 这类 bool 没有默认值兜底会被清掉),
   而且换应用内路径会让旧的 relPath 记录失配 —— 所以优先用上面的挂载法。
   **生产已于 2026-09-11 实际切换**(可用此法核对/回退):`.env` 里
-  `MELODEX_DOWNLOAD_DIR=/mnt/user/Media/link/音乐`(阵列 shfs,宿主目录已 `chown 1000:1000`),
+  `MELODEX_DOWNLOAD_DIR=/mnt/user/data/media/link/音乐`(阵列 shfs,宿主目录已 `chown 1000:1000`),
+  ▲ **注意真实路径是 `data/media`(小写)不是 `Media`** —— 本文档曾把这里写成 `/mnt/user/Media/link/音乐`,
+  按文档去核对会得到 "No such file or directory",白白浪费一轮排查(2026-11-24 实测两处大小写不一致)。
   迁移方式 `rsync -a` 741 个文件 / 19,653,291,976 字节,校验用 `rsync -rcn --delete` 复核传输数 = 0,
   核对无误后才删缓存池旧副本(`/mnt/cache/appdata/melodex-src/data/downloads` 现为空目录,
   19G 从 appdata 缓存池释放 —— **appdata 是 ZFS,`df` 有片刻延迟**:删完立刻看可能还是 207G/13%,
@@ -976,6 +978,56 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   Postgres 里 633 条 `download_records` 的 rel_path **全部**在新目录命中(633 记录 = 632 文件,
   因为 `晚安 - 许莉洁.ogg` 有两条身份记录)—— 所以「已下载」状态与"服务器副本优先播放"不需要改任何数据。
   回退只需把 `.env` 里那行删掉再 `docker compose up -d melodex`(文件不会自己回去)。
+
+### ★ 真实事故(2026-11-24):自动缓存到 NAS「悄悄失效」两个月
+
+**现象**:用户报「现在播放似乎不会自动缓存到 NAS 了」,前端无报错、无提示,看起来功能没了。
+
+**根因**:切换下载目录后,`/mnt/user/data/media/link/音乐` 是 `root:root 755`,而容器以
+`appuser(uid=1000)` 运行 → 该身份属"others",**没有写权限**。于是链路是:前端照常发
+`POST ?save_local=1` → 后端照常拉到音频 → `os.CreateTemp` 处 `Permission denied` →
+**只回 JSON、日志一行不打** → 用户侧完全无迹可循。最后一条成功下载记录停在 `2026-09-18`,
+之后 10 月/11 月 `download_records` 新增 **0 条**,而同期播放照常(11-18 单日 69 次)。
+
+**★ 这次真正的教训不是"忘了 chown",而是三条排查/可观测性纪律:**
+
+1. **下载目录换位置后,必须验证的是"容器身份可写"而不是"目录存在"。**
+   正确判据(容器内执行,宿主用户无关):
+   ```bash
+   docker exec melodex sh -c 'test -w /home/appuser/data/downloads && echo WRITABLE || echo NOT_WRITABLE'
+   ```
+   `docker exec melodex id` 应为 `uid=1000(appuser)`;`ls -ld <宿主目录>` 的 owner 必须是 **1000**。
+   只 `mkdir` 不 `chown` 时目录是 `root:root 755`,**读得到、列得出、就是写不进** —— 这类缺陷
+   在只读检查里完全隐形。修复:`chown -R 1000:1000 "<宿主音乐目录>"`。
+2. **数据库 `download_records` 的 `max(created_at)` 是这条链路的黄金指标。**
+   怀疑"不缓存了"第一时间查它,不要从前端代码开始猜:
+   ```bash
+   docker exec melodex-postgres sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB \
+     -c "SELECT count(*), max(created_at) FROM download_records;"'
+   # 再按日/按月看断点:
+     -c "SELECT to_char(created_at,'YYYY-MM') m, count(*) FROM download_records GROUP BY 1 ORDER BY 1 DESC;"
+   ```
+   与 `play_history_rows` 同期数据对比:播放有、下载无 → 断在写盘/权限;两者都无 → 断在前端。
+3. **后端写盘失败必须留日志**(已修,`music_routes.go` 的 `saveTrackToServer`/`saveWebAssetResponse`)。
+   现在失败会打 `[download] save to server failed source=... id=... dir=...: ...`,
+   一条命令就能定位:`docker logs melodex 2>&1 | grep '\[download\]'`。
+   前端 `PlayerContext`/`NativePlayerProvider` 的 `saveToServer` 也会 `console.warn`(含后端 200
+   但 `saved/recorded` 不为 true 的情况)。
+
+**★ 排查时踩到的假象(会把人带偏,记下来):**
+- **"72 小时 0 次 POST"是假证据**:容器刚重建,`docker logs` 只覆盖那 20 分钟。
+  判断日志覆盖范围必须先看 `docker ps` 的 `Up` 时长与日志首行时间戳。
+- `settings.db` 停在 7 月不代表数据没在写:生产用 **Postgres**(`MUSIC_DL_DATABASE_DRIVER=postgres`),
+  `settings.db` 只是 `MUSIC_DL_LEGACY_SQLITE_DB` 遗留文件。真实数据在 `melodex-postgres` 容器里。
+- 前端是 `go:embed` 编译进二进制的,线上包要查有没有某段逻辑,得
+  `curl -s http://127.0.0.1:8329/assets/index-*.js | grep -o <特征串> | wc -l`
+  (**别用 `grep -c`,压缩包只有一行,它恒返回 1,会得出相反结论**)。
+- 本机 curl 打容器要 `--noproxy "*"`,否则走开发机 7897 代理连不上。
+  容器内自测用 `127.0.0.1:8329`;从 NAS 宿主访问用
+  `docker inspect <容器> --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`
+  动态取容器 IP(不要写死网段,重建后会变)。
+
+
 - **安全相关 env(2026-06 审计后新增,反代部署建议配)**:
   - `MUSIC_DL_TRUSTED_PROXIES`:逗号分隔 CIDR/IP(如 NPM 容器网段 `172.18.0.0/16`)。配后仅这些来源的 `X-Forwarded-For` 被 `ClientIP()` 采信,防客户端伪造 XFF 绕过限流/登录锁。**不配时后端不信任任何代理并忽略 XFF**;配置非法则拒绝启动。有反代且需要还原客户端 IP 时务必准确配置。
   - `MUSIC_DL_CORS_ORIGINS`:逗号分隔的可信跨域来源(同源无需配)。CORS 不再反射任意 Origin,只对同源+此白名单回显凭据。
