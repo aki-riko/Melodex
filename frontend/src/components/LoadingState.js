@@ -46,14 +46,4 @@ const LoadingState = ({
   </div>
 );
 
-export const InlineLoading = ({ label = '加载中', className = '' }) => (
-  <span className={`inline-flex items-center gap-2 text-muted-foreground ${className}`} role="status" aria-live="polite">
-    <Loader2 size={16} className="animate-spin text-primary" />
-    <span>
-      {label}
-      <span className="loading-dots" aria-hidden="true" />
-    </span>
-  </span>
-);
-
 export default LoadingState;

@@ -25,11 +25,6 @@ export const createCollection = async (name, { description = '', cover = '' } = 
 };
 
 // 改名/描述
-export const updateCollection = async (id, fields) => {
-  const { data } = await client.put(`${BASE}/${encodeURIComponent(id)}`, fields);
-  return data;
-};
-
 // 删歌单
 export const deleteCollection = async (id) => {
   const { data } = await client.delete(`${BASE}/${encodeURIComponent(id)}`);

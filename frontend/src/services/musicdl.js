@@ -75,15 +75,6 @@ export const clearSearchCache = async (keyword, { types = ['song'], sources = []
   return data; // { deleted }
 };
 
-// 输入框补全建议:只读本地搜索历史/缓存,不触发上游搜索或验活。
-export const getSearchSuggestions = async (keyword, { limit = 24 } = {}) => {
-  const params = new URLSearchParams();
-  params.set('q', keyword);
-  params.set('limit', limit);
-  const { data } = await client.get(`/api/v1/search_suggestions?${params.toString()}`);
-  return withSongs(data); // { keywords, songs }
-};
-
 const recognitionExtForMime = (mime = '') => {
   if (mime.includes('mp4')) return 'm4a';
   if (mime.includes('ogg')) return 'ogg';
@@ -105,12 +96,6 @@ export const recognizeAudio = async (blob) => {
 export const getRecognitionStatus = async () => {
   const { data } = await client.get('/api/v1/recognize/status');
   return data; // { enabled, provider, max_bytes, timeout, rate_limit_per_minute, error? }
-};
-
-// 获取可用音乐源
-export const getSources = async () => {
-  const { data } = await client.get('/api/v1/sources');
-  return data; // { all, default, playlist, album }
 };
 
 // 每日推荐歌单(按源分栏)
@@ -407,10 +392,6 @@ export const coverProxyUrl = (song, options = {}) => {
   return `${API_BASE}/music/cover_proxy?url=${encodeURIComponent(url)}${src ? `&source=${encodeURIComponent(src)}` : ''}`;
 };
 
-// 后端管理员登录/初始化页(原版 HTMX 页面)。敏感接口需先在此登录。
-export const adminSetupUrl = `${API_BASE}/music/setup`;
-export const adminLoginUrl = `${API_BASE}/music/login`;
-
 // 标记鉴权错误,供 Settings 页给出清晰引导而非笼统“失败”。
 export class AuthRequiredError extends Error {
   constructor(setupRequired) {
@@ -473,14 +454,6 @@ export const register = async (username, password) => {
 // 登出
 export const logout = async () => {
   const { data } = await client.post('/api/v1/auth/logout');
-  return data;
-};
-
-// 个人展示偏好(浮动歌词/每页条数)。返回合并后的完整 settings。
-export const saveUserPrefs = async (prefs) => {
-  const { data } = await client.post('/music/user/prefs', prefs, {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-  });
   return data;
 };
 

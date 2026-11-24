@@ -14,7 +14,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  getStreamUrl,
   saveToServer,
   serverSaveSucceeded,
   coverProxyUrl,
@@ -647,8 +646,6 @@ const SongRow = ({
     </div>
   );
 };
-
-export { getStreamUrl };
 
 /**
  * 自定义比较:memo 要挡住的是"父级因无关状态变化而重渲染",不是"这行真的该更新"。
