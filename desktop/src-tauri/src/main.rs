@@ -17,6 +17,7 @@ mod overlay;
 mod service_url;
 mod settings_window;
 mod shortcuts;
+mod topmost_guard;
 mod tray;
 mod updates;
 
@@ -113,6 +114,19 @@ fn main() {
 
             // 歌词设置窗：默认后台创建不弹出，从托盘「桌面歌词设置…」打开。
             settings_window::create_settings_window(&handle, false)?;
+
+            // 置顶层级守护：全屏独占应用（游戏）会把歌词窗降级到普通层，
+            // 但**保留 WS_EX_TOPMOST 样式位**，退出游戏后自己不会恢复
+            // （2026-11-24 真机现场：样式位=True 但 rank=15、上方压着 14 个非置顶窗口）。
+            //
+            // 只读巡检 + 失位才纠正：正常时纯查询零副作用，不会跟别的置顶程序抢。
+            let guard_handle = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    topmost_guard::GUARD_INTERVAL_MS,
+                ));
+                topmost_guard::guard_once(&guard_handle);
+            });
 
             Ok(())
         })
