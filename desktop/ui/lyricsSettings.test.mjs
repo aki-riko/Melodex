@@ -451,7 +451,13 @@ test('歌词窗不再读写 localStorage 保存字号/位置', () => {
 
 test('歌词窗消费设置事件，能跟随设置页/托盘的改动', () => {
   assert.match(overlayJs, /SETTINGS_EVENT = 'melodex:lyrics-settings'/);
-  assert.match(overlayJs, /listen\(SETTINGS_EVENT/);
+  // 2026-11 起订阅统一走 subscribe() 包装(它负责 .catch 与"哪个事件失败"的日志),
+  // 所以这里断言"订阅了 SETTINGS_EVENT"而不是断言某个具体调用形态。
+  assert.match(
+    overlayJs,
+    /subscribe\(SETTINGS_EVENT, \(event\) => applySettings\(event\.payload\)\)/,
+    '歌词窗必须订阅 SETTINGS_EVENT 并调 applySettings',
+  );
 });
 
 test('可见性 = 用户开关 且 有歌可显示（无歌时不得留空窗挡鼠标）', () => {
@@ -513,7 +519,12 @@ test('设置页 6 项齐全且顺序对齐旧实现', () => {
 });
 
 test('设置页订阅设置事件，跟随其它窗口改动', () => {
-  assert.match(settingsJs, /listen\(SETTINGS_EVENT, \(event\) => render\(event\.payload\)\)/);
+  // 订阅本身必须存在;失败处理由上面「每个 listen() 都必须 .catch」那条守。
+  assert.match(
+    settingsJs,
+    /listen\(SETTINGS_EVENT, \(event\) => render\(event\.payload\)\)/,
+    '设置页必须订阅 SETTINGS_EVENT 并调 render',
+  );
 });
 
 test('字号滑块范围与步长来自壳侧，不在这里硬编码 20/64', () => {
@@ -1102,6 +1113,115 @@ test('beforeunload 仍必须无条件保存位置', () => {
   assert.ok(
     !/dragArmed/.test(block[1]),
     'beforeunload 不该受 dragArmed 约束 —— 退出前必须把当前位置落盘',
+  );
+});
+
+// ── 事件订阅必须处理失败（2026-11 全库扫描）──────────────────────────────
+//
+// `window.__TAURI__.event.listen()` 返回 Promise 且**可能 reject**：
+//   · ACL 拒绝 —— `core:event:allow-listen` 漏配时报 `event.listen not allowed`；
+//   · 事件运行时尚未就绪。
+// reject 而没人接 = unhandled rejection。GUI 进程（windows_subsystem="windows"）
+// 没有可见控制台，于是表现成「歌词窗永远不显示 / 设置页不随托盘变化」，
+// 而日志里一个字都没有。
+//
+// 本项目已经踩过同一起事故的另一个形态（AGENTS.md 记着）：overlay 的
+// `lyrics_send_command` 只在 lyrics-bridge.json 里授给了 main 窗口，
+// overlay 自己没被授予 → 运行时拒绝 → 代码里 catch 只 console.warn → CDP 里看不见。
+//
+// 这条测试守着：**每一处 listen( 调用都必须挂 .catch( 或包在带 catch 的包装函数里**。
+
+test('每个 listen() 订阅都必须处理失败（不得留下 unhandled rejection）', () => {
+  // 剥掉注释再检查，否则文件头架构说明里写的 `listen(...)` 会被误判。
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  for (const [label, source] of [
+    ['overlay.js', stripComments(overlayJs)],
+    ['settings.js', stripComments(settingsJs)],
+  ]) {
+    const lines = source.split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (!/\blisten\s*\(/.test(line)) continue;
+      // 同一条语句可能跨行：把这一行到下一个 `;` 之间的内容拼起来判断。
+      let statement = line;
+      let j = i;
+      while (!statement.includes(';') && j + 1 < lines.length && j - i < 8) {
+        j += 1;
+        statement += '\n' + lines[j];
+      }
+      assert.match(
+        statement,
+        /\.catch\s*\(/,
+        `${label}:${i + 1} 的 listen() 没有 .catch() —— `
+        + 'ACL 拒绝或运行时未就绪时会变成 unhandled rejection，'
+        + 'GUI 无控制台所以完全静默。至少写 console.warn 留下"哪个事件订阅失败"。',
+      );
+    }
+  }
+});
+
+test('overlay 用统一 subscribe 包装（失败日志能指认事件名）', () => {
+  // 允许两种写法：统一 subscribe 包装，或就地 .catch。
+  // 但若用了包装函数，包装内必须把 eventName 写进日志 —— 否则失败时
+  // 只知道"某个订阅失败"，不知道是哪个，等于白留痕（本项目的既有教训：
+  // 置顶守护第一版只记数量、不记遮蔽者身份，等于白记一轮）。
+  const hasSubscribeWrapper = /const subscribe = \(eventName, handler\) => \{/.test(overlayJs);
+  if (!hasSubscribeWrapper) return; // 用了就地 .catch 也合规
+
+  const wrapper = overlayJs.match(
+    /const subscribe = \(eventName, handler\) => \{([\s\S]*?)\n\};/,
+  );
+  assert.ok(wrapper, '找到 subscribe 声明但解析不出函数体');
+  assert.match(
+    wrapper[1],
+    /\.catch\s*\(/,
+    'subscribe 包装内必须处理 rejection',
+  );
+  assert.match(
+    wrapper[1],
+    /eventName/,
+    'subscribe 的失败日志必须带上 eventName —— 否则只知道"订阅失败"，不知道是哪个',
+  );
+
+  // 除 subscribe 包装内部那唯一一次 listen 调用外，不得再有裸 listen(。
+  //
+  // ★ 实现说明：不能用"把包装体从源码里挖掉再数"——注释被剥掉后空行数变了，
+  //   replace 匹配不上（本鱼在此踩过一次）。改成按行判定：找到 subscribe
+  //   定义所在的行区间，只有落在区间内的 listen 才允许。
+  const strippedLines = overlayJs
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !/^\s*\/\//.test(line));
+
+  const wrapperStart = strippedLines.findIndex(
+    (line) => /const subscribe = \(eventName, handler\) => \{/.test(line),
+  );
+  assert.ok(wrapperStart >= 0, '找不到 subscribe 定义');
+
+  // 包装体到第一个 "};" 结束
+  let wrapperEnd = wrapperStart;
+  while (wrapperEnd < strippedLines.length && !/^\};/.test(strippedLines[wrapperEnd])) {
+    wrapperEnd += 1;
+  }
+  assert.ok(wrapperEnd < strippedLines.length, '找不到 subscribe 的结束行');
+
+  const nakedListens = [];
+  strippedLines.forEach((line, index) => {
+    if (!/\blisten\s*\(/.test(line)) return;
+    // 允许：subscribe 包装内部（唯一合法调用点）与 .catch 已经接上的就地写法。
+    if (index >= wrapperStart && index <= wrapperEnd) return;
+    if (/\.catch\s*\(/.test(line)) return;
+    nakedListens.push(`第 ${index + 1} 行: ${line.trim()}`);
+  });
+
+  assert.equal(
+    nakedListens.length,
+    0,
+    'overlay.js 里存在未处理失败的 listen( 调用：\n  '
+    + nakedListens.join('\n  ')
+    + '\n统一走 subscribe() 包装，或就地接 .catch()。',
   );
 });
 

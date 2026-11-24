@@ -942,9 +942,30 @@ const applyStateMessage = (message) => {
 };
 
 // ---------- 事件 ----------
+//
+// ★ 为什么必须给每个 listen() 挂 catch（2026-11 全库扫描）：
+//   `listen()` 返回 Promise，**它可能 reject** —— Tauri 的 ACL 拒绝
+//   （`core:event:allow-listen` 漏配时，报 `event.listen not allowed`）、
+//   或事件运行时尚未就绪。reject 而没人接，就是一条 **unhandled rejection**：
+//   · 浏览器只往控制台打一行警告，GUI 应用没有可见控制台 —— 等于完全静默；
+//   · 表现为「歌词窗永远不显示 / 按钮点了没反应」，而排查时看不到任何线索。
+//   本项目 AGENTS.md 里记着同一起事故的另一个形态：overlay 的
+//   `lyrics_send_command` 只在 lyrics-bridge.json 授给了 main 窗口，
+//   overlay 自己没被授予，运行时直接拒绝 —— 而 overlay.js 的 catch 是
+//   `console.warn`，所以 CDP 里抓不到，查了很久。
+//
+//   所以这里的处理原则是：**失败必须留痕且可区分**。用一个统一的小函数，
+//   把"哪个事件订阅失败"写进同一句日志，而不是四处各写一遍 catch。
+const subscribe = (eventName, handler) => {
+  // 注意 listen 在 window.__TAURI__ 不可用时（纯浏览器里打开 overlay.html）
+  // 会在更早的地方就抛 —— 那属于开发期误用，交给外层暴露，不在这里吞。
+  listen(eventName, handler).catch((error) => {
+    console.warn(`订阅桌面歌词事件失败: ${eventName}`, error);
+  });
+};
 
-listen(STATE_EVENT, (event) => applyStateMessage(event.payload));
-listen(SETTINGS_EVENT, (event) => applySettings(event.payload));
+subscribe(STATE_EVENT, (event) => applyStateMessage(event.payload));
+subscribe(SETTINGS_EVENT, (event) => applySettings(event.payload));
 
 controls.addEventListener('click', async (event) => {
   const button = event.target.closest('button');
@@ -1013,7 +1034,7 @@ window.addEventListener('beforeunload', () => {
   savePosition();
 });
 
-listen('click-through-changed', (event) => {
+subscribe('click-through-changed', (event) => {
   applyClickThrough(event.payload);
 });
 

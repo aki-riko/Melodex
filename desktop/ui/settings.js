@@ -165,7 +165,14 @@ resetButton.addEventListener('click', async () => {
 });
 
 // 别的窗口（歌词窗按钮、托盘）改了设置时同步本页控件。
-listen(SETTINGS_EVENT, (event) => render(event.payload));
+//
+// ★ listen() 返回 Promise 且**可能 reject**（ACL 未授予 core:event:allow-listen、
+//   或事件运行时未就绪）。不接住就是一条 unhandled rejection：GUI 应用没有
+//   可见控制台，表现成「设置页永远不随托盘/歌词窗变化」，而日志里什么都没有。
+//   同类事故本项目已经踩过一次（见 AGENTS.md 里 lyrics_send_command 授错窗口那段）。
+listen(SETTINGS_EVENT, (event) => render(event.payload)).catch((error) => {
+  console.warn(`订阅桌面歌词设置同步失败: ${SETTINGS_EVENT}`, error);
+});
 
 // ---------- 启动 ----------
 
