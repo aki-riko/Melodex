@@ -179,6 +179,14 @@ jobs:
           echo "exe_name=$(basename "${exe}")" >> "$GITHUB_OUTPUT"
           echo "产物: ${exe}"
 
+      # 关键门禁：私钥配错时签名照样能生成，但客户端会拒绝安装 ——
+      # 用户永远收不到更新，且只有发布后才发现。这里在打包前就抓住。
+      - name: Verify signature matches configured public key
+        shell: bash
+        env:
+          EXE_PATH: ${{ steps.artifact.outputs.exe }}
+        run: node desktop/scripts/verify-updater-artifact.mjs --exe "${EXE_PATH}"
+
       # 用仓库里那套已被测试覆盖的纯函数生成清单, 不另写一份逻辑。
       - name: Build updater manifest
         shell: bash

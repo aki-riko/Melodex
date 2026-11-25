@@ -1,0 +1,32 @@
+#!/bin/sh
+# 推送前门禁：拦截版本号倒退的 tag。
+#
+# 为什么放在 pre-push：
+#   打错 tag 后要等 CI 跑几分钟才知道，而且错了还得删 tag、删 Release、
+#   重新发版（这在对标 0.1.1 事故里真实发生过）。这里在推送瞬间就拦住。
+#
+# 安装：git config core.hooksPath .githooks
+# 绕过（不推荐）：git push --no-verify
+
+set -e
+
+# tag 白名单：这些都是合法发布形态
+# vX.Y.Z 或 vX.Y.Z-rc.N
+
+# 从 stdin 读 git 提供的 ref 信息：
+#   <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_ref" in
+    refs/tags/v*)
+      tag_name=${local_ref#refs/tags/}
+      printf '检查 tag: %s\n' "$tag_name"
+      if ! node android/scripts/check-release-version.mjs --tag "$tag_name" --skip-desktop; then
+        printf '\n推送被拒绝：上述 tag 未通过版本号校验。\n' >&2
+        printf '如果确认要跳过（例如补发历史 tag），使用: git push --no-verify\n' >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+exit 0

@@ -6,7 +6,12 @@
     "cap:copy": "cap copy android",
     "test:android-version": "node --test android/scripts/resolve-release-version.test.mjs",
     "test:release-version": "node --test android/scripts/check-release-version.test.mjs",
-    "check:release": "node android/scripts/check-release-version.mjs"
+    "test:apk-signer": "node --test android/scripts/verify-apk-signer.test.mjs",
+    "test:updater-artifact": "node --test desktop/scripts/verify-updater-artifact.test.mjs",
+    "check:release": "node android/scripts/check-release-version.mjs",
+    "gate": "node scripts/run-gates.mjs",
+    "gate:all": "node scripts/run-gates.mjs --all",
+    "hooks:install": "node scripts/install-hooks.mjs"
   },
   "dependencies": {
     "@capacitor/core": "8.5.2"

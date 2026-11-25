@@ -107,7 +107,7 @@ jobs:
           mkdir -p dist
           apk="dist/Melodex-v${VERSION_NAME}-universal.apk"
           cp "$source_apk" "$apk"
-          "$build_tools/apksigner" verify --verbose --print-certs "$apk"
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" | tee apksigner.txt
           badging="$("$build_tools/aapt" dump badging "$apk")"
           grep -F "package: name='life.nineli.melodex' versionCode='${VERSION_CODE}' versionName='${VERSION_NAME}'" <<< "$badging"
           grep -F "sdkVersion:'26'" <<< "$badging"
@@ -115,6 +115,12 @@ jobs:
           (cd dist && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256")
           echo "apk_path=$apk" >> "$GITHUB_OUTPUT"
           echo "sha_path=$apk.sha256" >> "$GITHUB_OUTPUT"
+
+      # apksigner verify 只证明「签名有效」，不证明「用的是我们那把密钥」。
+      # keystore 配错时 CI 照样绿，但 Android 会拒绝覆盖安装 ——
+      # 用户必须卸载重装且丢数据。这里比对证书指纹，在发布前拦住。
+      - name: Verify APK signer certificate matches baseline
+        run: node android/scripts/verify-apk-signer.mjs --apksigner-output apksigner.txt
 
       - name: Attest APK provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

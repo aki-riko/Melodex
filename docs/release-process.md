@@ -108,16 +108,59 @@ pwsh -NoProfile -File desktop\scripts\provision-desktop-signing.ps1 `
 
 ## 门禁清单
 
-发版前应全绿：
+### 一条命令跑完（推荐）
 
 ```bash
-npm run test:android-version    # versionCode 算法
-npm run test:release-version    # 版本序 / 三处一致性（10 项）
-node desktop/ui/lyricsSettings.test.mjs
-node desktop/ui/lyricsCore.test.mjs
-node desktop/scripts/shellCommandManifest.test.mjs
-node desktop/scripts/build-updater-manifest.test.mjs
+npm run gate        # 9 项，约 4 秒
+npm run gate:all    # 再加 Rust 测试与格式检查
 ```
 
-`check-release-version.mjs` 在 CI 里会被两个 release workflow 各跑一次，
-**本地跑它只是提前发现问题，不跑也不会漏**。
+它会**自动发现**未登记的 `*.test.mjs` 并警告——新加测试忘了接进门禁时能立刻看到。
+
+### 门禁覆盖了什么
+
+| 门禁 | 防的是什么 |
+|---|---|
+| `resolve-release-version.test` | versionCode 算法 |
+| `check-release-version.test` | **版本号倒退**、三处版本号不一致、tag 与版本号错配 |
+| `verify-apk-signer.test` | **keystore 配错**（签名有效但不是我的密钥 → 用户装不上） |
+| `verify-updater-artifact.test` | **桌面更新私钥配错**（同上） |
+| `lyricsSettings` / `lyricsCore` / `desktopLyrics.runtime` | 桌面歌词契约与运行期行为 |
+| `shellCommandManifest` | 命令清单三处对齐 + 远程权限边界 |
+| `build-updater-manifest` | 更新清单生成规则 |
+
+### 三层防线
+
+同样的错误在三个时点被拦：
+
+| 时点 | 手段 | 谁触发 |
+|---|---|---|
+| **推送瞬间** | `.githooks/pre-push` 检查 tag | 本地，秒级 |
+| **构建之前** | workflow 里的 `check-release-version` 步骤 | CI，约 30 秒 |
+| **打包之后** | `verify-apk-signer` / `verify-updater-artifact` | CI，防止签名配错 |
+
+### pre-push hook 安装
+
+仓库已提交 `.githooks/pre-push`，但 git 默认不启用自定义 hook 目录，每台机器需执行一次：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+**它拦什么**：推送 `v*` tag 时，若 versionCode 小于任何已发布 tag，直接拒绝并说明原因。
+**绕过**：`git push --no-verify`（只在补发历史 tag 等特殊场景用）。
+
+## 签名指纹基线
+
+`android/release-cert.sha256` 记录已发布 APK 的**证书** SHA-256：
+
+```
+5f28d565443ff568531b3748e72f508a44cc8f34dc46176b9da5f289faa2ba78
+```
+
+这个文件只含**公钥指纹**，不是秘密，可以提交到公开仓库。
+CI 每次发版都会比对，对不上就失败——因为 Android 不允许不同签名的应用覆盖安装。
+
+> **别混用**：证书指纹（`certificate SHA-256 digest`）≠ 公钥指纹（`public key SHA-256 digest`）。
+> 两者的值完全不同，混用会让门禁永远失败。
+

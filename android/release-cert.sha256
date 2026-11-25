@@ -1,0 +1,17 @@
+# Android Release 签名证书指纹（SHA-256）
+#
+# 这个文件**只含公钥指纹**，不含任何私钥或口令，可以安全提交到公开仓库。
+# 它的作用是给 CI 一个「期望值」：任何用别的密钥签出的 APK 都必须被拒绝，
+# 因为 Android 不允许不同签名的应用覆盖安装。
+#
+# 指纹来源：C:\Users\Kotori\Documents\Melodex\AndroidRelease\certificate.txt
+#   Alias name: melodex
+#   Valid from: Jul 19 2026 until Dec 04 2053
+#   证书 SHA-256: 5F:28:D5:65:44:3F:F5:68:53:1B:37:48:E7:2F:50:8A:44:CC:8F:34:DC:46:17:6B:9D:A5:F2:89:FA:A2:BA:78
+#
+# 注意：这是**证书**指纹（apksigner 的 "Signer #1 certificate SHA-256 digest"），
+# 不是公钥指纹（"Signer #1 public key SHA-256 digest"）。两者不同，别混用。
+#
+# 更换密钥（会失去所有已装用户的升级能力）时，才需要更新本文件。
+
+5f28d565443ff568531b3748e72f508a44cc8f34dc46176b9da5f289faa2ba78

@@ -27,6 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
+    # 版本号倒退门禁：正式的 vX.Y.Z 标签才校验（手动触发的 edge 不参与）。
+    # 倒退的标签会把 latest 指向旧代码，且与 Android/桌面的版本序冲突。
+
     # 用户输入与标签名一律走 env, 不直接拼进 run 脚本(避免 shell 注入)。
     env:
       EXTRA_TAG: ${{ inputs.extra_tag }}
@@ -88,6 +91,12 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
+          # 版本号倒退门禁：正式的 vX.Y.Z 标签才校验（手动触发的 edge 不参与）。
+          # 倒退的标签会把 latest 指向旧代码，且与 Android/桌面的版本序冲突。
+          if [ "${REF_TYPE}" = "tag" ]; then
+            node android/scripts/check-release-version.mjs --tag "${REF_NAME}" --skip-desktop
+          fi
+
           owner="$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"   # GHCR 要求全小写
           revision="$(git rev-parse HEAD)"
           short="$(git rev-parse --short HEAD)"
