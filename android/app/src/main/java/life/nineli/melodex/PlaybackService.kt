@@ -212,6 +212,11 @@ class PlaybackService : MediaSessionService() {
             .setDataSourceFactory(CookieAwareHttpDataSourceFactory())
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            // 多声道(4ch quad)降混到立体声。不加这个, 库里 13 首 OGG 640k 档的歌在手机上
+            // 只剩前声场 —— 低频整片消失, 听着像无伴奏清唱。详见 QuadDownmix.kt。
+            // ExoPlayer.Builder 没有 setAudioSink/setAudioProcessorChain 入口, 只能从
+            // RenderersFactory.buildAudioSink 这个 protected 钩子挂进去。
+            .setRenderersFactory(DownmixRenderersFactory(this))
             .build()
             .apply {
             setAudioAttributes(
