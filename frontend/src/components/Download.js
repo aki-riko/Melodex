@@ -64,7 +64,12 @@ const RECOGNITION_MIME_TYPES = [
   'audio/mp4',
 ];
 
-const searchQueryKey = (keyword) => ['musicdl-search', 'combined', keyword];
+// nonce 参与 key:同一个词再搜一次时强制成为一次新查询（见 submitSearch 的注释）。
+// 注意 `staleTime` 仍然保留 —— 它保护的是「切页回来别重搜」，
+// 而不是「用户手动再搜一次也别搜」，两者的区别正是这个 nonce。
+const searchQueryKey = (keyword, nonce = 0) => (
+  nonce ? ['musicdl-search', 'combined', keyword, nonce] : ['musicdl-search', 'combined', keyword]
+);
 
 const compactSearchText = (value) => String(value || '').replace(/[\s/\\|,，.。;；:：!！?？、'"“”‘’《》<>()[\]【】{}-]+/g, '').toLocaleLowerCase();
 
@@ -947,6 +952,10 @@ const Download = ({ downloadRequest }) => {
   const [openPlaylist, setOpenPlaylist] = useState(null);
   const [openAlbum, setOpenAlbum] = useState(null);
   const songLyric = useSongLyric();
+  // searchNonce 必须在使用它的 useQuery **之前**声明（否则是 TDZ，会直接抛
+  // "Cannot access 'searchNonce' before initialization"，整个找歌页白屏）。
+  // 语义见 submitSearch 上的注释：同一个词再搜一次 = 一次真正的新查询。
+  const [searchNonce, setSearchNonce] = useState(0);
 
   useEffect(() => {
     const kw = downloadRequest?.keyword;
@@ -965,7 +974,7 @@ const Download = ({ downloadRequest }) => {
   }, [downloadRequest?.ts]);
 
   const search = useQuery(
-    searchQueryKey(query),
+    searchQueryKey(query, searchNonce),
     () => searchSongsLyricsAndAlbums(query),
     {
       enabled: tab === 'search' && !!query,
@@ -1017,34 +1026,56 @@ const Download = ({ downloadRequest }) => {
   );
   useCachedRefresh(albumDetail, tab === 'search' && !!openAlbum);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    const k = keyword.trim();
-    if (k) setQuery(k);
-  };
-
-  const runSearch = (kw) => {
-    const k = (kw || '').trim();
+  // 同一关键词「再搜一次」必须真的重新请求。
+  //
+  // ★ 真实事故（用户报「其他页面的搜索要点好几次才会搜索」）：
+  //   原来的 handleSearch 只有 `if (k) setQuery(k)`。而：
+  //     ① setQuery 传相同字符串时 React 直接 bail out，**不触发重渲染**；
+  //     ② 即使触发了，query 的 key 没变、staleTime 又是 5 分钟，
+  //        react-query 认为数据新鲜 → 不发请求。
+  //   于是用户点一次没反应、再点还是没反应，只能反复点到缓存刚好过期 ——
+  //   这就是「要点好几次」。
+  //
+  //   修法：每次**提交**搜索动作让 searchNonce +1（上面已声明），它参与 query key，
+  //   保证"同样的词再搜一次"是一次真正的新查询（也会走 loading 态，用户有反馈）。
+  const submitSearch = useCallback((kw) => {
+    const k = String(kw || '').trim();
     if (!k) return;
     setKeyword(k);
+    // 这里必须**无条件** setQuery + 递增 nonce：
+    //   · 词变了 → key 里的 keyword 变，正常发新查询；
+    //   · 词没变 → key 里的 nonce 变，同样是一次新查询。
+    // 不要写成"只在词变了才 setQuery"——那正是"点好几次才搜索"的成因。
     setQuery(k);
+    setSearchNonce((n) => n + 1);
+  }, []);
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    submitSearch(keyword);
   };
+
+  const runSearch = submitSearch;
 
   const handleClearSearchCache = useCallback(async (kw) => {
     const k = (kw || query || '').trim();
     if (!k) return;
     const types = SEARCH_LINK_RE.test(k) ? ['song'] : ['song', 'lyric', 'album'];
-    const targetKey = searchQueryKey(k);
-    await queryClient.cancelQueries(targetKey, { exact: true });
+    // 当前这次查询的完整 key（含 nonce）。清缓存必须同时清掉"带 nonce 的这一条"，
+    // 否则 invalidate 打不到真正在用的那个 key，界面会继续显示旧结果。
+    const currentKey = searchQueryKey(query, searchNonce);
+    await queryClient.cancelQueries(currentKey, { exact: true });
     await clearSearchCache(k, { types });
     if (k !== query) {
-      queryClient.removeQueries(targetKey, { exact: true });
+      queryClient.removeQueries(['musicdl-search', 'combined', k], { exact: true });
       setQuery(k);
+      setSearchNonce((n) => n + 1);
       return;
     }
-    await queryClient.invalidateQueries(targetKey, { exact: true });
-    await search.refetch();
-  }, [query, queryClient, search]);
+    await queryClient.invalidateQueries(currentKey, { exact: true });
+    // 递增 nonce 再搜一次：确保拿的是**新**数据，而不是被缓存挡住的旧结果。
+    setSearchNonce((n) => n + 1);
+  }, [query, queryClient, searchNonce]);
 
   const handlePlay = (song, list) => play(song, list);
 

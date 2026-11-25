@@ -34,7 +34,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useServerDownloads } from '../contexts/ServerDownloadsContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { useInViewport } from '../hooks/useInViewport';
-import { sourceLabel } from '../utils/sourceLabels';
+import { sourceLabel, sourceShortLabel } from '../utils/sourceLabels';
 import { normalizeSong } from '../utils/songFields';
 import { songIdentityKey } from '../utils/songIdentity';
 import { formatDuration, formatBytes } from '../utils/displayFormat';
@@ -116,8 +116,16 @@ const CoverThumb = ({ song, size = 44 }) => {
 // id/source/name/artist/album/cover/duration/extra —— 压根没有 bitrate/ext。
 // 所以一旦做成独立列,自建歌单/最近播放这类页面就会整列渲染成 "—"(实测 462 首歌单全是破折号),
 // 既占宽又制造视觉空洞。正确做法是让它以"行内徽章"出现:有就显示,没有就不占位。
+// ★ 2026-11 手机端右列重排（尺寸对齐）：
+//   ① **溢出**：右列原为 5rem(80px)，而「更多」按钮原为 h-9 w-9(36px)，
+//      与播放键 44px + gap 2px 合计 82px > 80px，两个按钮又都 flex-shrink-0
+//      （门禁强制），于是列被撑破、「更多」压出边界。这是**算出来的溢出**。
+//   ② **触控下限**：项目规范（ux-redesign-plan.md）写明所有可点区域 ≥44px，
+//      而「更多」在手机上只有 36px —— 拇指很难点准。
+//   现按手机 44px 触控档统一：播放 44 + gap 2 + 更多 44 = 90px，右列取 5.75rem(92px)。
+//   桌面列宽不变：lg 那套末列 5rem(80px) 装 收藏36 + 更多36 + gap2 = 74px 绰绰有余。
 const ROW_GRID =
-  'grid grid-cols-[minmax(0,1fr)_5rem] lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(6rem,0.8fr)_3.5rem_5rem] items-center gap-3 px-3';
+  'grid grid-cols-[minmax(0,1fr)_5.75rem] lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(6rem,0.8fr)_3.5rem_5rem] items-center gap-3 px-3';
 
 export const SongListHeader = ({ className = '' }) => (
   <div
@@ -217,6 +225,8 @@ const SongRow = ({
   // 必须在手机上也能看见:此前 VIP 徽章是 `hidden lg:inline-flex`,手机端完全看不到,
   // 用户点了播放拿到 404 才知道放不出(2026-11-22 真实事故)。
   const vipOnly = needsVip(rowSong);
+  // 手机端要显示来源短名（用户反馈：不点开就看不到来源）。
+  const sourceShortName = sourceShortLabel(rowSong.source);
   const sizeLabel = formatBytes(
     effectiveLiveInfo?.sizeBytes || serverCopy?.size_bytes || rowSong.size,
   );
@@ -518,6 +528,19 @@ const SongRow = ({
             {(cacheState === 'fail' || dlState === 'fail') && (
               <Badge tone="bad" title="上次操作失败，点行内按钮或菜单可重试">失败</Badge>
             )}
+            {/* 来源:手机上也必须可见(用户反馈「手机版不点开搜索结果就无法看到来源」)。
+                它属于**决策信息** —— 同一首歌各源的可播性/音质差别很大,不知道来源
+                就无从判断该点哪一条。
+                为了不在 375px 下把行撑高,手机上只显示短名(QQ / 网易 / 酷我…),
+                副标题式的全称仍只在 lg+ 出现。短名映射见 SOURCE_SHORT_LABELS。 */}
+            {sourceShortName && (
+              <span
+                className="inline-flex max-w-[6rem] items-center truncate type-micro text-muted-foreground/80 lg:hidden"
+                title={sourceLabel(rowSong.source)}
+              >
+                {sourceShortName}
+              </span>
+            )}
             <span className="hidden lg:inline type-micro text-muted-foreground/80">{sourceLabel(rowSong.source)}</span>
             {sizeLabel && <span className="hidden lg:inline type-micro nums">{sizeLabel}</span>}
           </div>
@@ -573,7 +596,9 @@ const SongRow = ({
           aria-haspopup="menu"
           aria-expanded={openMenu}
           className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-control transition-colors duration-base',
+            // 手机 44px 触控档、桌面回到 36px（桌面是鼠标，不需要触控余量）：
+            // 之前统一 h-9 w-9 让手机上的「更多」只有 36px，低于项目 44px 下限。
+            'flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-control transition-colors duration-base lg:h-9 lg:w-9',
             openMenu ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
           )}
         >

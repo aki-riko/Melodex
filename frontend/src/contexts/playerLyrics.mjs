@@ -38,8 +38,20 @@ export const parseLRC = (raw) => {
   }
 
   out.sort((a, b) => a.t - b.t);
+  // ★ end 必须按「时间戳严格大于本行的第一行」来定，**不能**直接取下一行。
+  //
+  // 踩过的坑（2026-11，用户报「双语歌词逐字有问题」，播放页和桌面歌词都有）：
+  // QQ 的双语逐字里，原文行与拼音/翻译行**时间戳完全相同**：
+  //     [00:44.88]冲[00:45.07]得…（原文）
+  //     [00:44.88]cong [00:45.07]da …（拼音）
+  // 直接写 `end = 下一行.t` 会让原文行 end === 自身 t（实测 44.88 === 44.88），
+  // 整行时长变成 0：填色进度只能二值化，且原文行永远不会是"当前行"，
+  // 而拼音行独吞了后面 6.23 秒 —— 用户看到的就是「译音行在逐字变色、原文一行不亮」。
+  // 改成跳过同戳行之后，同组每行都拿到同一个真实 end（51.11），填色才与原文对齐。
   for (let i = 0; i < out.length; i += 1) {
-    out[i].end = i + 1 < out.length ? out[i + 1].t : out[i].t + 5;
+    let nextIndex = i + 1;
+    while (nextIndex < out.length && out[nextIndex].t <= out[i].t) nextIndex += 1;
+    out[i].end = nextIndex < out.length ? out[nextIndex].t : out[i].t + 5;
     if (out[i].words) {
       for (let j = 0; j < out[i].words.length; j += 1) {
         out[i].words[j].end = j + 1 < out[i].words.length
@@ -49,6 +61,34 @@ export const parseLRC = (raw) => {
     }
   }
   return out;
+};
+
+/**
+ * 当前播放位置对应的歌词行索引 —— 播放页与桌面歌词**必须共用这一个**。
+ *
+ * 与 `desktop/ui/lyricsCore.js` 的 `lyricIndexAt` 完全同构（二分 + 回退到同戳分组
+ * **首行**）。同一份歌词在两端算出不同行，用户会直接看出来（同一时刻播放页停在
+ * 拼音行、桌面停在原文行）—— 这正是「双语歌词逐字有问题」的另一半原因。
+ */
+export const currentLyricIndexAt = (lines, position) => {
+  if (!Array.isArray(lines) || lines.length === 0) return -1;
+  let low = 0;
+  let high = lines.length - 1;
+  let answer = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (Number(lines[middle]?.t) <= position) {
+      answer = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  if (answer < 0) return -1;
+  // 回退到同戳分组首行：同组是「原文 + 拼音/翻译」，首个才该被当作当前行。
+  const activeTimestamp = Number(lines[answer]?.t);
+  while (answer > 0 && Number(lines[answer - 1]?.t) === activeTimestamp) answer -= 1;
+  return answer;
 };
 
 const unavailableLyricText = /^暂无歌词[。.!！]?$/;

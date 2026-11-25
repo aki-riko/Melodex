@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aki-riko/Melodex/backend/internal/provider/bridge"
 	"github.com/aki-riko/Melodex/backend/internal/provider/model"
@@ -247,6 +248,53 @@ func GetLyricFunc(source string) func(*model.Track) (string, error) {
 }
 
 func GetParseFunc(string) func(string) (*model.Track, error) { return nil }
+
+// SuggestTerm 是一条搜索补全词条。
+type SuggestTerm struct {
+	Kind   string
+	Name   string
+	Detail string
+}
+
+// SuggestTimeoutCap 是补全请求的硬超时上限。
+//
+// 补全是"边打字边发"的接口,用户对它的耐心是**几百毫秒**级,与搜索的几十秒完全不是一个量级。
+// 上游(Q Q smartbox / 网易 suggest)实测通常 100~300ms,这里给 2.5s 已经很宽松;
+// 一旦超时立刻降级到本地(搜索历史 + 结果缓存),绝不让人对着输入框等一下秒。
+var SuggestTimeoutCap = 2500 * time.Millisecond
+
+// SuggestSongs 取搜索联想词。
+//
+// 失败一律返回 error,由 web 层决定降级方案 —— 这里不吞错,也不返回半成品。
+func SuggestSongs(keyword string, limit int) ([]SuggestTerm, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return []SuggestTerm{}, nil
+	}
+	client, err := getProviderBridgeClient()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), SuggestTimeoutCap)
+	defer cancel()
+	response, err := client.Suggest(ctx, bridge.SuggestRequest{Keyword: keyword, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	terms := make([]SuggestTerm, 0, len(response.Terms))
+	for _, term := range response.Terms {
+		name := strings.TrimSpace(term.Name)
+		if name == "" {
+			continue
+		}
+		terms = append(terms, SuggestTerm{
+			Kind:   strings.TrimSpace(term.Kind),
+			Name:   name,
+			Detail: strings.TrimSpace(term.Detail),
+		})
+	}
+	return terms, nil
+}
 
 func GetParsePlaylistFunc(source string) func(string) (*model.RemoteCollection, []model.Track, error) {
 	if !collectionProviderSupports(source) {

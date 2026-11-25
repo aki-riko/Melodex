@@ -668,6 +668,56 @@ func sortSongsByRelevance(songs []model.Track, query string) {
 	})
 }
 
+// sortSongsByPlayabilityThenRelevance 在**不破坏相关性层级**的前提下，
+// 把「有会员凭据、且不需要 VIP」的结果提到前面，把「无凭据且需要 VIP」压到最后。
+//
+// 用户要求(2026-11):「有会员的优先排上面，无会员且需要 VIP 的往下面排」。
+//
+// ★ 为什么不能单纯重排 score:
+//   combinedScore 里"搜『晴天』→ 周杰伦原唱"这类信号权重极高（本地完全匹配 1000、
+//   上游置顶 +600）。如果把会员维度做成一个普通加减分项，某条无关但"可播"的结果
+//   就可能盖掉真正相关的原唱 —— 那才是真的"排序不合理"。
+//
+// ★ 所以这里用**两级排序**：
+//   第一级 = 可播等级（0 有凭据且免费 / 1 有凭据需 VIP / 2 无凭据免费 / 3 无凭据需 VIP）
+//   第二级 = 原有的综合分，再按码率。
+//   观测效果：会员能放的那批整体在前，但**每一批内部**仍然是相关性优先。
+//
+// ★ 用 SliceStable 而不是先分组再拼：分组拼接会重复一遍数组、也容易在
+//   "等级相同但需要保留上游顺序"时出错。
+func sortSongsByPlayabilityThenRelevance(songs []model.Track, query string, cookies map[string]string) {
+	if len(songs) < 2 {
+		return
+	}
+	type ranked struct {
+		song    model.Track
+		tier    int
+		score   int
+		bitrate int
+	}
+	items := make([]ranked, len(songs))
+	for index, song := range songs {
+		items[index] = ranked{
+			song:    song,
+			tier:    songPlayabilityTier(song, cookies),
+			score:   combinedScore(song, query),
+			bitrate: song.Bitrate,
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].tier != items[j].tier {
+			return items[i].tier < items[j].tier
+		}
+		if items[i].score != items[j].score {
+			return items[i].score > items[j].score
+		}
+		return items[i].bitrate > items[j].bitrate
+	})
+	for index := range items {
+		songs[index] = items[index].song
+	}
+}
+
 // parseIntDefault 解析整数,失败返回默认值。
 func parseIntDefault(s string, def int) int {
 	if v, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {

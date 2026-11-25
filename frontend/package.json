@@ -44,6 +44,8 @@
     "test:tdz": "node scripts/tdzOrder.test.mjs",
     "test:quality": "node scripts/quality.test.mjs",
     "test:lyric-dedupe": "node scripts/lyricDedupe.test.mjs",
+    "test:search-suggest": "node scripts/searchSuggestions.test.mjs",
+    "test:source-labels": "node scripts/sourceLabels.test.mjs",
     "test:menu": "node scripts/menuPosition.test.mjs",
     "test:overlay": "node scripts/overlayPortal.test.mjs",
     "test:source-boundary": "node scripts/sourceBoundary.test.mjs",

@@ -276,6 +276,56 @@ func compactChorusIDs(ids []string) []string {
 	return out
 }
 
+// SuggestRequest 是一次搜索补全(联想)请求。
+//
+// Keyword 是用户当前输入的**前缀**(可以只有一两个字),Limit 是想要的词条数。
+// 补全对延迟极敏感(边打字边请求),所以调用方必须自己加短超时 —— 见 web 层。
+type SuggestRequest struct {
+	Keyword string `json:"keyword"`
+	Limit   int    `json:"limit,omitempty"`
+}
+
+// SuggestTerm 是一条补全词条。
+//
+// Kind 只是给前端挑图标的提示(song/singer/album),**不参与搜索行为**:
+// 点任何一条都是"用这个 name 去搜"。
+type SuggestTerm struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Detail string `json:"detail"`
+}
+
+type SuggestResponse struct {
+	Terms   []SuggestTerm     `json:"terms"`
+	Sources []string          `json:"sources,omitempty"`
+	Errors  map[string]string `json:"errors,omitempty"`
+	Error   string            `json:"error,omitempty"`
+}
+
+// Suggest 取搜索联想词。
+//
+// ★ 与其它桥接口的差别:这里**不因部分失败而返回 error** —— sidecar 是逐源容错的,
+// 把"网易挂了但 QQ 有结果"变成整体失败会让补全在单个平台抖动时彻底消失。
+// 只有整体请求失败(连不上 sidecar / 响应坏了)才返回 error,由调用方降级到
+// "只用搜索历史 + 搜索结果缓存"。
+func (c *Client) Suggest(ctx context.Context, request SuggestRequest) (SuggestResponse, error) {
+	request.Keyword = strings.TrimSpace(request.Keyword)
+	if request.Keyword == "" {
+		return SuggestResponse{Terms: []SuggestTerm{}}, nil
+	}
+	var payload SuggestResponse
+	if err := c.postJSON(ctx, "/v1/suggest", request, &payload); err != nil {
+		return SuggestResponse{}, err
+	}
+	if payload.Error != "" {
+		return SuggestResponse{}, errors.New(payload.Error)
+	}
+	if payload.Terms == nil {
+		payload.Terms = []SuggestTerm{}
+	}
+	return payload, nil
+}
+
 func (c *Client) Collections(ctx context.Context, request CollectionRequest) (CollectionResponse, error) {
 	request.Source = strings.TrimSpace(request.Source)
 	request.Action = strings.TrimSpace(request.Action)

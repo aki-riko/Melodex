@@ -164,6 +164,22 @@ func searchSwitchSourceCandidates(source string, search func(string) ([]model.Tr
 		if score <= 0 {
 			continue
 		}
+		// ★ 同歌名 + 同歌手 = 明确的"同一作品"，显式赋满分。
+		//
+		// 用户要求:「换源应该优先换同歌名歌手的」。
+		//
+		// **实测结论（不要误以为是这里修好了排序）**：
+		//   CalcSongSimilarity 对"归一化后完全相等"的输入本来就返回 1.0
+		//   （NormalizeText 会去掉空格/标点并折大小写），所以这条赋值在当前实现下
+		//   与它等价、并非行为变更。它的价值是把语义**写死在换源这一层**：
+		//   以后若有人调相似度权重、或改成对歌名/歌手分别加权，
+		//   同歌同歌手仍必须稳居第一并走高置信快路径（0.98）—— 由
+		//   source_switch_exact_test.go 里的顺序/阈值断言守住。
+		// 非同一作品的最高相似度实测只有 0.925（「晴天/周杰伦2」这种只差一字的歌手名），
+		// 因此不需要额外"压制上限"的逻辑（曾加过一个 0.97 的 cap，实测冗余已删）。
+		if core.SameTitleAndArtist(name, artist, track.Name, track.Artist) {
+			score = 1
+		}
 		difference := 0
 		if originalDuration > 0 && track.Duration > 0 {
 			difference = core.IntAbs(originalDuration - track.Duration)

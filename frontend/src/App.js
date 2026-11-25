@@ -50,6 +50,7 @@ import CredentialNotice from './components/CredentialNotice';
 import ErrorBoundary from './ui/ErrorBoundary';
 import { useBackNavigation, setRouteBackResolver } from './contexts/backNavigation.js';
 import { pushRouteEntry, goBackInApp, ROUTE_DEPTH_KEY } from './contexts/routeHistory.js';
+import { PageSearchFilterProvider } from './contexts/pageSearchFilter.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -152,6 +153,7 @@ function AppShell() {
   }), []);
 
   return (
+    <PageSearchFilterProvider>
     <>
       {/* 键盘用户第一个 Tab 就能跳过侧栏直达主内容(全站此前无此能力)。
           注意不能只靠 href="#app-main":本应用是哈希路由,改 hash 会触发
@@ -231,6 +233,7 @@ function AppShell() {
       <MobileTabBar currentSection={section} currentSubPath={activeSubPath} onNavigate={navigate} />
       <AddToPlaylistModal />
     </>
+    </PageSearchFilterProvider>
   );
 }
 

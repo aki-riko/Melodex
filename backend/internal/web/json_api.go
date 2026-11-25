@@ -261,6 +261,10 @@ func jsonSearchHandler(c *gin.Context) {
 				CachedAt:   &entry.CreatedAt,
 			}
 			applyAlbumSourcePreference(&cached)
+			// 会员偏好**不能写进缓存**:缓存全局共享、有效期 24h,而用户随时会扫码登录/退出。
+			// 每次响应按"当前"凭据重排一次,才符合"我现在有会员,所以这些排前面"的直觉。
+			// 与 applyAlbumSourcePreference 完全同一个理由。
+			applySongPlayabilityPreference(&cached)
 			recordSearchHistory(currentUserID(c), keyword, cached.Type)
 			if !entry.Fresh {
 				refreshSearchCacheAsync(cacheKey, searchType, keyword, exactArtist, sources, !skipWarm)
@@ -275,7 +279,9 @@ func jsonSearchHandler(c *gin.Context) {
 		resp = buildKeywordSearchResponse(keyword, searchType, exactArtist, sources)
 
 		// 写缓存(排序/过滤后的最终结果)+ 记搜索历史。
+		// 注意顺序:先写缓存(纯相关性),再施加会员偏好给本次响应 —— 别把偏好写进缓存。
 		putCachedSearch(cacheKey, resp)
+		applySongPlayabilityPreference(&resp)
 		// 慢源没等到: 后台补齐后覆盖缓存, 前端会凭 pending_sources 自动再拉一次。
 		if len(resp.PendingSources) > 0 {
 			completeSearchCacheAsync(cacheKey, keyword, searchType, exactArtist, resp.Sources, resp.PendingSources)
@@ -457,6 +463,9 @@ func buildKeywordSearchResponseWithBudget(
 	resp.PendingSources = pending
 
 	// 综合排序(与 Subsonic search3 一致):相关性 + 上游名次 + 原唱信号 − 翻唱降权。
+	// ★ 这里**不**加会员偏好:buildKeywordSearchResponse 的结果会写进全局搜索缓存
+	//   (24h、跨用户共享),而会员凭据随时会变 —— 带偏好的顺序一旦落库就固化了。
+	//   会员偏好只在响应阶段按当前凭据施加,见 applySongPlayabilityPreference。
 	if resp.Type == "song" && keyword != "" && len(resp.Songs) > 0 {
 		sortSongsByRelevance(resp.Songs, keyword)
 	}
@@ -514,6 +523,24 @@ func applyAlbumSourcePreference(resp *jsonSearchResponse) {
 		return
 	}
 	prioritizeAlbumsBySource(resp.Playlists, resp.Sources, core.CM.GetAll())
+}
+
+// applySongPlayabilityPreference 按**当前**平台凭据给歌曲结果排会员偏好。
+//
+// 与 applyAlbumSourcePreference 同一个理由:搜索缓存全局共享且有效期长(24h),
+// 但用户随时会扫码登录/退出会员。因此缓存里存的是"纯相关性顺序",
+// 每次响应（含缓存命中）都按当下的凭据重新排一遍。
+//
+// 顺序语义见 sortSongsByPlayabilityThenRelevance:可播等级优先,层内仍是相关性。
+func applySongPlayabilityPreference(resp *jsonSearchResponse) {
+	if resp == nil || resp.Type != "song" || len(resp.Songs) < 2 {
+		return
+	}
+	keyword := strings.TrimSpace(resp.Keyword)
+	if keyword == "" {
+		return
+	}
+	sortSongsByPlayabilityThenRelevance(resp.Songs, keyword, core.CM.GetAll())
 }
 
 func prioritizeAlbumsBySource(albums []model.RemoteCollection, sources []string, cookies map[string]string) {

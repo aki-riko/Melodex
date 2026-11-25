@@ -21,6 +21,7 @@ from provider_bridge.chorus_lookup import chorus  # noqa: E402
 from provider_bridge.collections import collection  # noqa: E402
 from provider_bridge.qr import check as qr_check  # noqa: E402
 from provider_bridge.qr import create as qr_create  # noqa: E402
+from provider_bridge.suggest import suggest  # noqa: E402
 
 
 def _required_environment(name: str) -> str:
@@ -44,6 +45,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             "license": "Apache-2.0",
             "capabilities": [
                 "search", "media", "lyrics", "chorus", "collections", "qr_login", "account_verify",
+                "suggest",
             ],
             # 各源最近一次请求的观测状态(限流/凭证过期/未取到下载地址都会在这里体现)。
             "sources": source_status(),
@@ -58,6 +60,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             "/v1/account/verify": verify,
             "/v1/qr/create": qr_create,
             "/v1/qr/check": qr_check,
+            "/v1/suggest": suggest,
         }
         handler = handlers.get(self.path)
         if handler is None:

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
-import { Download, Ellipsis, HardDriveDownload, Play, Trash2 } from 'lucide-react';
+import { Download, Ellipsis, HardDriveDownload, Play, Search, Trash2 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useCollections } from '../contexts/CollectionsContext';
@@ -26,6 +26,8 @@ import ImportProgressBar from './ImportProgressBar';
 import { MenuPopover, MenuItem } from '../ui/Menu';
 import { useBackLayer } from '../contexts/backNavigation.js';
 import { pushRouteEntry } from '../contexts/routeHistory.js';
+import { useRegisterPageSearchFilter } from '../contexts/pageSearchFilter.js';
+import { useSongFilter } from '../hooks/useSongFilter';
 
 // 稳定的空数组引用:数据未就绪时不要每次渲染都新建 [],否则会不断改变
 // useBulkActions 的 useCallback 依赖,产生无意义的重建。
@@ -82,6 +84,25 @@ export default function MyPlaylist() {
   );
   const songs = offline ? EMPTY_SONGS : (state.data || EMPTY_SONGS);
   const loading = !offline && collectionId != null && state.isLoading;
+
+  // 顶部搜索框在本页 = 筛当前歌单（用户明确要求：其他页面的搜索应对应当前歌单）。
+  // 只有真正打开了一个歌单时才注册；停留在歌单列表选择界面时保持全网搜索行为。
+  const [filterQuery, setFilterQuery] = useState('');
+  const filter = useSongFilter(songs, filterQuery);
+  useRegisterPageSearchFilter(
+    collectionId != null
+      ? {
+        placeholder: `在「${currentName}」中搜索…`,
+        count: filter.filtered.length,
+        total: filter.total,
+        onSearch: (keyword) => setFilterQuery(keyword || ''),
+      }
+      : null,
+  );
+
+  // 切换歌单时必须清掉过滤词：否则在 A 歌单筛过的词会继续作用到 B 歌单，
+  // 表现为"刚点开新歌单就是空的"。
+  useEffect(() => { setFilterQuery(''); }, [collectionId]);
 
   // 失败反馈:按错误对象去重,StrictMode 重复挂载 effect 不会连弹两次。
   useEffect(() => {
@@ -297,17 +318,34 @@ export default function MyPlaylist() {
         />
       )}
 
-      {!loading && songs.length > 0 && (
+      {/* 过滤中且一条都没命中：明确告诉用户"不是歌单空了"，并给一键清除。
+          否则用户会以为歌单出问题（真实的空歌单提示在上一段）。 */}
+      {!loading && songs.length > 0 && filter.active && filter.filtered.length === 0 && (
+        <EmptyState
+          icon={Search}
+          title={`「${filterQuery.trim()}」没有匹配的歌曲`}
+          description={`当前歌单共 ${filter.total} 首，换个词试试，或清除筛选看全部。`}
+          action={(
+            <Button variant="secondary" onClick={() => setFilterQuery('')}>
+              清除筛选
+            </Button>
+          )}
+        />
+      )}
+
+      {!loading && filter.filtered.length > 0 && (
         <>
           <SongListHeader />
           <div className="space-y-0.5">
-            {songs.map((song, i) => (
+            {filter.filtered.map((song, i) => (
               <SongRow
                 key={songIdentityKey(song)}
                 song={song}
                 index={i}
                 isPlaying={isPlaying(song)}
-                onPlay={(s) => play(s, songs)}
+                // 队列必须是**过滤后**的列表：否则显示的是筛选结果，
+                // 播完一首却混进没显示的歌，表现为"下一首不对劲"。
+                onPlay={(s) => play(s, filter.filtered)}
                 isPaused={isPaused}
                 onTogglePlayback={togglePlay}
                 onShowLyric={songLyric.open}

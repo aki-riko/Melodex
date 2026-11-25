@@ -69,7 +69,7 @@ import {
   publishFavoriteChange,
   readFavoriteStatus,
 } from '../services/favoriteStatus';
-import { hasUsableLyrics, parseLRC, stripPlaceholderLyrics } from './playerLyrics.mjs';
+import { currentLyricIndexAt, hasUsableLyrics, parseLRC, stripPlaceholderLyrics } from './playerLyrics.mjs';
 import { karaokeFillPercent, lyricScrollBehavior, prefersReducedMotion, sheetExitDelay } from './playerSheetMotion.mjs';
 import {
   STAGE_LAYOUT_KEY,
@@ -1679,16 +1679,16 @@ const Marquee = ({ text, className }) => {
   );
 };
 
-// 当前时间对应的歌词行索引(最后一个 t<=cur)。
-const currentLyricIndex = (lines, cur) => {
-  if (!lines.length) return -1;
-  let lo = 0, hi = lines.length - 1, ans = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (lines[mid].t <= cur) { ans = mid; lo = mid + 1; } else hi = mid - 1;
-  }
-  return ans;
-};
+// 当前时间对应的歌词行索引 —— 统一走 playerLyrics.mjs 的 currentLyricIndexAt。
+//
+// ★ 这里曾经有一份自己的二分实现（只取「最后一个 t<=cur」，不回退同戳分组）,
+//   与桌面歌词窗口的 lyricIndexAt（会回退到分组首行）行为不一致。
+//   双语歌词里原文行与拼音/翻译行时间戳相同,于是同一时刻:
+//     播放页 → 停在拼音行（拼音行被逐字填色,原文整行不亮）
+//     桌面歌词 → 停在原文行
+//   用户报的「双语歌词逐字有问题（播放页/桌面的都有问题）」就是这个。
+//   现在两端共用同一条规则,避免再次分叉 —— 别再在组件里重新实现一遍。
+const currentLyricIndex = currentLyricIndexAt;
 
 // 卡拉OK式当前行:逐字按播放进度填色。已唱字全亮,正在唱的字按时间比例渐变填充,
 // 未唱字暗。无字级时间戳(words=null)则整行高亮。

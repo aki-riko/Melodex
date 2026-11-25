@@ -15,6 +15,9 @@ const API_BASE = import.meta.env.VITE_MUSICDL_API || '';
 // 用户体验优先:60s 预算可保住 migu/kuwo 等主力源(约 34 首),避免 100s+ 的漫长等待。
 const SEARCH_TIMEOUT_MS = 90000;
 const LYRIC_TIMEOUT_MS = 150000;
+// 补全的超时与搜索/歌词完全不是一个量级:用户在打字,等 1 秒就已经"过了那个词"。
+// 后端对上游还有一层 2.5s 硬超时,这里 4s 留出网络余量;超时就当作没补全(静默丢弃)。
+const SUGGEST_TIMEOUT_MS = 4000;
 
 const client = axios.create({
   baseURL: API_BASE,
@@ -65,8 +68,28 @@ export const searchMusic = async (keyword, { type = 'song', sources = [], exactA
   return withSongs(data); // { songs, playlists, type, keyword, sources, error }
 };
 
-export const clearSearchCache = async (keyword, { types = ['song'], sources = [], exactArtist = '' } = {}) => {
+// 搜索补全(联想)。后端会优先问平台权威接口(QQ smartbox / 网易 suggest),
+// 失败时降级到"搜索历史 + 结果缓存" —— 所以这个接口本身几乎不会失败,
+// 前端不必为它做错误态,只要"没结果就什么都不显示"。
+//
+// 超时给得比搜索短得多:补全是边打字边发的,慢了就是垃圾数据(用户已经输完了)。
+export const getSearchSuggestions = async (keyword, { limit = 10, signal } = {}) => {
   const params = new URLSearchParams();
+  params.set('q', keyword);
+  if (limit) params.set('limit', String(limit));
+  const { data } = await client.get(`/api/v1/search_suggestions?${params.toString()}`, {
+    timeout: SUGGEST_TIMEOUT_MS,
+    signal,
+  });
+  return {
+    keywords: Array.isArray(data?.keywords) ? data.keywords : [],
+    terms: Array.isArray(data?.terms) ? data.terms : [],
+    songs: withSongs(data).songs,
+    upstream: Boolean(data?.upstream),
+  };
+};
+
+export const clearSearchCache = async (keyword, { types = ['song'], sources = [], exactArtist = '' } = {}) => {  const params = new URLSearchParams();
   params.set('q', keyword);
   (types.length ? types : ['song']).forEach((type) => params.append('type', type));
   if (exactArtist) params.set('exact_artist', exactArtist);
