@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, HardDriveDownload, Music, Play, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, HardDriveDownload, Music, Play, RotateCw, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 import {
   deleteAllCachedSongs,
@@ -14,6 +14,8 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { formatDuration, formatBytes } from '../utils/displayFormat';
 import { sourceLabel } from '../utils/sourceLabels';
+import { songIdentityKey } from '../utils/songIdentity';
+import { usePageSongFilter } from '../hooks/useSongFilter';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
 import Button from '../ui/Button';
@@ -159,6 +161,16 @@ export default function OfflineMusic() {
   const [persisting, setPersisting] = useState(false);
 
   const songs = useMemo(() => records.map(toSong), [records]);
+  // 顶部搜索框在本页 = 筛本机缓存（「其他页面的搜索应对应当前列表」）。
+  //
+  // 注意过滤对象是 **records 而不是 songs**：本页渲染的是 OfflineRow(record)，
+  // 按 songs 过滤会得到"歌曲对象"却丢了 record 里的 key/size，行就渲染不出来。
+  const filter = usePageSongFilter({ songs, label: '离线音乐', resetKey: userId });
+  const filteredRecords = useMemo(() => {
+    if (!filter.active) return records;
+    const keep = new Set(filter.filtered.map((song) => songIdentityKey(song)));
+    return records.filter((record) => keep.has(songIdentityKey(toSong(record))));
+  }, [filter.active, filter.filtered, records]);
   const totalSize = useMemo(() => records.reduce((sum, row) => sum + (row.size || 0), 0), [records]);
 
   const load = useCallback(async () => {
@@ -186,7 +198,9 @@ export default function OfflineMusic() {
     return () => window.removeEventListener(OFFLINE_AUDIO_CHANGED, onChanged);
   }, [load, userId]);
 
-  const handlePlay = (record) => { play(toSong(record), songs); };
+  // 播放队列必须是**当前可见的**那一批：过滤后点播放，队列只含筛出来的歌，
+  // 否则播完一首会跳进没显示的歌（与各列表页同一规则）。
+  const handlePlay = (record) => { play(toSong(record), filter.filtered); };
 
   const handleDelete = async (record) => {
     try {
@@ -258,8 +272,9 @@ export default function OfflineMusic() {
           <>
             <Button
               variant="primary"
-              onClick={() => records.length && play(songs[0], songs)}
-              disabled={!records.length}
+              onClick={() => filter.filtered.length && play(filter.filtered[0], filter.filtered)}
+              disabled={!filter.filtered.length}
+              title={filter.active ? `播放筛选出的 ${filter.filtered.length} 首` : `播放全部 ${records.length} 首`}
             >
               <Play size={16} fill="currentColor" aria-hidden="true" />
               播放全部
@@ -318,9 +333,18 @@ export default function OfflineMusic() {
         />
       )}
 
-      {records.length > 0 && (
+      {records.length > 0 && filter.active && filteredRecords.length === 0 && (
+        <EmptyState
+          icon={Search}
+          title={`「${filter.query}」没有匹配的本机缓存`}
+          description={`当前共缓存 ${filter.total} 首，换个词试试，或清除筛选看全部。`}
+          action={<Button variant="secondary" onClick={filter.reset}>清除筛选</Button>}
+        />
+      )}
+
+      {filteredRecords.length > 0 && (
         <div className="space-y-0.5">
-          {records.map((record, i) => (
+          {filteredRecords.map((record, i) => (
             <OfflineRow
               key={record.key}
               record={record}

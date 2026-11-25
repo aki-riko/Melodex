@@ -27,8 +27,7 @@ import ImportProgressBar from './ImportProgressBar';
 import { MenuPopover, MenuItem } from '../ui/Menu';
 import { useBackLayer } from '../contexts/backNavigation.js';
 import { pushRouteEntry } from '../contexts/routeHistory.js';
-import { useRegisterPageSearchFilter } from '../contexts/pageSearchFilter.js';
-import { useSongFilter } from '../hooks/useSongFilter';
+import { usePageSongFilter } from '../hooks/useSongFilter';
 
 // 稳定的空数组引用:数据未就绪时不要每次渲染都新建 [],否则会不断改变
 // useBulkActions 的 useCallback 依赖,产生无意义的重建。
@@ -88,22 +87,14 @@ export default function MyPlaylist() {
 
   // 顶部搜索框在本页 = 筛当前歌单（用户明确要求：其他页面的搜索应对应当前歌单）。
   // 只有真正打开了一个歌单时才注册；停留在歌单列表选择界面时保持全网搜索行为。
-  const [filterQuery, setFilterQuery] = useState('');
-  const filter = useSongFilter(songs, filterQuery);
-  useRegisterPageSearchFilter(
-    collectionId != null
-      ? {
-        placeholder: `在「${currentName}」中搜索…`,
-        count: filter.filtered.length,
-        total: filter.total,
-        onSearch: (keyword) => setFilterQuery(keyword || ''),
-      }
-      : null,
-  );
-
-  // 切换歌单时必须清掉过滤词：否则在 A 歌单筛过的词会继续作用到 B 歌单，
-  // 表现为"刚点开新歌单就是空的"。
-  useEffect(() => { setFilterQuery(''); }, [collectionId]);
+  // resetKey=collectionId：切换歌单必须清掉过滤词，否则在 A 歌单筛过的词会继续
+  // 作用到 B 歌单，表现为"刚点开新歌单就是空的"。
+  const filter = usePageSongFilter({
+    songs,
+    label: currentName,
+    enabled: collectionId != null,
+    resetKey: collectionId,
+  });
 
   // 失败反馈:按错误对象去重,StrictMode 重复挂载 effect 不会连弹两次。
   useEffect(() => {
@@ -236,8 +227,9 @@ export default function MyPlaylist() {
           <>
             <Button
               variant="primary"
-              onClick={() => songs.length && play(songs[0], songs)}
-              disabled={!songs.length}
+              onClick={() => filter.filtered.length && play(filter.filtered[0], filter.filtered)}
+              disabled={!filter.filtered.length}
+              title={filter.active ? `播放筛选出的 ${filter.filtered.length} 首` : `播放全部 ${songs.length} 首`}
             >
               <Play size={16} fill="currentColor" aria-hidden="true" />
               播放全部
@@ -324,10 +316,10 @@ export default function MyPlaylist() {
       {!loading && songs.length > 0 && filter.active && filter.filtered.length === 0 && (
         <EmptyState
           icon={Search}
-          title={`「${filterQuery.trim()}」没有匹配的歌曲`}
+          title={`「${filter.query}」没有匹配的歌曲`}
           description={`当前歌单共 ${filter.total} 首，换个词试试，或清除筛选看全部。`}
           action={(
-            <Button variant="secondary" onClick={() => setFilterQuery('')}>
+            <Button variant="secondary" onClick={filter.reset}>
               清除筛选
             </Button>
           )}

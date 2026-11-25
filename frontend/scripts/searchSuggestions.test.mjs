@@ -218,24 +218,143 @@ assert.doesNotMatch(
   '表单提交必须总是搜输入框里的词（否则下拉开着时有高亮项就点不动）',
 );
 
-// ---------- 我的歌单：真的把过滤接进列表与播放队列 ----------
+// ---------- 页内过滤必须真的接进「列表 + 播放队列」 ----------
+//
+// 四页统一用 usePageSongFilter（一行搞定 state + 注册 + 过滤结果），
+// 逐页断言，避免"只接了某几页"或"某页忘了播放队列"。
 
+const PAGES = [
+  {
+    name: '我的歌单',
+    file: 'src/components/MyPlaylist.js',
+    options: /label:\s*currentName/,
+    reset: /resetKey:\s*collectionId/,
+    emptyHint: /没有匹配的歌曲/,
+  },
+  {
+    name: '最近播放',
+    file: 'src/components/RecentlyPlayed.js',
+    options: /label:\s*'最近播放'/,
+    reset: /resetKey:\s*user\?\.id/,
+    emptyHint: /没有匹配的播放记录/,
+  },
+  {
+    name: '已下载',
+    file: 'src/components/LocalMusic.js',
+    options: /label:\s*'已下载'/,
+    reset: null,
+    emptyHint: /没有匹配的已下载歌曲/,
+  },
+  {
+    name: '离线音乐',
+    file: 'src/components/OfflineMusic.js',
+    options: /label:\s*'离线音乐'/,
+    reset: /resetKey:\s*userId/,
+    emptyHint: /没有匹配的本机缓存/,
+  },
+];
+
+for (const page of PAGES) {
+  const src = read(page.file);
+  assert.match(src, /usePageSongFilter\(/, `${page.name}必须接入页内过滤`);
+  assert.match(src, page.options, `${page.name}的占位词要给出列表名`);
+  if (page.reset) {
+    assert.match(src, page.reset, `${page.name}必须提供 resetKey（换歌单/换账号要清空过滤词）`);
+  }
+  assert.match(src, page.emptyHint, `${page.name}过滤无结果时要有明确提示`);
+  assert.match(src, /filter\.reset/, `${page.name}过滤无结果要给一键清除`);
+}
+
+// 播放队列必须用过滤结果 —— 但四页写法不同，逐个按真实形态断言。
+//
+// ★ 只断言「文件里出现过 filter.filtered」是不够的：渲染列表本身就用了它，
+//   把队列改回全量照样"出现过"，突变测不出来（本鱼踩过一次）。
+// ★ 也不能一律断言 `play(s, filter.filtered)`：离线页把逻辑收在 handlePlay 里，
+//   LocalMusic 里还有一个"专辑详情"子视图用它自己的 songs，本来就该自洽。
+const QUEUE_ASSERTIONS = [
+  {
+    name: '我的歌单',
+    file: 'src/components/MyPlaylist.js',
+    patterns: [
+      [/onPlay=\{\(s\)\s*=>\s*play\(s,\s*filter\.filtered\)\}/, '行内播放队列'],
+      [/onClick=\{\(\)\s*=>\s*filter\.filtered\.length\s*&&\s*play\(filter\.filtered\[0\],\s*filter\.filtered\)\}/, '播放全部队列'],
+    ],
+  },
+  {
+    name: '最近播放',
+    file: 'src/components/RecentlyPlayed.js',
+    patterns: [
+      [/onPlay=\{\(s\)\s*=>\s*play\(s,\s*filter\.filtered\)\}/, '行内播放队列'],
+      [/onClick=\{\(\)\s*=>\s*filter\.filtered\.length\s*&&\s*play\(filter\.filtered\[0\],\s*filter\.filtered\)\}/, '播放全部队列'],
+    ],
+  },
+  {
+    name: '已下载',
+    file: 'src/components/LocalMusic.js',
+    patterns: [
+      [/onPlay=\{\(s\)\s*=>\s*play\(s,\s*filter\.filtered\)\}/, '行内播放队列'],
+      [/onClick=\{\(\)\s*=>\s*filter\.filtered\.length\s*&&\s*play\(filter\.filtered\[0\],\s*filter\.filtered\)\}/, '播放全部队列'],
+    ],
+  },
+  {
+    name: '离线音乐',
+    file: 'src/components/OfflineMusic.js',
+    // 离线页用 handlePlay 封装（record → song 的转换只在那一处）
+    patterns: [
+      [/const handlePlay = \(record\) => \{ play\(toSong\(record\), filter\.filtered\); \}/, 'handlePlay 队列'],
+      [/onClick=\{\(\)\s*=>\s*filter\.filtered\.length\s*&&\s*play\(filter\.filtered\[0\],\s*filter\.filtered\)\}/, '播放全部队列'],
+    ],
+  },
+];
+
+for (const entry of QUEUE_ASSERTIONS) {
+  const src = read(entry.file);
+  for (const [pattern, label] of entry.patterns) {
+    assert.match(
+      src,
+      pattern,
+      `${entry.name}的${label}必须是过滤后的列表（否则播完一首会混进没显示的歌）`,
+    );
+  }
+}
+
+// 我的歌单额外锁定一句：播放队列确实用了 filter.filtered 而不是 songs
 const playlistSrc = read('src/components/MyPlaylist.js');
-assert.match(playlistSrc, /useRegisterPageSearchFilter/, '歌单页必须注册页内过滤器');
-assert.match(playlistSrc, /useSongFilter\(songs, filterQuery\)/, '必须用过滤结果渲染');
 assert.match(
   playlistSrc,
   /onPlay=\{\(s\) => play\(s, filter\.filtered\)\}/,
-  '播放队列必须是过滤后的列表（否则播完一首会混进没显示的歌）',
+  '歌单页播放队列必须是过滤后的列表',
+);
+
+// 「已下载」的专辑视图也必须跟着过滤，否则筛完歌曲视图还留着一堆专辑
+const localSrc = read('src/components/LocalMusic.js');
+assert.match(localSrc, /filteredAlbums/, '专辑视图必须使用过滤后的分组');
+assert.match(
+  localSrc,
+  /groupByAlbum\(filter\.filtered\)/,
+  '专辑视图要按过滤后的曲目重新分组',
 );
 assert.match(
-  playlistSrc,
-  /useEffect\(\(\) => \{ setFilterQuery\(''\); \}, \[collectionId\]\)/,
-  '切换歌单必须清掉过滤词（否则新歌单一打开就是空的）',
+  localSrc,
+  /filteredAlbums\.map/,
+  '渲染必须用 filteredAlbums（原来用的是全量 albums）',
 );
-assert.match(playlistSrc, /placehold[er]*: `?在「\$\{currentName\}」中搜索/,
-  '歌单页占位词要明确指出在哪张歌单里搜');
-assert.match(playlistSrc, /没有匹配的歌曲/, '过滤无结果要有明确提示，不能让人以为歌单空了');
-assert.match(playlistSrc, /清除筛选/, '过滤无结果要给一键清除');
+
+// 「离线音乐」渲染的是 OfflineRow(record)，过滤必须回到 records 上，
+// 否则拿到的是 song 对象、丢 key/size，行会渲染不出来。
+const offlineSrc = read('src/components/OfflineMusic.js');
+assert.match(offlineSrc, /filteredRecords/, '离线页必须按 record 过滤（不能拿 song 对象直接渲染）');
+assert.match(offlineSrc, /filteredRecords\.map/, '渲染必须用 filteredRecords');
+assert.match(
+  offlineSrc,
+  /songIdentityKey\(toSong\(record\)\)/,
+  'record → song 的身份键映射必须与过滤侧一致',
+);
+
+// hook 自身：四页共用一份，不允许页面再自己拼 state + 注册
+const hookSrc = read('src/hooks/useSongFilter.js');
+assert.match(hookSrc, /export function usePageSongFilter/, '必须提供一站式 usePageSongFilter');
+assert.match(hookSrc, /useRegisterPageSearchFilter\(/, 'hook 内部负责注册，页面不该重复写');
+assert.match(hookSrc, /resetKey/, '必须支持 resetKey（换歌单/换账号清空过滤词）');
 
 console.log('search suggestion & page filter tests passed');

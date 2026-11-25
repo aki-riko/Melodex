@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
-import { ChevronLeft, Disc3, Download, Play, RotateCw, Upload } from 'lucide-react';
+import { ChevronLeft, Disc3, Download, Play, RotateCw, Search, Upload } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useFeedback } from '../contexts/FeedbackContext';
@@ -8,6 +8,7 @@ import { getLocalMusic, deleteLocalMusic, uploadLocalMusic, coverProxyUrl } from
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
+import { usePageSongFilter } from '../hooks/useSongFilter';
 import { songIdentityKey } from '../utils/songIdentity';
 import Button from '../ui/Button';
 import Segmented from '../ui/Segmented';
@@ -104,6 +105,14 @@ export default function LocalMusic() {
   }, [baseTracks, extraTracks]);
   const albums = useMemo(() => groupByAlbum(tracks), [tracks]);
   const totalCount = Number(data?.total) || tracks.length;
+
+  // 顶部搜索框在本页 = 筛「已下载」（「其他页面的搜索应对应当前列表」）。
+  // 专辑视图也走同一份过滤结果：筛歌词后按专辑分组，分组自然只剩命中的专辑。
+  const filter = usePageSongFilter({ songs: tracks, label: '已下载' });
+  const filteredAlbums = useMemo(
+    () => (filter.active ? groupByAlbum(filter.filtered) : albums),
+    [filter.active, filter.filtered, albums],
+  );
   // 还没追加过增量页时,「是否还有」以第一页响应为准;追加过后以最后一页为准。
   // 注意用游标判断"是否追加过",不用 extraTracks.length —— 用户把增量页的歌全删光后,
   // 列表长度为 0 但仍应听最后一页的 has_more,否则会退回第一页的旧值。
@@ -248,17 +257,22 @@ export default function LocalMusic() {
           <>
             {/* 分页后「播放全部」只能播已加载的那一页 —— 必须让按钮文案如实说明,
                 不能让它看起来像"播整个已下载库"(否则用户以为 600 首在队列里,
-                实际只有 100 首,播到一半就停)。 */}
+                实际只有 100 首,播到一半就停)。
+                有筛选时队列必须是**筛选结果**，文案也跟着说清「筛选出的 N 首」。 */}
             <Button
               variant="primary"
-              onClick={() => tracks.length && play(tracks[0], tracks)}
-              disabled={!tracks.length}
-              title={hasMore
-                ? `先播放已加载的 ${tracks.length} 首，点「加载更多」可继续往后取`
-                : `播放全部 ${tracks.length} 首`}
+              onClick={() => filter.filtered.length && play(filter.filtered[0], filter.filtered)}
+              disabled={!filter.filtered.length}
+              title={filter.active
+                ? `播放筛选出的 ${filter.filtered.length} 首`
+                : (hasMore
+                  ? `先播放已加载的 ${tracks.length} 首，点「加载更多」可继续往后取`
+                  : `播放全部 ${tracks.length} 首`)}
             >
               <Play size={16} fill="currentColor" aria-hidden="true" />
-              {hasMore ? `播放已加载（${tracks.length} 首）` : '播放全部'}
+              {filter.active
+                ? `播放筛选（${filter.filtered.length} 首）`
+                : (hasMore ? `播放已加载（${tracks.length} 首）` : '播放全部')}
             </Button>
             <Button
               variant="outline"
@@ -322,17 +336,27 @@ export default function LocalMusic() {
         />
       )}
 
-      {view === 'songs' && tracks.length > 0 && (
+      {view === 'songs' && tracks.length > 0 && filter.active && filter.filtered.length === 0 && (
+        <EmptyState
+          icon={Search}
+          title={`「${filter.query}」没有匹配的已下载歌曲`}
+          description={`当前已加载 ${filter.total} 首，换个词试试，或清除筛选看全部。`}
+          action={<Button variant="secondary" onClick={filter.reset}>清除筛选</Button>}
+        />
+      )}
+
+      {view === 'songs' && filter.filtered.length > 0 && (
         <>
           <SongListHeader />
           <div className="space-y-0.5">
-            {tracks.map((song, i) => (
+            {filter.filtered.map((song, i) => (
               <SongRow
                 key={trackKey(song)}
                 song={song}
                 index={i}
                 isPlaying={isPlaying(song)}
-                onPlay={(s) => play(s, tracks)}
+                // 队列必须是过滤后的列表（否则播到没显示的歌）。
+                onPlay={(s) => play(s, filter.filtered)}
                 isPaused={isPaused}
                 onTogglePlayback={togglePlay}
                 onRemove={handleDelete}
@@ -346,9 +370,18 @@ export default function LocalMusic() {
 
       {/* 「加载更多」两个视图共用一个入口:专辑视图按已加载曲目聚合,补页后专辑会跟着变多。 */}
 
-      {view === 'albums' && tracks.length > 0 && (
+      {view === 'albums' && tracks.length > 0 && filteredAlbums.length === 0 && (
+        <EmptyState
+          icon={Search}
+          title={`「${filter.query}」没有匹配的专辑`}
+          description="按专辑名/歌手/歌名都能筛，换个词试试。"
+          action={<Button variant="secondary" onClick={filter.reset}>清除筛选</Button>}
+        />
+      )}
+
+      {view === 'albums' && filteredAlbums.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {albums.map((al) => (
+          {filteredAlbums.map((al) => (
             <div
               key={al.key}
               className="group rounded-lg border border-transparent p-1.5 transition-colors duration-base hover:border-border hover:bg-secondary/60"

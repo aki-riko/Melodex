@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from 'react-query';
-import { Clock, Download, Play, Trash2 } from 'lucide-react';
+import { Clock, Download, Play, Search, Trash2 } from 'lucide-react';
 import SongRow, { SongListHeader } from './SongRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,6 +11,7 @@ import {
   serverDownloadBatchSummary,
 } from '../services/serverDownloadBatch';
 import { useScopedBulkState } from '../hooks/useScopedBulkState';
+import { usePageSongFilter } from '../hooks/useSongFilter';
 import { songIdentityKey } from '../utils/songIdentity';
 import LoadingState from './LoadingState';
 import CoverMosaic from './CoverMosaic';
@@ -28,6 +29,9 @@ export default function RecentlyPlayed() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery(['play-history'], getPlayHistory, { staleTime: 0 });
   const songs = data || [];
+  // 顶部搜索框在本页 = 筛播放记录（「其他页面的搜索应对应当前列表」）。
+  // resetKey=user.id：换账号后过滤词要清，否则会拿上一个账号的搜索词筛新列表。
+  const filter = usePageSongFilter({ songs, label: '最近播放', resetKey: user?.id || 0 });
   const downloadTasks = useScopedBulkState(SERVER_DOWNLOAD_BULK_IDLE, 'recent-download');
   const taskKey = `user:${user?.id || 0}:recent:all`;
   const bulkDownload = downloadTasks.getState(taskKey);
@@ -112,8 +116,9 @@ export default function RecentlyPlayed() {
           <>
             <Button
               variant="primary"
-              onClick={() => songs.length && play(songs[0], songs)}
-              disabled={!songs.length}
+              onClick={() => filter.filtered.length && play(filter.filtered[0], filter.filtered)}
+              disabled={!filter.filtered.length}
+              title={filter.active ? `播放筛选出的 ${filter.filtered.length} 首` : `播放全部 ${songs.length} 首`}
             >
               <Play size={16} fill="currentColor" aria-hidden="true" />
               播放全部
@@ -164,17 +169,28 @@ export default function RecentlyPlayed() {
         />
       )}
 
-      {!isLoading && songs.length > 0 && (
+      {/* 过滤中且一条都没命中：说清「不是记录没了」，并给一键清除。 */}
+      {!isLoading && songs.length > 0 && filter.active && filter.filtered.length === 0 && (
+        <EmptyState
+          icon={Search}
+          title={`「${filter.query}」没有匹配的播放记录`}
+          description={`当前共 ${filter.total} 条记录，换个词试试，或清除筛选看全部。`}
+          action={<Button variant="secondary" onClick={filter.reset}>清除筛选</Button>}
+        />
+      )}
+
+      {!isLoading && filter.filtered.length > 0 && (
         <>
           <SongListHeader />
           <div className="space-y-0.5">
-            {songs.map((song, i) => (
+            {filter.filtered.map((song, i) => (
               <SongRow
                 key={`${song.source}-${song.id}`}
                 song={song}
                 index={i}
                 isPlaying={isPlaying(song)}
-                onPlay={(s) => play(s, songs)}
+                // 队列必须是过滤后的列表（否则播到没显示的歌）。
+                onPlay={(s) => play(s, filter.filtered)}
                 isPaused={isPaused}
                 onTogglePlayback={togglePlay}
                 onRemove={handleRemove}
