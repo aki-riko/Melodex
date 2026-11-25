@@ -57,6 +57,11 @@ jobs:
         id: version
         run: node android/scripts/resolve-release-version.mjs "$GITHUB_REF_NAME"
 
+      # 版本号倒退是真实事故：曾把桌面版发成 v0.1.1，而 Android 已到 v0.2.2-rc.1，
+      # 结果 versionCode 10199 < 20201，已装用户无法升级。这道门禁把这类错误挡在构建之前。
+      - name: Check release version is not a regression
+        run: node android/scripts/check-release-version.mjs --tag "$GITHUB_REF_NAME" --skip-desktop
+
       - name: Install Capacitor dependencies
         run: npm ci
 

@@ -93,6 +93,15 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # 版本号倒退是真实事故：曾把桌面版发成 v0.1.1，而 Android 已到 v0.2.2-rc.1，
+      # 两者共用 v* 命名空间，导致安卓用户无法升级。这道门禁在构建前拦住同类错误，
+      # 同时校验 tauri.conf.json / Cargo.toml / Cargo.lock 三处版本号一致。
+      - name: Check release version is not a regression
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+        run: node android/scripts/check-release-version.mjs --tag "${TAG_NAME}"
+
       # 版本号一致性: 更新器按 semver 判断, 版本没变用户就收不到更新。
       # 所以 tag 与 tauri.conf.json 必须严格对应 —— 不一致直接失败, 不带病发布。
       - name: Verify version matches tag
