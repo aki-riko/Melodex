@@ -1,6 +1,8 @@
 package life.nineli.melodex
 
+import androidx.annotation.OptIn
 import androidx.media3.common.audio.ChannelMixingMatrix
+import androidx.media3.common.util.UnstableApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,6 +18,7 @@ import kotlin.math.sqrt
 //   第二个才是输出声道; 系数数组是 **input-major** 行优先。
 //   本类用「与内置 createForConstantPower(4,2) 逐项对比」的方式把这个方向钉死,
 //   而不是靠读注释 —— 注释里写的声道排列与索引实际含义有过不一致。
+@OptIn(UnstableApi::class)
 class QuadDownmixTest {
 
     // ── 系数必须与 RFC 7845 §5.1.1.5 Figure 5 逐位一致 ──────────────────────────

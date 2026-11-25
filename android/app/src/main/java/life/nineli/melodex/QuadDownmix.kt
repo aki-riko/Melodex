@@ -1,7 +1,9 @@
 package life.nineli.melodex
 
+import androidx.annotation.OptIn
 import androidx.media3.common.audio.ChannelMixingAudioProcessor
 import androidx.media3.common.audio.ChannelMixingMatrix
+import androidx.media3.common.util.UnstableApi
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -41,6 +43,12 @@ import kotlin.math.sqrt
 //   声道互相关接近 0(独立内容), 且 20-150Hz 频段前声场比后声场低 20 dB 以上 ——
 //   也就是说低频几乎全在后声道里。丢掉后声道 = 低音整块没了。
 
+//
+// ★ media3 的 ChannelMixingAudioProcessor / ChannelMixingMatrix 都标了 @UnstableApi,
+//   所以整个 object 必须带 @OptIn(UnstableApi::class) —— 漏了会让 :app:lintDebug 直接
+//   失败(项目用 lint 错误阻断发布构建, 不是警告)。与 PlaybackService/PlaybackRuntime/
+//   NativePlaybackPlugin 三处的处理方式一致。
+@OptIn(UnstableApi::class)
 internal object QuadDownmix {
     // 4 声道输入 → 立体声输出时, 每行(每个输出声道)的系数和必须 <= 1。
     // 数值直接来自 RFC 7845 Figure 5, 不在这里重新推导, 以免两处漂移。

@@ -1,10 +1,12 @@
 package life.nineli.melodex
 
 import android.content.Context
+import androidx.annotation.OptIn
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessorChain
 import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -44,6 +46,11 @@ import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 //   降混在最前是对的: 4 声道一进处理器就先折叠成 2 声道, 后面所有处理器(Sonic、
 //   静音跳过、AudioTrack)只需要处理立体声, 与"库里 668 首本来就是立体声"完全同一条路径。
 
+// ★ media3 的 DefaultRenderersFactory / DefaultAudioSink / AudioProcessorChain 等
+//   都标了 @UnstableApi, 所以本类必须带 @OptIn(UnstableApi::class)。漏掉会让
+//   :app:lintDebug 报 UnsafeOptInUsageError 并中止整个发布构建(项目把 lint 错误
+//   当构建门禁)。与 PlaybackService/PlaybackRuntime/NativePlaybackPlugin 一致。
+@OptIn(UnstableApi::class)
 internal class DownmixRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
 
     override fun buildAudioSink(
