@@ -1,0 +1,61 @@
+# 行尾纪律
+#
+# 背景：仓库曾把 core.autocrlf 设为 true，导致暂存区内容可能是 CRLF。
+# 对 source 文件无害，但对 **shell 脚本是致命的** ——
+#   sh 脚本首行 `#!/bin/sh\r` 会报 "bad interpreter: No such file or directory"
+#   pre-push hook 在 Linux/macOS 上直接失效，等于门禁形同虚设。
+#
+# 所以这里显式钉死：脚本一律 LF，跨平台检出也不转换。
+
+# shell 脚本：必须 LF
+*.sh            text eol=lf
+.githooks/*     text eol=lf
+*.bash          text eol=lf
+
+# Windows 脚本：CRLF 更符合惯例（powershell 两种都吃，但 CRLF 更稳）
+*.ps1           text eol=crlf
+*.psm1          text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# 源码：归一化为 LF，检出按平台
+*.go            text
+*.py            text
+*.js            text
+*.jsx           text
+*.mjs           text
+*.cjs           text
+*.ts            text
+*.tsx           text
+*.rs            text
+*.kt            text
+*.kts           text
+*.css           text
+*.html          text
+*.json          text
+*.yaml          text
+*.yml           text
+*.md            text
+*.toml          text
+*.xml           text
+
+# 二进制：禁止任何行尾转换（否则会损坏文件）
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.webp          binary
+*.mp3           binary
+*.exe           binary
+*.dll           binary
+*.so            binary
+*.apk           binary
+*.jks           binary
+*.sig           binary
+*.bundle        binary
+*.jar           binary
+
+# 锁文件：保持原样，避免每次安装都产生 diff 噪声
+Cargo.lock      text eol=lf
+package-lock.json text eol=lf
