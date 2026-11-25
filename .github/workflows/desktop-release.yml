@@ -144,16 +144,22 @@ jobs:
       - name: Locate artifacts
         id: artifact
         shell: bash
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
         run: |
           set -euo pipefail
           bundle_dir="desktop/src-tauri/target/release/bundle/nsis"
-          shopt -s nullglob
-          exes=("${bundle_dir}"/*.exe)
-          if [ "${#exes[@]}" -ne 1 ]; then
-            echo "::error::预期 1 个安装包, 实际 ${#exes[@]} 个: ${exes[*]}"
+          version="${TAG_NAME#v}"
+          # 只认本次版本号对应的安装包，不靠"目录里恰好一个 .exe"。
+          # 缓存恢复的 target/ 可能残留旧版本产物（本地实测过 0.1.0 与 0.1.1 共存），
+          # 用数量断言会在那种情况下误失败。
+          exe="${bundle_dir}/Melodex_${version}_x64-setup.exe"
+          if [ ! -f "${exe}" ]; then
+            echo "::error::未找到预期产物: ${exe}"
+            echo "--- 目录内容 ---"
+            ls -la "${bundle_dir}" || true
             exit 1
           fi
-          exe="${exes[0]}"
           sig="${exe}.sig"
           if [ ! -f "${sig}" ]; then
             echo "::error::缺少更新签名文件 ${sig}（updater artifacts 未生成）"
@@ -163,7 +169,6 @@ jobs:
           echo "sig=${sig}" >> "$GITHUB_OUTPUT"
           echo "exe_name=$(basename "${exe}")" >> "$GITHUB_OUTPUT"
           echo "产物: ${exe}"
-          ls -la "${bundle_dir}"
 
       # 用仓库里那套已被测试覆盖的纯函数生成清单, 不另写一份逻辑。
       - name: Build updater manifest
