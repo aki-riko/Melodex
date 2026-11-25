@@ -5,9 +5,9 @@ package web
 // 为什么要有这条:整条导入链路的第一步就是把 m3u 文本变成条目,解析错了
 // 后面全是白忙。而真实文件的编码/换行/EXTINF 形态未必与单测里手写的样本一致。
 //
-// ★ 这条测试**依赖外部 NAS 共享**(<NAS-SHARE>\...)。按纪律:环境不可达时
-//   跳过而不是失败 —— 否则别人在没挂载 NAS 的机器上跑测试会一片红,
-//   那不是缺陷,是环境差异。
+// ★ 这条测试**依赖外部 NAS 共享**。真实路径属内网资产,**不写进仓库** ——
+//   由环境变量 MELODEX_M3U_REAL_DIR 注入。按纪律:未提供或不可达时跳过而不是失败
+//   —— 否则别人在没挂载 NAS 的机器上跑测试会一片红,那不是缺陷,是环境差异。
 //
 // 真实数据规模(2026-11-25 实测):
 //   催泪三部曲 3 / 剑网三 3 / 可塑性记忆 5 / 古风歌曲 43 /
@@ -19,7 +19,8 @@ import (
 	"testing"
 )
 
-const realM3UDir = `<NAS-M3U-DIR>`
+// realM3UDir 由环境变量注入,未设置时为空 → 下面 os.Stat 失败即跳过。
+var realM3UDir = os.Getenv("MELODEX_M3U_REAL_DIR")
 
 // realM3UExpect 是实测的条目数。写死是为了让"解析结果变化"能被发现 ——
 // 若将来解析逻辑改动导致某个文件的条目数变了,这里会先红。
@@ -35,7 +36,7 @@ var realM3UExpect = map[string]int{
 
 func TestParseM3UOnRealNASFiles(t *testing.T) {
 	if _, err := os.Stat(realM3UDir); err != nil {
-		t.Skipf("NAS 共享不可达, 跳过真实数据验证: %v", err)
+		t.Skipf("未提供 MELODEX_M3U_REAL_DIR 或共享不可达, 跳过真实数据验证: %v", err)
 	}
 
 	total := 0
