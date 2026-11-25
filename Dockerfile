@@ -2,10 +2,17 @@
 # 构建上下文为仓库根(同时含 frontend/ 与 backend/):
 #   docker build -t melodex -f Dockerfile .
 #
-# 基础镜像前缀 IMAGE_PREFIX:默认走国内镜像站(NAS 上直连 docker.io 会拉不到)。
-# 能直连 Docker Hub 的环境(如 GitHub Actions)覆盖成官方库即可, 否则会去拉那个镜像站:
-#   docker build --build-arg IMAGE_PREFIX=docker.io/library -t melodex -f Dockerfile .
-ARG IMAGE_PREFIX=docker.1ms.run/library
+# 基础镜像前缀 IMAGE_PREFIX。
+#
+# 默认走 **Docker Hub 官方库**。历史上这里默认是第三方镜像站 `docker.1ms.run/library`
+# (当时 NAS 直连 docker.io 会拉不到),但 2026-11-26 实测该站已拉不动基础镜像:
+#   failed to resolve source metadata for docker.1ms.run/library/node:20-alpine: EOF
+# 而 NAS 的 dockerd 早已配好 mihomo 代理(docker info 可见 HTTP Proxy=127.0.0.1:7890,
+# 192.168.1.0/24 在 No Proxy 内),官方源可直接拉 —— 项目纪律也明确要求
+# 「基础镜像直接 docker pull 官方镜像名,禁止第三方镜像站前缀」。
+# 所以默认值改为官方库;确需换源的境外/特殊环境再用 build-arg 覆盖:
+#   docker build --build-arg IMAGE_PREFIX=registry.example.com/library -t melodex -f Dockerfile .
+ARG IMAGE_PREFIX=docker.io/library
 
 # ===== 阶段1:构建 React 前端 =====
 FROM ${IMAGE_PREFIX}/node:20-alpine AS frontend
