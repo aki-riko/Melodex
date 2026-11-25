@@ -326,8 +326,16 @@ function PlaylistNav({ currentSection, currentSubPath, onNavigate }) {
     <nav
       className="fixed inset-x-0 bottom-0 z-tabbar flex items-stretch border-t border-border surface-dock lg:hidden"
       style={{
-        height: 'calc(3.25rem + env(safe-area-inset-bottom))',
-        paddingBottom: 'env(safe-area-inset-bottom)',
+        // ★ 2026-11-26: 高度改读 CSS token（--mobile-tabbar-h / --safe-bottom），
+        //   不再写死 3.25rem + env(...)。原来这个数字在四处各写一遍
+        //   （这里 / 迷你条 bottom / .app-main 的两条预留规则），
+        //   改底栏高度必须四处同改，漏一处就会出现内容被盖住或底部多一截空白。
+        //   详见 index.css「安全区 token」一节。
+        height: 'calc(var(--mobile-tabbar-h) + var(--safe-bottom))',
+        paddingBottom: 'var(--safe-bottom)',
+        // 横屏刘海：底栏两端也要避开挖孔/圆角，竖屏时为 0 无副作用。
+        paddingLeft: 'var(--safe-left)',
+        paddingRight: 'var(--safe-right)',
       }}
       aria-label="底部导航"
     >

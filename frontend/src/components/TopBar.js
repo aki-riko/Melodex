@@ -151,7 +151,20 @@ export default function TopBar({ currentSection: _currentSection, onNavigate }) 
   };
 
   return (
-    <div className="sticky top-0 z-nav flex items-center gap-3 border-b border-border surface-bar px-4 py-3 md:px-6">
+    // ★ 2026-11-26 顶部/左右安全区：此前**完全没处理**，只有全屏播放页用了
+    //   env(safe-area-inset-top)。真机风险来自 Capacitor 8 的 SystemBars：
+    //   当「WebView ≥ 140 且页面有 viewport-fit=cover」时，它把原生 padding 清零
+    //   （`v.setPadding(0, 0, 0, ...)`）并把 insets 注入成 CSS 变量
+    //   （见 SystemBars.injectSafeAreaCSS），也就是**页面内容会顶到状态栏下面**。
+    //   本项目 index.html 正好是 viewport-fit=cover，安卓 WebView 现在普遍 ≥ 140，
+    //   所以这是默认路径 —— 顶栏会被状态栏/挖孔压住。
+    //   （WebView < 140 走另一分支，系统给原生 padding、顶栏本就被推开；
+    //    此时 --safe-top 为 0，下面的 padding 不产生任何效果。）
+    //
+    // ★ 为什么用 CSS 类而不是内联 style：内联的 paddingLeft 会在所有断点生效，
+    //   把 Tailwind 的 `md:px-6`(24px) 覆盖成 16px —— 桌面端会窄 8px。
+    //   类里用同样的断点写死两档，才与改造前完全一致。
+    <div className="safe-top-bar sticky top-0 z-nav flex items-center gap-3 border-b border-border surface-bar px-4 py-3 md:px-6">
       <a
         href="#home"
         onClick={(e) => { e.preventDefault(); onNavigate('Home'); }}

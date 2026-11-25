@@ -2538,7 +2538,14 @@ export const PlayerBar = () => {
       {/* ===== 移动端:迷你条(封面+名+播放),点击展开全屏播放页 ===== */}
       {nowPlaying && (
       <div className="lg:hidden fixed left-0 right-0 bg-card border-t border-border z-bar surface-dock player-mini-enter"
-        style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom))' }}>
+        style={{
+          // ★ 2026-11-26: 改读 token，与 Tab 栏共用同一个高度来源（见 index.css 安全区一节）。
+          //   原来写死 3.25rem，与 Sidebar 里的底栏高度是两份独立硬编码。
+          bottom: 'calc(var(--mobile-tabbar-h) + var(--safe-bottom))',
+          // 横屏刘海：迷你条两端也避开挖孔，竖屏时为 0 无副作用。
+          paddingLeft: 'var(--safe-left)',
+          paddingRight: 'var(--safe-right)',
+        }}>
         {notice && <p className="text-xs text-primary font-medium px-3 pt-1 truncate">{notice}</p>}
         {/* 顶部细进度条:用 scaleX 而不是 width —— 进度每秒更新 4 次,改 width 每次都重排且一格一格跳;
             transform 走合成层,配 250ms linear 过渡连续前进。按曲目 key 重新挂载,换歌时不会从旧进度"倒退"回 0。 */}
@@ -2603,7 +2610,16 @@ export const PlayerBar = () => {
       {/* ===== 移动端:全屏展开播放页(QQ音乐式) ===== */}
       {expanded && nowPlaying && (
         <div className={`lg:hidden fixed inset-0 z-sheet bg-background flex flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
-          style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
+          style={{
+            // ★ 2026-11-26: 改读 --safe-* token（原来直取 env()，在 Android 的
+            //   Capacitor 形态下 SystemBars 注入的是 --safe-area-inset-*，
+            //   env() 可能恒为 0 → 全屏播放页顶部会被状态栏压住、底部被手势条盖住）。
+            //   同时补上左右安全区：横屏时刘海会切掉封面左/右边缘。
+            paddingTop: 'var(--safe-top)',
+            paddingBottom: 'calc(var(--safe-bottom) + 1rem)',
+            paddingLeft: 'var(--safe-left)',
+            paddingRight: 'var(--safe-right)',
+          }}>
           {/* 顶部:收起 */}
           <div className="flex items-center justify-between px-4 py-3">
             <button onClick={collapseExpanded} className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="收起">
@@ -2616,7 +2632,13 @@ export const PlayerBar = () => {
           {/* 移动端队列覆盖层(展开页内) */}
           {queueOpen && (
             <div className="absolute inset-0 z-sheet bg-background flex flex-col"
-              style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
+              style={{
+                // 同上层：走 --safe-* token，并补左右安全区（横屏刘海）。
+                paddingTop: 'var(--safe-top)',
+                paddingBottom: 'calc(var(--safe-bottom) + 1rem)',
+                paddingLeft: 'var(--safe-left)',
+                paddingRight: 'var(--safe-right)',
+              }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="font-semibold">播放队列 · {queue.length} 首</span>
                 <button onClick={() => setQueueOpen(false)} className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-full text-muted-foreground" aria-label="关闭队列">

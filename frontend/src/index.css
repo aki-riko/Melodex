@@ -34,6 +34,35 @@
   [data-theme="fluent-light"] {
     color-scheme: light;
 
+    /* ===== 安全区与移动底栏 token（2026-11-26）=====
+     *
+     * ★ 为什么必须写在这个块里、不能另起一个 :root：
+     *   `scripts/themeContract.test.mjs` 用 `extractBlock(css, ':root')` 找
+     *   **第一个** `:root {` 块来校验 44 个主题 token。另起一个 :root 会让它
+     *   读到那个只有几个变量的块，于是报「缺 44 个 token」。
+     *   本鱼第一版就是这么写的，被门禁当场抓红 —— 门禁有效。
+     *
+     * ★ 为什么要有 --safe-* 这一层：Capacitor 8 的 SystemBars 插件在
+     *   「WebView ≥ 140 且页面有 viewport-fit=cover」时，会把 WebView 的原生 padding
+     *   清零（`v.setPadding(0, 0, 0, ...)`）并把真实 insets 注入成 **`--safe-area-inset-*`**
+     *   （见 SystemBars.injectSafeAreaCSS）。这时浏览器原生 `env(safe-area-inset-*)`
+     *   可能是 0。用 `var(--safe-area-inset-x, env(safe-area-inset-x, 0px))`
+     *   两层回退，两种形态都能取到正确值，不需要判断当前跑在哪种容器里。
+     *
+     * ★ 为什么要有 --mobile-tabbar-h：底栏高度原先硬编码了 **4 次**
+     *   （Tab 栏自身 / 迷你条 bottom / .app-main 两条预留），改高度必须四处同改，
+     *   漏一处就是"内容被盖住"或"底部多一截空白"。现在只改这一处。
+     *
+     * ★ 这两个 token 与深浅档无关（尺寸不随主题变），放在浅色块里只是因为
+     *   它同时命中 `:root`，天然是全局默认值。 */
+    --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+    --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+    --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+    --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+
+    --mobile-tabbar-h: 3.25rem;
+    --mobile-miniplayer-h: 3.875rem;
+
     /* 配色:Windows 11 浅色阶梯。三档 95% / 98% / 100%,每档都留可见差异。 */
     --background: 0 0% 95%;     /* #F3F3F3 Mica 基底 */
     --foreground: 0 0% 7%;      /* #111 主文字 */
@@ -245,7 +274,10 @@
   /* 屏幕上不可见的跳过链接(键盘首个 Tab 可达) */
   .skip-link {
     position: fixed;
-    top: 0;
+    /* ★ 2026-11-26: 加 --safe-top —— 否则在 Android 上（WebView ≥ 140 且
+       viewport-fit=cover 时内容顶到状态栏下）键盘聚焦后这个链接会被状态栏压住，
+       而它恰恰是无障碍用户第一个 Tab 到的元素，被压住等于"跳不过去"。 */
+    top: var(--safe-top);
     left: 50%;
     transform: translate(-50%, -120%);
     z-index: 100;
@@ -486,34 +518,74 @@
   height: 100dvh;
 }
 
+/* 说明：安全区与移动底栏 token 定义在文件顶部 `:root`。
+ * 这里不再重复定义 —— 早先本鱼把它放这里时，`.skip-link`（更靠前）已经在用，
+ * 虽然 CSS 变量解析与源码顺序无关、功能上没坏，但"先用后定义"读起来像 bug。
+ * 统一放顶部一处，改底栏高度只改 --mobile-tabbar-h。 */
+
 /* 主滚动区底部留白 = 固定底栏占用的高度。
    底栏有三层: 桌面播放条(md+)、移动迷你播放条、移动 Tab 栏; 主区必须预留它们的总高,
    否则最后一屏内容会被盖住。早先写死 `paddingBottom: 7rem`, 三处都不合适:
      · 桌面播放条实际只有 ~4rem —— 每页底部白留约 3rem;
      · 不播放时播放条 display:none —— 整块 7rem 全是空白;
-     · 移动端 Tab(3.25rem)+迷你条(3.875rem) 已是 7.125rem, 再出提示条就盖住内容。
-   现在按"是否在播放 / 是否显示提示"切类名, 各断点给各自需要的值。 */
+     · 移动端 Tab + 迷你条 = 7.125rem, 再出提示条就盖住内容。
+   现在按"是否在播放 / 是否显示提示"切类名, 各断点给各自需要的值。
+   ★ 2026-11-26: 底栏高度改读 --mobile-tabbar-h / --mobile-miniplayer-h,
+     不再各写 3.25rem/3.875rem —— 那两处曾硬编码 4 次与 2 次（改一处必漏别处）。 */
 .app-main {
-  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(1.5rem + var(--safe-bottom));
+  /* 横屏刘海：左右两侧也要留位，否则内容会被屏幕圆角/挖孔切掉。
+     竖屏时 --safe-left/right 为 0，不产生任何副作用。 */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 .app-main--playing {
-  padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(5rem + var(--safe-bottom));
 }
 .app-main--playing.app-main--notice {
-  padding-bottom: calc(6.25rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(6.25rem + var(--safe-bottom));
 }
 @media (max-width: 1023px) {
   /* 移动端: 常驻 Tab 栏 */
   .app-main {
-    padding-bottom: calc(3.25rem + 1.5rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--mobile-tabbar-h) + 1.5rem + var(--safe-bottom));
   }
-  /* + 迷你播放条(44px 内容 + 8px*2 内边距 + 2px 进度条 ≈ 3.875rem) */
+  /* + 迷你播放条(44px 内容 + 8px*2 内边距 + 2px 进度条) */
   .app-main--playing {
-    padding-bottom: calc(3.25rem + 3.875rem + 1rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--mobile-tabbar-h) + var(--mobile-miniplayer-h) + 1rem + var(--safe-bottom));
   }
   /* + 提示条一行(≈1.25rem) */
   .app-main--playing.app-main--notice {
-    padding-bottom: calc(3.25rem + 5.125rem + 1rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--mobile-tabbar-h) + 5.125rem + 1rem + var(--safe-bottom));
+  }
+}
+
+/* ===== 顶栏安全区（2026-11-26）=====
+ *
+ * 背景：Capacitor 8 的 SystemBars 在「WebView ≥ 140 且 viewport-fit=cover」时
+ * 会把 WebView 的原生 padding 清零、把 insets 注入成 `--safe-area-inset-*`，
+ * 页面内容因此**延伸到状态栏/挖孔下面**。本项目 index.html 正是 viewport-fit=cover，
+ * 安卓 WebView 现在普遍 ≥ 140 —— 所以顶栏需要自己补 paddingTop，
+ * 否则第一行（logo + 搜索框）会被状态栏压住。
+ *
+ * ★ 为什么不直接写内联 style：内联的 paddingLeft 在所有断点生效，
+ *   会把 Tailwind 的 `md:px-6`(24px) 覆盖成 16px，桌面端窄 8px。
+ *   这里按 Tailwind 同样的断点（md = 768px）写两档，保持改造前后**桌面完全一致**。
+ *
+ * ★ 为什么用 padding 而不是 margin：顶栏的 .surface-bar 毛玻璃底要一起延伸进
+ *   状态栏区域，用 margin 会在状态栏下留一条没被材质覆盖的缝。
+ *
+ * 竖屏 / 非刘海屏下 --safe-top 与 --safe-left/right 都是 0，因此**零副作用**。
+ */
+.safe-top-bar {
+  padding-top: calc(0.75rem + var(--safe-top));
+  padding-left: calc(1rem + var(--safe-left));
+  padding-right: calc(1rem + var(--safe-right));
+}
+@media (min-width: 768px) {
+  .safe-top-bar {
+    padding-left: calc(1.5rem + var(--safe-left));
+    padding-right: calc(1.5rem + var(--safe-right));
   }
 }
 
@@ -1451,8 +1523,11 @@ select[class*="text-"] {
    下面这些类名与 JSX 一一对应(PlayerContext.js 的桌面舞台底栏)。 */
 .player-stage__dock {
   flex-shrink: 0;
-  /* 通栏贴底:左右不留白、底部贴到屏幕边(安全区兜底给 iOS/安卓手势条) */
-  padding: 0 0 env(safe-area-inset-bottom, 0);
+  /* 通栏贴底:左右不留白、底部贴到屏幕边(安全区兜底给 iOS/安卓手势条)
+     ★ 2026-11-26: 改读 --safe-bottom。原来写 env(...) 直取 —— 在 Android 上
+     Capacitor 的 SystemBars 会注入 --safe-area-inset-bottom 而不一定改 env(),
+     于是这条 padding 可能恒为 0，底栏会和手势条重叠。 */
+  padding: 0 0 var(--safe-bottom);
   /* 纯色深底(不到 1.0 会透出封面,那就不是"实色条"了) */
   background-color: hsl(var(--background));
   /* 顶边一根极淡的分隔线:让条与封面有明确边界,又不喧宾夺主 */
@@ -1744,7 +1819,7 @@ select[class*="text-"] {
     -webkit-mask-image: none;
     mask-image: none;
   }
-  .player-stage__dock { padding: 0 0 env(safe-area-inset-bottom, 0); }
+  .player-stage__dock { padding: 0 0 var(--safe-bottom); }
   .player-stage__dock-inner { flex-wrap: wrap; gap: 0.75rem; }
 }
 

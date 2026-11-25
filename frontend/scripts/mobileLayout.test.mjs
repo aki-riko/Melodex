@@ -214,6 +214,111 @@ check('六个详情页头部统一走 ui/DetailHeader', () => {
   assert.match(dh, /sm:row-span-2/, 'DetailHeader 桌面档封面必须跨两行');
 });
 
+// ---------- ⑧ 安全区：底栏高度与 env() 必须走 token ----------
+
+check('底栏高度/安全区必须走 token，不得各处硬编码', () => {
+  const css = readSrc('src/index.css');
+
+  // ① token 必须定义在主题块里（不能在 :root 之外另起，见下条）
+  assert.match(css, /--mobile-tabbar-h:\s*3\.25rem;/, '缺少 --mobile-tabbar-h token');
+  assert.match(css, /--mobile-miniplayer-h:\s*3\.875rem;/, '缺少 --mobile-miniplayer-h token');
+  assert.match(
+    css,
+    /--safe-top:\s*var\(--safe-area-inset-top,\s*env\(safe-area-inset-top,\s*0px\)\)/,
+    '--safe-top 必须写成 var(--safe-area-inset-*, env(..., 0px)) 两层回退 —— '
+    + 'Capacitor 的 SystemBars 注入的是 --safe-area-inset-*，而浏览器原生只能读 env()，'
+    + '只写一个来源在另一种形态下会取到 0',
+  );
+
+  // ② ★ 这条是本鱼第一次改红的真实教训：
+  //    themeContract 用 extractBlock(css, ':root') 取**第一个** :root 块校验 44 个
+  //    主题 token。若在主题块之外另起一个 `:root {`，它就会读到那个只有几个变量的块，
+  //    报「缺 44 个 token」。所以断言：:root 只能出现一次（且是主题块那次）。
+  const rootBlocks = [...css.matchAll(/^\s*:root\s*[,{]/gm)];
+  assert.equal(
+    rootBlocks.length,
+    1,
+    `index.css 出现了 ${rootBlocks.length} 个 \`:root\` 块。必须只有一个（且是主题变量块）—— `
+    + 'themeContract 门禁用 extractBlock 取第一个 :root 校验 44 个 token，'
+    + '另起一个会导致它读到残缺块并报「缺 44 个 token」',
+  );
+
+  // ③ .app-main 的移动档预留必须读 token，不能再写 3.25rem/3.875rem
+  assert.match(
+    css,
+    /padding-bottom:\s*calc\(var\(--mobile-tabbar-h\)\s*\+\s*1\.5rem/,
+    '.app-main 的移动档预留必须读 --mobile-tabbar-h（原先硬编码 3.25rem）',
+  );
+  assert.match(
+    css,
+    /padding-bottom:\s*calc\(var\(--mobile-tabbar-h\)\s*\+\s*var\(--mobile-miniplayer-h\)/,
+    '.app-main--playing 的预留必须同时读两个 token（原先硬编码 3.25rem + 3.875rem）',
+  );
+
+  // ④ 源码里不得再有裸 env(safe-area-inset-*) 直接用于布局
+  //    （允许出现在 token 定义那一行，因为那是唯一的来源）
+  const offenders = [];
+  for (const rel of ['src/components/Sidebar.js', 'src/contexts/PlayerContext.js', 'src/components/TopBar.js']) {
+    const src = readSrc(rel);
+    const lines = src.split(/\r?\n/);
+    lines.forEach((line, i) => {
+      if (!/env\(safe-area-inset-/.test(line)) return;
+      if (/^\s*(\*|\/\/)/.test(line)) return;           // 注释
+      offenders.push(`${rel}:${i + 1}  ${line.trim().slice(0, 70)}`);
+    });
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些地方直接用了 env(safe-area-inset-*)，应改读 --safe-* token：\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+// ---------- ⑨ 顶栏必须处理顶部安全区 ----------
+
+check('sticky 顶栏必须处理顶部安全区（Android 内容会顶到状态栏下）', () => {
+  const topbar = readSrc('src/components/TopBar.js');
+  assert.match(
+    topbar,
+    /safe-top-bar/,
+    'TopBar 必须挂 .safe-top-bar 类（补 paddingTop: var(--safe-top)）—— '
+    + 'Capacitor 的 SystemBars 在 WebView ≥ 140 且 viewport-fit=cover 时会把原生 padding 清零，'
+    + '页面内容顶到状态栏下面，顶栏第一行会被压住',
+  );
+  // 不能改用内联 style 设左右 padding —— 会覆盖 md:px-6，桌面窄 8px
+  assert.doesNotMatch(
+    topbar,
+    /style=\{\{[^}]*paddingLeft/,
+    'TopBar 不得用内联 paddingLeft/Right —— 内联在所有断点生效，'
+    + '会把 Tailwind 的 md:px-6(24px) 覆盖成 16px，桌面端窄 8px。用 .safe-top-bar 类里的断点',
+  );
+
+  const css = readSrc('src/index.css');
+  assert.match(
+    css,
+    /\.safe-top-bar\s*\{[^}]*padding-top:\s*calc\(0\.75rem\s*\+\s*var\(--safe-top\)\)/,
+    '.safe-top-bar 必须保留 padding-top: calc(0.75rem + var(--safe-top))'
+    + '（0.75rem 是原 py-3 的上内边距，不能被吃掉）',
+  );
+  assert.match(
+    css,
+    /@media\s*\(min-width:\s*768px\)\s*\{\s*\.safe-top-bar/,
+    '.safe-top-bar 必须有 md 断点，把左右内边距恢复成 1.5rem（对应 md:px-6）',
+  );
+
+  // 横屏刘海：左右安全区也要被真实使用
+  assert.match(
+    css,
+    /--safe-left:\s*var\(--safe-area-inset-left/,
+    '缺少 --safe-left：横屏时刘海会切掉内容左右边缘（本项目未锁竖屏）',
+  );
+  assert.match(
+    css,
+    /padding-left:\s*var\(--safe-left\)/,
+    '.app-main 必须用 --safe-left —— 横屏刘海会切掉内容边缘',
+  );
+});
+
 // ---------- 汇总 ----------
 
 console.log('');
