@@ -771,6 +771,65 @@ node ../desktop/scripts/build-updater-manifest.test.mjs  # 10 项
 上述结论全部来自:源代码 + 构建产物里实际生成的 CSS 类 + 排版数学核算。
 真机观感仍需人工确认。
 
+#### 第十二轮(2026-11-26):顶栏/底栏安全区
+
+用户「要」(继续核顶栏与底栏)。**宽的数学先排除了**:5 个底部 Tab 在 320px 下
+每个仍有 64px(>44px 触控下限)、内容需高 36.3px < 容器 52px,顶栏搜索框文字区
+最小 188px ≫ placeholder 的 117px —— **底栏/顶栏尺寸本身没问题,不要再去调宽高**。
+
+真正的问题是**安全区**,两处:
+
+1. **顶栏完全没处理顶部安全区**(全项目只有全屏播放页用了 `env(safe-area-inset-top)`)。
+   机制在依赖源码里逐行确认(Capacitor 8.5.2
+   `node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/SystemBars.java`):
+   ```java
+   boolean shouldPassthroughInsets =
+       getWebViewMajorVersion() >= 140 && hasViewportCover;  // hasViewportCover 读 viewport-fit=cover
+   if (shouldPassthroughInsets) {
+       v.setPadding(0, 0, 0, keyboardVisible ? imeInsets.bottom : 0);  // ← 顶部 native padding 归零
+       ... injectSafeAreaCSS(newInsets);                               // ← 改写 --safe-area-inset-*
+   }
+   ```
+   本项目 `index.html` 正是 `viewport-fit=cover`,安卓 WebView 现普遍 ≥ 140
+   → **这是默认路径,页面内容顶到状态栏下面,顶栏第一行被压住**。
+   修法:`.safe-top-bar`(paddingTop + 左右安全区),按 `@media (min-width:768px)`
+   写两档 —— **不能用内联 style**,内联的 `paddingLeft` 会在所有断点生效,
+   把 `md:px-6`(24px) 覆盖成 16px,桌面端窄 8px。
+
+2. **底栏高度硬编码 4 次**、`3.875rem` 硬编码 2 次(Tab 栏 / 迷你条 `bottom` /
+   `.app-main` 两条预留)。改高度必须四处同改,漏一处就是「内容被盖住」或
+   「底部多一截空白」—— 这类改动以前没法安全地做。
+   收敛成 `--mobile-tabbar-h` / `--mobile-miniplayer-h`,以后只改一处。
+
+**★ `--safe-*` 必须两层回退,这是本轮最不直觉的一点**:
+```css
+--safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+```
+Capacitor 注入的是**自定义属性 `--safe-area-inset-*`**(见 `injectSafeAreaCSS`),
+而浏览器原生只能读 `env()`。只写一个来源,在另一种形态下就会取到 **0** ——
+表现为「竖屏刘海被状态栏压住」或「底部栏和手势条重叠」,而且只在真机上能看出来。
+
+**连带修的三处**(都是同源问题):
+- **横屏刘海**:左右安全区**完全没处理**(本项目未锁竖屏),`.app-main` / 顶栏 /
+  底栏 / 迷你条 / 全屏播放页全部补 `--safe-left/right`。竖屏时为 0,零副作用。
+- **`.skip-link`** 加 `top: var(--safe-top)`:它是无障碍用户第一个 Tab 到的元素,
+  被状态栏压住等于「跳不过去」。
+- 全屏播放页两处裸 `env()` 改 token。
+
+**★ 踩坑(已被门禁当场抓住,值得记住)**:第一版把 token 写成**独立的 `:root` 块**,
+而 `themeContract.test.mjs` 用 `extractBlock(css, ':root')` 取**第一个** `:root`
+来校验 44 个主题 token —— 于是读到那个只有 6 个变量的新块,报「缺 44 个 token」。
+**修法是把 token 并进主题块**,并加门禁断言「`:root` 只能出现一次」。
+教训:**往 index.css 加变量前,先看有没有门禁按选择器取块**。
+
+**门禁**:`test:mobile` 7 → **9 条**(新增「底栏 token 收敛」与「顶栏安全区」两组),
+新增 3 条都做了突变验证(去掉 `.safe-top-bar` / 改坏 token 名 / 另起 `:root`
+→ 均变红并指名原因)。
+
+**未验证**:**没有安卓真机**,未目视确认状态栏遮挡是否真的消失。
+结论依据是依赖源码 + 构建产物 CSS(用脚本核对了 token 与 `.safe-top-bar`
+确实生成且两档断点都在)。真机上仍需看一眼顶栏是否完整露出。
+
 #### 排查手法(可复用)
 - **UI 资源是编译进二进制的**(`frontendDist: "../ui"`):
   改完 `desktop/ui/*` **必须 `cargo build` 才生效**,只重启进程看到的是旧界面
