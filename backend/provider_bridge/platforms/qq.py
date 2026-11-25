@@ -151,8 +151,26 @@ class QQCollections:
             extra = {"songmid": identifier, "album_mid": album_id}
             if integer(at(raw, "pay", "paytrackprice")) > 0:
                 extra["is_paid"] = "1"
+            # ★ 这里**绝不能**写 has_lossless(2026-11 修)。
+            #
+            # sizeflac > 0 的含义是「平台上存在 FLAC 版本」, 不是「我们这条能取到 FLAC」。
+            # 歌单/专辑接口不解析下载地址(track_payload 的 url 恒为空), 所以此刻我们
+            # 对真正能拿到什么格式**一无所知**。而 has_lossless 的契约是「已解析出真实
+            # 下载地址且其为无损扩展名」(见 app.py 的 song_to_payload 与 qq_source.py)。
+            #
+            # 谎报的代价(真机坐实, 日志来源 NAS 生产环境):
+            #   付费曲 is_paid=1 标了 has_lossless=1 → stream_quality.go 判定
+            #   「副本有损而在线无损, 该让位」→ 放弃本地副本回源 → 上游给的仍是同一个
+            #   640k ogg(17,095,734 字节, 与副本一字节不差) → 每次播放白传 16.3 MB,
+            #   音质分毫未涨。日志原文:
+            #     [stream] 副本为有损(ogg),在线源声明无损,改走在线 rel="深蓝泡沫 - Hotcell.ogg"
+            #     [stream-range] resolved ... total=17095734 ext="ogg"
+            #
+            # 想保留「平台有无损版本」这个信息, 请用别的字段名, 不要复用这个已承载
+            # 取址结论的键 —— 它同时被 stream_quality.go 与前端 playerAutoDownload.js
+            # 当作「在线一定给得出无损」的硬证据使用。
             if integer(raw.get("sizeflac")) > 0:
-                extra["has_lossless"] = "1"
+                extra["lossless_available"] = "1"
             result.append(track_payload(
                 identifier=identifier, source=self.source, name=first(raw, "songname", "name"),
                 artist=join_names(artists), album=album_name, album_id=album_id,

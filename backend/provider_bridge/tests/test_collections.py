@@ -153,6 +153,83 @@ class CollectionSidecarTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not supported"):
             collection({"source": "migu", "action": "user_playlists"})
 
+    # ── QQ 歌单/专辑不得谎报 has_lossless ──────────────────────────────────────
+    #
+    # 真机事故(2026-11-25, NAS 生产日志, 已逐条取证):
+    #   付费单曲「深蓝泡沫 - Hotcell」(qq mid=0008mqT01SeqJC, is_paid=1)从歌单进入,
+    #   QQ 歌单接口返回 sizeflac > 0(平台上确实存在 FLAC 版本), 于是被打上
+    #   has_lossless=1。但这条曲付费, 实际取址只能拿到 640k OGG。
+    #   后果链:
+    #     ① stream_quality.go 认为「副本有损、在线无损」→ 放弃本地副本回源;
+    #     ② 上游给的仍是**同一个**文件(17,095,734 字节, 与副本一字节不差);
+    #     ③ 每次播放白传 16.3 MB, 音质分毫未涨。日志原文:
+    #        [stream] 副本为有损(ogg),在线源声明无损,改走在线 rel="深蓝泡沫 - Hotcell.ogg"
+    #        [stream-range] resolved ... total=17095734 ext="ogg"
+    #
+    # has_lossless 的**契约**是「已解析出真实下载地址, 且其扩展名是无损格式」——
+    # 歌单/专辑接口根本不解析下载地址(url 恒为空), 此刻对格式一无所知, 无权断言。
+    # 该键同时被 stream_quality.go 与前端 playerAutoDownload.js 当硬证据消费, 一旦
+    # 谎报就同时污染「要不要回源」与「要不要重下」两个决策。
+    #
+    # 下方两条为此断言: 有 sizeflac 也只能写 lossless_available(纯展示),
+    # **绝不能**写 has_lossless。
+
+    def test_qq_collection_songs_do_not_claim_has_lossless_from_sizeflac(self):
+        """QQ 歌单返回 sizeflac>0 时, 不得写 has_lossless(必须写 lossless_available)。"""
+        session = FakeSession([
+            ("https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg", {
+                "cdlist": [{
+                    "dissid": "123", "dissname": "歌单",
+                    "songlist": [{
+                        "songmid": "0008mqT01SeqJC", "songname": "深蓝泡沫",
+                        "albummid": "004BYFnE3KDCpq", "albumname": "深蓝泡沫",
+                        "interval": 219, "sizeflac": 45712849,
+                        "singer": [{"name": "Hotcell"}],
+                        "pay": {"paytrackprice": 200},
+                    }],
+                }],
+            })
+        ])
+        result = collection(
+            {"source": "qq", "action": "playlist", "id": "123", "cookie": "qm_keyst=x"},
+            session=session,
+        )
+        songs = result["songs"]
+        self.assertEqual(len(songs), 1)
+        extra = songs[0]["extra"]
+        # 核心断言: 没解析过下载地址, 就不许声称能拿到无损。
+        self.assertNotIn(
+            "has_lossless", extra,
+            "歌单路径未解析下载地址, 写 has_lossless 会让 stream_quality.go 误判"
+            "「在线无损」而放弃本地副本, 白白重复下载同一个有损文件",
+        )
+        # 但「平台上有无损版本」这个事实仍保留, 只是换个不承载取址结论的键。
+        self.assertEqual(extra["lossless_available"], "1")
+        # 付费标记与原行为保持一致。
+        self.assertEqual(extra["is_paid"], "1")
+
+    def test_qq_collection_songs_without_sizeflac_have_no_lossless_flag(self):
+        """无 sizeflac 时不写任何无损相关键(与有 sizeflac 时形成对照)。"""
+        session = FakeSession([
+            ("https://c.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg", {
+                "data": {
+                    "albummid": "004BYFnE3KDCpq", "albumname": "深蓝泡沫",
+                    "list": [{
+                        "songmid": "0008mqT01SeqJC", "songname": "深蓝泡沫",
+                        "interval": 219,
+                        "singer": [{"name": "Hotcell"}],
+                    }],
+                },
+            })
+        ])
+        result = collection(
+            {"source": "qq", "action": "album", "id": "004BYFnE3KDCpq", "cookie": "qm_keyst=x"},
+            session=session,
+        )
+        extra = result["songs"][0]["extra"]
+        self.assertNotIn("has_lossless", extra)
+        self.assertNotIn("lossless_available", extra)
+
 
 if __name__ == "__main__":
     unittest.main()
