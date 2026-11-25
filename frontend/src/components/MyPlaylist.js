@@ -21,6 +21,7 @@ import CoverMosaic from './CoverMosaic';
 import Button from '../ui/Button';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
+import DetailHeader from '../ui/DetailHeader';
 import { LyricDialog, useSongLyric } from './useSongLyric';
 import ImportProgressBar from './ImportProgressBar';
 import { MenuPopover, MenuItem } from '../ui/Menu';
@@ -226,13 +227,13 @@ export default function MyPlaylist() {
       {/* m3u 导入进度:进度条自己订阅 importProgressBus,没有导入任务时渲染 null。
           放在 header 之前 —— 用户点完导入就被导航到这里,第一眼就能看到进度。 */}
       <ImportProgressBar />
-      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <CoverMosaic items={songs} icon={Play} iconSize={36} />
-        <div className="min-w-0 flex-1">
-          <p className="type-micro uppercase tracking-wider text-muted-foreground">{collectionLabel}</p>
-          <h1 className="mt-0.5 line-clamp-2 type-hero text-foreground">{currentName}</h1>
-          <p className="mt-1 type-caption text-muted-foreground nums">{songs.length} 首</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+      <DetailHeader
+        cover={<CoverMosaic items={songs} icon={Play} iconSize={36} />}
+        eyebrow={collectionLabel}
+        title={currentName}
+        meta={<><span className="nums">{songs.length}</span> 首</>}
+        actions={(
+          <>
             <Button
               variant="primary"
               onClick={() => songs.length && play(songs[0], songs)}
@@ -285,9 +286,9 @@ export default function MyPlaylist() {
                 </MenuPopover>
               </>
             )}
-          </div>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
       {hasAnyState && (
         <StatusLine

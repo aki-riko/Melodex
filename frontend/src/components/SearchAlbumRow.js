@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Disc3 } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 import { sourceLabel } from '../utils/sourceLabels';
+import { MEDIA_CARD_ROW_WIDTH, mediaCardClass } from '../ui/mediaCard';
 
 // 搜索结果顶部的专辑区。
 // 旧实现:一条 `overflow-x-auto` 直接产生浏览器默认滚动条(白槽),
@@ -10,6 +11,10 @@ import { sourceLabel } from '../utils/sourceLabels';
 // 标题行右对齐"全部 N 张"作为可读的计数,而不是散在角落的小字。
 
 const MAX_VISIBLE_ALBUMS = 12;
+
+// 卡片宽度/材质统一走 ui/mediaCard.js（手机 136px、桌面 160px），
+// 避免三处各写一套 —— 详细理由见那个文件的注释。
+const CARD_CLASS = mediaCardClass(MEDIA_CARD_ROW_WIDTH);
 
 const AlbumCover = ({ album }) => {
   const [failed, setFailed] = useState(false);
@@ -38,7 +43,7 @@ const AlbumCard = ({ album, onOpen }) => (
   <button
     type="button"
     onClick={() => onOpen(album)}
-    className="group w-[8.5rem] rounded-lg border border-transparent p-1.5 text-left transition-colors duration-base ease-standard hover:border-border hover:bg-secondary/60 focus-visible:border-border focus-visible:bg-secondary/60"
+    className={CARD_CLASS}
     title={`打开专辑「${album.name}」`}
   >
     <AlbumCover album={album} />

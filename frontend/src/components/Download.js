@@ -38,6 +38,8 @@ import Segmented from '../ui/Segmented';
 import StatusLine from '../ui/StatusLine';
 import ScrollRow from '../ui/ScrollRow';
 import EmptyState from '../ui/EmptyState';
+import DetailHeader from '../ui/DetailHeader';
+import { MEDIA_CARD_ROW_WIDTH, mediaCardClass } from '../ui/mediaCard';
 import { LyricDialog, useSongLyric } from './useSongLyric';
 import LoadingState from './LoadingState';
 import { cn } from '../ui/cn';
@@ -297,7 +299,7 @@ const PlaylistCard = ({ playlist, onOpen }) => {
     <button
       type="button"
       onClick={() => onOpen({ id: playlist.id, source: playlist.source, name: playlist.name })}
-      className="group w-[8.5rem] rounded-lg border border-transparent p-1.5 text-left transition-colors duration-base hover:border-border hover:bg-secondary/60 focus-visible:border-border focus-visible:bg-secondary/60"
+      className={mediaCardClass(MEDIA_CARD_ROW_WIDTH)}
       title={`打开歌单「${playlist.name}」`}
     >
       <div className="aspect-square overflow-hidden rounded-md bg-secondary">
@@ -416,22 +418,26 @@ const RemoteCollectionDetail = ({
         ← {isAlbum ? '返回搜索结果' : '返回推荐歌单'}
       </Button>
 
-      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="flex h-28 w-28 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary shadow-subtle sm:h-32 sm:w-32">
-          {cover ? (
-            <img src={cover} alt="" className="h-full w-full object-cover" onError={() => setCoverFailed(true)} />
-          ) : (
-            <Music size={36} className="text-muted-foreground" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="type-micro uppercase tracking-wider text-muted-foreground">{contentLabel}</p>
-          <h1 className="mt-0.5 line-clamp-2 type-hero text-foreground">{meta.name}</h1>
-          <p className="mt-1 type-caption text-muted-foreground">
+      <DetailHeader
+        cover={(
+          <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-lg bg-secondary shadow-subtle sm:h-32 sm:w-32">
+            {cover ? (
+              <img src={cover} alt="" className="h-full w-full object-cover" onError={() => setCoverFailed(true)} />
+            ) : (
+              <Music size={36} className="text-muted-foreground" />
+            )}
+          </div>
+        )}
+        eyebrow={contentLabel}
+        title={meta.name}
+        meta={(
+          <>
             {meta.creator ? `${meta.creator} · ` : ''}
             <span className="nums">{songs.length}</span> 首
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          </>
+        )}
+        actions={(
+          <>
             <Button
               variant="primary"
               onClick={() => songs.length && onPlay(songs[0], songs)}
@@ -466,9 +472,9 @@ const RemoteCollectionDetail = ({
             >
               加入我的歌单
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
       {hasAnyState && (
         <div className="mb-4 space-y-1.5 rounded-md border border-border bg-card/50 px-3 py-2">

@@ -13,6 +13,7 @@ import Button from '../ui/Button';
 import Segmented from '../ui/Segmented';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
+import DetailHeader from '../ui/DetailHeader';
 import { cn } from '../ui/cn';
 import { pushRouteEntry } from '../contexts/routeHistory.js';
 
@@ -185,22 +186,23 @@ export default function LocalMusic() {
           <ChevronLeft size={16} aria-hidden="true" />
           返回专辑
         </Button>
-        <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="w-28 flex-shrink-0 sm:w-32"><AlbumCover songs={songs} /></div>
-          <div className="min-w-0 flex-1">
-            <p className="type-micro uppercase tracking-wider text-muted-foreground">专辑</p>
-            <h1 className="mt-0.5 line-clamp-2 type-hero text-foreground">{openAlbum.name}</h1>
-            <p className="mt-1 type-caption text-muted-foreground">
-              {openAlbum.artist ? `${openAlbum.artist} · ` : ''}<span className="nums">{songs.length}</span> 首
-            </p>
-            <div className="mt-3">
-              <Button variant="primary" onClick={() => songs.length && play(songs[0], songs)} disabled={!songs.length}>
-                <Play size={16} fill="currentColor" aria-hidden="true" />
-                播放全部
-              </Button>
-            </div>
-          </div>
-        </header>
+        <DetailHeader
+          cover={<div className="w-28 sm:w-32"><AlbumCover songs={songs} /></div>}
+          eyebrow="专辑"
+          title={openAlbum.name}
+          meta={(
+            <>
+              {openAlbum.artist ? `${openAlbum.artist} · ` : ''}
+              <span className="nums">{songs.length}</span> 首
+            </>
+          )}
+          actions={(
+            <Button variant="primary" onClick={() => songs.length && play(songs[0], songs)} disabled={!songs.length}>
+              <Play size={16} fill="currentColor" aria-hidden="true" />
+              播放全部
+            </Button>
+          )}
+        />
         <SongListHeader />
         <div className="space-y-0.5">
           {songs.map((song, i) => (
@@ -224,26 +226,26 @@ export default function LocalMusic() {
 
   return (
     <div>
-      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <CoverMosaic items={tracks} icon={Download} iconSize={36} />
-        <div className="min-w-0 flex-1">
-          <p className="type-micro uppercase tracking-wider text-muted-foreground">服务器音乐</p>
-          <h1 className="mt-0.5 type-hero text-foreground">已下载到服务器</h1>
-          <p className="mt-1 type-caption text-muted-foreground">
-            {/* 分页后列表里只有已加载的部分,所以明确写「已加载」;库里还有更多时把总数摆出来,
-                不能让用户把当前条数误当成曲库全量。 */}
-            {hasMore ? (
-              <>
-                已加载 <span className="nums">{tracks.length}</span> / <span className="nums">{totalCount}</span> 首 ·{' '}
-                <span className="nums">{albums.length}</span> 张专辑
-              </>
-            ) : (
-              <>
-                <span className="nums">{tracks.length}</span> 首 · <span className="nums">{albums.length}</span> 张专辑
-              </>
-            )}
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+      <DetailHeader
+        cover={<CoverMosaic items={tracks} icon={Download} iconSize={36} />}
+        eyebrow="服务器音乐"
+        title="已下载到服务器"
+        meta={(
+          // 分页后列表里只有已加载的部分,所以明确写「已加载」;库里还有更多时把总数摆出来,
+          // 不能让用户把当前条数误当成曲库全量。
+          hasMore ? (
+            <>
+              已加载 <span className="nums">{tracks.length}</span> / <span className="nums">{totalCount}</span> 首 ·{' '}
+              <span className="nums">{albums.length}</span> 张专辑
+            </>
+          ) : (
+            <>
+              <span className="nums">{tracks.length}</span> 首 · <span className="nums">{albums.length}</span> 张专辑
+            </>
+          )
+        )}
+        actions={(
+          <>
             {/* 分页后「播放全部」只能播已加载的那一页 —— 必须让按钮文案如实说明,
                 不能让它看起来像"播整个已下载库"(否则用户以为 600 首在队列里,
                 实际只有 100 首,播到一半就停)。 */}
@@ -277,9 +279,9 @@ export default function LocalMusic() {
             >
               <RotateCw size={16} className={isFetching ? 'animate-spin' : ''} />
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
       <input
         ref={fileRef}
@@ -359,9 +361,13 @@ export default function LocalMusic() {
                   aria-label={`播放专辑「${al.name}」`}
                   title="播放这张专辑"
                   className={cn(
+                    // ★ 2026-11 手机端可达性修复：原来只有 `opacity-0 group-hover:opacity-100`，
+                    // 而**触屏没有 hover** —— 手机上这个播放按钮等于永远看不见，
+                    // 用户只能点专辑名进详情再播，多两步。
+                    // 现在手机档常显（opacity-100），仅桌面靠悬停淡入，保持原有观感。
                     'absolute bottom-2 right-2 flex h-10 w-10 items-center justify-center rounded-full',
                     'bg-primary text-primary-foreground shadow-lg transition-opacity duration-base',
-                    'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                    'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100',
                     'hover:brightness-110',
                   )}
                 >

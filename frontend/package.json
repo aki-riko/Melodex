@@ -63,6 +63,7 @@
     "test:playback-reason": "node scripts/playbackReason.test.mjs",
     "test:theme": "node scripts/themeContract.test.mjs && node scripts/themeContrast.test.mjs && node scripts/fluentMotion.test.mjs",
     "test:ui-consistency": "node scripts/uiConsistency.test.mjs",
+    "test:mobile": "node scripts/mobileLayout.test.mjs",
     "test:render-budget": "node scripts/playerRenderBudget.test.mjs",
     "test:duration": "node scripts/durationFormat.test.mjs",
     "test:modal-layer": "node scripts/modalLayer.test.mjs",

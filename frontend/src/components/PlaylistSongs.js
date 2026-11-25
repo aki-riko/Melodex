@@ -11,6 +11,7 @@ import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import Button from '../ui/Button';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
+import DetailHeader from '../ui/DetailHeader';
 import { LyricDialog, useSongLyric } from './useSongLyric';
 
 // 歌单歌曲列表(点开某歌单后)。
@@ -54,15 +55,17 @@ const PlaylistSongs = ({ meta, onBack }) => {
     <div>
       <Button variant="ghost" size="sm" onClick={onBack} className="mb-4 -ml-2">← 返回</Button>
 
-      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="flex h-28 w-28 flex-shrink-0 items-center justify-center rounded-lg bg-secondary sm:h-32 sm:w-32">
-          <Music size={36} className="text-muted-foreground" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="type-micro uppercase tracking-wider text-muted-foreground">推荐歌单</p>
-          <h1 className="mt-0.5 line-clamp-2 type-hero text-foreground">{meta.name}</h1>
-          <p className="mt-1 type-caption text-muted-foreground nums">{songs.length} 首</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+      <DetailHeader
+        cover={(
+          <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-secondary sm:h-32 sm:w-32">
+            <Music size={36} className="text-muted-foreground" />
+          </div>
+        )}
+        eyebrow="推荐歌单"
+        title={meta.name}
+        meta={<><span className="nums">{songs.length}</span> 首</>}
+        actions={(
+          <>
             <Button
               variant="primary"
               onClick={() => songs.length && play(songs[0], songs)}
@@ -101,9 +104,9 @@ const PlaylistSongs = ({ meta, onBack }) => {
               <ListPlus size={16} aria-hidden="true" />
               {copyLabel}
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
       {hasAnyState && (
         <StatusLine

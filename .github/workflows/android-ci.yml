@@ -146,6 +146,17 @@ jobs:
           npm run test:lyric-single-source
           npm run test:row-listeners
 
+      # 手机端排版契约(2026-11 新增)。这些缺陷都是"算出来"的,肉眼 review 容易漏:
+      # 列表右列 80px 要塞 82px 内容(四种手机宽度下都溢出)、「更多」按钮只有 36px
+      # 低于项目 44px 触控下限、行内 px-3 叠加页面 px-4 造成同屏两种左边距、
+      # 六个详情页头图 112/128px 两套、横滑卡片 144/136px 两套。
+      - name: Mobile layout guard (sizes / touch targets / alignment)
+        if: steps.scope.outputs.frontend == 'true'
+        working-directory: frontend
+        run: |
+          npm run test:mobile
+          npm run test:ui-consistency
+
       # ---- 后端 Go:静态检查 + 定向测试 ----
       # 为什么是"定向"而不是 ./...:全量 go test 会在 CI 上吃数 GB 内存并跑很久,
       # 而历史事故证明并发重负载会把机器压到换页。这里只跑两个真正承载业务的主包,

@@ -95,10 +95,15 @@ function HelpTopic({ topic, expanded, onToggle }) {
 
 export default function HelpPage() {
   const [expandedTopic, setExpandedTopic] = useState(null);
+  // ★ 2026-11 手机端对齐修复：原来这里写 `container mx-auto p-6`，
+  //   而 App.js 的内容容器已经有 `px-4 md:px-6 py-6`（手机 16px、桌面 24px）。
+  //   两层叠加后手机上左右内边距 = 16 + 24 = **40px**，其余页面都是 16px，
+  //   于是帮助页在手机上明显比别的页面"窄一圈"、标题也跟着缩进。
+  //   这里只保留内容宽度约束，内边距交给外层统一提供。
   return (
-    <div className="container mx-auto p-6">
+    <div className="mx-auto max-w-2xl">
       <h1 className="type-hero mb-8 text-center text-foreground">常见问题</h1>
-      <div className="max-w-2xl mx-auto space-y-4">
+      <div className="space-y-4">
         {HELP_TOPICS.map((topic) => (
           <HelpTopic
             key={topic.id}

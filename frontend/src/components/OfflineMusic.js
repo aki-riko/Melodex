@@ -19,6 +19,7 @@ import CoverMosaic from './CoverMosaic';
 import Button from '../ui/Button';
 import StatusLine from '../ui/StatusLine';
 import EmptyState from '../ui/EmptyState';
+import DetailHeader from '../ui/DetailHeader';
 import { cn } from '../ui/cn';
 
 const toSong = (record) => ({
@@ -82,8 +83,16 @@ function OfflineHeaderCover({ records, offline }) {
   return <CoverMosaic items={items} icon={HardDriveDownload} iconSize={36} getUrl={(item) => item.coverUrl} />;
 }
 
+// ★ 2026-11 手机端行网格对齐（与 SongRow 保持同一套规则，理由见那里）：
+//   · 手机档行内由 px-3(12px) 收到 px-1(4px) —— 页面容器已有 px-4(16px)，
+//     行内再留 12px 会让本页序号起始于 28px，而页面标题在 16px，差 12px 两种左边距；
+//     收到 4px 后起点 20px，视觉上与标题同列，且高亮底色不被屏幕边缘裁掉圆角；
+//   · 两颗按钮从 40px(2.5rem) 提到 44px(2.75rem) 触控档，
+//     列宽跟着改，否则 44px 按钮塞进 40px 列又会变成"算出来的溢出"。
+//   桌面档（sm:）保持原样：那里信息列多、按钮 40px 是密集列表的合理选择。
 const ROW_GRID =
-  'grid grid-cols-[2rem_minmax(0,1fr)_2.5rem_2.5rem] items-center gap-3 px-3 sm:grid-cols-[2rem_minmax(0,1fr)_5rem_4rem_4rem_2.5rem_2.5rem]';
+  'grid grid-cols-[2rem_minmax(0,1fr)_2.75rem_2.75rem] items-center gap-3 px-1 '
+  + 'sm:grid-cols-[2rem_minmax(0,1fr)_5rem_4rem_4rem_2.5rem_2.5rem] sm:px-3';
 
 function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
   return (
@@ -122,7 +131,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
         onClick={() => onPlay(record)}
         aria-label={`播放 ${record.name || '这首歌'}`}
         title="播放"
-        className="flex flex-shrink-0 h-10 w-10 items-center justify-center rounded-control bg-primary text-primary-foreground transition-[filter] duration-base hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]"
+        className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-control bg-primary text-primary-foreground transition-[filter] duration-base hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))] sm:h-10 sm:w-10"
       >
         <Play size={16} fill="currentColor" aria-hidden="true" />
       </button>
@@ -131,7 +140,7 @@ function OfflineRow({ record, index, active, offline, onPlay, onDelete }) {
         onClick={() => onDelete(record)}
         aria-label={`删除本机缓存 ${record.name || '这首歌'}`}
         title="删除本机缓存"
-        className="flex flex-shrink-0 h-10 w-10 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive-text"
+        className="flex flex-shrink-0 h-11 w-11 items-center justify-center rounded-control text-muted-foreground transition-colors duration-base hover:bg-destructive/10 hover:text-destructive-text sm:h-10 sm:w-10"
       >
         <Trash2 size={16} aria-hidden="true" />
       </button>
@@ -235,16 +244,18 @@ export default function OfflineMusic() {
 
   return (
     <div>
-      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <OfflineHeaderCover records={records} offline={offline} />
-        <div className="min-w-0 flex-1">
-          <p className="type-micro uppercase tracking-wider text-muted-foreground">本机缓存</p>
-          <h1 className="mt-0.5 type-hero text-foreground">离线音乐</h1>
-          <p className="mt-1 type-caption text-muted-foreground">
+      <DetailHeader
+        cover={<OfflineHeaderCover records={records} offline={offline} />}
+        eyebrow="本机缓存"
+        title="离线音乐"
+        meta={(
+          <>
             <span className="nums">{records.length}</span> 首 · 音频 <span className="nums">{formatBytes(totalSize) || '0 B'}</span>
             {' · '}站点 <span className="nums">{usageLabel || '0 B'}</span>
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          </>
+        )}
+        actions={(
+          <>
             <Button
               variant="primary"
               onClick={() => records.length && play(songs[0], songs)}
@@ -278,9 +289,9 @@ export default function OfflineMusic() {
             >
               <Trash2 size={16} />
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
       {offline && (
         <StatusLine tone="info" layout="banner" className="mb-3">

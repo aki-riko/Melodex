@@ -13,6 +13,7 @@ import ScrollRow from '../ui/ScrollRow';
 import Segmented from '../ui/Segmented';
 import { SectionHeader } from '../ui/Card';
 import { cn } from '../ui/cn';
+import { MEDIA_CARD_ROW_WIDTH, MEDIA_CARD_GRID_WIDTH, mediaCardClass } from '../ui/mediaCard';
 import { sourceLabel } from '../utils/sourceLabels';
 
 // 推荐源:后端 recommendProviderNames 实际支持 5 个
@@ -31,18 +32,16 @@ const CATEGORY_SOURCES = ['netease', 'migu'];
 // 「全部」这类无意义的分类(点进去等于回到推荐,占了位置没增加内容)
 const IGNORED_CATEGORY_NAMES = new Set(['全部', '全部歌单', '推荐']);
 
-function PlaylistCard({ playlist, onOpen, showSource = false, className = '' }) {
+// 卡片宽度按场景二选一：轮播里有固定宽度，网格里交给栅格（w-full）。
+// ⚠ 不能两套类同时出现 —— cn() 不做 Tailwind 冲突合并，见 ui/mediaCard.js。
+function PlaylistCard({ playlist, onOpen, showSource = false, inGrid = false }) {
   const [failed, setFailed] = useState(false);
   const cover = failed ? '' : coverProxyUrl(playlist);
   return (
     <button
       type="button"
       onClick={() => onOpen(playlist)}
-      className={cn(
-        'group w-[9rem] rounded-lg border border-transparent p-2 text-left transition-colors duration-base ease-standard sm:w-40',
-        'hover:border-border hover:bg-secondary/60 focus-visible:border-border focus-visible:bg-secondary/60',
-        className,
-      )}
+      className={mediaCardClass(inGrid ? MEDIA_CARD_GRID_WIDTH : MEDIA_CARD_ROW_WIDTH)}
       title={`打开歌单「${playlist.name}」`}
     >
       <div className="relative aspect-square overflow-hidden rounded-md bg-secondary">
@@ -295,7 +294,7 @@ function CategoryBrowser({ onOpen }) {
               key={`cat-${pl.source}-${pl.id}`}
               playlist={pl}
               onOpen={onOpen}
-              className="w-full"
+              inGrid
             />
           ))}
         </div>

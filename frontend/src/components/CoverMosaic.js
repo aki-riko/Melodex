@@ -3,13 +3,24 @@ import { Music } from 'lucide-react';
 import { coverProxyUrl } from '../services/musicdl';
 
 // 统一头图封面:0 张占位 / 1-3 张取首张铺满 / 4 张以上自动 2x2 拼图。
+//
+// ★ 2026-11 尺寸收敛（手机端对齐）：
+//   六个详情页（推荐歌单/专辑/自建歌单/最近播放/已下载/离线）此前有**两种**头图尺寸：
+//     · 用本组件的四处 → 默认 `w-32 h-32` = **128px**
+//     · 手写 div 的两处（Download.js / PlaylistSongs.js / LocalMusic.js 专辑）→ `h-28 w-28` = **112px**
+//   同一产品的"详情页封面"差 16px，跨页翻动时肉眼可见地跳一下。
+//   现在统一到 112px（手机段）：`w-28 h-28`，`sm:` 以上再放到 128px。
+//   `size` 是正方形边长（数字，单位 px），只用于自定义；默认走下面的响应式类。
+export const COVER_BOX_MOBILE = 'w-28 h-28';
+export const COVER_BOX_WIDE = 'sm:w-32 sm:h-32';
+
 export default function CoverMosaic({
   items = [],
   icon: Icon = Music,
   getUrl,
-  className = 'w-32 h-32',
+  className = `flex-shrink-0 ${COVER_BOX_MOBILE} ${COVER_BOX_WIDE}`,
   roundedClass = 'rounded-lg',
-  iconSize = 48,
+  iconSize = 36,
 }) {
   const candidates = useMemo(() => (items || [])
     .map((item) => {
