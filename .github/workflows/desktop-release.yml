@@ -1,0 +1,227 @@
+name: Desktop Release
+
+# 什么时候跑: 打 v* 标签时, 为桌面客户端构建 Windows 安装包并发布 GitHub Release。
+#
+# 与 Android Release 的区别:
+#   - Android 在 ubuntu-latest 上跑 gradle, 产物是 APK
+#   - 桌面端是 Tauri(Rust + WebView2), **必须** windows-latest, 产物是 NSIS 安装包
+#
+# 与 NAS 发布的关系(重要):
+#   桌面客户端的**自动更新**走的是 music.9li.life/desktop/ 这套静态文件机制
+#   (见 docs/desktop-release-updater.md), 不依赖 GitHub Release。
+#   本 workflow 只负责"留一份可下载的版本记录", NAS 那套仍需按原流程手动部署。
+#
+# 版本号纪律:
+#   tauri.conf.json 的 version 是更新器比对依据。**必须与 tag 一致**,
+#   否则已装用户会因为版本号没变而收不到更新。本 workflow 会校验这一点并直接失败。
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要构建的 tag(手动触发时必填, 如 v0.2.2-rc.1)"
+        required: true
+
+permissions:
+  contents: write # 创建/更新 Release 需要
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: desktop-release
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    # 用户输入一律走 env, 不直接拼进 run 脚本(避免注入)。
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+      REF_NAME: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Resolve tag name
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            name="${INPUT_TAG}"
+          else
+            name="${REF_NAME}"
+          fi
+          if [ -z "$name" ]; then
+            echo "::error::无法确定 tag 名"
+            exit 1
+          fi
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "本次构建 tag: ${name}"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable (branch tip)
+        with:
+          toolchain: stable
+
+      - name: Cache Rust build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: desktop-${{ runner.os }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            desktop-${{ runner.os }}-
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # 版本号一致性: 更新器按 semver 判断, 版本没变用户就收不到更新。
+      # 所以 tag 与 tauri.conf.json 必须严格对应 —— 不一致直接失败, 不带病发布。
+      - name: Verify version matches tag
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+        run: |
+          set -euo pipefail
+          conf_ver="$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")"
+          expected="${TAG_NAME#v}"
+          echo "tauri.conf.json version = ${conf_ver}"
+          echo "tag 推导出的 version   = ${expected}"
+          if [ "${conf_ver}" != "${expected}" ]; then
+            echo "::error::版本号不一致: tauri.conf.json 是 ${conf_ver}, 但 tag 是 ${TAG_NAME}。"
+            echo "::error::更新器按版本号比对, 必须先升 tauri.conf.json 与 Cargo.toml 再打 tag。"
+            exit 1
+          fi
+          echo "版本号一致: ${conf_ver}"
+
+      - name: Run desktop gate tests
+        run: |
+          node desktop/ui/lyricsSettings.test.mjs
+          node desktop/ui/lyricsCore.test.mjs
+          node desktop/scripts/shellCommandManifest.test.mjs
+          node desktop/scripts/build-updater-manifest.test.mjs
+
+      - name: Build signed installer
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # 缺签名材料就失败, 不要产出"没签名"的包冒充正式版:
+          # 没有签名的更新包会在客户端被拒绝安装。
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::error::缺少 TAURI_SIGNING_PRIVATE_KEY secret"
+            exit 1
+          fi
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            echo "::error::缺少 TAURI_SIGNING_PRIVATE_KEY_PASSWORD secret"
+            exit 1
+          fi
+          # tauri CLI 装在仓库根 node_modules，用根目录的 .bin 显式调用，
+          # 不依赖 npx 的向上查找行为（本地与 CI 的 npm 版本可能不同）。
+          cd desktop/src-tauri
+          node ../../node_modules/@tauri-apps/cli/tauri.js build
+
+      - name: Locate artifacts
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="desktop/src-tauri/target/release/bundle/nsis"
+          shopt -s nullglob
+          exes=("${bundle_dir}"/*.exe)
+          if [ "${#exes[@]}" -ne 1 ]; then
+            echo "::error::预期 1 个安装包, 实际 ${#exes[@]} 个: ${exes[*]}"
+            exit 1
+          fi
+          exe="${exes[0]}"
+          sig="${exe}.sig"
+          if [ ! -f "${sig}" ]; then
+            echo "::error::缺少更新签名文件 ${sig}（updater artifacts 未生成）"
+            exit 1
+          fi
+          echo "exe=${exe}" >> "$GITHUB_OUTPUT"
+          echo "sig=${sig}" >> "$GITHUB_OUTPUT"
+          echo "exe_name=$(basename "${exe}")" >> "$GITHUB_OUTPUT"
+          echo "产物: ${exe}"
+          ls -la "${bundle_dir}"
+
+      # 用仓库里那套已被测试覆盖的纯函数生成清单, 不另写一份逻辑。
+      - name: Build updater manifest
+        shell: bash
+        env:
+          EXE_PATH: ${{ steps.artifact.outputs.exe }}
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+          VERSION: ${{ steps.tag.outputs.name }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          node desktop/scripts/build-updater-manifest.mjs \
+            --version "${version}" \
+            --exe "${EXE_PATH}" \
+            --base-url "https://music.9li.life/desktop" \
+            --out latest.json
+          cat latest.json
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+          EXE_PATH: ${{ steps.artifact.outputs.exe }}
+          EXE_NAME: ${{ steps.artifact.outputs.exe_name }}
+          SIG_PATH: ${{ steps.artifact.outputs.sig }}
+          MANIFEST: latest.json
+        run: |
+          set -euo pipefail
+          # 桌面版一律标 prerelease? 不 —— 桌面与 Android 共用同一套 tag,
+          # 是否 prerelease 交给 tag 自身语义(-rc 结尾视为预发布)。
+          flags=(--verify-tag --title "Melodex Desktop ${TAG_NAME}")
+          case "${TAG_NAME}" in
+            *-*) flags+=(--prerelease) ;;
+          esac
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" \
+              "${EXE_PATH}" "${SIG_PATH}" "${MANIFEST}" --clobber
+          else
+            gh release create "${TAG_NAME}" \
+              "${EXE_PATH}" "${SIG_PATH}" "${MANIFEST}" "${flags[@]}"
+          fi
+
+      - name: Summary
+        if: always()
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+          EXE_NAME: ${{ steps.artifact.outputs.exe_name }}
+        run: |
+          {
+            echo "### 桌面客户端 ${TAG_NAME}"
+            echo ""
+            if [ -n "${EXE_NAME:-}" ]; then
+              echo "- 安装包: \`${EXE_NAME}\`"
+            else
+              echo "- 构建未产出安装包，见上方日志"
+            fi
+            echo "- 注意: **自动更新仍走 NAS**，需按 \`docs/desktop-release-updater.md\` 手动部署到"
+            echo "  \`/mnt/cache/appdata/melodex-src/data/desktop-release/\`"
+          } >> "$GITHUB_STEP_SUMMARY"
