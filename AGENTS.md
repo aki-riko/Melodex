@@ -1139,14 +1139,15 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - 代码在 NAS **`/mnt/user/appdata/melodex-src`**（2026-11-23 核实；旧文档写的 `/mnt/cache/appdata/...`
   也指向同一份数据，但 `find` 实查的结果是这个路径，按这个来），Docker compose 运行,端口 **8329**。
 - 访问 `https://music.9li.life`(NPM 反代 + **Authentik SSO** 守门)。PWA 静态资源(manifest/sw.js/图标)在 NPM 该站 Custom Nginx Config 用 `auth_request off;` 放行,其余走 SSO。
-- **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@<NAS内网地址>:<内部SSH端口>/...`(公网回环 NAT hairpin 超时;真实地址见仓库外私有笔记,本仓库公开故不记载)② docker.io 拉不到基础镜像 → 从 `docker.1ms.run` 拉 golang:1.25/alpine:3.22/node:20-alpine 再 `docker tag` 成原名,build 加 `--pull=false` ③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)⑤ `npm ci` 直连官方源会卡死,传 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com`。
+- **NAS 构建坑**:① 私仓 clone 用内网 `ssh://git@<NAS内网地址>:<内部SSH端口>/...`(公网回环 NAT hairpin 超时;真实地址见仓库外私有笔记,本仓库公开故不记载)② **基础镜像直接用官方源**(`docker.io/library`):dockerd 的 `proxies` 已配 mihomo,`docker pull` 自动经代理;**禁止用第三方镜像站前缀**(见下方「镜像前缀」条)③ go mod 走 `--build-arg GOPROXY=https://goproxy.cn,direct` ④ 挂载的 `data` 目录要 `chown 1000:1000`(容器内 appuser uid)否则 SQLite 报 "out of memory"(实为权限)⑤ `npm ci` 直连官方源会卡死,传 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com`。
 - **生产现状(2026-11-12 核实)**:应用镜像是 **NAS 本地构建的 `melodex:latest`**,不是 GHCR 预构建镜像(下面「镜像发布」节的 2026-10-25 记录已过时);provider 仍用 `ghcr.io/aki-riko/melodex-provider:edge`。
   NAS `.env` 第 7 行已改为 `MELODEX_IMAGE=melodex:latest`(此前写着 `ghcr.io/aki-riko/melodex:v0.2.1`,与实际运行不符 ——
   直接 `docker compose up -d` 会把生产悄悄退回 v0.2.1),改前备份 `.env.bak_20261112_214413`。
 - **部署流程(应用镜像,provider 与 postgres 不动)**:
   1. `cd /mnt/cache/appdata/melodex-src && git pull --ff-only origin master`
   2. 先给当前镜像打回退标签:`docker tag melodex:latest melodex:rollback-<旧提交短哈希>`
-  3. `docker build --pull=false --build-arg IMAGE_PREFIX=docker.io/library --build-arg GOPROXY=https://goproxy.cn,direct --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t melodex:latest .`
+  3. `docker build --build-arg IMAGE_PREFIX=docker.io/library --build-arg GOPROXY=https://goproxy.cn,direct --build-arg NPM_REGISTRY=https://registry.npmmirror.com --network host -t melodex:latest .`
+     （`IMAGE_PREFIX` 与 Dockerfile 默认已一致，可省略；`--network host` 让容器内 npm/go 能借宿主网络）
   4. `docker compose up -d --no-build --no-deps melodex`(只重建应用容器)
   5. 验证:`docker exec melodex wget -qO- http://127.0.0.1:8329/api/v1/healthz` 应为 `{"app":"melodex","status":"ok"}`;
      改了前端静态资源时,再比对 `docker exec melodex wget -qO- http://127.0.0.1:8329/logo512.png | sha256sum` 与本地文件。
@@ -1155,10 +1156,18 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
     `go: golang.org/x/arch@v0.20.0: unrecognized import path ... dial tcp ... i/o timeout`。
     ▲ 此时**前端阶段是成功的**(日志里能看到 `✓ built in 3.47s` 与新 css 哈希),
     只有 Go 阶段挂 —— 别看到前端构建成功就以为整个构建过了。
-  - **为什么传 `IMAGE_PREFIX=docker.io/library`**:Dockerfile 默认前缀是 `docker.1ms.run/library`,
-    2026-11-12 该镜像站 CDN 中途断连(`failed to copy: httpReadSeeker ... EOF`),构建在拉 `alpine:3.22` 元数据时失败。
-    NAS 本地已有按原名 retag 的 `alpine:3.22` / `node:20-alpine` / `golang:1.25`,换成 `docker.io/library` 前缀 + `--pull=false`
-    就完全不联网拉基础镜像。基础镜像本地没有时,才需要先按 ② 从镜像站拉再 retag。
+  - **`IMAGE_PREFIX` 已不再是必传项**(2026-11-26 改定):Dockerfile 默认值已从
+    `docker.1ms.run/library` 改为 `docker.io/library`。
+    历史:2026-11-12 该镜像站 CDN 断连(`failed to copy: httpReadSeeker ... EOF`),
+    当时靠 `--build-arg IMAGE_PREFIX=docker.io/library` + `--pull=false` 绕开;
+    到 2026-11-26 该站已**完全拉不动基础镜像**
+    (`failed to resolve source metadata for docker.1ms.run/library/node:20-alpine: EOF`),
+    而 NAS dockerd 的 mihomo 代理早已就位(`docker info` 可见 HTTP Proxy=127.0.0.1:7890)
+    → 默认值直接改回官方库,**无需再传这个 arg**。
+    **不要再把第三方镜像站前缀写回默认值**;确需换源时用 build-arg 覆盖。
+  - **`--network host` 建议加**:构建容器默认走 bridge,里面 `npm ci` / `go mod download`
+    拿不到宿主 7890 代理,表现为 `registry.npmjs.org` 卡住、或拉 GitHub 被断
+    (`GnuTLS recv error (-110)`)。实测加 `--network host` 一次通过。
   - **开发机 SSH 到 NAS 要用 Windows 自带的 OpenSSH**(`/c/Windows/System32/OpenSSH/ssh.exe`):`~/.ssh/config` 里 NAS 的
     `IdentityFile` 指向 `.pub`,私钥在 Windows SSH agent 里;Git Bash 自带的 ssh 连不上这个 agent,报
     `Load key ".../nas_unraid.pub": error in libcrypto: unsupported` 后被拒。
@@ -1288,9 +1297,11 @@ dispatch → `edge,sha-…`(extra_tag 空也回退 `edge`);owner 大写会被转
 - 两个镜像各跑一次**真启动冒烟**:应用镜像起服务 + `wget /api/v1/healthz` + 断言首页含 `id="root"` 与 `/assets/`
   (证明 React 产物确实被 `go:embed` 进去了,这是最容易悄悄坏掉的一环);provider 镜像 import 一遍
   `provider_bridge`(含 `server`/`app`/`qq_*`/`netease_source`/`kugou_lyric`)并确认固定快照 `LICENSE` 在位。
-- **基础镜像前缀 `IMAGE_PREFIX`**:两个 Dockerfile 都改成 `ARG IMAGE_PREFIX=…` + `FROM ${IMAGE_PREFIX}/…`。
-  应用镜像默认仍是 `docker.1ms.run/library`(NAS 直连 docker.io 拉不到),provider 默认 `docker.io/library`(=原样);
-  **CI 显式传 `--build-arg IMAGE_PREFIX=docker.io/library`** —— 境外 runner 不要去拉国内镜像站。
+- **基础镜像前缀 `IMAGE_PREFIX`**:两个 Dockerfile 都用 `ARG IMAGE_PREFIX=…` + `FROM ${IMAGE_PREFIX}/…`。
+  **两者默认值现已统一为 `docker.io/library`**(2026-11-26 应用镜像也改回官方库:
+  `docker.1ms.run` 已拉不动基础镜像,而 NAS 代理已就位)。
+  CI 仍显式传 `--build-arg IMAGE_PREFIX=docker.io/library`(与默认一致,显式写出来是为了
+  境外 runner 不受将来默认值变动影响)。**不要再把第三方镜像站前缀写回默认值。**
 - **冒烟脚本必须落文件再挂进容器**(`printf '%s\n' "$SMOKE" > /tmp/smoke.sh` + `-v /tmp/smoke.sh:/smoke.sh:ro`),
   不要写成 `sh -c "${{ matrix.smoke }}"`:多行命令里的引号会被外层 shell 吃掉(实测 `python -c "…"` 直接语法错误,
   由 `sh -n` 预检抓出)。
