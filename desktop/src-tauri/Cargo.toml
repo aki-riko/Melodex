@@ -1,6 +1,6 @@
 [package]
 name = "melodex-desktop-lyrics"
-version = "0.1.0"
+version = "0.1.1"
 description = "Melodex Windows/macOS desktop shell wrapping the Melodex PWA"
 authors = ["Kotori <kotori@9li.life>"]
 edition = "2021"
