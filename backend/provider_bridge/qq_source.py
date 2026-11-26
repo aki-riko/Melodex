@@ -800,6 +800,10 @@ def _qrc_lyric(client: PlatformHTTP, item: dict[str, Any]) -> str:
 
     注意参数必须带上 songName/albumName/singerName(base64) 与 qrc=1 这一整套 —— 实测只传
     songMID 时响应里根本不带 QRC 数据(这也是"QRC 解不开"这个错误结论的来源之一)。
+
+    ★ 响应里的 `trans`(行级译文表)必须一起解密传给转换层: QQ 的双语歌曲会把**译文也排成
+      独立的歌词行**内联在 QRC 里, 不剔掉就会让逐字填色跑到译文上(用户报的「多语言逐字
+      歌词跑到翻译那边去」)。判据与实测见 qq_qrc.strip_inline_translation_lines。
     """
     album = item.get("album") if isinstance(item.get("album"), dict) else {}
     singers = item.get("singer") if isinstance(item.get("singer"), list) else []
@@ -819,13 +823,16 @@ def _qrc_lyric(client: PlatformHTTP, item: dict[str, Any]) -> str:
         "comm": _plain_comm(),
         "req_1": {"module": LYRIC_MODULE, "method": LYRIC_METHOD, "param": param},
     })
-    payload = ((response.get("req_1") or {}).get("data") or {}).get("lyric")
+    data = (response.get("req_1") or {}).get("data") or {}
+    payload = data.get("lyric")
     if not payload:
         return ""
     plaintext = qq_qrc.decrypt_qrc(payload)
     if not plaintext:
         return ""
-    return qq_qrc.qrc_to_verbatim_lrc(plaintext)
+    # 译文表是可选的: 解密失败只意味着"无法剔除内联译文行", 不能连逐字歌词一起丢掉。
+    trans_plaintext = qq_qrc.decrypt_qrc(data.get("trans")) if data.get("trans") else ""
+    return qq_qrc.qrc_to_verbatim_lrc(plaintext, trans_plaintext)
 
 
 def _lyric(item: dict[str, Any], cookie: str) -> tuple[str, bool]:

@@ -29,7 +29,7 @@ import logging
 import os
 import re
 import zlib
-from typing import Any
+from typing import Any, Sequence
 
 from provider_bridge.verbatim_lyric import inline_lrc
 
@@ -253,14 +253,173 @@ def lyric_content(plaintext: str) -> str:
     return html.unescape(matched.group("content"))
 
 
-def qrc_to_verbatim_lrc(plaintext: str) -> str:
+# ---- 多语言歌曲: 剔除内联译文行 ----
+#
+# 实测(2026-11, 「深蓝泡沫」/ Hotcell, 129 行): QQ 的双语歌曲会把**译文也排成独立的
+# 歌词行**, 和原文行交错写在同一份 LyricContent 里:
+#     [6900,1770]Call (6900,240)my (7140,60)name ...   ← 原文(英语)行
+#     [8730,1020]唤 (8730,180)我 (8910,60)姓 ...        ← 紧随其后的中文译文行
+# 前端 parseLRC 于是把译文行也当成普通歌词行, 逐字填色跑到译文上
+# (用户报「多语言逐字歌词跑到翻译那边去」, 播放页与桌面歌词同一个根因)。
+#
+# 判别依据**不是**"猜哪行像中文" —— 那靠不住, 中文/日文歌本身就是 CJK。
+# 真凭实据是同一次响应的 trans 表: 平台按 QRC 行逐行给出译文, 该行不需要译文时写 `//`。
+# 所以内联译文行的特征是三条同时成立:
+#   ① 本行在 trans 表里**没有**真译文(`//` 或缺失);
+#   ② 紧跟在一条源语言行之后(有真译文的原文行, 或另一条已是源语言脚本的行);
+#   ③ 本行的文字脚本与源语言脚本**完全不相交**(如纯拉丁 vs 纯汉字)。
+# 保守取值刻意留了余量, 因此:
+#   · trans 表为空(晴天/夜曲/孤勇者等绝大多数中文歌) → 一行都不动;
+#   · trans 只有稀疏译文(Shape of You / Lemon / 打上花火 实测均为 0 条内联译文行) → 不动;
+#   · 原文里本就混着别的脚本(中文歌里的英文和声、中英混排标题) → 脚本相交, 不剔除。
+
+_TRANSLATION_TIMESTAMP = re.compile(r"^\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
+_TRANSLATION_TAG = re.compile(r"^\[[A-Za-z]+:")
+# 平台用 `//` 表示"这一行不需要译文"。
+_EMPTY_TRANSLATION = {"", "//"}
+# trans 的时间戳只保留到 10ms, 与 QRC 行首常有几毫秒误差(实测 Lemon 1547 vs 1540)。
+_TRANSLATION_TOLERANCE_MS = 40
+# 只有译文表几乎逐行覆盖时才认为这首歌是"内联译文"形态, 否则一律不动。
+_INLINE_TRANSLATION_COVERAGE = 0.8
+# 文字脚本。只用"脚本是否相交"判断语种差异, 不做语言识别。
+_SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("latin", re.compile(r"[A-Za-z]")),
+    ("kana", re.compile(r"[\u3040-\u30ff]")),
+    ("hangul", re.compile(r"[\uac00-\ud7af\u1100-\u11ff]")),
+    ("han", re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")),
+)
+
+
+def _scripts_in(text: str) -> frozenset[str]:
+    """一行的文字脚本集合; 纯数字/符号行返回空集合(不参与判断)。"""
+    return frozenset(name for name, pattern in _SCRIPT_PATTERNS if pattern.search(text or ""))
+
+
+def translation_table(plaintext: str) -> dict[int, str]:
+    """把 trans 明文(行级 LRC)解析成 {毫秒: 译文}; 标签行跳过, `//` 保留。"""
+    table: dict[int, str] = {}
+    for raw_line in (plaintext or "").splitlines():
+        line = raw_line.strip()
+        if not line or _TRANSLATION_TAG.match(line):
+            continue
+        matched = _TRANSLATION_TIMESTAMP.match(line)
+        if matched is None:
+            continue
+        milliseconds = (int(matched.group(1)) * 60 + int(matched.group(2))) * 1000
+        fraction = matched.group(3)
+        if fraction:
+            milliseconds += int(fraction.ljust(3, "0"))
+        # 同一毫秒只保留第一条: 后续重复交给容差匹配, 避免译文被重复使用。
+        table.setdefault(milliseconds, line[matched.end():].strip())
+    return table
+
+
+def _match_translations(starts: Sequence[int], table: dict[int, str]) -> list[str | None]:
+    """把 QRC 行首与译文表做成**一对一**匹配, 顺带避免邻居的译文被张冠李戴。
+
+    先精确命中, 再对剩余行在 ±_TRANSLATION_TOLERANCE_MS 内取最近的**未使用**条目。
+    一对一很关键: 译文行之间可能只差 33ms, 若允许重复使用, 元信息行会捡到邻行译文,
+    被误判成"原文行", 于是紧跟其后的译文行反而删不掉。
+    """
+    matched: list[str | None] = [None] * len(starts)
+    used: set[int] = set()
+    for index, start in enumerate(starts):
+        if start in table:
+            matched[index] = table[start]
+            used.add(start)
+    pending = [milliseconds for milliseconds in table if milliseconds not in used]
+    if not pending:
+        return matched
+    pending.sort()
+    for index, start in enumerate(starts):
+        if matched[index] is not None:
+            continue
+        best: int | None = None
+        for milliseconds in pending:
+            if milliseconds in used:
+                continue
+            distance = abs(milliseconds - start)
+            if distance > _TRANSLATION_TOLERANCE_MS:
+                if milliseconds > start + _TRANSLATION_TOLERANCE_MS:
+                    break
+                continue
+            if best is None or distance < abs(best - start):
+                best = milliseconds
+        if best is not None:
+            matched[index] = table[best]
+            used.add(best)
+    return matched
+
+
+def strip_inline_translation_lines(
+    rows: Sequence[tuple[int, int, str, list[tuple[int, str]]]],
+    trans_plaintext: str,
+) -> tuple[list[tuple[int, int, str, list[tuple[int, str]]]], int]:
+    """剔除 QRC 里内联的译文行, 只留源语言行(见上面的实测说明)。
+
+    rows 的元素是 `(行首毫秒, 行时长毫秒, 纯文本, [(词起毫秒, 文字)])`。
+    返回 (保留的行, 剔除行数); 任何一项前提不成立时原样返回。
+    """
+    table = translation_table(trans_plaintext)
+    if not rows or not table:
+        return list(rows), 0
+
+    labels = _match_translations([row[0] for row in rows], table)
+    covered = sum(1 for label in labels if label is not None)
+    if covered / len(rows) < _INLINE_TRANSLATION_COVERAGE:
+        return list(rows), 0
+
+    def has_translation(label: str | None) -> bool:
+        return label is not None and label.strip() not in _EMPTY_TRANSLATION
+
+    # 源语言脚本 = 有真译文那些行里最常见的脚本组合。
+    tally: dict[frozenset[str], int] = {}
+    for index, row in enumerate(rows):
+        if not has_translation(labels[index]):
+            continue
+        signature = _scripts_in(row[2])
+        if signature:
+            tally[signature] = tally.get(signature, 0) + 1
+    if not tally:
+        return list(rows), 0
+    source_scripts = max(tally.items(), key=lambda item: item[1])[0]
+
+    kept: list[tuple[int, int, str, list[tuple[int, str]]]] = []
+    dropped = 0
+    previous_is_source = False
+    for index, row in enumerate(rows):
+        signature = _scripts_in(row[2])
+        anchor = has_translation(labels[index])
+        is_source_line = bool(signature) and signature == source_scripts
+        # 译文行: 非原文锚点 + 紧跟源语言行 + 脚本与源语言完全不相交。
+        if (
+            not anchor
+            and previous_is_source
+            and signature
+            and signature.isdisjoint(source_scripts)
+        ):
+            dropped += 1
+            # ★ 删掉后**保持** previous_is_source: 连续多行译文要能一起删掉()
+            #   实测「深蓝泡沫」是原文/译文严格交替, 但连删更稳妥; 不会误伤原文 ——
+            #   真正的原文行 signature == source_scripts, 不可能与 source_scripts 不相交。
+            continue
+        kept.append(row)
+        previous_is_source = anchor or is_source_line
+    return kept, dropped
+
+
+def qrc_to_verbatim_lrc(plaintext: str, trans_plaintext: str = "") -> str:
     """QRC 明文转成前端卡拉OK所需的"每字带时间戳"内联 LRC。
 
     QRC 的词单元写作 `文字(词起,词时长)`, 词起是**绝对毫秒**(与行头同基准)。
     无词单元的行退化成"整行一个时间戳"; 无时间戳的标签行([ti:]/[ar:] 等)跳过。
+
+    `trans_plaintext` 是同一响应里的行级译文表。传进来时会把内联的译文行剔掉
+    (双语歌曲里 QQ 把译文也排成了独立歌词行, 逐字填色会跑到译文上 —— 详见
+    `strip_inline_translation_lines` 的实测说明)。不传则完全保持旧行为。
     """
     content = lyric_content(plaintext) or (plaintext or "")
-    lines: list[list[tuple[int, str]]] = []
+    rows: list[tuple[int, int, str, list[tuple[int, str]]]] = []
     for raw_line in content.splitlines():
         line = raw_line.strip()
         if not line:
@@ -283,8 +442,11 @@ def qrc_to_verbatim_lrc(plaintext: str) -> str:
             if fallback:
                 segments = [(line_start, fallback)]
         if segments:
-            lines.append(segments)
-    return inline_lrc(lines)
+            rows.append((line_start, int(matched.group(2)), "".join(text for _t, text in segments), segments))
+
+    if trans_plaintext:
+        rows, _dropped = strip_inline_translation_lines(rows, trans_plaintext)
+    return inline_lrc([segments for _start, _duration, _text, segments in rows])
 
 
 def qrc_request_param(
