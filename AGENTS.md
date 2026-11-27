@@ -1168,6 +1168,49 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
   - **`--network host` 建议加**:构建容器默认走 bridge,里面 `npm ci` / `go mod download`
     拿不到宿主 7890 代理,表现为 `registry.npmjs.org` 卡住、或拉 GitHub 被断
     (`GnuTLS recv error (-110)`)。实测加 `--network host` 一次通过。
+
+### ★ provider 镜像重建(改动 backend/provider_bridge/ 时必须走这条)
+
+生产 `melodex-provider` 跑的是 **`ghcr.io/aki-riko/melodex-provider:edge`**,
+**不是** NAS 本地构建的 `melodex:latest`(那是应用容器)。provider 的改动
+(sidecar / 各平台适配 / 歌词解析)**只重建 provider 这一个容器**,`melodex` 与
+`postgres` 都不动。
+
+1. `cd /mnt/user/appdata/melodex-src && git pull --ff-only origin master`
+2. 打回退标签:`docker tag ghcr.io/aki-riko/melodex-provider:edge ghcr.io/aki-riko/melodex-provider:rollback-<短哈希>`
+3. 构建(必须挂代理,见下):
+   ```sh
+   docker build --memory=8g --memory-swap=10g --network host \
+     --build-arg http_proxy=http://127.0.0.1:7890 \
+     --build-arg https_proxy=http://127.0.0.1:7890 \
+     --build-arg HTTP_PROXY=http://127.0.0.1:7890 \
+     --build-arg HTTPS_PROXY=http://127.0.0.1:7890 \
+     -f backend/provider_bridge/Dockerfile \
+     -t ghcr.io/aki-riko/melodex-provider:edge .
+   ```
+4. `docker compose up -d --no-build --no-deps provider`
+5. 验证:`docker ps --filter name=melodex-provider` 应 `(healthy)`;
+   再用 `docker run --rm --entrypoint python <镜像> -c "..."` 确认新代码在位
+   (**别只看"构建成功"就以为新代码进去了** —— 命中缓存时 2 秒就成功)。
+
+#### ★★ 必须挂 apt 代理,否则一场构建 80 分钟(2026-11-27 事故)
+
+**实测**:只加 `--network host`(不挂代理)时,`apt-get install ffmpeg` 这一步
+**单层跑了 4802 秒(80 分钟)** —— provider 镜像重建从该有的 2 分钟拖成 8 小时。
+原因:容器内 `deb.debian.org` 是直连;`--network host` 只是让容器借用宿主网络栈,
+**并不会让 apt 走宿主的 7890 代理**,pip 同理。
+
+**加上 `--build-arg http_proxy/https_proxy/HTTP_PROXY/HTTPS_PROXY=http://127.0.0.1:7890`
+之后**:`apt-get update` 实测从 **162 秒降到 12 秒(13 倍)**。
+
+两个要点:
+- `--network host` 与代理参数**两者都要**:宿主 7890 只监听回环,
+  不加 `--network host` 时容器连不上 `127.0.0.1:7890`。
+- 只改 `provider_bridge/` 里的 Python 时,apt/pip 层会**命中缓存**,实测 2 秒完成 ——
+  正常且期望,但必须按第 5 步确认新代码真的进镜像。
+
+**不要**为了"加速"给 apt 换源或改 `sources.list`:那会把镜像内容绑定到第三方源,
+换源失效时静默退回慢速。代理是唯一不改变镜像内容的加速手段。
   - **开发机 SSH 到 NAS 要用 Windows 自带的 OpenSSH**(`/c/Windows/System32/OpenSSH/ssh.exe`):`~/.ssh/config` 里 NAS 的
     `IdentityFile` 指向 `.pub`,私钥在 Windows SSH agent 里;Git Bash 自带的 ssh 连不上这个 agent,报
     `Load key ".../nas_unraid.pub": error in libcrypto: unsupported` 后被拒。
