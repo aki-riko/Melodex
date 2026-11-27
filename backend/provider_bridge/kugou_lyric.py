@@ -29,6 +29,7 @@ from .collection_common import strict_string, strict_integer
 
 import base64
 import binascii
+import json
 import logging
 import os
 import re
@@ -38,7 +39,8 @@ import zlib
 from typing import Any
 
 from provider_bridge.platform_http import PlatformHTTP
-from provider_bridge.verbatim_lyric import inline_lrc
+from provider_bridge.qq_qrc import strip_labelled_translation_rows
+from provider_bridge.verbatim_lyric import inline_lrc, timestamp
 
 
 LOGGER = logging.getLogger(__name__)
@@ -109,13 +111,34 @@ def _segments(content: str, line_start: int) -> list[tuple[int, str]]:
     return [(line_start, fallback)] if fallback else []
 
 
-def krc_to_verbatim_lrc(raw: str) -> str:
+def _translation_labels(raw: str, count: int) -> list[str]:
+    tag = re.search(r"(?m)^\[language:([^\]\r\n]+)\]", raw)
+    if not tag:
+        return []
+    try:
+        data = json.loads(base64.b64decode(tag[1], validate=True))
+    except (ValueError, UnicodeError) as error:
+        LOGGER.debug("[kugou] 无效的歌词语言表: %s", error)
+        return []
+    tracks = data.get("content") if isinstance(data, dict) else None
+    for track in tracks if isinstance(tracks, list) else ():
+        if not isinstance(track, dict) or track.get("type") != 1:
+            continue
+        labels = track.get("lyricContent")
+        if isinstance(labels, list) and len(labels) == count and all(
+            isinstance(row, list) and all(isinstance(word, str) for word in row) for row in labels
+        ):
+            return ["".join(row).strip() for row in labels]
+    return []
+
+
+def krc_to_verbatim_lrc(raw: str, *, translations_only: bool = False) -> str:
     """把 KRC 明文转成前端卡拉OK所需的"每字带时间戳"内联 LRC。
 
     无词单元的行退化成"整行一个时间戳"(前端按行级高亮), 无时间戳的行跳过。
     无法转换时返回空串, 调用方应保留原有歌词。
     """
-    lines: list[list[tuple[int, str]]] = []
+    rows = []
     for raw_line in (raw or "").splitlines():
         line = raw_line.strip()
         if not line:
@@ -124,9 +147,26 @@ def krc_to_verbatim_lrc(raw: str) -> str:
         if matched is None:
             continue
         segments = _segments(matched.group(3), int(matched.group(1)))
-        if segments:
-            lines.append(segments)
-    return inline_lrc(lines)
+        rows.append((int(matched[1]), int(matched[2]), "".join(s for _, s in segments), segments))
+    labels = _translation_labels(raw or "", len(rows))
+    # 先确认正文中确实重复出现了上一句的译文。普通双语演唱也可能交替换语言。
+    repeats = sum(bool(label.strip()) and _normalize(label) == _normalize(row[2])
+                  for label, row in zip(labels, rows[1:]))
+    kept = strip_labelled_translation_rows(rows, labels)[0] if repeats >= 2 else rows
+    if not translations_only:
+        return inline_lrc(row[3] for row in kept)
+    originals = {(row[3][0][0], row[2].strip()) for row in kept if row[3]}
+    reference = [(row[3][0][0], label) for row, label in zip(rows, labels) if row[3] and label]
+    for index, row in enumerate(rows):
+        if not row[3]:
+            continue
+        key = (row[3][0][0], row[2].strip())
+        if key not in originals:
+            reference.append(key)
+            # 酷我可能把上一句的官方译文和 KRC 内嵌译文同时放在这个时间点。
+            if index and labels[index - 1]:
+                reference.append((key[0], labels[index - 1]))
+    return "\n".join(timestamp(t) + text for t, text in reference if (t, text) not in originals)
 
 
 def word_level_line_count(lrc: str) -> int:
@@ -183,7 +223,7 @@ def _download_url(identifier: str, accesskey: str) -> str:
     return f"{KRC_DOWNLOAD_URL}?{query}"
 
 
-def _candidate_krc(client: PlatformHTTP, candidate: dict[str, Any]) -> str:
+def _candidate_krc(client: PlatformHTTP, candidate: dict[str, Any], translations_only: bool) -> str:
     """取单个候选的 KRC 并转成内联逐字 LRC; 失败返回空串。"""
     identifier = strict_string(candidate.get("id"))
     accesskey = strict_string(candidate.get("accesskey"))
@@ -199,7 +239,7 @@ def _candidate_krc(client: PlatformHTTP, candidate: dict[str, Any]) -> str:
     raw = decode_krc(strict_string(payload.get("content")))
     if not raw:
         return ""
-    return krc_to_verbatim_lrc(raw)
+    return krc_to_verbatim_lrc(raw, translations_only=translations_only)
 
 
 def fetch_verbatim_lyric(
@@ -208,6 +248,7 @@ def fetch_verbatim_lyric(
     *,
     duration_s: int = 0,
     file_hash: str = "",
+    translations_only: bool = False,
     session: Any | None = None,
 ) -> str:
     """按歌名/歌手取酷狗逐字歌词(KRC); 取不到词级数据或失败时返回空串。"""
@@ -235,7 +276,17 @@ def fetch_verbatim_lyric(
     best = ""
     best_lines = 0
     for candidate in _rank_candidates(candidates, name, artist)[:MAX_TRY_CANDIDATES]:
-        converted = _candidate_krc(client, candidate)
+        if translations_only and (
+            not artist or not duration_s or _normalize(candidate.get("song")) != _normalize(name)
+            or _normalize(candidate.get("singer")) != _normalize(artist)
+            or abs(strict_integer(candidate.get("duration")) - duration_s * 1000) > 3000
+        ):
+            continue
+        converted = _candidate_krc(client, candidate, translations_only)
+        if translations_only:
+            if converted:
+                return converted
+            continue
         lines = word_level_line_count(converted)
         if lines > best_lines:
             best, best_lines = converted, lines

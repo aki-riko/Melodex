@@ -683,7 +683,7 @@ func lyricRoute(c *gin.Context) {
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
-		lyrics := correctStoredLyrics(c.Request.Context(), track.Source, track.ID, string(body))
+		lyrics := correctStoredLyrics(c.Request.Context(), track, string(body))
 		c.String(http.StatusOK, lyrics)
 		return
 	}
@@ -692,7 +692,7 @@ func lyricRoute(c *gin.Context) {
 		return
 	}
 	if lyrics, ok := loadOwnedServerCopyLyrics(c, track); ok {
-		lyrics = correctStoredLyrics(c.Request.Context(), track.Source, track.ID, lyrics)
+		lyrics = correctStoredLyrics(c.Request.Context(), track, lyrics)
 		lyrics = formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
 		c.Header("X-Lyric-Format", classifyLyricFormat(lyrics))
 		c.Header("X-Lyric-Source", track.Source)
@@ -704,6 +704,9 @@ func lyricRoute(c *gin.Context) {
 		log.Printf("[lyric] fetch source=%q id=%q name=%q artist=%q: %v", track.Source, track.ID, track.Name, track.Artist, err)
 		writeUnavailableLyric(c)
 		return
+	}
+	if matched != nil && matched.Source != "qq" {
+		lyrics = correctStoredLyrics(c.Request.Context(), matched, lyrics)
 	}
 	lyrics = formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
 	c.Header("X-Lyric-Format", classifyLyricFormat(lyrics))

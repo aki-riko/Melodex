@@ -444,7 +444,9 @@ func serveLocalMusicLyric(c *gin.Context, song *model.Track, download bool, save
 	if !download && mayHaveTranslations(lyrics) {
 		origins := resolveLocalChorusOrigins([]*localMusicTrack{track})
 		origin := origins[normalizeRelPath(track.RelPath)]
-		lyrics = correctStoredLyrics(c.Request.Context(), origin.Source, origin.SongID, lyrics)
+		ref := model.Track{Source: origin.Source, ID: origin.SongID, Duration: track.Duration,
+			Name: firstNonEmpty(origin.Name, track.Name), Artist: firstNonEmpty(origin.Artist, track.Artist)}
+		lyrics = correctStoredLyrics(c.Request.Context(), &ref, lyrics)
 	}
 	formatted := formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
 	writeLocalLyricResponse(c, track, formatted, download, len(saveLocal) > 0 && saveLocal[0])

@@ -47,6 +47,7 @@ type apiCacheRow struct {
 }
 
 type apiCacheArgs struct {
+	Recording  []string `json:"recording,omitempty"`
 	Sources    []string `json:"sources,omitempty"`
 	Source     string   `json:"source,omitempty"`
 	ID         string   `json:"id,omitempty"`

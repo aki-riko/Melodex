@@ -29,6 +29,9 @@ type SearchRequest struct {
 }
 
 type LyricRequest struct {
+	Name               string `json:"name,omitempty"`
+	Artist             string `json:"artist,omitempty"`
+	Duration           int    `json:"duration,omitempty"`
 	InlineTranslations bool   `json:"inline_translations,omitempty"`
 	Source             string `json:"source"`
 	ID                 string `json:"id"`

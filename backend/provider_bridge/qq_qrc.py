@@ -369,6 +369,14 @@ def strip_inline_translation_lines(
     if covered / len(rows) < _INLINE_TRANSLATION_COVERAGE:
         return list(rows), 0
 
+    return strip_labelled_translation_rows(rows, labels)
+
+
+def strip_labelled_translation_rows(
+    rows: Sequence[tuple[int, int, str, list[tuple[int, str]]]],
+    labels: Sequence[str | None],
+) -> tuple[list[tuple[int, int, str, list[tuple[int, str]]]], int]:
+    """QQ 的按时间配对表和酷狗的按行配对表共用这一判据。"""
     def has_translation(label: str | None) -> bool:
         return label is not None and label.strip() not in _EMPTY_TRANSLATION
 

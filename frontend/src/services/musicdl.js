@@ -229,7 +229,7 @@ const rememberLyricResult = (key, text) => {
 export const getLyric = async (song) => {
   const s = normalizeSong(song);
   const embeddedLyric = typeof s.extra?.lyric === 'string' ? s.extra.lyric.trim() : '';
-  if (embeddedLyric && (s.source !== 'qq' || !s.id)) return embeddedLyric;
+  if (embeddedLyric && (!s.id || !embeddedLyric.includes('\n'))) return embeddedLyric;
 
   const key = embeddedLyric ? `${lyricRequestKey(s)}\n${embeddedLyric}` : lyricRequestKey(s);
   // 只有"查过且确实没歌词"才复用空结果;有歌词的不用这里的缓存,

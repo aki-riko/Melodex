@@ -86,6 +86,9 @@ backendImpl = async (method, url, body) => {
   return expected;
 };
 assert.equal(await getLyric({ ...emptySong, extra: { lyric: embedded } }), expected);
+for (const source of ['kugou', 'kuwo', 'netease', 'migu', 'apple', 'soda']) {
+  assert.equal(await getLyric({ ...song, source, extra: { lyric: embedded } }), expected, source);
+}
 backendImpl = async () => { throw new Error('unavailable'); };
 assert.equal(await getLyric({ ...song, extra: { lyric: embedded } }), embedded);
 

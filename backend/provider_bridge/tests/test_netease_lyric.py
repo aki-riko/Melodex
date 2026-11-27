@@ -83,6 +83,14 @@ class YRCConversionTests(unittest.TestCase):
             converted = netease_lyric.fetch_verbatim_lyric("1901371647")
         self.assertIn("[00:02.310]都 ", converted)
 
+    def test_translation_reference_excludes_shared_original_text(self):
+        # Lemon 的真实首句与译文。同一句也出现在翻译轨时应保留原唱。
+        original = "[00:00.851]夢ならばどれほどよかったでしょう"
+        translation = "[00:00.851]如果这一切都是梦境该有多好"
+        payload = {"lrc": {"lyric": original}, "tlyric": {"lyric": translation + "\n" + original}}
+        with mock.patch.object(netease_lyric.PlatformHTTP, "post_form", return_value=payload):
+            self.assertEqual(netease_lyric.fetch_verbatim_lyric("536622304", translations_only=True), translation)
+
     def test_kill_switch(self):
         with mock.patch.dict("os.environ", {"MELODEX_NETEASE_VERBATIM_LYRIC": "0"}):
             self.assertFalse(netease_lyric.verbatim_lyric_enabled())

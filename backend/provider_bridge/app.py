@@ -453,7 +453,18 @@ def lyric(payload: dict[str, Any]) -> dict[str, str]:
     if not source or not song_id:
         raise ValueError("source and id are required")
     if payload.get("inline_translations") is True:
-        lines = qq_source.inline_translations(song_id, cookie) if source == "qq" else ""
+        if source == "qq":
+            lines = qq_source.inline_translations(song_id, cookie)
+        elif source == "netease":
+            lines = netease_lyric.fetch_verbatim_lyric(song_id, translations_only=True)
+        else:
+            # 只用严格同版本的译文作对照；播放仍使用请求渠道自己的原文和时间轴。
+            name, artist = strict_string(payload.get("name")), strict_string(payload.get("artist"))
+            duration = strict_integer(payload.get("duration"))
+            lines = kugou_lyric.fetch_verbatim_lyric(
+                name, artist, duration_s=duration, file_hash=song_id if source == "kugou" else "",
+                translations_only=True,
+            ) if source in SOURCE_CLASSES and name and artist and duration else ""
         return {"inline_translations": lines}
     if source == "netease":
         # 逐字(YRC)优先: 内联时代 enricht 拿的就是它, 懒加载不能退化成只有行级。

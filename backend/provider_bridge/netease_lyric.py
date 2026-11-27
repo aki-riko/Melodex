@@ -80,7 +80,7 @@ def verbatim_lyric_enabled() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
-def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None) -> str:
+def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None, translations_only: bool = False) -> str:
     """取网易逐字歌词(YRC)并转成内联逐字 LRC; 没有词级数据或失败时返回空串。"""
     song_id = strict_string(song_id)
     if not song_id.isdigit():
@@ -105,6 +105,19 @@ def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None) -> str:
     except Exception as error:  # 逐字歌词是增强项, 失败不能影响搜索本身
         LOGGER.warning("[netease] 逐字歌词请求失败 id=%s: %s", song_id, error)
         return ""
+    if translations_only:
+        # 原文自己可能包含中文或重复英文。与原文相同的行不得作为剔除依据。
+        def track_lines(key: str) -> list[str]:
+            node = payload.get(key)
+            return strict_string(node.get("lyric")).splitlines() if isinstance(node, dict) else []
+
+        timed = re.compile(r"^\[\d+:\d+(?:[.:]\d+)?\](.*)$")
+        originals = {match[1].strip() for line in track_lines("lrc") if (match := timed.match(line))}
+        word_text = re.compile(r"\[\d+:\d+\.\d+\]")
+        originals.update(word_text.sub("", line).strip() for line in
+                         yrc_to_verbatim_lrc("\n".join(track_lines("yrc"))).splitlines())
+        return "\n".join(line for key in ("ytlrc", "tlyric") for line in track_lines(key)
+                         if (match := timed.match(line)) and match[1].strip() not in originals)
     node = payload.get("yrc")
     raw = strict_string(node.get("lyric")) if isinstance(node, dict) else ""
     if not raw:

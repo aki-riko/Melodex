@@ -81,6 +81,28 @@ class KrcDecodeTests(unittest.TestCase):
 
 
 class KrcConversionTests(unittest.TestCase):
+    def test_hotcell_inline_translations(self):
+        # 酷狗《深蓝泡沫》KRC 正文与 type=1 译文轨的同一批行。
+        rows = [
+            "[6900,1770]<0,240,0>Call <240,60,0>my <300,240,0>name <540,60,0>I'm <600,420,0>fading <1020,240,0>fading <1260,510,0>fading ",
+            '[8730,1020]<0,180,0>唤<180,60,0>我<240,60,0>姓<300,120,0>名<420,60,0>我<480,60,0>正<540,60,0>慢<600,60,0>慢<660,60,0>消<720,60,0>散<780,60,0>消<840,60,0>散<900,60,0>消<960,60,0>散',
+            "[9840,450]<0,30,0>Ooh <30,60,0>we're <90,150,0>slowly <240,210,0>drifting ",
+            '[10350,480]<0,60,0>噢<60,60,0>我<120,60,0>们<180,60,0>在<240,60,0>慢<300,60,0>慢<360,60,0>走<420,60,0>散',
+            "[20100,960]<0,330,0>Don't <330,360,0>ask <690,270,0>me ",
+            '[21540,180]<0,60,0>别<60,60,0>问<120,60,0>我',
+        ]
+        labels = [['唤我姓名 我正逐渐消散 消散 消散'], [''], ['噢 我们在慢慢走散'], [''], ['别问我'], ['']]
+        track = {"content": [{"type": 1, "lyricContent": labels}]}
+        encoded = base64.b64encode(json.dumps(track).encode()).decode()
+        raw = "\n".join(["[language:" + encoded + "]", *rows])
+        source = kugou_lyric.krc_to_verbatim_lrc(raw)
+        translations = kugou_lyric.krc_to_verbatim_lrc(raw, translations_only=True)
+        self.assertNotIn("[00:08.730]", source)
+        self.assertIn("[00:06.900]Call ", source)
+        self.assertIn("[00:08.730]唤我姓名我正慢慢消散", translations)
+        self.assertIn("[00:08.730]唤我姓名 我正逐渐消散", translations)
+        self.assertEqual(len(source.splitlines()), len(rows) // 2)
+
     def test_word_time_is_relative_to_line_start(self):
         """酷狗词时间是相对行首的毫秒, 必须换算成绝对毫秒(与网易 YRC 不同)。"""
         converted = kugou_lyric.krc_to_verbatim_lrc(SAMPLE_KRC)
