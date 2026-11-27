@@ -29,9 +29,10 @@ type SearchRequest struct {
 }
 
 type LyricRequest struct {
-	Source string `json:"source"`
-	ID     string `json:"id"`
-	Cookie string `json:"cookie,omitempty"`
+	InlineTranslations bool   `json:"inline_translations,omitempty"`
+	Source             string `json:"source"`
+	ID                 string `json:"id"`
+	Cookie             string `json:"cookie,omitempty"`
 }
 
 // ChorusRequest 是一次副歌点位查询。
@@ -109,8 +110,9 @@ type searchResponse struct {
 }
 
 type lyricResponse struct {
-	Lyric string `json:"lyric"`
-	Error string `json:"error,omitempty"`
+	InlineTranslations string `json:"inline_translations,omitempty"`
+	Lyric              string `json:"lyric"`
+	Error              string `json:"error,omitempty"`
 }
 
 type qrCreateResponse struct {
@@ -217,6 +219,9 @@ func (c *Client) Lyric(ctx context.Context, request LyricRequest) (string, error
 	}
 	if payload.Error != "" {
 		return "", errors.New(payload.Error)
+	}
+	if request.InlineTranslations {
+		return strings.TrimSpace(payload.InlineTranslations), nil
 	}
 	return strings.TrimSpace(payload.Lyric), nil
 }

@@ -408,7 +408,7 @@ def strip_inline_translation_lines(
     return kept, dropped
 
 
-def qrc_to_verbatim_lrc(plaintext: str, trans_plaintext: str = "") -> str:
+def qrc_to_verbatim_lrc(plaintext: str, trans_plaintext: str = "", *, translations_only: bool = False) -> str:
     """QRC 明文转成前端卡拉OK所需的"每字带时间戳"内联 LRC。
 
     QRC 的词单元写作 `文字(词起,词时长)`, 词起是**绝对毫秒**(与行头同基准)。
@@ -444,8 +444,13 @@ def qrc_to_verbatim_lrc(plaintext: str, trans_plaintext: str = "") -> str:
         if segments:
             rows.append((line_start, int(matched.group(2)), "".join(text for _t, text in segments), segments))
 
-    if trans_plaintext:
-        rows, _dropped = strip_inline_translation_lines(rows, trans_plaintext)
+    if translations_only or trans_plaintext:
+        kept, _ = strip_inline_translation_lines(rows, trans_plaintext)
+        if translations_only:
+            source_lines = {(start, text) for start, _, text, _ in kept}
+            rows = [row for row in rows if (row[0], row[2]) not in source_lines]
+        else:
+            rows = kept
     return inline_lrc([segments for _start, _duration, _text, segments in rows])
 
 

@@ -229,9 +229,9 @@ const rememberLyricResult = (key, text) => {
 export const getLyric = async (song) => {
   const s = normalizeSong(song);
   const embeddedLyric = typeof s.extra?.lyric === 'string' ? s.extra.lyric.trim() : '';
-  if (embeddedLyric) return embeddedLyric;
+  if (embeddedLyric && (s.source !== 'qq' || !s.id)) return embeddedLyric;
 
-  const key = lyricRequestKey(s);
+  const key = embeddedLyric ? `${lyricRequestKey(s)}\n${embeddedLyric}` : lyricRequestKey(s);
   // 只有"查过且确实没歌词"才复用空结果;有歌词的不用这里的缓存,
   // 因为调用方(PlayerContext)自己已经有一套 lyricCache,重复缓存反而容易不一致。
   const settled = lyricSettled.get(key);
@@ -249,11 +249,22 @@ export const getLyric = async (song) => {
     params.set('artist', s.artist || '');
     if (s.album) params.set('album', s.album);
     if (s.duration) params.set('duration', String(s.duration));
-    // 歌词请求同样禁止携带逐字歌词:有内嵌歌词时上面已短路返回,走到这里
-    // extra.lyric 本应为空;剔除是防历史脏数据把请求行撑爆代理。
+    // 历史歌词只走 POST 请求体，避免把整首逐字歌词放进代理请求行。
     const lyricExtraValue = urlSafeExtraValue(s.extra);
     if (lyricExtraValue) params.set('extra', lyricExtraValue);
-    const { data } = await client.get(`/music/lyric?${params.toString()}`, {
+    const url = `/music/lyric?${params.toString()}`;
+    if (embeddedLyric) {
+      try {
+        const { data } = await client.post(url, embeddedLyric, {
+          headers: { 'Content-Type': 'text/plain' }, responseType: 'text', timeout: LYRIC_TIMEOUT_MS,
+        });
+        return typeof data === 'string' && data.trim() ? data : embeddedLyric;
+      } catch (error) {
+        console.warn('历史逐字歌词暂时无法核对，使用已保存歌词', error.message);
+        return embeddedLyric;
+      }
+    }
+    const { data } = await client.get(url, {
       responseType: 'text',
       timeout: LYRIC_TIMEOUT_MS,
     });
@@ -263,15 +274,9 @@ export const getLyric = async (song) => {
   lyricInFlight.set(key, request);
   try {
     const text = await request;
-    rememberLyricResult(key, text || '');
+    if (!text) rememberLyricResult(key, '');
     return text;
-  // 失败不缓存(所以 catch 里不写 rememberLyricResult):网络抖一下不该让这首歌
-  // 5 分钟内都拿不到歌词。这里的 catch 只做一件事 —— 显式 rethrow,让"失败必须
-  // 向上抛"这条契约在代码里看得见:调用方据此才能提示"歌词加载失败",
-  // 而不是把空字符串误判成"这首歌没歌词"。(lyricDedupe.test.mjs 断言此契约。)
-  // eslint-disable-next-line no-useless-catch -- 语义等价的 catch 是刻意的契约标记,见上
-  } catch (err) {
-    throw err;
+
   } finally {
     lyricInFlight.delete(key);
   }

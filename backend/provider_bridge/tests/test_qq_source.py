@@ -621,6 +621,21 @@ class QQSourceTests(unittest.TestCase):
             lyric = qq_source.fetch_lyric("UNKNOWN")
         self.assertEqual(lyric, "[00:01.00]行级歌词")
 
+    def test_stored_lyric_translation_rows_match_original_fixture(self):
+        fixture = json.loads((pathlib.Path(__file__).with_name("testdata")
+                              / "qq_qrc_translation_fixture.json").read_text(encoding="utf-8"))
+        backend = FakeBackend([], qrc_payload=fixture["lyric_hex"],
+                              qrc_trans_payload=fixture["trans_hex"])
+        request = {"source": "qq", "id": fixture["mid"], "inline_translations": True}
+        with mock.patch.object(qq_source, "_post", backend):
+            dropped = bridge_app.lyric(request)["inline_translations"].splitlines()
+            kept = bridge_app.lyric({"source": "qq", "id": fixture["mid"]})["lyric"].splitlines()
+        original = qq_source.qq_qrc.qrc_to_verbatim_lrc(
+            qq_source.qq_qrc.decrypt_qrc(fixture["lyric_hex"])).splitlines()
+        self.assertEqual(len(dropped), 59)
+        self.assertEqual([line for line in original if line not in dropped], kept)
+        self.assertTrue(dropped[0].startswith("[00:08.730]唤"))
+
     def test_lazy_lyric_drops_inline_translation_without_cached_meta(self):
         """冷启动路径遇到双语歌时, 译文行也必须被剔除(与搜索后的主路径一致)。
 

@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -198,7 +200,7 @@ func refreshStaleAPICacheRows(limit int) {
 		limit = apiCacheBackgroundRefreshRows
 	}
 	var rows []apiCacheRow
-	if err := db.Where("created_at < ?", time.Now().Add(-apiCacheFreshTTL())).
+	if err := db.Where("created_at < ? AND namespace IN ?", time.Now().Add(-apiCacheFreshTTL()), slices.Collect(maps.Keys(refreshBuilders()))).
 		Order("created_at ASC").
 		Limit(limit).
 		Find(&rows).Error; err != nil {

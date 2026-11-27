@@ -452,6 +452,9 @@ def lyric(payload: dict[str, Any]) -> dict[str, str]:
     cookie = strict_string(payload.get("cookie"))
     if not source or not song_id:
         raise ValueError("source and id are required")
+    if payload.get("inline_translations") is True:
+        lines = qq_source.inline_translations(song_id, cookie) if source == "qq" else ""
+        return {"inline_translations": lines}
     if source == "netease":
         # 逐字(YRC)优先: 内联时代 enricht 拿的就是它, 懒加载不能退化成只有行级。
         if netease_lyric.verbatim_lyric_enabled():

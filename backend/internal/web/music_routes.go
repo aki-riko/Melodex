@@ -84,6 +84,7 @@ func RegisterMusicRoutes(api *gin.RouterGroup) {
 	api.POST("/download_cover", downloadCoverRoute)
 	api.GET("/cover_proxy", coverProxyRoute)
 	api.GET("/lyric", rateLimitMiddleware(searchRateLimiter), lyricRoute)
+	api.POST("/lyric", rateLimitMiddleware(searchRateLimiter), lyricRoute)
 }
 
 func inspectTrackRoute(c *gin.Context) {
@@ -670,11 +671,28 @@ func lyricRoute(c *gin.Context) {
 	// 在线源歌词要走一次上游搜索, 同属"要等上游"的接口。
 	extendWriteDeadline(c, searchWriteTimeout)
 	track := trackFromQuery(c)
+	if c.Request.Method == http.MethodPost {
+		// 历史歌单内嵌的整份歌词可能超过代理 URL 上限，使用只读请求体。
+		limitRequestBody(c, 1<<20)
+		body, err := io.ReadAll(c.Request.Body)
+		if isRequestBodyTooLarge(err) {
+			c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+			return
+		}
+		if err != nil {
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		lyrics := correctStoredLyrics(c.Request.Context(), track.Source, track.ID, string(body))
+		c.String(http.StatusOK, lyrics)
+		return
+	}
 	if isLocalMusicSource(track.Source) {
 		serveLocalMusicLyric(c, track, false)
 		return
 	}
 	if lyrics, ok := loadOwnedServerCopyLyrics(c, track); ok {
+		lyrics = correctStoredLyrics(c.Request.Context(), track.Source, track.ID, lyrics)
 		lyrics = formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))
 		c.Header("X-Lyric-Format", classifyLyricFormat(lyrics))
 		c.Header("X-Lyric-Source", track.Source)
