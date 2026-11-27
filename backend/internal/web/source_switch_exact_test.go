@@ -15,11 +15,11 @@ import (
 
 func TestSameTitleAndArtistIgnoresCaseSpaceAndPunctuation(t *testing.T) {
 	matches := []struct {
-		name             string
-		songName         string
-		songArtist       string
-		candidateName    string
-		candidateArtist  string
+		name            string
+		songName        string
+		songArtist      string
+		candidateName   string
+		candidateArtist string
 	}{
 		{"完全相同", "晴天", "周杰伦", "晴天", "周杰伦"},
 		{"大小写不同", "Lemon", "米津玄師", "lemon", "米津玄師"},
@@ -35,11 +35,11 @@ func TestSameTitleAndArtistIgnoresCaseSpaceAndPunctuation(t *testing.T) {
 	}
 
 	mismatches := []struct {
-		name             string
-		songName         string
-		songArtist       string
-		candidateName    string
-		candidateArtist  string
+		name            string
+		songName        string
+		songArtist      string
+		candidateName   string
+		candidateArtist string
 	}{
 		{"歌手不同", "晴天", "周杰伦", "晴天", "某人"},
 		{"歌名是翻唱后缀", "晴天", "周杰伦", "晴天 (翻唱)", "某人"},
@@ -93,10 +93,11 @@ func TestSwitchCandidatesRankExactMatchFirst(t *testing.T) {
 // 顺序噪声场景：同歌同歌手与近重复混在一起时，同一作品必须排第一。
 //
 // ★ 诚实说明：这条在**当前实现**下即使删掉 source_switch.go 里的显式赋满分也成立，
-//   因为 CalcSongSimilarity 对归一化后相等的输入本来就是 1.0（实测）。
-//   它的作用是**锁住排序结果这个不变量**，而不是"证明某行代码不可删"。
-//   真正被它守住的是：将来若相似度实现变化（例如改成对歌名/歌手独立加权、
-//   或引入拼音匹配降权），同歌同歌手仍然必须压过近重复。
+//
+//	因为 CalcSongSimilarity 对归一化后相等的输入本来就是 1.0（实测）。
+//	它的作用是**锁住排序结果这个不变量**，而不是"证明某行代码不可删"。
+//	真正被它守住的是：将来若相似度实现变化（例如改成对歌名/歌手独立加权、
+//	或引入拼音匹配降权），同歌同歌手仍然必须压过近重复。
 func TestSwitchCandidatesPreferSameTitleAndArtistOverNearDuplicates(t *testing.T) {
 	search := func(string) ([]model.Track, error) {
 		return []model.Track{
@@ -160,7 +161,7 @@ func TestSwitchCandidatesRejectDurationMismatch(t *testing.T) {
 func TestNonExactCandidatesNeverReachHighConfidence(t *testing.T) {
 	cases := []struct{ candName, candArtist string }{
 		{"晴天", "周杰倫"},        // 繁简差异
-		{"晴天 (Live)", "周杰伦"},  // 歌名带后缀
+		{"晴天 (Live)", "周杰伦"}, // 歌名带后缀
 		{"晴天", "周杰伦2"},       // 歌手多一个字（实测最高的那种）
 		{"晴天啊", "周杰伦"},
 		{"晴天", "Jay Chou"},
