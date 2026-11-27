@@ -145,6 +145,11 @@ jobs:
           npm run test:provider-contract
           npm run test:lyric-single-source
           npm run test:row-listeners
+          # 慢源自动补拉的运行期门禁(2026-11-27):用户报「提示说会自动刷新,实际没刷新」。
+          # 旧实现的补拉只跑了一圈就停摆 —— 生产日志里 20:12:22 之后再无请求,
+          # 而后台其实在 20:14:32 就补齐成功了。静态正则看不出这种时序 bug,
+          # 所以这条测试用假计时器把控制器真的跑起来数触发次数。
+          npm run test:pending-sources
 
       # 手机端排版契约(2026-11 新增)。这些缺陷都是"算出来"的,肉眼 review 容易漏:
       # 列表右列 80px 要塞 82px 内容(四种手机宽度下都溢出)、「更多」按钮只有 36px

@@ -48,6 +48,14 @@ type searchCacheEntry struct {
 	CreatedAt  time.Time
 	Fresh      bool
 	Refreshing bool
+	// PendingSources 只在"后台补齐任务**此刻确实还在跑**"时非空, 它不来自缓存行。
+	//
+	// ★ 真实事故(2026-11-27, 用户报「还有 4 个源在后台补齐,结果会自动刷新 / 实际上并没有刷新」):
+	//   旧实现把带 PendingSources 的前台响应**原样写进了 24h 缓存**, 于是缓存行里固化了一个
+	//   "还有 4 个源在跑"的瞬时状态 —— 而那个后台任务可能早已完成、或随进程重启而消失。
+	//   之后每次命中缓存都在复述这个陈旧状态, 前端据此反复等待一个永远不会到来的刷新。
+	//   现在 pending 只从内存里的在跑任务派生, 缓存行里不再保存它。
+	PendingSources []string
 }
 
 // searchCacheKey 计算查询指纹。sources 排序后参与,保证顺序无关。
@@ -73,6 +81,7 @@ func normalizedSearchCacheType(searchType string) string {
 }
 
 // getCachedSearch 命中且未过期返回缓存的响应;否则返回 false。
+// 返回的 PendingSources 已由 getSearchCacheEntry 按"内存里的在跑任务"填好。
 func getCachedSearch(key string) (jsonSearchResponse, bool) {
 	entry, ok := getSearchCacheEntry(key)
 	if !ok || !entry.Fresh {
@@ -102,11 +111,22 @@ func getSearchCacheEntry(key string) (searchCacheEntry, bool) {
 		return searchCacheEntry{}, false
 	}
 	_, refreshing := searchCacheRefreshInFlight.Load(key)
+	// 从库里读出来的这份 payload 也可能带着旧版本写进去的 PendingSources(见结构体注释里的
+	// 2026-11-27 事故), 一律以内存任务状态覆盖:没有在跑的任务就是空。
+	resp.PendingSources = nil
+	pending := []string(nil)
+	if value, ok := searchCompletionInFlight.Load(key); ok {
+		if sources, ok := value.([]string); ok && len(sources) > 0 {
+			pending = append(pending, sources...)
+			resp.PendingSources = pending
+		}
+	}
 	return searchCacheEntry{
-		Response:   resp,
-		CreatedAt:  row.CreatedAt,
-		Fresh:      time.Since(row.CreatedAt) <= searchCacheTTL,
-		Refreshing: refreshing,
+		Response:       resp,
+		CreatedAt:      row.CreatedAt,
+		Fresh:          time.Since(row.CreatedAt) <= searchCacheTTL,
+		Refreshing:     refreshing,
+		PendingSources: pending,
 	}, true
 }
 
@@ -119,6 +139,11 @@ func putCachedSearch(key string, resp jsonSearchResponse) {
 		return
 	}
 	resp.cachedResponseMeta = cachedResponseMeta{}
+	// ★ PendingSources 是"此刻还有哪些源没回来"的瞬时状态, **绝不能落库**。
+	// 落库的后果(2026-11-27 用户报的正是这个):后台补齐早已完成, 缓存却还在说
+	// "还有 4 个源在后台补齐", 前端据此一次次空等一个不会到来的刷新。
+	// 慢源是否仍在跑由 getSearchCacheEntry 从内存任务状态派生。
+	resp.PendingSources = nil
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return

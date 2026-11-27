@@ -1472,9 +1472,28 @@ gequhai/twot58/livepoo/mp3juice/myfreemp3/tunehub/gdstudio/flmp3): 对「周杰�
 - **慢源照样参与(2026-09, 用户明确要求"它们还是要参与搜索")**: 前台不等, 但也不丢 ——
   没等到的源名报在响应字段 `pending_sources` 里; 后台 `completeSearchCacheAsync` 用
   `MUSIC_DL_SEARCH_COMPLETE_BUDGET`(默认 150s)把它们跑完并写进 24h 搜索缓存(置空 pending);
-  前端 `Download.js` 每 25s 自动补拉一次(最多 6 次, 期间显示"还有 N 个源在后台补齐"提示)。
+  前端 `Download.js` 每 25s 自动补拉一次(最多 12 次, 期间显示"还有 N 个源在后台补齐"提示)。
   实测: 第一次 2.0s/22 首(pending=[kugou,kuwo,migu,qianqian]) → 后台 1m55s 写入 52 首 →
   第二次 0.1s/**52 首、六个源齐全** (qianqian 5+kuwo 20+netease 20+qq 2+kugou 2+migu 3)。
+  - **★ 2026-11-27 修「提示说会自动刷新, 实际永远不刷新」**(用户报, 有生产日志为证):
+    ① **补拉只跑一圈就停摆** —— 旧实现把"下一轮"寄托在 effect 依赖 `[pendingSourcesKey]` 上,
+       而补拉回来的 `pending_sources` 与上一轮**一模一样**(后台那时还没跑完)→ key 不变 →
+       effect 不重跑 → 计时器再也不被安排。日志里只出现一次补拉(20:12:22), 之后再无请求,
+       而后台其实在 20:14:32 就补齐成功了, 前端早已不再来取。
+       现改用 `src/hooks/pendingSourcesPoll.js` 的控制器:**到点后自己重新武装**, 不依赖 state 变化。
+    ② **缓存把"正在补齐"这个瞬时状态固化进了 24h 缓存行** —— 旧 `putCachedSearch` 只清
+       `cachedResponseMeta`, 没清 `PendingSources`, 于是后台任务早已结束、进程重启后,
+       缓存仍在复述"还有 4 个源"。现在 pending **不落库**, 只由内存里的在跑任务派生
+       (`searchCompletionInFlight` 登记的是**具体在等哪些源**, 任务结束即删); 读到旧版本
+       写进去的陈旧 pending 也一律忽略。
+    ③ **窗口差几秒** —— 后台补齐受 `MUSIC_DL_SEARCH_BACKGROUND_CONCURRENCY`(默认 1)限流,
+       song/lyric/album 是**排队**跑: 实测 lyric 2m0s + song 35.4s ≈ 155s, 而旧上限
+       6×25s=150s 正卡在边界外侧。改为 **12×25s=300s**。
+    门禁: `npm run test:pending-sources`(`scripts/pendingSourcesPoll.test.mjs`, 9 组, **运行期** ——
+    用假计时器把控制器真的跑起来数触发次数, 静态正则看不出这种时序 bug; 已做突变验证:
+    去掉自动续期后立刻红并报"第 2 轮补拉没有触发"); Go 侧
+    `TestSearchCacheDoesNotPersistPendingSources` / `...ReportsPendingOnlyWhileCompletionRuns` /
+    `...IgnoresLegacyPersistedPendingSources`。
 - 想让它们**第一次搜索就在**, 只有两条路: 调大 `MUSIC_DL_SEARCH_SOURCE_BUDGET`(等于重新变慢),
   或给它们做**原生搜索**(每个 1~2 小时, 参照 `qq_source.py` / `netease_source.py`: 只打必要请求,
   不逐档重试、不逐首探活)。酷狗原生可行性已验证可行(搜索 `songsearch.kugou.com` 0.5s、

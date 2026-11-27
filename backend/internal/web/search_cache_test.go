@@ -316,3 +316,130 @@ func TestSearchSuggestionsUseHistoryAndCache(t *testing.T) {
 		t.Fatalf("cache suggestion mismatch: %+v", songs[0])
 	}
 }
+
+// TestSearchCacheDoesNotPersistPendingSources 锁住 2026-11-27 修的真实缺陷:
+// 「还有 4 个源在后台补齐,结果会自动刷新」——但实际永远不会刷新。
+//
+// 现场证据(生产日志,关键词「爱乐之城」):
+//
+//	20:11:57  前台 2.5s 返回, pending=[qq kugou migu qianqian]
+//	20:12:22  前端补拉一次(命中缓存, 但缓存里 pending 还是那 4 个)
+//	之后      再也没有任何请求
+//	20:14:32  后台补齐其实成功写入了 60 首 —— 前端早已不再来取
+//
+// 根因之一是缓存把"正在补齐"这个**瞬时状态**固化进了 24h 缓存行: 后台任务
+// 早已完成(或随进程重启消失), 缓存却还在复述那 4 个源。现在 pending 只从
+// 内存里的在跑任务派生, 不落库。
+func TestSearchCacheDoesNotPersistPendingSources(t *testing.T) {
+	setupUserTestDB(t)
+	key := searchCacheKey("song", "爱乐之城", "", []string{"qq", "kugou", "migu", "qianqian"})
+
+	// 前台响应本身带着 pending(慢源没等到), putCachedSearch 必须把它剥掉。
+	putCachedSearch(key, jsonSearchResponse{
+		Type:           "song",
+		Keyword:        "爱乐之城",
+		Sources:        []string{"qq", "kugou", "migu", "qianqian"},
+		Songs:          []model.Track{{ID: "1", Name: "爱乐之城", Source: "netease"}},
+		PendingSources: []string{"qq", "kugou", "migu", "qianqian"},
+	})
+
+	entry, ok := getSearchCacheEntry(key)
+	if !ok {
+		t.Fatal("should hit cache after put")
+	}
+	if len(entry.PendingSources) != 0 {
+		t.Fatalf("缓存行不该固化 pending, 实际 = %v", entry.PendingSources)
+	}
+
+	// 直接读库确认 payload 里也没有 pending —— 否则旧版本写进去的值会在
+	// 升级后继续误导前端(Payload 是 JSON，这里只关心字段是否出现)。
+	var row searchCacheRow
+	if err := db.Where("key = ?", key).Limit(1).Find(&row).Error; err != nil || row.Key == "" {
+		t.Fatalf("read cache row: %v", err)
+	}
+	if strings.Contains(row.Payload, "pending_sources") {
+		t.Fatalf("落库的 payload 里不该出现 pending_sources, 实际 payload=%s", row.Payload)
+	}
+
+	// 没有在跑的后台任务时, 缓存命中必须如实回答"没有源在等"。
+	cached, hit := getCachedSearch(key)
+	if !hit {
+		t.Fatal("should hit fresh cache")
+	}
+	if len(cached.PendingSources) != 0 {
+		t.Fatalf("没有在跑的任务却报出 pending=%v", cached.PendingSources)
+	}
+}
+
+// TestSearchCacheReportsPendingOnlyWhileCompletionRuns 锁住另一半语义:
+// 后台补齐**确实在跑**时, 缓存命中要如实报出还差哪些源(前端据此继续等),
+// 任务结束后必须立刻消失。
+func TestSearchCacheReportsPendingOnlyWhileCompletionRuns(t *testing.T) {
+	setupUserTestDB(t)
+	key := searchCacheKey("song", "在跑", "", []string{"qq", "kugou"})
+	putCachedSearch(key, jsonSearchResponse{
+		Type:    "song",
+		Keyword: "在跑",
+		Sources: []string{"qq", "kugou"},
+		Songs:   []model.Track{{ID: "1", Name: "在跑", Source: "qq"}},
+	})
+
+	// 模拟 completeSearchCacheAsync 登记了在跑任务(登记的是具体在等哪些源)。
+	searchCompletionInFlight.Store(key, []string{"kugou"})
+	t.Cleanup(func() { searchCompletionInFlight.Delete(key) })
+
+	entry, ok := getSearchCacheEntry(key)
+	if !ok {
+		t.Fatal("should hit cache")
+	}
+	if len(entry.PendingSources) != 1 || entry.PendingSources[0] != "kugou" {
+		t.Fatalf("在跑的任务必须如实报出 pending, 实际 = %v", entry.PendingSources)
+	}
+	cached, _ := getCachedSearch(key)
+	if len(cached.PendingSources) != 1 || cached.PendingSources[0] != "kugou" {
+		t.Fatalf("getCachedSearch 也必须带上在跑的源, 实际 = %v", cached.PendingSources)
+	}
+
+	// 任务结束(删除登记)→ 立刻不再报 pending, 不会像旧实现那样永远说"还在补齐"。
+	searchCompletionInFlight.Delete(key)
+	entry, _ = getSearchCacheEntry(key)
+	if len(entry.PendingSources) != 0 {
+		t.Fatalf("任务结束后不该再报 pending, 实际 = %v", entry.PendingSources)
+	}
+}
+
+// TestSearchCacheIgnoresLegacyPersistedPendingSources 旧版本已经把 pending 写进了库。
+// 升级后读到这种旧行, 必须**以内存任务状态为准**、忽略库里那份陈旧快照,
+// 否则用户会继续看到"还有 N 个源在补齐"却永远等不到刷新。
+func TestSearchCacheIgnoresLegacyPersistedPendingSources(t *testing.T) {
+	setupUserTestDB(t)
+	key := searchCacheKey("song", "旧行", "", []string{"qq"})
+
+	// 手工造一条"旧版本写进去的"缓存行: payload 里带着 pending_sources。
+	stale := jsonSearchResponse{
+		Type:           "song",
+		Keyword:        "旧行",
+		Sources:        []string{"qq"},
+		Songs:          []model.Track{{ID: "1", Name: "旧行", Source: "qq"}},
+		PendingSources: []string{"kugou", "kuwo", "migu", "qianqian"},
+	}
+	payload, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	if err := db.Create(&searchCacheRow{Key: key, Payload: string(payload), CreatedAt: time.Now()}).Error; err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+
+	entry, ok := getSearchCacheEntry(key)
+	if !ok {
+		t.Fatal("legacy row should still be readable")
+	}
+	if len(entry.PendingSources) != 0 {
+		t.Fatalf("旧行里的 pending 必须被忽略(没有在跑的任务), 实际 = %v", entry.PendingSources)
+	}
+	cached, _ := getCachedSearch(key)
+	if len(cached.PendingSources) != 0 {
+		t.Fatalf("getCachedSearch 也必须忽略旧行里的 pending, 实际 = %v", cached.PendingSources)
+	}
+}

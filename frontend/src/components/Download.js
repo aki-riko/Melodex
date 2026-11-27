@@ -28,6 +28,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
+import { createPendingSourcesPoller } from '../hooks/pendingSourcesPoll';
 import { useBulkActions } from '../hooks/useBulkActions';
 import { songIdentityKey } from '../utils/songIdentity';
 import { sourceLabel } from '../utils/sourceLabels';
@@ -184,9 +185,6 @@ const mergeSearchSongs = (query, songSongs = [], lyricSongs = []) => {
 
   return merged.map((key) => byKey.get(key));
 };
-
-const PENDING_REFETCH_DELAY_MS = 25000;
-const PENDING_REFETCH_MAX = 6;
 
 const searchSongsLyricsAndAlbums = async (keyword) => {
   const query = keyword.trim();
@@ -993,23 +991,34 @@ const Download = ({ downloadRequest }) => {
   useCachedRefresh(search, tab === 'search' && !!query);
 
   // 慢源补齐:后端返回 pending_sources 时说明它们还在后台跑,跑完写进 24h 缓存。
+  //
+  // ★ 真实事故(2026-11-27, 用户报「还有 4 个源在后台补齐,结果会自动刷新 / 实际上并没有刷新」):
+  //   旧写法把"下一轮"寄托在 effect 依赖 `[pendingSourcesKey]` 上。可补拉回来的
+  //   pending_sources 与上一轮**完全一样**(后台那会儿还没跑完),key 不变 → effect 不重跑
+  //   → 计时器再也没被安排。生产日志里就只看到一次补拉(20:12:22),之后再无请求,
+  //   而后台其实在 20:14:32 就把 60 首写进缓存了 —— 前端早已不再来取。
+  //   现在改由 pendingSourcesPoller 自己在到点时重新武装,不再依赖 state 变化;
+  //   同时轮询窗口 150s → 300s(实测补齐要 2.5 分钟, 6×25s 就差几秒)。
   const pendingSources = search.data?.pending_sources || [];
   const pendingSourcesKey = pendingSources.join(',');
-  const pendingRefetchCountRef = useRef(0);
+  const searchRefetchRef = useRef(search.refetch);
+  searchRefetchRef.current = search.refetch;
+  const pendingPollerRef = useRef(null);
+  if (!pendingPollerRef.current) {
+    pendingPollerRef.current = createPendingSourcesPoller({
+      refetch: () => searchRefetchRef.current?.(),
+    });
+  }
+  // 搜索身份 = 关键词 + 重搜 nonce。换搜索/重搜时计数清零,否则新一批慢源会
+  // 继承上一次用剩的次数,表现为"新搜索的提示几秒就自己消失了"。
+  const searchIdentity = `${query}\u0000${searchNonce}`;
   useEffect(() => {
-    if (!pendingSourcesKey) { pendingRefetchCountRef.current = 0; return undefined; }
-    if (pendingRefetchCountRef.current >= PENDING_REFETCH_MAX) return undefined;
-    const timer = window.setTimeout(() => {
-      pendingRefetchCountRef.current += 1;
-      search.refetch();
-    }, PENDING_REFETCH_DELAY_MS);
-    return () => window.clearTimeout(timer);
-    // 有意只依赖 pendingSourcesKey(逗号拼接的稳定字符串),而不是 search 对象:
-    // search 是 react-query 结果,每次渲染新引用;把它列进依赖会让这句
-    // "25 秒后再拉一次"在每次渲染时重置计时器 —— 永远等不到 25 秒。
-    // pendingSourcesKey 相同的两次结果视为同一批待补齐源,不需要重置。
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上:search 进依赖会导致计时器永远重置
-  }, [pendingSourcesKey]);
+    pendingPollerRef.current?.update({ identity: searchIdentity, pendingKey: pendingSourcesKey });
+  }, [searchIdentity, pendingSourcesKey]);
+  useEffect(() => () => {
+    // 离开找歌页(组件卸载)时停表,避免对着已消失的 query 空转。
+    pendingPollerRef.current?.stop();
+  }, []);
 
   const recommend = useQuery(
     ['musicdl-recommend'],

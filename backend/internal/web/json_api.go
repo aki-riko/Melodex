@@ -254,6 +254,8 @@ func jsonSearchHandler(c *gin.Context) {
 		// 关键词搜索:先查结果缓存(含完整元数据),命中直接返回。
 		cacheKey := searchCacheKey(searchType, keyword, exactArtist, sources)
 		if entry, ok := getSearchCacheEntry(cacheKey); ok {
+			// entry.Response.PendingSources 已由 getSearchCacheEntry 按"内存里的在跑任务"填好,
+			// 不是缓存行里那份可能早已过期的快照(见 searchCacheEntry.PendingSources 说明)。
 			cached := entry.Response
 			cached.cachedResponseMeta = cachedResponseMeta{
 				Cached:     true,
@@ -486,7 +488,10 @@ func completeSearchCacheAsync(cacheKey, keyword, searchType, exactArtist string,
 	if cacheKey == "" || len(pending) == 0 {
 		return
 	}
-	if _, loaded := searchCompletionInFlight.LoadOrStore(cacheKey, struct{}{}); loaded {
+	// 登记的不只是"有没有在跑", 还有**具体在等哪些源** —— 缓存命中时要用它如实回答
+	// "还有哪几个源没回来"。这份名单只存在于内存, 任务一结束就删掉(见 search_cache.go
+	// 里 searchCacheEntry.PendingSources 的说明)。
+	if _, loaded := searchCompletionInFlight.LoadOrStore(cacheKey, append([]string(nil), pending...)); loaded {
 		return
 	}
 	budget := searchCompleteBudget()
