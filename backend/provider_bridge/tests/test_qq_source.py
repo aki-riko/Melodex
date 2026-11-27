@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import pathlib
+import re
 import tempfile
 import time
 import unittest
@@ -68,13 +69,15 @@ class FakeBackend:
     """按请求内容应答的假后端,同时记录每次调用用的 cookie 与请求体。"""
 
     def __init__(self, search_items, purl_by_quality=None, lyrics=None, search_code=0, purl_plan=None,
-                 qrc_payload=None):
+                 qrc_payload=None, qrc_trans_payload=None):
         self.search_items = search_items
         self.purl_by_quality = purl_by_quality or {}
         self.lyrics = lyrics or {}
         self.search_code = search_code
         # qrc_payload: 带 qrc=1 的请求返回的 QRC 密文(十六进制); 不设则返回空 data。
         self.qrc_payload = qrc_payload
+        # qrc_trans_payload: 同一次响应里的行级译文表(trans)密文; 双语歌才有。
+        self.qrc_trans_payload = qrc_trans_payload
         # purl_plan: 每次 vkey 调用依次弹出一个 "该次返回哪些 mid 的 purl" 列表;用尽后返回空。
         self.purl_plan = list(purl_plan) if purl_plan is not None else None
         self.calls = []
@@ -89,7 +92,10 @@ class FakeBackend:
             mid = params.get("songMID", "")
             if params.get("qrc") == 1:
                 if self.qrc_payload:
-                    return {"req_1": {"code": 0, "data": {"lyric": self.qrc_payload}}}
+                    data = {"lyric": self.qrc_payload}
+                    if self.qrc_trans_payload:
+                        data["trans"] = self.qrc_trans_payload
+                    return {"req_1": {"code": 0, "data": data}}
                 return {"req_1": {"code": 0, "data": {}}}
             text = self.lyrics.get(mid)
             return lyric_response(text) if text else {"req_1": {"code": 0, "data": {}}}
@@ -538,8 +544,10 @@ class QQSourceTests(unittest.TestCase):
     def test_lazy_lyric_uses_cached_meta_for_verbatim_qrc(self):
         """惰性取词: 搜索时缓存 mid->元数据, 播放时靠它走完整 QRC 逐字链路。
 
-        QRC 请求必须带 songName/albumName/singerName(只传 mid 上游不给 QRC),
-        这些字段只有搜索结果里有 —— 所以缓存元数据是逐字歌词不退化的前提。
+        ★ 旧注释说"只传 mid 上游不给 QRC", **那是错的**(2026-11 实测纠正):
+          只传完整 qrc 参数集、三个元信息字段留空, 上游照样返回逐字 QRC,
+          6 首实测全部命中。缓存元数据仍然有用(能让请求更完整), 但**不是**
+          拿到逐字的前提 —— 见 test_lazy_lyric_fetches_qrc_without_cached_meta。
         """
         fixture = json.loads(
             (pathlib.Path(__file__).with_name("testdata") / "qq_qrc_fixture.json").read_text(encoding="utf-8")
@@ -553,12 +561,87 @@ class QQSourceTests(unittest.TestCase):
                 lyric = qq_source.fetch_lyric("AAA")
         self.assertTrue(lyric.startswith("[00:00.000]晴"), lyric[:40])
 
+    def test_lazy_lyric_fetches_qrc_without_cached_meta(self):
+        """★ 重启后直接播放历史歌单(无元数据缓存)也必须拿到逐字 QRC。
+
+        这是「多语言逐字歌词跑到翻译那边去」的**另一半**根因: 缓存未命中时旧实现
+        直接退回行级 LRC, 而那份 LRC 里原文与译文是并列的两行, 逐字填色会画到译文上。
+        修法是先只凭 mid 走完整 QRC 链路(元信息留空), 拿不到才退行级。
+        """
+        fixture = json.loads(
+            (pathlib.Path(__file__).with_name("testdata") / "qq_qrc_fixture.json").read_text(encoding="utf-8")
+        )
+        backend = FakeBackend([], lyrics={"UNKNOWN": "[00:01.00]行级歌词"},
+                              qrc_payload=fixture["lyric_hex"])
+        with mock.patch.object(qq_source, "_post", backend):
+            lyric = qq_source.fetch_lyric("UNKNOWN")
+        self.assertTrue(lyric.startswith("[00:00.000]"), f"应拿到逐字 QRC, 实际 {lyric[:40]}")
+        self.assertNotEqual(lyric, "[00:01.00]行级歌词", "不能退化成行级 LRC")
+
+    def test_mid_only_qrc_request_carries_qrc_flags(self):
+        """只凭 mid 的那次请求必须带齐 qrc=1/crypt=1 等标志, 否则上游不给 QRC。"""
+        backend = FakeBackend([], lyrics={"UNKNOWN": "[00:01.00]行级"})
+        with mock.patch.object(qq_source, "_post", backend):
+            qq_source.fetch_lyric("UNKNOWN")
+        qrc_calls = [
+            call for call in backend.lyric_calls
+            if (call["payload"].get("req_1") or {}).get("param", {}).get("qrc") == 1
+        ]
+        self.assertEqual(len(qrc_calls), 1, "应恰好发一次 QRC 请求")
+        param = qrc_calls[0]["payload"]["req_1"]["param"]
+        self.assertEqual(param["songMID"], "UNKNOWN")
+        self.assertEqual(param["crypt"], 1)
+        self.assertEqual(param["ct"], 19)
+
+    def test_mid_only_rejects_base64_line_level_payload(self):
+        """上游拿不到逐字时会改回 **base64 行级 LRC**, 那种载荷不能挡掉行级兜底。
+
+        ★ 这条断言的是**行为结果**: 即使 QRC 分支拿到了非 QRC 载荷, 也必须回退到
+          行级 LRC, 而不是返回空(表现就是"这首歌突然没歌词了")。
+          实际拦住它的有两道: `decrypt_qrc` 对明文载荷本来就解不出(返回空串),
+          以及 `_mid_only_qrc_lyric` 的 XML 头校验。两道都在时这条测试通过;
+          **单独去掉 XML 校验它也照样通过** —— 因为第一道已经拦住了,
+          所以不要把它当成 XML 校验的门禁(本文件试过, 抓不住)。
+        """
+        line_level = base64.b64encode("[00:01.00]行级歌词".encode()).decode()
+        backend = FakeBackend([], lyrics={"UNKNOWN": "[00:01.00]行级歌词"},
+                              qrc_payload=line_level)
+        with mock.patch.object(qq_source, "_post", backend):
+            lyric = qq_source.fetch_lyric("UNKNOWN")
+        self.assertEqual(lyric, "[00:01.00]行级歌词", "必须回退到行级 LRC, 不能返回空/垃圾")
+
     def test_lazy_lyric_falls_back_to_line_level_without_cache(self):
-        """重启后直接播放历史歌单(无元数据缓存)时, 至少要拿到行级歌词。"""
+        """重启后直接播放历史歌单(无元数据缓存)时, 至少要拿到行级歌词。
+
+        前提是上游**确实没有**逐字 QRC(这里 qrc_payload 不设) —— 那种情况下
+        行级 LRC 是唯一能给的, 属于既有行为, 必须保留。
+        """
         backend = FakeBackend([], lyrics={"UNKNOWN": "[00:01.00]行级歌词"})
         with mock.patch.object(qq_source, "_post", backend):
             lyric = qq_source.fetch_lyric("UNKNOWN")
         self.assertEqual(lyric, "[00:01.00]行级歌词")
+
+    def test_lazy_lyric_drops_inline_translation_without_cached_meta(self):
+        """冷启动路径遇到双语歌时, 译文行也必须被剔除(与搜索后的主路径一致)。
+
+        用真实抓取的「深蓝泡沫」载荷(lyric + trans), 且**不经过搜索**(缓存为空),
+        断言: 原文在、译文不在。这是本次修复要覆盖的另一半路径。
+        """
+        fixture = json.loads(
+            (pathlib.Path(__file__).with_name("testdata")
+             / "qq_qrc_translation_fixture.json").read_text(encoding="utf-8")
+        )
+        backend = FakeBackend([], qrc_payload=fixture["lyric_hex"],
+                              qrc_trans_payload=fixture["trans_hex"])
+        with mock.patch.object(qq_source, "_post", backend):
+            lyric = qq_source.fetch_lyric(fixture["mid"])
+
+        self.assertTrue(lyric, "应拿到歌词")
+        squeezed = "".join(re.sub(r"\[\d{1,2}:\d{1,2}(?:[.:]\d{1,3})?\]", "", line).replace(" ", "")
+                           for line in lyric.splitlines())
+        self.assertIn("CallmynameI'mfadingfadingfading", squeezed, "原文必须保留")
+        for unwanted in ("唤我姓名我正慢慢消散", "晚安我还在等候等候等候", "星辰静静坠落"):
+            self.assertNotIn(unwanted, squeezed, f"译文行未剔除: {unwanted}")
 
     def test_lazy_lyric_empty_for_unknown_mid(self):
         backend = FakeBackend([])

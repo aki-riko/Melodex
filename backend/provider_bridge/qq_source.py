@@ -876,11 +876,50 @@ def _remember_song_meta(items: list[dict[str, Any]]) -> None:
             _song_meta.pop(next(iter(_song_meta)))
 
 
+def _mid_only_qrc_lyric(client: PlatformHTTP, mid: str) -> str:
+    """只凭 songmid 取逐字 QRC(元信息留空), 拿不到返回空串。
+
+    ★ 为什么这条路存在(2026-11 实测纠正): 旧实现认为"没有搜索结果里的
+      songName/albumName/singerName 就请求不到 QRC", 于是缓存未命中时直接退回
+      行级 LRC。实测这是**错的** —— 只传完整 qrc 参数集、三个元信息字段留空,
+      上游照样返回逐字 QRC。6 首实测全部命中(深蓝泡沫 / Shape of You / 晴天 /
+      Lemon / 孤勇者 / 夜に駆ける)。
+
+      这个错误结论的代价很直接: 行级 LRC 里**原文与译文是并列的两行**, 逐字填色
+      会跑到译文上(用户报的「多语言逐字歌词跑到翻译那边去」)。搜索后的主路径
+      走 _qrc_lyric 已经修好, 但重启后首次播放走的就是这里 —— 不修就还有一半
+      路径是坏的。
+    """
+    parameter = qq_qrc.qrc_request_param(mid, song_id=0)
+    response = _post(client, {
+        "comm": _plain_comm(),
+        "req_1": {"module": LYRIC_MODULE, "method": LYRIC_METHOD, "param": parameter},
+    })
+    data = (response.get("req_1") or {}).get("data") or {}
+    payload = data.get("lyric")
+    if not payload:
+        return ""
+    plaintext = qq_qrc.decrypt_qrc(payload)
+    # 只认真正的 QRC 明文。这一条是**防御性**的, 不是主判定:
+    # 实测(2026-11)上游拿不到逐字时返回的是 base64 行级 LRC, 而 decrypt_qrc 对那种
+    # 明文载荷本来就解不出东西、直接返回空串(长度不对/解压失败), 已能拦住。
+    # 这里再查一次 XML 头, 防的是"解密意外成功但内容不是 QRC"(例如上游换了一种
+    # 恰好 8 字节对齐的载荷)。删掉它当下不会出错, 但会丢掉这层保险。
+    if not plaintext or not plaintext.lstrip().startswith("<?xml"):
+        return ""
+    trans_plaintext = qq_qrc.decrypt_qrc(data.get("trans")) if data.get("trans") else ""
+    return qq_qrc.qrc_to_verbatim_lrc(plaintext, trans_plaintext)
+
+
 def fetch_lyric(song_id: str, *, cookie: str = "") -> str:
     """按 songmid 取歌词(惰性路径, 供 /v1/lyric 调用)。
 
-    优先用搜索时缓存的元数据走完整 QRC 逐字链路; 缓存未命中(比如重启后直接播放历史歌单)
-    时退回只凭 mid 的行级 LRC —— 拿不到逐字, 但不会没有歌词。
+    三级降级, 依次尽力:
+      ① 搜索时缓存下来的元数据 → 完整 QRC 逐字链路(带歌名/歌手/专辑, 命中最全)
+      ② **只凭 mid** → 完整 QRC 逐字链路(元信息留空; 实测同样能拿到逐字)
+      ③ 只凭 mid → 行级 LRC(上游没有逐字时的最终兜底)
+    ② 是 2026-11 补的: 缓存未命中(重启后首次播放历史歌单)原来直接跳 ③, 于是那条
+    路径拿到的是"原文+译文并列"的行级 LRC, 逐字填色会跑到译文上。
     """
     mid = strict_string(song_id)
     if not mid:
@@ -891,8 +930,14 @@ def fetch_lyric(song_id: str, *, cookie: str = "") -> str:
         text, _verbatim = _lyric(item, cookie)
         if text:
             return text
+    client = PlatformHTTP(cookie)
     try:
-        client = PlatformHTTP(cookie)
+        verbatim = _mid_only_qrc_lyric(client, mid)
+        if verbatim:
+            return verbatim
+    except Exception as error:  # 逐字是增强项: 失败必须继续走行级兜底
+        LOGGER.debug("[qq] 只凭 mid 取逐字歌词失败 mid=%s: %s", mid, error)
+    try:
         response = _post(client, _lyric_request(mid))
         raw = strict_string(((response.get("req_1") or {}).get("data") or {}).get("lyric"))
         if not raw:
