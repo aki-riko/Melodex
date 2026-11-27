@@ -80,7 +80,7 @@ def verbatim_lyric_enabled() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
-def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None, translations_only: bool = False) -> str:
+def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None, translations_only: bool = False, pairs: list | None = None) -> str:
     """取网易逐字歌词(YRC)并转成内联逐字 LRC; 没有词级数据或失败时返回空串。"""
     song_id = strict_string(song_id)
     if not song_id.isdigit():
@@ -116,6 +116,18 @@ def fetch_verbatim_lyric(song_id: str, *, session: Any | None = None, translatio
         word_text = re.compile(r"\[\d+:\d+\.\d+\]")
         originals.update(word_text.sub("", line).strip() for line in
                          yrc_to_verbatim_lrc("\n".join(track_lines("yrc"))).splitlines())
+        if pairs is not None:
+            from provider_bridge.qq_qrc import translation_table
+            for source_key, translation_key in (("lrc", "tlyric"), ("yrc", "ytlrc")):
+                source_track = "\n".join(track_lines(source_key))
+                if source_key == "yrc":
+                    source_track = yrc_to_verbatim_lrc(source_track)
+                translated = translation_table("\n".join(track_lines(translation_key)))
+                for ms, line in translation_table(source_track).items():
+                    text = translated.get(ms, "")
+                    original = word_text.sub("", line).strip()
+                    if text and text != original and text != "//":
+                        pairs.append({"ms": ms, "source": original, "text": text})
         return "\n".join(line for key in ("ytlrc", "tlyric") for line in track_lines(key)
                          if (match := timed.match(line)) and match[1].strip() not in originals)
     node = payload.get("yrc")

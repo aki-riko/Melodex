@@ -705,7 +705,7 @@ func lyricRoute(c *gin.Context) {
 		writeUnavailableLyric(c)
 		return
 	}
-	if matched != nil && matched.Source != "qq" {
+	if matched != nil {
 		lyrics = correctStoredLyrics(c.Request.Context(), matched, lyrics)
 	}
 	lyrics = formatLyricForMode(lyrics, c.DefaultQuery("format", "auto"))

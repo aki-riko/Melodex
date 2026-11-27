@@ -40,7 +40,9 @@ func TestStoredLyricsAcrossPlaybackRoutes(t *testing.T) {
 			t.Errorf("unexpected provider request: %+v %v", request, err)
 		}
 		calls++
-		_ = json.NewEncoder(w).Encode(map[string]string{"inline_translations": translation})
+		_ = json.NewEncoder(w).Encode(map[string]any{"inline_translations": translation, "pairs": []map[string]any{
+			{"ms": 6900, "source": "Call my name I'm fading fading fading", "text": "唤我姓名"},
+		}})
 	}))
 	defer sidecar.Close()
 	t.Setenv("MUSIC_DL_PROVIDER_URL", sidecar.URL)
@@ -52,7 +54,7 @@ func TestStoredLyricsAcrossPlaybackRoutes(t *testing.T) {
 	} {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(tc.method, RoutePrefix+"/lyric?"+tc.query, strings.NewReader(tc.body)))
-		if rec.Code != http.StatusOK || rec.Body.String() != original+"\n"+custom {
+		if rec.Code != http.StatusOK || rec.Body.String() != original+"\n[00:06.900]唤我姓名\n"+custom {
 			t.Fatalf("%s %s: %d %q", tc.method, tc.query, rec.Code, rec.Body.String())
 		}
 	}

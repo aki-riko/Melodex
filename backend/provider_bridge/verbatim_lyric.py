@@ -39,4 +39,24 @@ def inline_lrc(lines: Iterable[Sequence[tuple[int, str]]]) -> str:
     return "\n".join(line for line in rendered if line)
 
 
+def paired_translations(rows, kept, labels):
+    """以保留原句的首词为锚；无独立译文的原句使用紧随其后的内嵌译文。"""
+    originals = {(r[0], r[2]) for r in kept}
+    pairs = []
+    current = None
+    for index, row in enumerate(rows):
+        if not row[3]:
+            continue
+        text = row[2].strip()
+        if (row[0], row[2]) in originals:
+            label = (labels[index] or "").strip() if index < len(labels) else ""
+            current = {"ms": row[3][0][0], "source": text, "text": ""}
+            if label and label not in ("//", text):
+                current["text"] = label
+            pairs.append(current)
+        elif current is not None and not current["text"]:
+            current["text"] = text
+    return [pair for pair in pairs if pair["text"]]
+
+
 __all__ = ["TIMESTAMP_TEMPLATE", "inline_lrc", "inline_line", "timestamp"]

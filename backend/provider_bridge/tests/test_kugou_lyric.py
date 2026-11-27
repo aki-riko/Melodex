@@ -96,7 +96,10 @@ class KrcConversionTests(unittest.TestCase):
         encoded = base64.b64encode(json.dumps(track).encode()).decode()
         raw = "\n".join(["[language:" + encoded + "]", *rows])
         source = kugou_lyric.krc_to_verbatim_lrc(raw)
-        translations = kugou_lyric.krc_to_verbatim_lrc(raw, translations_only=True)
+        pairs = []
+        translations = kugou_lyric.krc_to_verbatim_lrc(raw, translations_only=True, pairs=pairs)
+        self.assertEqual([pair["ms"] for pair in pairs], [6900, 9840, 20100])
+        self.assertEqual(pairs[0]["text"], labels[0][0])
         self.assertNotIn("[00:08.730]", source)
         self.assertIn("[00:06.900]Call ", source)
         self.assertIn("[00:08.730]唤我姓名我正慢慢消散", translations)

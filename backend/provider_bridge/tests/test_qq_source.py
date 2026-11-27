@@ -628,7 +628,13 @@ class QQSourceTests(unittest.TestCase):
                               qrc_trans_payload=fixture["trans_hex"])
         request = {"source": "qq", "id": fixture["mid"], "inline_translations": True}
         with mock.patch.object(qq_source, "_post", backend):
-            dropped = bridge_app.lyric(request)["inline_translations"].splitlines()
+            reference = bridge_app.lyric(request)
+            dropped = reference["inline_translations"].splitlines()
+            self.assertEqual(len(reference["pairs"]), 59)
+            self.assertEqual(reference["pairs"][0], {
+                "ms": 6900, "source": "Call my name I'm fading fading fading",
+                "text": "唤我姓名 我正逐渐消散 消散 消散",
+            })
             kept = bridge_app.lyric({"source": "qq", "id": fixture["mid"]})["lyric"].splitlines()
         original = qq_source.qq_qrc.qrc_to_verbatim_lrc(
             qq_source.qq_qrc.decrypt_qrc(fixture["lyric_hex"])).splitlines()

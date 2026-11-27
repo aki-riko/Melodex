@@ -89,7 +89,9 @@ class YRCConversionTests(unittest.TestCase):
         translation = "[00:00.851]如果这一切都是梦境该有多好"
         payload = {"lrc": {"lyric": original}, "tlyric": {"lyric": translation + "\n" + original}}
         with mock.patch.object(netease_lyric.PlatformHTTP, "post_form", return_value=payload):
-            self.assertEqual(netease_lyric.fetch_verbatim_lyric("536622304", translations_only=True), translation)
+            pairs = []
+            self.assertEqual(netease_lyric.fetch_verbatim_lyric("536622304", translations_only=True, pairs=pairs), translation)
+            self.assertEqual(pairs, [{"ms": 851, "source": original[11:], "text": translation[11:]}])
 
     def test_kill_switch(self):
         with mock.patch.dict("os.environ", {"MELODEX_NETEASE_VERBATIM_LYRIC": "0"}):

@@ -441,7 +441,7 @@ func serveLocalMusicLyric(c *gin.Context, song *model.Track, download bool, save
 		writeMissingLocalLyric(c, download)
 		return
 	}
-	if !download && mayHaveTranslations(lyrics) {
+	if !download && lyricTimestampPattern.MatchString(lyrics) {
 		origins := resolveLocalChorusOrigins([]*localMusicTrack{track})
 		origin := origins[normalizeRelPath(track.RelPath)]
 		ref := model.Track{Source: origin.Source, ID: origin.SongID, Duration: track.Duration,

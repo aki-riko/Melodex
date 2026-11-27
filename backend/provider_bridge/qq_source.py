@@ -876,7 +876,7 @@ def _remember_song_meta(items: list[dict[str, Any]]) -> None:
             _song_meta.pop(next(iter(_song_meta)))
 
 
-def _mid_only_qrc_lyric(client: PlatformHTTP, mid: str, *, translations_only: bool = False) -> str:
+def _mid_only_qrc_lyric(client: PlatformHTTP, mid: str, *, translations_only: bool = False, pairs: list | None = None) -> str:
     """只凭 songmid 取逐字 QRC(元信息留空), 拿不到返回空串。
 
     ★ 为什么这条路存在(2026-11 实测纠正): 旧实现认为"没有搜索结果里的
@@ -908,14 +908,14 @@ def _mid_only_qrc_lyric(client: PlatformHTTP, mid: str, *, translations_only: bo
     if not plaintext or not plaintext.lstrip().startswith("<?xml"):
         return ""
     trans_plaintext = qq_qrc.decrypt_qrc(data.get("trans")) if data.get("trans") else ""
-    return qq_qrc.qrc_to_verbatim_lrc(plaintext, trans_plaintext, translations_only=translations_only)
+    return qq_qrc.qrc_to_verbatim_lrc(plaintext, trans_plaintext, translations_only=translations_only, pairs=pairs)
 
 
-def inline_translations(mid: str, cookie: str) -> str:
+def inline_translations(mid: str, cookie: str, pairs: list | None = None) -> str:
     """从同一首歌的 QRC 和译文表取出实际被剔除的带时间戳行。"""
     if not qq_qrc.verbatim_enabled():
         return ""
-    return _mid_only_qrc_lyric(PlatformHTTP(cookie), mid, translations_only=True)
+    return _mid_only_qrc_lyric(PlatformHTTP(cookie), mid, translations_only=True, pairs=pairs)
 
 
 def fetch_lyric(song_id: str, *, cookie: str = "") -> str:

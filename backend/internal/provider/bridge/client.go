@@ -112,10 +112,21 @@ type searchResponse struct {
 	EmptyReason string `json:"empty_reason,omitempty"`
 }
 
+type LyricTranslation struct {
+	MS     int64  `json:"ms"`
+	Source string `json:"source"`
+	Text   string `json:"text"`
+}
+
+type LyricTranslations struct {
+	InlineTranslations string             `json:"inline_translations,omitempty"`
+	Pairs              []LyricTranslation `json:"pairs,omitempty"`
+}
+
 type lyricResponse struct {
-	InlineTranslations string `json:"inline_translations,omitempty"`
-	Lyric              string `json:"lyric"`
-	Error              string `json:"error,omitempty"`
+	LyricTranslations
+	Lyric string `json:"lyric"`
+	Error string `json:"error,omitempty"`
 }
 
 type qrCreateResponse struct {
@@ -211,22 +222,33 @@ func (c *Client) SearchWithRefresh(ctx context.Context, request SearchRequest) (
 }
 
 func (c *Client) Lyric(ctx context.Context, request LyricRequest) (string, error) {
+	payload, err := c.fetchLyric(ctx, request)
+	if request.InlineTranslations {
+		return strings.TrimSpace(payload.InlineTranslations), err
+	}
+	return strings.TrimSpace(payload.Lyric), err
+}
+
+func (c *Client) Translations(ctx context.Context, request LyricRequest) (LyricTranslations, error) {
+	request.InlineTranslations = true
+	response, err := c.fetchLyric(ctx, request)
+	return response.LyricTranslations, err
+}
+
+func (c *Client) fetchLyric(ctx context.Context, request LyricRequest) (lyricResponse, error) {
+	var payload lyricResponse
 	request.Source = strings.TrimSpace(request.Source)
 	request.ID = strings.TrimSpace(request.ID)
 	if request.Source == "" || request.ID == "" {
-		return "", errors.New("provider lyric requires source and id")
+		return payload, errors.New("provider lyric requires source and id")
 	}
-	var payload lyricResponse
 	if err := c.postJSON(ctx, "/v1/lyric", request, &payload); err != nil {
-		return "", err
+		return lyricResponse{}, err
 	}
 	if payload.Error != "" {
-		return "", errors.New(payload.Error)
+		return lyricResponse{}, errors.New(payload.Error)
 	}
-	if request.InlineTranslations {
-		return strings.TrimSpace(payload.InlineTranslations), nil
-	}
-	return strings.TrimSpace(payload.Lyric), nil
+	return payload, nil
 }
 
 // Chorus 批量取一批**同源**歌曲的副歌点位。
