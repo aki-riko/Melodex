@@ -398,6 +398,31 @@ export default function NativePlayerProvider({ context: PlayerContext, progressC
   }, [clearSleepTimer, isPaused, sleepStopAfterTrack, sleepTimer]);
 
   const noop = useCallback(() => {}, []);
+
+  // 桌面歌词推送取「最新位置/进度」的两个读口 —— 与 WebPlayerProvider 同名同义。
+  //
+  // ★ 必须两边都有（`playerProviderContract.test.mjs` 会比对 controlValue 的键集合）：
+  //   组件不知道自己跑在哪个平台，缺任何一边都是"只在安卓 / 只在 Web 坏"的运行时
+  //   bug。第一次提交时本鱼只加了 Web 侧，CI 当场红在这里。
+  //
+  // ★ 原生侧的位置来自 `progress.cur` —— 它由原生 250ms 轮询推进（见
+  //   `applyNativeState`），本身就是准的，不存在 Web 侧那种
+  //   "state 是 timeupdate 采样值"的滞后问题。所以这里不需要
+  //   `liveLyricsPosition()` 的音频插值，直接用快照即可。
+  //   但**仍然要读 ref**：推送是自调度的定时任务，闭包捕获 state 会停在启动那一刻。
+  const progressSnapshotRef = useRef(progress);
+  const pausedSnapshotRef = useRef(isPaused);
+  useEffect(() => { progressSnapshotRef.current = progress; }, [progress]);
+  useEffect(() => { pausedSnapshotRef.current = isPaused; }, [isPaused]);
+
+  const readLyricsPosition = useCallback(
+    () => Math.max(0, Number(progressSnapshotRef.current.cur) || 0),
+    [],
+  );
+  const readLyricsProgress = useCallback(
+    () => ({ progress: progressSnapshotRef.current, paused: pausedSnapshotRef.current }),
+    [],
+  );
   // 与 WebPlayerProvider 同一套拆分(见 PlayerContext.js 顶部说明):
   // 控制面用 useMemo 稳定,进度单独一个 Provider —— 否则 4Hz 的进度会让
   // 所有 usePlayer() 消费者跟着重渲染。
@@ -441,13 +466,15 @@ export default function NativePlayerProvider({ context: PlayerContext, progressC
     savePlayback,
     cycleMode,
     scrubHandlers,
+    readLyricsPosition,
+    readLyricsProgress,
     usesNativePlayback: true,
   }), [
     nowPlaying, play, audioRef, notice, isPaused, mode, setMode, volume, setVolume,
     muted, toggleMute, queue, playFromQueue, sleepTimer, sleepRemainingMs,
     sleepStopAfterTrack, startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
     next, prev, togglePlay, seek, savePlayback, cycleMode,
-    scrubHandlers, noop,
+    scrubHandlers, noop, readLyricsPosition, readLyricsProgress,
   ]);
 
   // 进度:故意不稳定化,语义就是"每帧都变"。

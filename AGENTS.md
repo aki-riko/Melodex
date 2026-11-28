@@ -954,6 +954,28 @@ Capacitor 注入的是**自定义属性 `--safe-area-inset-*`**(见 `injectSafeA
 代码行，但具体回退幅度会因各机器 `timeupdate` 抖动而异。下次可加
 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` 复测。
 
+##### ★ CI 当场抓出的漏改:`controlValue` 键集合两侧必须一致
+
+首次提交只给 `WebPlayerProvider` 加了 `readLyricsPosition` / `readLyricsProgress`
+两个键,**`NativePlayerProvider` 没加** → CI 的 `test:provider-contract` 立刻红:
+
+```
+两个 PlayerProvider 的 controlValue 键集合不一致:
+  只在 Web: readLyricsPosition, readLyricsProgress
+组件不知道自己在哪个平台上跑，缺任何一边都是"只在安卓/只在 Web 坏"的运行时 bug。
+```
+
+这正是那条契约测试存在的意义 —— 本鱼本地只跑了 `test:player`(里面不含这套),
+**是 CI 补上了本地漏跑的那一环**。修法:原生侧补同名同义的两个读口。
+
+**★ 但原生侧不要照抄 `liveLyricsPosition()`**:原生位置来自 `progress.cur`,
+由原生 250ms 轮询推进(`applyNativeState`),本身就地准确,不存在 Web 侧那种
+"state 是 timeupdate 采样值"的滞后问题。照抄反而会因为 `audioRef` 为空而退化。
+**同名接口、不同实现**,是因为两侧的位置来源本就不同。
+
+教训:**改 `controlValue` 任何一边，必须同时改另一边并跑 `test:provider-contract`** ——
+本地那套 `test:player` 覆盖不到它。
+
 #### 排查手法(可复用)
 - **UI 资源是编译进二进制的**(`frontendDist: "../ui"`):
   改完 `desktop/ui/*` **必须 `cargo build` 才生效**,只重启进程看到的是旧界面
