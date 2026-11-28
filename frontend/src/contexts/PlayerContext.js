@@ -72,18 +72,13 @@ import {
 import { currentLyricIndexAt, hasUsableLyrics, parseLRC, stripPlaceholderLyrics } from './playerLyrics.mjs';
 import { karaokeFillPercent, lyricScrollBehavior, prefersReducedMotion, sheetExitDelay } from './playerSheetMotion.mjs';
 import {
-  STAGE_LAYOUT_KEY,
   STAGE_TONE_KEY,
-  isWideViewport,
-  normalizeStageLayout,
   persistStagePref,
-  readStageLayout,
   readStageTone,
   safeStorage,
-  stageShowsLyrics,
   stageToneNext,
 } from './playerStage.mjs';
-import { StageLayoutSwitch, StageToneToggle } from '../components/PlayerStageChrome';
+import { StageToneToggle } from '../components/PlayerStageChrome';
 import {
   dragOffset, lockSwipeAxis, marqueeDurationSec, miniEnterKind, resolveSwipe,
 } from './playerMiniSwipe.mjs';
@@ -1850,24 +1845,15 @@ export const PlayerBar = () => {
     onBack: () => { setLyricsMenuOpen(false); },
   });
 
-  // ===== 播放舞台的两档「可切换」偏好(2026-11 重做)=====
-  // 布局三档(disc 唱片 / lyrics 歌词 / split 双栏)+ 色板两档(immersive 沉浸暗场 / theme 跟随主题)。
-  // 规则与兜底全在 playerStage.mjs(有 Node 契约测试),这里只持有状态并负责落盘。
-  // 首次打开的默认值按断点分:桌面过去就是「唱片 + 歌词」双栏,手机过去是唱片 ——
-  // 统一成一个会让其中一端第一次打开就"不像原来那个应用"。
-  const [stageLayout, setStageLayout] = useState(() => readStageLayout(safeStorage(), isWideViewport()));
+  // ===== 播放舞台的色板两档「可切换」偏好(2026-11 重做)=====
+  // 色板两档(immersive 沉浸暗场 / theme 跟随主题)。规则与兜底全在 playerStage.mjs
+  // (有 Node 契约测试),这里只持有状态并负责落盘。
+  //
+  // ★ 布局三档(沉浸 / 歌词 / 封面)已于 2026-11 移除 —— 用户圈出顶栏那两颗
+  //   并明确要求「播放页移除红框的这俩样式」,选择「只留沉浸一档」。现在桌面舞台
+  //   恒定是沉浸档(整屏封面 + 右侧歌词面板),不再有 stageLayout 状态。
   const [stageTone, setStageTone] = useState(() => readStageTone(safeStorage()));
   // 切换即落盘(按设备)。写失败不影响当前会话 —— 见 persistStagePref 的 ignore-on-purpose。
-  const changeStageLayout = useCallback((next) => {
-    setStageLayout((prev) => {
-      // 断点只用来决定**默认值**;用户手动选过之后就以他的选择为准,
-      // 所以这里传 false(不按桌面默认)只做合法性收敛。
-      const value = normalizeStageLayout(next, false);
-      if (value === prev) return prev;
-      persistStagePref(safeStorage(), STAGE_LAYOUT_KEY, value);
-      return value;
-    });
-  }, []);
   const toggleStageTone = useCallback(() => {
     setStageTone((prev) => {
       const value = stageToneNext(prev);
@@ -1877,8 +1863,8 @@ export const PlayerBar = () => {
   }, []);
   const [closing, setClosing] = useState(false); // 展开页收起动画中
   // 移动端全屏页的「封面 ↔ 歌词」隐式切换。
-  // 2026-11 重做后**只有桌面端**改成显式三档舞台,移动端刻意保持原样(用户明确要求),
-  // 所以这个状态仍然只服务 .lg:hidden 那套;桌面端读 stageLayout,不读它。
+  // 2026-11 重做后**只有桌面端**改成了显式舞台,移动端刻意保持原样(用户明确要求),
+  // 所以这个状态仍然只服务 .lg:hidden 那套。
   const [showLyric, setShowLyric] = useState(false);
   const [lrc, setLrc] = useState([]); // 解析后的同步歌词
   const curKey = nowPlaying ? `${nowPlaying.source}-${nowPlaying.id}` : '';
@@ -2116,11 +2102,11 @@ export const PlayerBar = () => {
   const lyricSnapshotKey = `${curKey}#${lrc.length}`;
   // 两端各自的"歌词区是否可见"判据不同,所以两个快照必须分开算:
   //   · 移动端:仍走 showLyric 隐式开关(封面 ↔ 歌词),保持重做前的原样;
-  //   · 桌面端:由舞台布局档决定(stageShowsLyrics)。
+  //   · 桌面端:沉浸档恒定有右侧歌词面板,所以等于"展开页开着"。
   // 共用一份快照会让"从隐藏端切到可见端"被误判成同一首歌里的逐行推进,
   // 于是从第一行一路平滑滑到当前行。
   const mobileLyricsVisible = expanded && showLyric;
-  const desktopLyricsVisible = expanded && stageShowsLyrics(stageLayout);
+  const desktopLyricsVisible = expanded;
   const activeLyricRef = useRef(null);
   const mobileLyricSnapRef = useRef(null);
   useEffect(() => {
@@ -2764,15 +2750,14 @@ export const PlayerBar = () => {
         </div>
       )}
 
-      {/* ===== 桌面端:全屏沉浸播放页(可切换:沉浸 / 歌词 / 封面) =====
-          沉浸档(默认)= **整屏封面当背景**:左半清晰、右半渐隐,歌词压在渐隐区上,
-                         底部一条半透明底栏装信息 + 进度 + 全部操作。
-                         不是"左边一张封面卡片 + 右边一个列表" —— 那样中间会空出一大片,
-                         完全没有"整张专辑铺满屏幕"的沉浸感。
-          歌词档 = 歌词独占整屏;封面档 = 封面铺满、只有底栏。 */}
+      {/* ===== 桌面端:全屏沉浸播放页 =====
+           **整屏封面当背景**:左半清晰、右半渐隐,歌词压在渐隐区上,
+           底部一条半透明底栏装信息 + 进度 + 全部操作。
+           不是"左边一张封面卡片 + 右边一个列表" —— 那样中间会空出一大片,
+           完全没有"整张专辑铺满屏幕"的沉浸感。
+           ★ 2026-11:原来的「歌词 / 封面」两档切换已按用户要求移除,只剩这一档。 */}
       {expanded && nowPlaying && (
-        <div className={`hidden lg:flex player-stage player-stage--${stageTone} player-stage--${stageLayout} fixed inset-0 z-sheet flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
-          data-stage-layout={stageLayout}
+        <div className={`hidden lg:flex player-stage player-stage--${stageTone} player-stage--disc fixed inset-0 z-sheet flex-col ${closing ? 'player-sheet-exit' : 'player-sheet-enter'}`}
           data-stage-tone={stageTone}>
           {/* 整屏封面:这是舞台的**底**,不是装饰。
               同一张图分两层,各司其职(见 CSS):
@@ -2799,42 +2784,39 @@ export const PlayerBar = () => {
             <div className="player-stage__scrim" />
           </div>
 
-          {/* 顶部:只有收起 + 两颗切换控件,不加任何标签 —— 用户要"信息压缩到底栏" */}
+          {/* 顶部:只有收起 + 色板切换,不加任何标签 —— 用户要"信息压缩到底栏" */}
           <div className="player-stage__top">
             <button onClick={collapseExpanded} className="player-stage__back" aria-label="收起">
               <ChevronDown size={26} />
               <span className="text-sm">收起</span>
             </button>
             <div className="player-stage__switches">
-              <StageLayoutSwitch value={stageLayout} onChange={changeStageLayout} />
               <StageToneToggle tone={stageTone} onToggle={toggleStageTone} />
             </div>
           </div>
 
-          {/* 中部:歌词浮在渐隐区上(沉浸档在右侧、歌词档居中、封面档不显示)。
+          {/* 中部:歌词浮在渐隐区上(沉浸档固定在右侧)。
               这里**不放封面** —— 封面已经在背景里铺满了。 */}
           <div className="player-stage__body">
-            {stageShowsLyrics(stageLayout) && (
-              <div key={`lyric-${stageLayout}`}
-                className="player-stage__lyrics player-stage__lyrics--desktop fade-in"
-                aria-label="歌词">
-                {lrc.length === 0 ? (
-                  <div className="player-stage__lyrics-empty">
-                    <p>暂无歌词</p>
-                    <p className="player-stage__lyrics-empty-hint">这首歌没拿到同步歌词，先听一会儿音乐吧</p>
-                  </div>
-                ) : (
-                  lrc.map((line, i) => (
-                    <p key={i}
-                      ref={i === lyricIdx ? desktopLyricRef : null}
-                      data-active={i === lyricIdx ? 'true' : undefined}
-                      className="player-lyric-line py-2 leading-relaxed">
-                      {i === lyricIdx ? <KaraokeLine line={line} cur={progress.cur} /> : line.text}
-                    </p>
-                  ))
-                )}
-              </div>
-            )}
+            <div
+              className="player-stage__lyrics player-stage__lyrics--desktop fade-in"
+              aria-label="歌词">
+              {lrc.length === 0 ? (
+                <div className="player-stage__lyrics-empty">
+                  <p>暂无歌词</p>
+                  <p className="player-stage__lyrics-empty-hint">这首歌没拿到同步歌词，先听一会儿音乐吧</p>
+                </div>
+              ) : (
+                lrc.map((line, i) => (
+                  <p key={i}
+                    ref={i === lyricIdx ? desktopLyricRef : null}
+                    data-active={i === lyricIdx ? 'true' : undefined}
+                    className="player-lyric-line py-2 leading-relaxed">
+                    {i === lyricIdx ? <KaraokeLine line={line} cur={progress.cur} /> : line.text}
+                  </p>
+                ))
+              )}
+            </div>
           </div>
 
           {/* 底部:网易云式底栏(2026-11 重做)。

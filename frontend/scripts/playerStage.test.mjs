@@ -3,22 +3,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  STAGE_LAYOUTS,
-  STAGE_LAYOUT_KEY,
-  STAGE_LAYOUT_LABELS,
-  STAGE_TONES,
   STAGE_TONE_KEY,
   STAGE_TONE_LABELS,
-  defaultStageLayout,
+  STAGE_TONES,
   defaultStageTone,
-  isWideViewport,
-  normalizeStageLayout,
   normalizeStageTone,
   persistStagePref,
-  readStageLayout,
   readStageTone,
   safeStorage,
-  stageShowsLyrics,
   stageToneActionLabel,
   stageToneNext,
 } from '../src/contexts/playerStage.mjs';
@@ -28,22 +20,20 @@ const frontendRoot = resolve(scriptDir, '..');
 const srcRoot = resolve(frontendRoot, 'src');
 const css = readFileSync(resolve(srcRoot, 'index.css'), 'utf8');
 const player = readFileSync(resolve(srcRoot, 'contexts', 'PlayerContext.js'), 'utf8');
+const chrome = readFileSync(resolve(srcRoot, 'components', 'PlayerStageChrome.js'), 'utf8');
 
-// 播放舞台「可切换」契约。
+// 播放舞台契约。
 //
-// 为什么要有:布局三档与色板两档都属于「写错了构建不报错、只是界面不对」的一类 ——
-// 默认值写反(手机打开是双栏)、存储里存了脏值(界面塌成一列)、
-// 切档后歌词不滚(判断写了 === 却漏了 split)、沉浸档在浅色主题下变成白底白字。
+// 为什么要有:色板两档属于「写错了构建不报错、只是界面不对」的一类 ——
+// 默认值写反(打开是白底)、存储里存了脏值、浅色主题下变成白底白字。
 // 这些都没有异常可抓,只能靠静态契约 + 纯函数断言锁住。
+//
+// ★ 2026-11 用户圈出顶栏那两颗「歌词」「封面」并要求「移除红框的这俩样式」,
+//   选择的是「只留沉浸一档」。所以本文件从"三档布局"收缩为"布局恒定 + 色板两档",
+//   并新增第 9 条**反向断言**:布局切换不得复活。
 
-// ---- 1. 档位清单与文案必须一一对应 ----
-assert.deepEqual(STAGE_LAYOUTS, ['disc', 'lyrics', 'split'], '布局三档必须是 沉浸/歌词/封面');
+// ---- 1. 色板清单与文案必须一一对应 ----
 assert.deepEqual(STAGE_TONES, ['immersive', 'theme'], '色板两档必须是 沉浸暗场/跟随主题');
-for (const id of STAGE_LAYOUTS) {
-  const label = STAGE_LAYOUT_LABELS[id];
-  assert.equal(typeof label, 'string', `布局 ${id} 缺中文名`);
-  assert.ok(label.length > 0, `布局 ${id} 的中文名为空`);
-}
 for (const id of STAGE_TONES) {
   const label = STAGE_TONE_LABELS[id];
   assert.equal(typeof label, 'string', `色板 ${id} 缺中文名`);
@@ -51,59 +41,26 @@ for (const id of STAGE_TONES) {
 }
 // 档位与文案不能有一边多出来(否则界面上会出现"没有名字的档"或"点了没响应的名字")
 assert.deepEqual(
-  Object.keys(STAGE_LAYOUT_LABELS).sort(),
-  [...STAGE_LAYOUTS].sort(),
-  '布局文案的键与 STAGE_LAYOUTS 不一致',
-);
-assert.deepEqual(
   Object.keys(STAGE_TONE_LABELS).sort(),
   [...STAGE_TONES].sort(),
   '色板文案的键与 STAGE_TONES 不一致',
 );
 
-// ---- 2. 默认值:桌面默认就是**沉浸档**(大封面 + 右侧歌词),色板默认沉浸暗场 ----
-//
-// 这条是本次重做的核心诉求:用户要的是"封面当主角、占半壁"的那种沉浸,
-// 不是"深色底 + 小圆盘"。默认档搞错,用户打开第一眼就是错的。
-assert.equal(
-  defaultStageLayout(true),
-  'disc',
-  '桌面默认必须是沉浸档(大封面 + 右侧歌词)—— 打开播放页就该是用户点名要的那一屏',
-);
+// ---- 2. 默认值:色板默认沉浸暗场 ----
 assert.equal(defaultStageTone(), 'immersive', '色板默认应为沉浸暗场');
-// 沉浸档必须真的带歌词区(否则"右侧歌词"就没了)
-assert.equal(
-  stageShowsLyrics(defaultStageLayout(true)),
-  true,
-  '默认档必须显示歌词区 —— 用户要的是"封面占半壁 + 右侧歌词",不是纯封面页',
-);
-// 档位中文名必须与语义一致(改名前叫"唱片/双栏",现在是"沉浸/歌词/封面")
-assert.equal(STAGE_LAYOUT_LABELS.disc, '沉浸', 'disc 档的对外名称必须是「沉浸」');
-assert.equal(STAGE_LAYOUT_LABELS.lyrics, '歌词');
-assert.equal(STAGE_LAYOUT_LABELS.split, '封面', 'split 档是"只有大封面",不是"双栏"');
 
 // ---- 3. 非法值必须收敛,绝不返回空 ----
-assert.equal(normalizeStageLayout('lyrics', true), 'lyrics', '合法值应原样返回');
-assert.equal(normalizeStageLayout(' ', true), 'disc', '空白应收敛到默认(沉浸)');
-assert.equal(normalizeStageLayout(null, false), 'disc', 'null 应收敛到默认');
-assert.equal(normalizeStageLayout(42, false), 'disc', '非字符串应收敛到默认');
-assert.equal(normalizeStageLayout('DISC', false), 'disc', '大小写应被容忍');
 assert.equal(normalizeStageTone('theme'), 'theme', '合法色板应原样返回');
 assert.equal(normalizeStageTone('nope'), 'immersive', '未知色板应收敛到默认');
 assert.equal(normalizeStageTone(null), 'immersive', 'null 色板应收敛到默认');
+assert.equal(normalizeStageTone(' '), 'immersive', '空白应收敛到默认');
+assert.equal(normalizeStageTone(42), 'immersive', '非字符串应收敛到默认');
+// ⚠ 大小写**不做**归一化:normalizeStageTone 只做 trim + 白名单比对,
+//    所以 'THEME' 属于非法值 → 收敛到默认。这是既有实现,本门禁只如实锁住它,
+//    不擅自把它改写成"容忍大小写"(那属于改行为,得先问用户)。
+assert.equal(normalizeStageTone('THEME'), 'immersive', '大写不在白名单内 → 收敛到默认(既有行为)');
 
-// ---- 4. 「这一档显不显示歌词」是唯一判据 ----
-// 自动滚动与滚动区挂载都读它。新语义:
-//   disc(沉浸)= 大封面 + 右侧歌词 → 有歌词
-//   lyrics      = 歌词独占 → 有歌词
-//   split(封面)= 只有大封面 → 无歌词
-// 写成 === 'lyrics' 会让默认的沉浸档不再自动居中(用户报的正是"歌词不跟"那一类)。
-assert.equal(stageShowsLyrics('lyrics'), true, '歌词档必须有歌词');
-assert.equal(stageShowsLyrics('disc'), true, '沉浸档有右侧歌词面板,必须为 true');
-assert.equal(stageShowsLyrics('split'), false, '封面档不显示歌词');
-assert.equal(stageShowsLyrics(undefined), false, '未知档位不得抛错');
-
-// ---- 5. 两档来回切 ----
+// ---- 4. 两档来回切 ----
 assert.equal(stageToneNext('immersive'), 'theme');
 assert.equal(stageToneNext('theme'), 'immersive');
 // 未知值先收敛到默认(immersive)再切,所以结果是 theme —— 关键是不能返回 undefined
@@ -112,7 +69,7 @@ assert.equal(stageToneNext(null), 'theme', 'null 同样先收敛再切');
 assert.equal(stageToneActionLabel('immersive'), '切换为跟随主题', '沉浸时按钮应说明"切到跟随主题"');
 assert.equal(stageToneActionLabel('theme'), '切换为沉浸暗场', '跟随时按钮应说明"切到沉浸暗场"');
 
-// ---- 6. 存储:读写、脏值、异常都不能崩 ----
+// ---- 5. 存储:读写、脏值、异常都不能崩 ----
 {
   const makeStorage = (initial = {}) => {
     const map = new Map(Object.entries(initial));
@@ -124,33 +81,25 @@ assert.equal(stageToneActionLabel('theme'), '切换为沉浸暗场', '跟随时�
   };
 
   const storage = makeStorage();
-  assert.equal(readStageLayout(storage, true), 'disc', '空存储应回落到默认(沉浸)');
   assert.equal(readStageTone(storage), 'immersive', '空存储应回落到沉浸');
-
-  persistStagePref(storage, STAGE_LAYOUT_KEY, 'lyrics');
-  assert.equal(storage._map.get(STAGE_LAYOUT_KEY), 'lyrics', '切换布局必须写进存储(否则刷新就丢)');
-  assert.equal(readStageLayout(storage, true), 'lyrics', '写过之后应读回用户的选择');
 
   persistStagePref(storage, STAGE_TONE_KEY, 'theme');
   assert.equal(readStageTone(storage), 'theme', '切换色板必须能持久化');
 
   // 脏值
-  const dirty = makeStorage({ [STAGE_LAYOUT_KEY]: 'bogus', [STAGE_TONE_KEY]: '' });
-  assert.equal(readStageLayout(dirty, false), 'disc', '脏布局应回落到该设备的默认值');
+  const dirty = makeStorage({ [STAGE_TONE_KEY]: '' });
   assert.equal(readStageTone(dirty), 'immersive', '脏色板应回落到沉浸');
 
   // Storage 不可用 / 抛错:不能崩,也不能阻断播放页
-  assert.equal(readStageLayout(null, true), 'disc', 'storage 为 null 时回落到默认');
   assert.equal(readStageTone(null), 'immersive', 'storage 为 null 时回落到默认');
   const throwing = {
     getItem() { throw new Error('SecurityError'); },
     setItem() { throw new Error('QuotaExceeded'); },
   };
-  assert.equal(readStageLayout(throwing, true), 'disc', 'getItem 抛错时必须回落默认(无痕模式不能崩)');
   assert.equal(readStageTone(throwing), 'immersive', 'getItem 抛错时必须回落默认');
   assert.equal(
-    persistStagePref(throwing, STAGE_LAYOUT_KEY, 'split'),
-    'split',
+    persistStagePref(throwing, STAGE_TONE_KEY, 'theme'),
+    'theme',
     'setItem 抛错时仍应返回本次要用的值(当前会话照常生效)',
   );
   assert.equal(safeStorage(null), null, 'safeStorage 对空目标应返回 null');
@@ -161,27 +110,7 @@ assert.equal(stageToneActionLabel('theme'), '切换为沉浸暗场', '跟随时�
   );
 }
 
-// ---- 7. 断点判据与全站一致 ----
-assert.equal(
-  isWideViewport(() => ({ matches: true })),
-  true,
-  '宽屏时应按桌面处理',
-);
-assert.equal(isWideViewport(() => ({ matches: false })), false, '窄屏时应按手机处理');
-assert.equal(isWideViewport(undefined), true, '非浏览器环境按宽屏处理');
-assert.equal(
-  isWideViewport(() => { throw new Error('boom'); }),
-  true,
-  'matchMedia 抛错时回落宽屏,不能阻断渲染',
-);
-// CSS 的 lg 断点必须还是 1024 —— 与 isWideViewport 里的字符串对应
-assert.match(
-  player,
-  /isWideViewport\(\)/,
-  'PlayerContext 必须用 isWideViewport 决定默认档位(按 innerWidth 自己算会与 CSS 断点漂移)',
-);
-
-// ---- 8. 样式契约:CSS 里必须有沉浸档的 token 覆盖,否则白底白字 ----
+// ---- 6. 样式契约:CSS 里必须有沉浸档的 token 覆盖,否则白底白字 ----
 assert.ok(/\.player-stage--immersive\s*\{/.test(css), '缺少 .player-stage--immersive —— 沉浸档没有自己的颜色');
 {
   const block = css.match(/\.player-stage--immersive\s*\{([\s\S]*?)\n\}/);
@@ -230,9 +159,9 @@ assert.ok(
   '整屏封面层需要确定的 z-index,内容层才能稳定压在上面',
 );
 
-// ---- 8b. 舞台根规则不得声明 display / position / flex-direction ----
+// ---- 7. 舞台根规则不得声明 display / position / flex-direction ----
 //
-// 真实陷阱(本鱼写这一版时实实在在踩了两次):index.css 的绝大多数规则**不在 @layer 里**,
+// 真实陷阱:index.css 的绝大多数规则**不在 @layer 里**,
 // 而未分层样式的优先级高于 @layer 中的 Tailwind utilities —— 特异性相同时也由源码顺序决定。
 //   · `.player-stage { display:flex }` → 压过 `hidden`,两套断点舞台同时显示;
 //   · `.player-stage { position:relative }` → 压过 `fixed`,舞台不再黏住视口。
@@ -254,7 +183,6 @@ assert.ok(
   }
 }
 // 两套断点舞台必须各在各位:移动端那张用 lg:hidden,桌面那张用 hidden lg:flex。
-// 不按"连在一起的字符串"匹配 —— 移动端恢复旧版后类名顺序/内容都变了,按段落判更稳。
 {
   const mobileStart = player.indexOf('<div className={`lg:hidden');
   assert.ok(mobileStart > 0, '移动端舞台根节点必须带 lg:hidden(否则手机上会跟桌面那张一起显示)');
@@ -271,28 +199,40 @@ assert.equal(
   '两套舞台都必须 fixed inset-0 z-sheet —— 缺一个就不是沉浸式覆盖层',
 );
 
-// ---- 9. 组件契约:切换控件只出现在**桌面端** ----
+// ---- 8. 组件契约:桌面舞台恒定沉浸档,顶栏只剩色板切换 ----
 //
 // 用户 2026-11 明确表态「只要桌面端(PWA)」,移动端整段保持重做前的原样。
-// 所以这条不再是"两端各一处",而是"恰好一处,且在桌面端那段里"。
-assert.match(player, /from '\.\/playerStage\.mjs'/, 'PlayerContext 必须从 playerStage.mjs 取档位规则');
-assert.match(player, /from '\.\.\/components\/PlayerStageChrome'/, 'PlayerContext 必须用抽出来的切换控件');
-assert.equal(
-  (player.match(/<StageLayoutSwitch\b/g) || []).length,
-  1,
-  '切换控件只能出现一处(桌面端舞台)—— 两端都挂就等于又改成"两端一起做"了',
-);
+// 本次再收缩一次:布局切换整体移除,所以桌面舞台的 class 里必须写死 disc,
+// 且不得再从任何"当前档位"派生 —— 否则删了按钮却留下一个空状态,反而更难懂。
+assert.match(player, /from '\.\/playerStage\.mjs'/, 'PlayerContext 必须从 playerStage.mjs 取色板规则');
+assert.match(player, /from '\.\.\/components\/PlayerStageChrome'/, 'PlayerContext 必须用抽出来的色板控件');
 assert.equal(
   (player.match(/<StageToneToggle\b/g) || []).length,
   1,
-  '色板切换同样只应有一处(桌面端)',
+  '色板切换只应有一处(桌面端)',
 );
 assert.equal(
-  (player.match(/readStageLayout\(/g) || []).length,
+  (player.match(/readStageTone\(/g) || []).length,
   1,
-  '布局初值只能有一处来源(useState 初始化),多处读会互相覆盖',
+  '色板初值只能有一处来源(useState 初始化),多处读会互相覆盖',
 );
 assert.match(player, /persistStagePref\(/, '切换必须落盘,否则刷新就回到默认');
+// 舞台根节点的布局档必须是常量 disc —— 不再有 `player-stage--${stageLayout}` 这种模板拼接
+//
+// ⚠ 判据必须**剥掉注释**:PlayerContext 里刻意留了一段说明「不再有 stageLayout 状态」,
+//   直接对全文 /stageLayout/ 会把那段注释当成残留代码(error 一次,已修)。
+const playerCode = player
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/(^|[^:])\/\/.*$/gm, '$1');
+assert.match(
+  player,
+  /player-stage--\$\{stageTone\} player-stage--disc /,
+  '桌面舞台必须写死 player-stage--disc —— 布局已恒定,不得再从状态派生',
+);
+assert.ok(
+  !/stageLayout/.test(playerCode),
+  'PlayerContext 里不得再残留 stageLayout 状态 —— 布局切换已移除,残留状态只会误导后来人',
+);
 
 // 切换控件必须落在**桌面端**那段(而不是移动端):以两段注释标题为界切片判断。
 {
@@ -303,19 +243,19 @@ assert.match(player, /persistStagePref\(/, '切换必须落盘,否则刷新就�
   const mobileBlock = player.slice(mobileStart, desktopStart);
   const desktopBlock = player.slice(desktopStart);
   assert.ok(
-    !/StageLayoutSwitch|StageToneToggle/.test(mobileBlock),
-    '移动端段落里不得出现舞台切换控件 —— 移动端要恢复成重做前的原样',
+    !/StageToneToggle/.test(mobileBlock),
+    '移动端段落里不得出现色板切换控件 —— 移动端要恢复成重做前的原样',
   );
   assert.ok(
-    /StageLayoutSwitch/.test(desktopBlock),
-    '桌面端段落里必须有布局切换控件',
+    /StageToneToggle/.test(desktopBlock),
+    '桌面端段落里必须有色板切换控件',
   );
   // 移动端必须把旧的隐式切换找回来
   assert.match(mobileBlock, /setShowLyric/, '移动端必须恢复「封面 ↔ 歌词」隐式切换');
   assert.match(mobileBlock, /点击显示歌词/, '移动端必须恢复旧的切换提示文案');
 }
 
-// 移动端的歌词滚动仍读 showLyric,桌面端读舞台档位 —— 两者不可混用
+// 移动端的歌词滚动仍读 showLyric,桌面端恒定可见 —— 两者不可混用
 assert.match(
   player,
   /const mobileLyricsVisible = expanded && showLyric/,
@@ -323,9 +263,48 @@ assert.match(
 );
 assert.match(
   player,
-  /const desktopLyricsVisible = expanded && stageShowsLyrics\(stageLayout\)/,
-  '桌面端歌词可见性必须由舞台布局档决定,且经 stageShowsLyrics 判断(双栏也有歌词区)',
+  /const desktopLyricsVisible = expanded;/,
+  '桌面端沉浸档恒定显示歌词区,可见性必须只剩 expanded',
 );
+
+// ---- 9. 反向断言:布局切换不得复活 ----
+//
+// 这条是本次移除的"防回滚"闸门。只删 JSX 但留下状态/样式/样式类,
+// 界面看着没问题、构建也过,可下次有人照着旧代码又接回来。
+// 所以要求四处同时干净:纯逻辑模块、控件组件、PlayerContext、index.css。
+{
+  const stageModule = readFileSync(resolve(srcRoot, 'contexts', 'playerStage.mjs'), 'utf8');
+  // 三处源码判据统一**剥注释**再断言:这几处都刻意留了「已移除」的说明文字,
+  // 直接对全文匹配会把自己写的注释当成残留(error 三次后统一处理)。
+  const stripComments = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const stageModuleCode = stripComments(stageModule);
+  const chromeCode = stripComments(chrome);
+  const playerNoComment = stripComments(player);
+  for (const [name, why] of [
+    ['STAGE_LAYOUTS', 'playerStage.mjs 不得再有布局档清单'],
+    ['readStageLayout', 'playerStage.mjs 不得再读布局偏好'],
+    ['stageShowsLyrics', 'playerStage.mjs 不得再有"这一档显不显示歌词"的判据'],
+  ]) {
+    assert.ok(!stageModuleCode.includes(name), `${why}(${name} 已随布局切换一并移除)`);
+  }
+  assert.ok(
+    !/StageLayoutSwitch/.test(chromeCode),
+    'PlayerStageChrome.js 不得再导出布局切换控件 —— 用户要求移除那两颗',
+  );
+  assert.ok(
+    !/STAGE_LAYOUT_KEY/.test(playerNoComment),
+    'PlayerContext 不得再引用布局存储键',
+  );
+  // CSS:三档里只有 disc 有自己的样式;lyrics / split 的选择器必须全部消失
+  for (const dead of ['.player-stage--lyrics', '.player-stage--split', '.player-stage-switch']) {
+    assert.ok(
+      !css.includes(dead),
+      `index.css 仍残留 ${dead} —— 布局切换已移除,这类选择器不会再被任何元素命中`,
+    );
+  }
+}
 
 // ---- 10. 沉浸档的结构:整屏封面铺满 + 横向渐隐 + 歌词落在渐隐区 + 操作全在底栏 ----
 //
@@ -375,11 +354,6 @@ assert.match(
     );
   }
 
-  // ②c 渐隐层与接续底色必须**互相配合把右侧压死**:
-  //   封面右边缘在屏幕 56~60%(正方形按高度撑满),所以 62% 之后必须一片纯色。
-  //   这里再校验一次"两层的亮度之和"不会在右半留下可感知的亮部 ——
-  //   scrim 到 1.0 时理论上完全遮挡,但只要 scrim 有任何 <1 的尾巴就会泄漏,
-  //   所以"右端必须恰好 1.0"这条(见 ②)是这里的根本保障。
   // 整屏封面层不得模糊(第三次纠正)
   assert.ok(
     !/\.player-stage__backdrop-art\s*\{[^}]*blur\(/.test(css),
@@ -542,28 +516,14 @@ assert.match(
     if (!Number.isFinite(num)) return null;
     return raw.endsWith('rem') ? num * 16 : num;
   };
-  const pairs = [
-    [
-      '沉浸档',
-      /\.player-stage__lyrics--desktop \.player-lyric-line \{\s*font-size:\s*([^;]+);/,
-      /\.player-stage--disc \.player-stage__lyrics--desktop \.player-lyric-line\[data-active="true"\] \{\s*font-size:\s*([^;]+);/,
-    ],
-    [
-      '歌词档',
-      /\.player-stage--lyrics \.player-stage__lyrics--desktop \.player-lyric-line \{\s*font-size:\s*([^;]+);/,
-      /\.player-stage--lyrics \.player-stage__lyrics--desktop \.player-lyric-line\[data-active="true"\] \{\s*font-size:\s*([^;]+);/,
-    ],
-  ];
-  for (const [name, normalRe, activeRe] of pairs) {
-    const normal = px(normalRe);
-    const active = px(activeRe);
-    assert.ok(normal != null, `${name}: 找不到普通行字号规则`);
-    assert.ok(active != null, `${name}: 找不到当前行字号规则 —— 当前行不会变大`);
-    assert.ok(
-      active > normal,
-      `${name}: 当前行 ${active}px 必须大于普通行 ${normal}px —— 否则整块歌词是一片均匀的灰`,
-    );
-  }
+  const normal = px(/\.player-stage__lyrics--desktop \.player-lyric-line \{\s*font-size:\s*([^;]+);/);
+  const active = px(/\.player-stage--disc \.player-stage__lyrics--desktop \.player-lyric-line\[data-active="true"\] \{\s*font-size:\s*([^;]+);/);
+  assert.ok(normal != null, '找不到普通行字号规则');
+  assert.ok(active != null, '找不到当前行字号规则 —— 当前行不会变大');
+  assert.ok(
+    active > normal,
+    `当前行 ${active}px 必须大于普通行 ${normal}px —— 否则整块歌词是一片均匀的灰`,
+  );
   // 当前行还要更亮:普通行带透明度,当前行不带
   const normalColor = css.match(/\.player-stage \.player-lyric-line\s*\{[^}]*color:\s*hsl\(var\(--foreground\) \/ ([\d.]+)\)/);
   assert.ok(normalColor, '普通歌词行必须带透明度(压暗),当前行才显得突出');
@@ -589,16 +549,18 @@ assert.match(
 // 同类漏掉的还有 __title / __artist / __body--desktop。
 // 构建、其他门禁全都不报 —— 只有人眼看得见。所以这里静态扫。
 {
-  const used = new Set();
-  for (const src of [player, css]) {
-    for (const m of src.matchAll(/(player-stage[a-zA-Z0-9_-]*)/g)) used.add(m[1]);
-  }
   // 只审 JSX 侧的用法
   const usedInJsx = new Set();
   for (const m of player.matchAll(/(player-stage[a-zA-Z0-9_-]*)/g)) usedInJsx.add(m[1]);
   usedInJsx.delete('player-stage');
   usedInJsx.delete('player-stage--'); // 模板字符串拼接产生的前缀残片
-  const missing = [...usedInJsx].filter((c) => !css.includes(`.${c}`)).sort();
+  // ★ 模板拼接 `player-stage--${stageTone}` 的产物在 JSX 里只是变量名,
+  //   实际类名由 STAGE_TONES 决定;这里显式排除那个变量名本身。
+  usedInJsx.delete('player-stage--${stageTone}');
+  const missing = [...usedInJsx]
+    .filter((c) => !c.includes('${'))
+    .filter((c) => !css.includes(`.${c}`))
+    .sort();
   assert.deepEqual(
     missing,
     [],
@@ -617,7 +579,6 @@ assert.match(
   // ★ 所有布局区块都必须自带 display(flex 或 grid)。
   //   这批块曾经**一起**被重写脚本吃掉(它们作为 z-index 共享选择器出现在一处,
   //   grep 只看到那一处就会误判"还在")。逐个列出来,漏一个就红。
-  //   判据是"有没有布局声明",不是"必须 flex" —— 底栏用 grid 分三栏是更好的选择。
   const mustDisplay = [
     ['__top', '.player-stage__top'],
     ['__body', '.player-stage__body'],

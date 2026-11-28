@@ -830,6 +830,59 @@ Capacitor 注入的是**自定义属性 `--safe-area-inset-*`**(见 `injectSafeA
 结论依据是依赖源码 + 构建产物 CSS(用脚本核对了 token 与 `.safe-top-bar`
 确实生成且两档断点都在)。真机上仍需看一眼顶栏是否完整露出。
 
+#### 第十三轮(2026-11-28):播放页移除「歌词 / 封面」两档布局切换
+
+用户发来播放页截图,红框圈住顶栏那组分段控件里的「歌词」「封面」,要求
+「播放页移除红框的这俩样式」。**口径经一次确认**:选择的是
+**「删掉这两档 → 播放页只留『沉浸』一档」**,不是"只去掉胶囊底色、功能保留"。
+
+按"删一档"而不是"藏一档"来做 —— 只把按钮隐藏、状态留着,等于留一个永远不会变的
+`stageLayout` 在代码里误导后来人,而且 `.player-stage--lyrics/--split` 那一整套
+样式还在,下次有人照着旧代码接回去就"复活"了。所以四处同时清:
+
+| 位置 | 改了什么 |
+|---|---|
+| `contexts/playerStage.mjs` | 删 `STAGE_LAYOUTS` / `defaultStageLayout` / `normalizeStageLayout` / `readStageLayout` / `stageShowsLyrics`;只剩色板两档 |
+| `components/PlayerStageChrome.js` | 删 `StageLayoutSwitch`(连同 lucide 的 `AlignLeft`/`Columns2`/`Disc3` 与 `STAGE_LAYOUT_LABELS` 引用),只导出 `StageToneToggle` |
+| `contexts/PlayerContext.js` | 删 `stageLayout` 状态、`changeStageLayout`、`data-stage-layout`;根 class 从 `player-stage--${stageLayout}` 改成**字面量** `player-stage--disc`;歌词区去掉 `stageShowsLyrics(...) &&` 包一层(沉浸档恒定有歌词),连带那个 `key={\`lyric-${stageLayout}\`}` 也没了 |
+| `index.css` | 删 `.player-stage-switch` / `.player-stage-switch__item`(含 420px 断点)、`.player-stage--lyrics`(scrim / body / lyrics / 字号两处)、`.player-stage--split`、矮屏里 lyrics 档的当前行字号 |
+
+**刻意保留的东西**(删的时候最容易连带删错):
+- `.player-stage--disc` **前缀全部保留**。它现在虽然恒定命中,但仍是"这一档长什么样"
+  的语义容器;而且移动端舞台也带 `player-stage` 类,去掉前缀会让规则命中面变宽。
+- `--stage-control-h: 2.25rem` 保留在 `.player-stage-tone` 里(它现在只服务这一颗按钮,
+  但 36px 与旁边 44px 的收起按钮是同一基线上的既定设计)。
+- **桌面端歌词可见性从 `expanded && stageShowsLyrics(stageLayout)` 变成 `expanded`** ——
+  行为等价(沉浸档本来就返回 true),但这是"删档"逻辑上的收尾,不是新增行为。
+- 老用户 localStorage 里的 `melodex_stage_layout` **不读也不清理**。留个废弃键无害,
+  为一个不参与渲染的键写迁移代码只是增加出错面。
+
+**门禁**:`playerStage.test.mjs` 从"三档"重写成"布局恒定 + 色板两档",并新增 **第 9 条反向断言**
+(布局切换不得复活):纯逻辑模块不得再出现那三个符号、`PlayerStageChrome.js` 不得再导出
+`StageLayoutSwitch`、`PlayerContext` 不得引用 `STAGE_LAYOUT_KEY`、`index.css` 不得残留
+`.player-stage--lyrics` / `--split` / `-switch` 三个选择器。
+
+另新增 **`playerStageRender.test.mjs`** 并接入 `test:player`:静态契约只能证明"源码里没有那段字符串",
+证明不了"渲染出来真的没有那两颗"。这份做运行期/结构级断言:桌面段里 `<StageToneToggle>` 恰好一处、
+`<StageLayoutSwitch>` 零处、根 class 必须是字面量 `player-stage--disc`、歌词区与空歌词态仍在。
+**做过突变验证**:把 `<StageLayoutSwitch>` 挂回顶栏 → 立刻红并指名「桌面顶栏不得再挂布局切换控件」。
+
+**★ 踩了三次的坑(写门禁时)**:`PlayerContext.js` / `PlayerStageChrome.js` / `playerStage.mjs`
+里都刻意留了「已移除」的说明注释,而门禁是拿全文做 `/stageLayout/`、`/StageLayoutSwitch/` 匹配的
+—— **把作者自己写的注释当成了残留代码**。三次报错后统一改成先 `stripComments()` 再断言。
+教训:**写"不得再出现 X"这类反向断言时,必须剥注释**,否则注释越写清楚,门禁越会误报。
+
+**验证**:`npm run test:player` 全绿(含新增两套)、`test:ui-consistency` / `test:mobile` /
+`test:theme` 三套 / `tdzOrder` / `hookOrder` / `uxGuards` / `playerSheetMotion` /
+`playerRenderBudget` 全绿;`eslint src` 无输出;`npm run build` 通过。
+另**直接核对了构建产物**:产物 CSS 里 `.player-stage--lyrics` / `--split` / `-switch` 各 **0 次**,
+`.player-stage--disc` 4 次;产物 JS 里 `StageLayoutSwitch` / `melodex_stage_layout` / `歌词布局` 各 **0 次**。
+
+**未验证**:**没有做像素级截图比对**(项目红线禁用浏览器,本机无无头浏览器)。
+所以"顶栏视觉上是否真的只剩一颗按钮"没有目视确认过;结论依据是产物 CSS/JS 的实际内容 +
+运行期结构断言。真机上仍需看一眼。**另**:如果用户在本次改动前已经把档位停在「歌词」或「封面」,
+改后播放页会直接变成沉浸档 —— 这是移除这两档的必然结果,不是缺陷。
+
 #### 排查手法(可复用)
 - **UI 资源是编译进二进制的**(`frontendDist: "../ui"`):
   改完 `desktop/ui/*` **必须 `cargo build` 才生效**,只重启进程看到的是旧界面
@@ -1107,18 +1160,17 @@ Melodex 后端**自实现一套轻量 Subsonic 服务端**(挂 `/rest`,非 Navid
 - **收藏**:每用户默认「我喜欢」歌单(后端 kind=favorite,见多用户节)。迷你条/全屏页心形按钮 toggle,乐观更新+失败回滚;收藏时后台静默下载到 NAS(与"加歌单即下载"一致),取消不下载。
 - **MediaSession(PC 全局媒体键)**:绑 play/pause/prev/next/stop/seek action handler + `playbackState`(playing/paused,决定系统媒体键能否正确恢复)+ `setPositionState`(OS 媒体面板进度条)+ 封面走 cover_proxy 多尺寸 artwork。**关键**:只绑 handler 不够,必须同步 playbackState/positionState 系统媒体键才稳定接管(键盘 ⏯⏮⏭/耳机线控/Win 媒体浮层)。
 - **移动端 QQ 音乐式**:迷你条(封面+跑马灯歌名+收藏/播放/队列三按钮,`bottom: calc(3.25rem + safe-area)` 贴底部 Tab 栏上方不留缝)→ 点击展开全屏播放页(滑入 player-slide-up / 收起 player-slide-down 动画;返回键 history.pushState 拦截为收起不退站)。
-- **全屏播放页「沉浸式 + 可切换」——仅桌面端**(2026-11 重做,`contexts/playerStage.mjs` + `components/PlayerStageChrome.js` + `PlayerContext.js` 里的 `hidden lg:flex` 那段):顶部有**两颗切换控件**:
-  - **布局三档**(默认档 = **沉浸**):`沉浸` = **大封面占左半 + 右侧歌词面板**;`歌词` = 歌词独占整屏;`封面` = 大封面独占整屏。**色板两档**:沉浸暗场(默认)/ 跟随主题。
-  - **★ 什么叫"沉浸"(2026-11 用户纠正,别再搞错)**:用户给网易云参考图并明确「封面占半壁,剩下是歌词」。所以沉浸档的核心是**方形大封面当主角**(`.player-stage__art-frame` + `.player-stage__art-img`),**不是**深色底 + 嵌在黑胶里的小圆盘 —— 第一版就是后者,被用户直接否掉(「你那算个几把的沉浸」)。桌面舞台里现在**不再有** `vinyl-wrap`/`turntable`/`tonearm`,由 `playerStage.test.mjs` 断言锁死。
-  - **封面尺寸必须够大**:`clamp(15rem, min(44vw, 52vh), 44rem)`。判据是**宽度**为主(占屏宽 ≥33% 或屏高 ≥40%),用 vw 不是 vh;上限 44rem 是防止 4K 上荒谬,不能小到把 2K 屏卡成小方块(34rem 时 2560 宽只有 21%,实测不够)。
-  - 沉浸档歌词区:`flex:1 1 0` + 左对齐 + 上下渐隐 mask(还没唱到的行自然淡出,不是被容器切一刀);空歌词有专门的说明态,不是光秃秃一行"暂无歌词"。
+- **全屏播放页「沉浸式」——仅桌面端**(2026-11 重做,`contexts/playerStage.mjs` + `components/PlayerStageChrome.js` + `PlayerContext.js` 里的 `hidden lg:flex` 那段):顶部只剩**一颗**切换控件:
+  - **布局恒定 = 沉浸**(2026-11 用户圈出顶栏那两颗「歌词」「封面」并要求「移除红框的这俩样式」,选择「只留沉浸一档」)。原来的三档(`disc/lyrics/split`)已整体移除:根节点 class **写死** `player-stage--disc`,不再有 `stageLayout` 状态、`STAGE_LAYOUTS` 清单、`stageShowsLyrics()` 判据,也不再读写 `melodex_stage_layout`。**色板两档**是顶栏唯一剩下的切换:沉浸暗场(默认)/ 跟随主题。
+  - **★ 什么叫"沉浸"(2026-11 用户纠正,别再搞错)**:用户给网易云参考图并明确「封面占半壁,剩下是歌词」。所以沉浸档的核心是**整屏封面当背景**(`.player-stage__backdrop-fill` + `.player-stage__backdrop-art`),**不是**深色底 + 嵌在黑胶里的小圆盘 —— 第一版就是后者,被用户直接否掉(「你那算个几把的沉浸」);也不是"左边一张封面卡片 + 右边歌词列表"(第二版,中间空出一大片)。桌面舞台里现在**不再有** `vinyl-wrap`/`turntable`/`tonearm`,也不再有 `player-stage__art-frame`/`__art-img`,由 `playerStage.test.mjs` 断言锁死。
+  - 沉浸档歌词区:`width: 50vw`(**不是 50%**,百分比是相对去掉了 padding 的父容器算的,起点会偏离屏幕正中)+ 左对齐 + 上下渐隐 mask(还没唱到的行自然淡出,不是被容器切一刀);空歌词有专门的说明态,不是光秃秃一行"暂无歌词"。
   - 沉浸档**与全站主题无关地变深**,做法是在 `.player-stage--immersive` 里**重定义 --background/--foreground/--muted-foreground/--primary 等语义 token**,舞台内所有 Tailwind 类与 `.player-lyric-line` 自动跟着走(比逐元素覆盖少漏);强调色必须换成深色那档的浅蓝(沿用浅色主题的 #004F99 在深底上等于看不见)。「跟随主题」档**不重定义任何颜色**,只把封面底图压淡。
-  - 偏好按设备落 localStorage(`melodex_stage_layout` / `melodex_stage_tone`),脏值与存储抛错一律收敛到默认(无痕模式不能崩)。
-  - **★ 移动端不参与**:`.lg:hidden` 那张整段保持重做前的原样(「封面 ↔ 歌词」隐式点击切换),用户明确「只要桌面端」。所以 `showLyric` 状态与 `activeLyricRef` 滚动必须**继续存在**并只服务移动端;桌面端读舞台档位。`playerStage.test.mjs` 用两段注释标题切片,断言切换控件**只在桌面段**、移动段必须仍有 `setShowLyric`。
+  - 偏好按设备落 localStorage(只剩 `melodex_stage_tone`),脏值与存储抛错一律收敛到默认(无痕模式不能崩)。老用户的 `melodex_stage_layout` 残留值**不读取也无害**,刻意不写清理逻辑。
+  - **★ 移动端不参与**:`.lg:hidden` 那张整段保持重做前的原样(「封面 ↔ 歌词」隐式点击切换),用户明确「只要桌面端」。所以 `showLyric` 状态与 `activeLyricRef` 滚动必须**继续存在**并只服务移动端。`playerStage.test.mjs` 用两段注释标题切片,断言色板控件**只在桌面段**、移动段必须仍有 `setShowLyric`。
   - **★ 坑:舞台 CSS 写在 @layer 之外,不得声明 display / position / inset / z-index**。未分层样式优先级高于 @layer 中的 Tailwind utilities,写 `display:flex` 会压过 `hidden`(两套断点舞台同时显示),写 `position:relative` 会压过 `fixed`(舞台不黏视口)。这两类只在真机可见,构建/单测/门禁全不报 —— 现由 `playerStage.test.mjs` 逐条锁死(已用突变验证能抓到)。
-  - **两端歌词可见性判据不同**:移动端 `mobileLyricsVisible = expanded && showLyric`,桌面端 `desktopLyricsVisible = expanded && stageShowsLyrics(stageLayout)`。两个滚动 effect 各用独立快照,混用会让"从隐藏端切到可见端"被误判成逐行推进、从第一行一路滑到当前行。注意 `stageShowsLyrics` 返回 true 的是 `disc`(沉浸)与 `lyrics`,**不是** `split`(封面档没有歌词)。
+  - **两端歌词可见性判据不同**:移动端 `mobileLyricsVisible = expanded && showLyric`,桌面端 `desktopLyricsVisible = expanded`(沉浸档恒定有歌词面板)。两个滚动 effect 各用独立快照,混用会让"从隐藏端切到可见端"被误判成逐行推进、从第一行一路滑到当前行。
   - **不要逆向网易云客户端**:用户提过"逆向学习",但那既拿不到"为什么好看"也踩 AGPL/许可证红线。参考图已经把设计语言讲透(大封面 + 右侧歌词 + 模糊封面底 + 当前行高亮),从图里读规范即可。
-- **留声机 + 逐字歌词**(全屏页):黑胶唱片(封面嵌黑胶,播放转 vinyl-spin / 暂停停 + 唱臂 .up/.down 摆动)↔ 布局档位决定唱片/歌词各自的去留。歌词 `parseLRC` 自适应:QQ 逐字 LRC(每字时间戳,≥2 有效字段)→ `KaraokeLine` 卡拉OK填色(background-clip:text 按 progress.cur 渐变);网易行级 LRC(行首+行尾两戳)→ 整行高亮;当前行 scrollIntoView 居中。
+- **逐字歌词**(全屏页):`parseLRC` 自适应 —— QQ 逐字 LRC(每字时间戳,≥2 有效字段)→ `KaraokeLine` 卡拉OK填色(background-clip:text 按 progress.cur 渐变);网易行级 LRC(行首+行尾两戳)→ 整行高亮;当前行 scrollIntoView 居中。移动端那套「封面 ↔ 歌词」隐式切换里仍有黑胶唱片(vinyl-spin / 唱臂),桌面沉浸档**没有**黑胶(封面是整屏背景层,见上)。
 - **封面**:列表/歌单/播放器所有封面走 `coverProxyUrl`(后端 cover_proxy,解决网易 http 在 https 被拦混合内容 + 防盗链 + 磁盘缓存);无封面 lucide Music 占位。
 - **行交互**(SongRow):手机 coarse 指针单击整行 / 电脑双击整行播放;行内按钮 stopPropagation 不触发行播放;歌单详情 onRemove 删除按钮内嵌长条内。
 - **持久化偏好均按设备**(localStorage,不跨设备):音量/播放模式/进度。要跨设备需挪后端 user_prefs。

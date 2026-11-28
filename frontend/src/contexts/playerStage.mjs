@@ -1,82 +1,38 @@
 // 全屏播放页「舞台」的展示偏好纯逻辑 —— 无 React、无 DOM,便于 Node 契约测试直接 import。
 //
-// 为什么单独抽出来:PlayerContext.js 已经 2500 行,而这两种偏好恰好是
-// 「写错了构建不报错、只是界面不对」的一类 —— 默认值、存储损坏兜底、三档循环、
-// 「这一档到底显不显示歌词」这类判断,靠肉眼看代码很容易漏。
-//
-// ---- 两件事,各自独立 ----
-//   布局三档:disc(唱片)/ lyrics(歌词)/ split(双栏)
+// ---- 现状(2026-11 用户要求):只剩一件事 ----
 //   色板两档:immersive(沉浸暗场)/ theme(跟随当前主题)
 //
-// 都是**按设备**的展示偏好,所以与音量/播放模式一样落 localStorage,
-// 不进后端 user_prefs(那是跨设备同步的偏好,混在一起会让"我只在这台电脑上
-// 想沉浸一点"变成全局行为)。
+// ★ 布局档位(原「沉浸 / 歌词 / 封面」三档切换)**已整体移除**:
+//   用户圈出顶栏那两颗并明确要求「播放页移除红框的这俩样式」,选择的是
+//   「只留沉浸一档」。现在播放页恒定是沉浸档 —— 整屏封面当背景 + 右侧歌词面板,
+//   顶栏不再有布局切换控件(只留右侧那颗色板按钮)。
+//
+//   · 老用户 localStorage 里的 `melodex_stage_layout` **不再读取**。
+//     残留值无害(不参与任何渲染),所以不做清理逻辑 —— 为了一个废弃键
+//     去写迁移代码反而增加出错面。
+//   · 想恢复多档:先恢复本文件里的档位清单,再恢复 PlayerStageChrome 里的
+//     StageLayoutSwitch 与 index.css 的 `.player-stage--lyrics/--split` 分支,
+//     三处缺一不可(playerStage.test.mjs 会盯着)。
 
-export const STAGE_LAYOUTS = ['disc', 'lyrics', 'split'];
 export const STAGE_TONES = ['immersive', 'theme'];
 
-export const STAGE_LAYOUT_KEY = 'melodex_stage_layout';
 export const STAGE_TONE_KEY = 'melodex_stage_tone';
 
-/**
- * 界面上给人看的中文名。
- *
- * 档位 id 沿用 disc/lyrics/split(改了要动存储兼容),但**含义按用户的要求重定义了**:
- *   disc  = 「沉浸」—— 大封面占半壁 + 右侧歌词面板。**这是默认档**,也是用户点名要的那一屏
- *   lyrics= 「歌词」—— 歌词独占整屏
- *   split = 「封面」—— 大封面独占整屏(不显示歌词)
- *
- * ⚠ disc 这个 id 历史含义是"黑胶小圆盘",现在改成了"大封面当主角"。
- *   两者视觉完全不同 —— 别按 id 想当然,以这里的中文名为准。
- */
-export const STAGE_LAYOUT_LABELS = { disc: '沉浸', lyrics: '歌词', split: '封面' };
+/** 色板两档的中文名。 */
 export const STAGE_TONE_LABELS = { immersive: '沉浸暗场', theme: '跟随主题' };
-
-/**
- * 首次打开的默认档位:**沉浸** —— 大封面占半壁 + 右侧歌词面板。
- *
- * 不再按断点分:
- *   · 桌面读这个默认值,本来就是用户点名要的那一屏;
- *   · 手机根本不读它(移动端仍是旧的「封面 ↔ 歌词」隐式切换,由 showLyric 决定)。
- * 参数保留只是为了调用方签名稳定(以前按 desktop 分过),传什么都返回同一档。
- */
-export const defaultStageLayout = () => 'disc';
 
 /** 色板默认沉浸暗场:音乐播放页的常态是暗场(用户要的就是"沉浸式")。 */
 export const defaultStageTone = () => 'immersive';
 
-/** 非法布局一律收敛到该设备的默认值,绝不返回空(空会让 data 属性丢失、界面塌成一列)。 */
-export const normalizeStageLayout = (value, desktop) => {
-  const text = typeof value === 'string' ? value.trim() : '';
-  return STAGE_LAYOUTS.includes(text) ? text : defaultStageLayout(desktop);
-};
-
+/** 非法色板一律收敛到默认值,绝不返回空(空会让 data 属性丢失、界面掉回浅底)。 */
 export const normalizeStageTone = (value) => {
   const text = typeof value === 'string' ? value.trim() : '';
   return STAGE_TONES.includes(text) ? text : defaultStageTone();
 };
 
-/** 这一档布局里歌词区是否可见。自动滚动/挂载判断都读它,不要各处再写一遍 === 判断。 */
-export const stageShowsLyrics = (layout) => layout === 'lyrics' || layout === 'disc';
-
-/** 色板切换:两档来回切,未知值视为沉沉浸(默认档)。 */
+/** 色板切换:两档来回切,未知值视为沉浸(默认档)。 */
 export const stageToneNext = (tone) => (normalizeStageTone(tone) === 'immersive' ? 'theme' : 'immersive');
-
-/**
- * 当前视口算不算"宽屏"(与全站 lg 断点一致:1024px)。
- *
- * 为什么不用 window.innerWidth:播放页首次挂载时可能处在过渡动画/隐藏容器里,
- * matchMedia 直接读的是媒体查询结果,与 CSS 里 `min-width: 1024px` 完全同一判据。
- * 非浏览器环境(契约测试)按宽屏处理 —— 宽屏默认是"双栏",校验默认值最直观。
- */
-export const isWideViewport = (matchMedia = typeof globalThis !== 'undefined' ? globalThis.matchMedia : undefined) => {
-  if (typeof matchMedia !== 'function') return true;
-  try {
-    return Boolean(matchMedia('(min-width: 1024px)').matches);
-  } catch {
-    return true;
-  }
-};
 
 /** 取 localStorage;无痕/禁用存储时访问 getter 本身就可能抛,所以统一走这里。 */
 export const safeStorage = (target = typeof window !== 'undefined' ? window : null) => {
@@ -101,11 +57,6 @@ const readStored = (storage, key) => {
     return null;
   }
 };
-
-export const readStageLayout = (storage, desktop) => normalizeStageLayout(
-  readStored(storage, STAGE_LAYOUT_KEY),
-  desktop,
-);
 
 export const readStageTone = (storage) => normalizeStageTone(readStored(storage, STAGE_TONE_KEY));
 

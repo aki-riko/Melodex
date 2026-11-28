@@ -1219,33 +1219,6 @@ select[class*="text-"] {
       transparent 76%,
       hsl(var(--background) / 0.7) 100%);
 }
-/* 歌词档:封面更退后(它此时只是氛围),整屏纵向压暗,歌词居中
- *
- * ★ 2026-11 补横向渐隐（真机截图发现硬边）：
- *   原来这里只有一层 180deg 纵向渐变 —— 没有任何横向过渡。
- *   而背景是**两层拼的**：backdrop-art 用 `background-size: auto 100%`
- *   只占左侧正方形区域（860px 高 → 860px 宽），右边 420px 由
- *   backdrop-fill（`cover`，同一张图放大）接上。
- *   两层在 x=860 处的交界**完全裸露** → 视觉上就是一条竖直硬切线，
- *   看起来像"右边是另一张图"。
- *
- *   现在叠一层横向渐变，让 art 层右缘平滑融进 fill 层。
- *   过渡带放在 52%~78%（正方形图在 16:9 屏上约占 67% 宽度），
- *   与 disc 档的 45%~62% 对齐但更靠右 —— 因为这一档封面已经压得很暗，
- *   过渡太早会把左侧清晰的封面也糊掉。 */
-.player-stage--lyrics .player-stage__scrim {
-  background:
-    linear-gradient(90deg,
-      transparent 0%,
-      transparent 52%,
-      hsl(var(--background) / 0.55) 66%,
-      hsl(var(--background) / 0.92) 78%,
-      hsl(var(--background) / 1) 100%),
-    linear-gradient(180deg,
-      hsl(var(--background) / 0.82) 0%,
-      hsl(var(--background) / 0.7) 50%,
-      hsl(var(--background) / 0.88) 100%);
-}
 
 /* 舞台内容层:压在背景 + 渐隐层之上 */
 .player-stage__top,
@@ -1262,7 +1235,7 @@ select[class*="text-"] {
   backdrop-filter: blur(18px) saturate(130%);
 }
 
-/* ---- 顶部条:只有收起 + 两颗切换控件(用户要求"信息压缩到底栏") ---- */
+/* ---- 顶部条:只有收起 + 色板切换(用户要求"信息压缩到底栏") ---- */
 .player-stage__top {
   display: flex;
   align-items: center;
@@ -1309,62 +1282,18 @@ select[class*="text-"] {
   min-width: 0;
 }
 
-/* ---- 顶部两颗切换控件 ----
+/* ---- 顶部色板切换控件 ----
  *
- * ★ 2026-11 统一高度（实测发现顶栏三种高度混用）：
- *   收起按钮 .player-stage__back        = 2.75rem(44px)
- *   图标按钮 .player-stage__icon-btn    = 2.75rem(44px)
- *   分段项   .player-stage-switch__item = 1.875rem(30px)
- *   色板按钮 .player-stage-tone         = 2.125rem(34px)
- *   三者并排在同一条顶栏上，视觉重心对不齐 —— 这是「细节糙」的直接来源。
+ * ★ 2026-11：布局分段控件（沉浸/歌词/封面 三档）已按用户要求移除，
+ *   顶栏右侧现在只剩这一颗色板按钮。原先为"分段项与色板按钮并排"而引入的
+ *   --stage-control-h 统一高度仍保留在这里 —— 收起/图标钮是 44px，
+ *   色板按钮按 36px 与它们同一基线，别改回 34px。
  *
- *   现在引入 --stage-control-h: 2.25rem(36px) 作为**顶栏控件的统一视觉高度**，
- *   分段项/色板按钮都按它对齐；收起与图标钮保持 44px（可点热区）
- *   但用 padding 让**视觉高度**也落在同一基线上。
- *
- *   为什么是 36px 而不是 44：分段控件里有 3 个并排项，
- *   44px 会把顶栏撑得过高（整页是沉浸式，顶栏越轻越好）；
+ *   为什么是 36px 而不是 44：整页是沉浸式，顶栏越轻越好；
  *   36px 已是可点热区内缩 8px 后的舒适值。 */
-.player-stage-switch {
-  --stage-control-h: 2.25rem;   /* 36px */
-  display: inline-flex;
-  align-items: center;
-  gap: 0.125rem;
-  padding: 0.1875rem;
-  border-radius: 9999px;
-  background-color: hsl(var(--foreground) / 0.08);
-  border: 1px solid hsl(var(--foreground) / 0.12);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  backdrop-filter: blur(14px) saturate(140%);
-}
-.player-stage-switch__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3125rem;
-  /* 36px 容器 - 上下 padding(3px×2) - 边框(1px×2) = 28px 内容高度。
-     用 calc 而不是写死，改 --stage-control-h 时自动跟随。 */
-  height: calc(var(--stage-control-h) - 0.5rem);
-  padding: 0 0.625rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: hsl(var(--foreground) / 0.62);
-  transition: background-color var(--motion-fast) var(--ease-standard),
-              color var(--motion-fast) var(--ease-standard);
-}
-.player-stage-switch__item:hover { color: hsl(var(--foreground)); }
-.player-stage-switch__item.is-active {
-  background-color: hsl(var(--foreground) / 0.18);
-  color: hsl(var(--foreground));
-}
-@media (max-width: 420px) {
-  .player-stage-switch__item span { display: none; }
-  .player-stage-switch__item { padding: 0 0.4375rem; }
-}
 .player-stage-tone {
-  /* 与 .player-stage-switch 共用同一视觉高度（36px），
-     否则两颗控件并排时会一高一矮 —— 实测原来是 34px vs 36px。 */
+  /* 顶栏控件的统一视觉高度（36px）。
+     收起与图标钮保持 44px 可点热区，但视觉高度落在同一基线上。 */
   --stage-control-h: 2.25rem;
   display: inline-flex;
   align-items: center;
@@ -1445,24 +1374,9 @@ select[class*="text-"] {
   padding: 3rem 2.5rem 3rem 2.5rem;
   text-align: left;
 }
-/* 歌词档:居中、更宽 */
-.player-stage--lyrics .player-stage__body {
-  justify-content: center;
-}
-.player-stage--lyrics .player-stage__lyrics--desktop {
-  width: min(78%, 58rem);
-  padding: 4rem 1rem;
-  text-align: center;
-}
-.player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line {
-  transform-origin: center;
-}
-/* 封面档:没有歌词 */
-.player-stage--split .player-stage__body { display: none; }
 
 /* 舞台内的歌词字号与明暗:普通行淡、当前行大且亮(沉浸感的来源) */
 .player-stage__lyrics--desktop .player-lyric-line { font-size: 1.375rem; }
-.player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line { font-size: 1.625rem; }
 
 .player-stage .player-lyric-line {
   color: hsl(var(--foreground) / 0.52);
@@ -1479,9 +1393,6 @@ select[class*="text-"] {
 }
 .player-stage--disc .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
   font-size: 1.75rem;
-}
-.player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
-  font-size: 1.875rem;
 }
 
 .player-stage__lyrics-empty {
@@ -1620,7 +1531,7 @@ select[class*="text-"] {
      原来是 11px 字号 + 纯黑 0.78 实心 —— 压在亮封面上时文字边缘发虚，
      且与顶栏那套「毛玻璃」的控件语言不一致。
      现在：字号 11→12px（可读性）、底色降到 0.62 并加 backdrop blur
-     （与 .player-stage-switch / .player-stage-tone 同一套材质）、
+     （与 .player-stage-tone 同一套材质）、
      补一道极细的白描边让胶囊在亮/暗背景上都有轮廓。 */
   background-color: hsl(0 0% 0% / 0.62);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
@@ -1833,16 +1744,13 @@ select[class*="text-"] {
   .player-stage__play { width: 3rem; height: 3rem; }
 }
 
-/* 矮屏(横放 / 小窗):底栏收紧,歌词居中区让位 */
+/* 矮屏(横放 / 小窗):底栏收紧,歌词区字号收一档 */
 @media (max-height: 700px) {
   .player-stage__top { padding: 0.625rem 1.25rem; }
   .player-stage__dock-inner { padding: 0.5rem 1rem; gap: 1rem; }
   .player-stage__lyrics--desktop .player-lyric-line { font-size: 1.125rem; }
   .player-stage--disc .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
     font-size: 1.3125rem;
-  }
-  .player-stage--lyrics .player-stage__lyrics--desktop .player-lyric-line[data-active="true"] {
-    font-size: 1.5rem;
   }
 }
 
