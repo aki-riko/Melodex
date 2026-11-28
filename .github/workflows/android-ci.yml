@@ -145,6 +145,11 @@ jobs:
           npm run test:provider-contract
           npm run test:lyric-single-source
           npm run test:row-listeners
+          # 搜索补全：锁「两处搜索框都必须真的接线」。2026-11-28 用户报
+          # 「补全只在这里做了，底下搜索页面的搜索框完全没用上」—— 顶部搜索栏
+          # 有联想，找歌页自己的搜索框连 useSearchSuggestions 都没调用过，
+          # 而组件文件头一直写着「两处共用」。这类「只修好一边」只有静态门禁拦得住。
+          npm run test:search-suggest
           # 慢源自动补拉的运行期门禁(2026-11-27):用户报「提示说会自动刷新,实际没刷新」。
           # 旧实现的补拉只跑了一圈就停摆 —— 生产日志里 20:12:22 之后再无请求,
           # 而后台其实在 20:14:32 就补齐成功了。静态正则看不出这种时序 bug,

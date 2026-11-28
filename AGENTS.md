@@ -153,6 +153,30 @@ Melodex 从单管理员模型改造为**多用户 + 两级角色(admin/user)**�
 - **用户搜索历史**(`search_history.go`,按 user_id 隔离):`search_history_rows` uniqueIndex(user_id,keyword) 去重更新时间,每人留 50 条,链接不入、userID=0 跳过。`GET/DELETE /music/search_history`(userAPI 仅登录,DELETE 带 keyword 删单条/不带清空)。前端 Download.js 未发起搜索时显「最近搜索」chips。
 - **接线坑**:`jsonSearchHandler` 在公开 `/api/v1` 组,要让登录用户搜索记入历史 → 给 `/api/v1` 挂 `attachUserOptional`(非阻塞,匿名照常,桌面注入 local)。InitDB AutoMigrate 加两表(幂等)。
 
+### 搜索补全:两处搜索框共用一份实现(2026-11-28 补齐找歌页)
+
+`GET /api/v1/search_suggestions`(`search_suggestions.go`):优先平台权威联想(QQ smartbox /
+网易 suggest,进程内缓存 2 分钟),失败降级到「搜索历史 + 结果缓存」,所以几乎不会失败。
+**`http` 开头的输入直接返回空**(粘贴链接时不联想)。前端 `getSearchSuggestions` 超时只给 4s
+—— 边打字边发的接口,慢了就是垃圾数据。
+
+前端唯一实现在 `components/SearchSuggestions.js`,两处共用:
+`useSearchSuggestions`(180ms 去抖 + requestSeq 丢弃陈旧响应 + AbortController)、
+`toSuggestTerms`(词条/缓存歌曲/关键词 三段合并去重)、`SearchSuggestionList`(下拉)、
+`resolveSuggestionKey`(↑↓/Enter/Esc)、`suggestionMenuCount` / `pickSuggestionName`(下标与取词)。
+
+- **两种形态**:「全网搜索型」(TopBar 全网分支、找歌页搜索框)= 0 号「搜索当前词」+ 补全项;
+  「页内过滤型」(TopBar 在有列表的页面)= 只筛本页 + 末尾一条「全网搜」出口。
+- **★ 曾只修好一边**:文件头一直写着「TopBar 与 Download 共用」,但找歌页搜索框
+  **从来没调用过** `useSearchSuggestions` —— 顶栏有联想、找歌页一个字都没有(用户报的正是这个)。
+  现在 `npm run test:search-suggest` 逐调用方断言「导入 + hook + 组件 + 两条规则 + 返回层 +
+  aria-activedescendant」齐全,并做过去掉即红的突变验证该门禁已接进 CI。
+- **改 bug 不许改变原有行为**:找歌页输入框是 `type="search"`,**Esc 的原生行为是清空输入框**。
+  keydown 里必须 `if (!decision.handled) return;` 再 preventDefault,否则 Esc 被吞、清空功能消失。
+- **返回层 `active` 必须绑「下拉真的可见」**(`suggestEnabled`),不是「输入框获得过焦点」;
+  否则空输入/粘贴链接时按返回会收掉一层看不见的东西,用户以为按键失灵。
+- **粘贴链接不弹下拉**:`SUGGEST_LINK_RE = /^(?:https?:|www\.)/i`,与后端 `HasPrefix("http")` 口径对齐。
+
 ## 桌面客户端:Tauri 2 包裹 PWA(2026-11,阶段 1~3 已完成)
 
 电脑端主力形态是**用一个 Tauri 2 壳包裹线上 PWA**,不再维护第二套原生 UI。

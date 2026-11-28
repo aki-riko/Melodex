@@ -8,7 +8,9 @@ import { useBackLayer } from '../contexts/backNavigation.js';
 import { usePageSearchFilter } from '../contexts/pageSearchFilter.js';
 import {
   SearchSuggestionList,
+  pickSuggestionName,
   resolveSuggestionKey,
+  suggestionMenuCount,
   toSuggestTerms,
   useSearchSuggestions,
 } from './SearchSuggestions.js';
@@ -77,10 +79,10 @@ export default function TopBar({ currentSection: _currentSection, onNavigate }) 
 
   // 下拉总项数:
   //   页面过滤模式 = 补全条数(空则 1 条"全网搜")+ 1 条"全网搜"入口
-  //   全网模式     = 1(搜索当前词)+ 补全条数
+  //   全网模式     = 1(搜索当前词)+ 补全条数 —— 与找歌页共用 suggestionMenuCount
   const menuItemCount = pageFilterActive
     ? Math.max(1, suggestionTerms.length ? suggestionTerms.length + 1 : 1)
-    : (query ? 1 + suggestionTerms.length : historyMenuItems.length);
+    : (query ? suggestionMenuCount(query, suggestionTerms) : historyMenuItems.length);
 
   const closeMenu = () => { setOpen(false); setActiveIndex(-1); };
 
@@ -140,9 +142,8 @@ export default function TopBar({ currentSection: _currentSection, onNavigate }) 
         const term = suggestionTerms[activeIndex];
         if (term) runSearch(term.name);
       } else if (query) {
-        // 0 号是「搜索当前词」，其余是补全项。
-        const picked = suggestionTerms[activeIndex - 1]?.name || query;
-        runSearch(picked);
+        // 0 号是「搜索当前词」，其余是补全项 —— 与找歌页共用同一套取词规则。
+        runSearch(pickSuggestionName({ query, terms: suggestionTerms, activeIndex }));
       } else {
         const picked = historyMenuItems[activeIndex]?.name;
         if (picked) runSearch(picked);

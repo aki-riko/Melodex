@@ -1,5 +1,14 @@
 // 搜索补全下拉 —— 全局搜索栏(TopBar)与找歌页(Download)共用一份实现。
 //
+// ## 两处的两种形态(2026-11-28 补齐找歌页)
+//   ① **全局搜索型**(TopBar 的全网模式 / 找歌页的搜索框):
+//      0 号是「搜索「xx」」,后面是平台补全词条。用 suggestionMenuCount /
+//      pickSuggestionName 换算下标,两处共用同一套规则。
+//   ② **页内过滤型**(TopBar 在有列表的页面):只筛本页,不发补全请求,
+//      末位给一条显式的「全网搜」出口 —— 那一套逻辑留在 TopBar 里。
+// 找歌页先前**只接了形态①的一半**:补全组件写好了、文件头也写着"两处共用",
+// 但它的搜索框从头到尾没调用过 useSearchSuggestions,于是只有顶栏有联想。
+//
 // ## 为什么抽成组件
 // 两处都要"边打字边联想 + ↑↓ 选择 + Enter 搜索 + Esc/点外收起"。分开写就会重演
 // 本项目已经发生过多次的分叉:一处修了键盘导航、另一处还是旧的。
@@ -226,6 +235,35 @@ export function SearchSuggestionList({
       )}
     </div>
   );
+}
+
+/**
+ * 「全网搜索型」下拉的项数:0 号是「搜索当前词」,后面才是补全项。
+ *
+ * 空输入没有补全(由调用方决定是否改显示搜索历史),所以返回 0。
+ * 抽成纯函数是因为 TopBar 与找歌页都要算出同一个数 —— 键盘 ↑↓ 的回环、
+ * aria-activedescendant 的下标、Enter 取哪一条全靠它,分开写必然分叉。
+ */
+export function suggestionMenuCount(query, terms) {
+  if (!String(query || '').trim()) return 0;
+  return 1 + (Array.isArray(terms) ? terms.length : 0);
+}
+
+/**
+ * 「全网搜索型」下拉的取词:0 号取当前输入,其余取补全项。
+ *
+ * 高亮项越界或补全项没有名字时一律回退到当前输入 —— 也就是
+ * 「按回车就搜自己打的词」,不能让高亮项悄悄改掉搜索词。
+ */
+export function pickSuggestionName({ query, terms, activeIndex } = {}) {
+  const trimmed = String(query || '').trim();
+  const list = Array.isArray(terms) ? terms : [];
+  const index = Number(activeIndex);
+  if (Number.isFinite(index) && index >= 1) {
+    const name = String(list[index - 1]?.name || '').trim();
+    if (name) return name;
+  }
+  return trimmed;
 }
 
 /**

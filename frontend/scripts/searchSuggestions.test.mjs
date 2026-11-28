@@ -73,6 +73,24 @@ assert.match(suggestSrc, /controller\.abort\(\)/, '卸载/换词时必须中断�
 
 // ---------- 键盘导航规则 ----------
 
+// 与组件里同一套规则（resolveSuggestionKey 也是纯函数，同样因为 node 下没有
+// JSX 转译而不能直接 import，用复刻 + 源码断言的方式锁住）。
+const suggestionMenuCount = (query, terms) => {
+  if (!String(query || '').trim()) return 0;
+  return 1 + (Array.isArray(terms) ? terms.length : 0);
+};
+
+const pickSuggestionName = ({ query, terms, activeIndex } = {}) => {
+  const trimmed = String(query || '').trim();
+  const list = Array.isArray(terms) ? terms : [];
+  const index = Number(activeIndex);
+  if (Number.isFinite(index) && index >= 1) {
+    const name = String(list[index - 1]?.name || '').trim();
+    if (name) return name;
+  }
+  return trimmed;
+};
+
 const resolveSuggestionKey = (event, { itemCount, activeIndex, composing = false } = {}) => {
   const key = event?.key;
   if (key === 'Escape') return { handled: true, action: 'close' };
@@ -356,5 +374,120 @@ const hookSrc = read('src/hooks/useSongFilter.js');
 assert.match(hookSrc, /export function usePageSongFilter/, '必须提供一站式 usePageSongFilter');
 assert.match(hookSrc, /useRegisterPageSearchFilter\(/, 'hook 内部负责注册，页面不该重复写');
 assert.match(hookSrc, /resetKey/, '必须支持 resetKey（换歌单/换账号清空过滤词）');
+
+// ---------- ④ 两处搜索框都必须真的接上补全 ----------
+//
+// ★ 真实缺陷（用户 2026-11-28 报「补全只在这里做了，底下搜索页面的搜索框
+//   完全没用上」）：SearchSuggestions.js 的文件头一直写着「TopBar 与 Download
+//   共用一份实现」，但 Download 页只 `import` 了别的组件，**从来没调用过**
+//   useSearchSuggestions —— 顶栏有联想，找歌页自己的搜索框一个字都没有。
+//   这正是本仓反复出现的「只修好一边」。静态门禁锁死两处都在接线。
+
+// 先锁住共用规则本身（这是两处下标换算的唯一真相）。
+assert.equal(suggestionMenuCount('晴天', []), 1, '空补全时下拉只有「搜索当前词」一条');
+assert.equal(suggestionMenuCount('晴天', [{ name: '晴天' }, { name: '稻香' }]), 3, '0 号是当前词 + 补全项');
+assert.equal(suggestionMenuCount('', [{ name: '晴天' }]), 0, '空输入不该有「全网搜索型」下拉');
+assert.equal(suggestionMenuCount('   ', [{ name: '晴天' }]), 0, '纯空白同样视为空输入');
+
+assert.equal(
+  pickSuggestionName({ query: ' 晴天 ', terms: [{ name: '晴天' }], activeIndex: -1 }),
+  '晴天',
+  '没有高亮项时搜输入框里的词（去掉首尾空白）',
+);
+assert.equal(
+  pickSuggestionName({ query: '晴天', terms: [{ name: '晴天' }, { name: '稻香'}], activeIndex: 2 }),
+  '稻香',
+  'index>=1 取补全项 index-1',
+);
+assert.equal(
+  pickSuggestionName({ query: '晴天', terms: [{ name: '晴天' }], activeIndex: 0 }),
+  '晴天',
+  '0 号取当前输入',
+);
+assert.equal(
+  pickSuggestionName({ query: '晴天', terms: [], activeIndex: 5 }),
+  '晴天',
+  '高亮项越界时回退到当前输入（不能变成搜索 undefined）',
+);
+assert.equal(
+  pickSuggestionName({ query: '晴天', terms: [{ name: '  ' }], activeIndex: 1 }),
+  '晴天',
+  '补全项名字为空时回退到当前输入',
+);
+
+// 源码里这两条规则必须是**导出且两处共用**的。
+assert.match(suggestSrc, /export function suggestionMenuCount/, 'suggestionMenuCount 必须导出给两处共用');
+assert.match(suggestSrc, /export function pickSuggestionName/, 'pickSuggestionName 必须导出给两处共用');
+
+// 逐个调用方断言：导入 + 真的用上 hook / 组件 / 两条规则。
+const CALLERS = [
+  {
+    name: '顶部全局搜索栏',
+    file: 'src/components/TopBar.js',
+    usesOptionsHook: /useSearchSuggestions\(query/,
+  },
+  {
+    name: '找歌页搜索框',
+    // 缺陷就在这个文件：它连 useSearchSuggestions 都没 import。
+    file: 'src/components/Download.js',
+    usesOptionsHook: /useSearchSuggestions\(keyword/,
+  },
+];
+
+for (const caller of CALLERS) {
+  const src = read(caller.file);
+  assert.match(
+    src,
+    /from '\.\/SearchSuggestions\.js'/,
+    `${caller.name}必须从 SearchSuggestions.js 引入补全实现（不要各写一套）`,
+  );
+  assert.match(src, /useSearchSuggestions/, `${caller.name}没有调用补全取数 hook —— 这就是「只有一边有联想」`);
+  assert.match(src, caller.usesOptionsHook, `${caller.name}的 hook 参数形态变了，请确认仍以输入框的值为准`);
+  assert.match(src, /<SearchSuggestionList/, `${caller.name}必须渲染补全下拉组件`);
+  assert.match(src, /resolveSuggestionKey\(/, `${caller.name}必须接同一套 ↑↓/Enter/Esc 规则`);
+  assert.match(src, /suggestionMenuCount\(/, `${caller.name}必须用共用的项数换算`);
+  assert.match(src, /pickSuggestionName\(/, `${caller.name}必须用共用的取词规则`);
+  // 补全下拉开着时必须挂一层返回：安卓返回键/浏览器后退先收下拉，而不是退站。
+  assert.match(src, /useBackLayer\(\{/, `${caller.name}的补全下拉必须挂返回栈，否则按返回直接退页/退站`);
+  assert.match(
+    src,
+    /aria-activedescendant=/,
+    `${caller.name}下拉必须有 aria-activedescendant，否则读屏与键盘用不了`,
+  );
+}
+
+// 找歌页额外锁几条易漏的细节。
+const downloadSrc2 = read('src/components/Download.js');
+assert.match(
+  downloadSrc2,
+  /shouldShowSearchSuggest/,
+  '找歌页必须避免在粘贴链接时弹补全（后端对 http 开头直接返回空，下拉只剩噪音）',
+);
+assert.doesNotMatch(
+  downloadSrc2,
+  /useSearchSuggestions\([^)]*enabled: true/,
+  '补全的 enabled 必须受"下拉是否打开 + 是否链接"约束，不能恒为 true（否则关掉下拉还在后台请求）',
+);
+
+// ★ 改 bug 不许改变原有行为：`type=search` 的原生 Esc = 清空输入框。
+//   若在 keydown 里无条件 preventDefault，Esc 会被吞掉、清空功能凭空消失。
+assert.match(
+  downloadSrc2,
+  /if \(!decision\.handled\) return;\s*\n\s*e\.preventDefault\(\);/,
+  '找歌页必须先判断 decision.handled 再 preventDefault —— 否则 Esc 的原生「清空输入框」被吞掉',
+);
+assert.doesNotMatch(
+  downloadSrc2,
+  /if \(decision\.handled\) e\.preventDefault\(\);\s*\n\s*if \(decision\.action === 'close'\)/,
+  '找歌页不得照抄无条件 preventDefault 的写法（会让 Esc 清空输入框失效）',
+);
+
+// 返回值栈的那一层必须绑定"下拉真的可见"，而不是"输入框获得过焦点"。
+// 否则空输入/粘贴链接时按返回会收掉一层看不见的东西，用户以为按键失灵。
+assert.match(
+  downloadSrc2,
+  /useBackLayer\(\{\s*\n\s*active: suggestEnabled,/,
+  '找歌页的返回层必须 active: suggestEnabled（真的可见），不能是 suggestOpen',
+);
 
 console.log('search suggestion & page filter tests passed');

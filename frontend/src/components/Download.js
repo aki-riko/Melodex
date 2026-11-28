@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import {
   searchMusic,
@@ -27,6 +27,15 @@ import SearchAlbumRow from './SearchAlbumRow';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from '../contexts/FeedbackContext';
+import { useBackLayer } from '../contexts/backNavigation.js';
+import {
+  SearchSuggestionList,
+  pickSuggestionName,
+  resolveSuggestionKey,
+  suggestionMenuCount,
+  toSuggestTerms,
+  useSearchSuggestions,
+} from './SearchSuggestions.js';
 import { useCachedRefresh } from '../hooks/useCachedRefresh';
 import { createPendingSourcesPoller } from '../hooks/pendingSourcesPoll';
 import { useBulkActions } from '../hooks/useBulkActions';
@@ -132,6 +141,18 @@ const combinedSearchKey = (song) => {
 const pickRecognitionMimeType = () => {
   if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') return '';
   return RECOGNITION_MIME_TYPES.find((type) => window.MediaRecorder.isTypeSupported(type)) || '';
+};
+
+// 是否该弹补全下拉。
+// 粘贴链接时不弹:后端对 `http` 开头的输入直接返回空(见
+// jsonSearchSuggestionsHandler 的 `strings.HasPrefix(strings.ToLower(query), "http")`),
+// 前端还硬弹一个只有「搜索「<长链接>」」的下拉纯属噪音。
+// 这里比 SEARCH_LINK_RE 更宽一点(多加 www. 与裸 http 前缀),是为了与后端口径对齐 ——
+// 判断标准是"后端会不会给联想",不是"这算不算合法链接"。
+const SUGGEST_LINK_RE = /^(?:https?:|www\.)/i;
+const shouldShowSearchSuggest = (value) => {
+  const text = String(value || '').trim();
+  return Boolean(text) && !SUGGEST_LINK_RE.test(text);
 };
 
 const recognitionErrorMessage = (err) => (
@@ -537,6 +558,40 @@ const SearchPane = ({
   const albums = state.data?.albums || [];
   const feedback = useFeedback();
   const [autoPlayQuery, setAutoPlayQuery] = useState('');
+  // ===== 搜索框补全(与顶部全局搜索栏同一套实现) =====
+  // 这里只负责"输入框旁边的那个下拉":去抖/丢弃陈旧响应/失败静默都在
+  // useSearchSuggestions 里,键盘规则来自 resolveSuggestionKey —— 两处共用一份,
+  // 免得以后只修好一边。
+  const suggestRootRef = useRef(null);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestActive, setSuggestActive] = useState(-1);
+  const suggestEnabled = suggestOpen && shouldShowSearchSuggest(keyword);
+  const suggestState = useSearchSuggestions(keyword, { enabled: suggestEnabled });
+  const suggestTerms = useMemo(
+    () => toSuggestTerms({ terms: suggestState.terms }),
+    [suggestState.terms],
+  );
+  const suggestQuery = keyword.trim();
+  const suggestItemCount = suggestEnabled ? suggestionMenuCount(suggestQuery, suggestTerms) : 0;
+
+  const closeSuggest = () => { setSuggestOpen(false); setSuggestActive(-1); };
+  const pickSuggest = (name) => {
+    closeSuggest();
+    if (!name) return;
+    setAutoPlayQuery('');
+    if (runSearch) runSearch(name);
+  };
+
+  // 安卓返回键 / 浏览器后退:先收补全下拉,而不是直接退页/退站。
+  // ★ active 必须是 suggestEnabled(下拉真的在屏幕上),不能是 suggestOpen:
+  //   开着的状态在空输入/粘贴链接时并不显示任何东西,若也压一层,用户按返回
+  //   会觉得"按了没反应"(那层收掉了但界面上什么都看不见)。
+  // 用独立的层名,避免与顶栏那条 'topbar-suggest' 互相摘错(返回栈按 id 精确移除)。
+  useBackLayer({
+    active: suggestEnabled,
+    name: 'download-search-suggest',
+    onBack: closeSuggest,
+  });
   const recognitionRef = useRef({ recorder: null, stream: null, chunks: [], timer: null, failed: false });
   const mountedRef = useRef(true);
   const [recognition, setRecognition] = useState({ phase: 'idle', message: '' });
@@ -797,23 +852,74 @@ const SearchPane = ({
   return (
     <div>
       {/* 搜索表单:输入框 + 识曲 + 搜索,一行完成 */}
-      <form onSubmit={(e) => { setAutoPlayQuery(''); onSubmit(e); }} className="mb-3" role="search">
+      <form onSubmit={(e) => { setAutoPlayQuery(''); closeSuggest(); onSubmit(e); }} className="mb-3" role="search">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[12rem] flex-1">
+          <div ref={suggestRootRef} className="relative min-w-[12rem] flex-1">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input
               type="search"
               value={keyword}
-              onChange={(e) => { setAutoPlayQuery(''); setKeyword(e.target.value); }}
+              onChange={(e) => {
+                setAutoPlayQuery('');
+                setKeyword(e.target.value);
+                // 输入就打开(链路是否真的发请求由 shouldShowSearchSuggest 决定)。
+                setSuggestOpen(true);
+                setSuggestActive(-1);
+              }}
+              onFocus={() => setSuggestOpen(true)}
+              onBlur={() => window.setTimeout(() => {
+                // 与 TopBar 一致:靠"焦点是否还落在本块内"判定,而不是 120ms 盲等。
+                if (!suggestRootRef.current?.contains(document.activeElement)) closeSuggest();
+              }, 100)}
               onKeyDown={(e) => {
                 // 中文输入法上屏回车不应触发搜索
-                if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault();
+                if (e.key === 'Enter' && e.nativeEvent.isComposing) { e.preventDefault(); return; }
+                // 补全下拉的 ↑↓/Enter/Esc 与顶部搜索栏共用同一条规则。
+                // ★ 但下拉**没显示时**必须把按键原样放行:
+                //   `type=search` 的原生行为里 Esc = 清空输入框,而 TopBar 用的是
+                //   `type="search"` 且此前没有任何 keydown 拦截 —— 若在这里无条件
+                //   preventDefault,Esc 就会被吞掉,清空功能凭空消失(改 bug 不许改变
+                //   原有行为)。只有下拉真的开着时,Esc 才归"收起下拉"。
+                const decision = resolveSuggestionKey(e, {
+                  itemCount: suggestEnabled ? suggestItemCount : 0,
+                  activeIndex: suggestEnabled ? suggestActive : -1,
+                });
+                if (!decision.handled) return;
+                e.preventDefault();
+                if (decision.action === 'close') { closeSuggest(); return; }
+                if (decision.action === 'focus') { setSuggestActive(decision.nextIndex); return; }
+                if (decision.action === 'pick') {
+                  pickSuggest(pickSuggestionName({
+                    query: suggestQuery,
+                    terms: suggestTerms,
+                    activeIndex: suggestActive,
+                  }));
+                }
               }}
               placeholder="输入歌名 / 歌手 / 歌词，或粘贴链接"
               aria-label="搜索歌名、歌手或歌词"
+              role="combobox"
+              aria-expanded={suggestEnabled}
+              aria-haspopup="listbox"
+              aria-controls="download-search-listbox"
+              aria-autocomplete="list"
+              aria-activedescendant={suggestActive >= 0 ? `download-search-opt-${suggestActive}` : undefined}
               enterKeyHint="search"
               className="pl-9"
             />
+            {suggestEnabled && (
+              <SearchSuggestionList
+                query={suggestQuery}
+                terms={suggestTerms}
+                loading={suggestState.loading}
+                open={suggestEnabled}
+                activeIndex={suggestActive}
+                onActiveIndexChange={setSuggestActive}
+                onPick={pickSuggest}
+                listId="download-search-listbox"
+                ariaLabel="搜索建议"
+              />
+            )}
           </div>
           <Button
             variant="outline"
