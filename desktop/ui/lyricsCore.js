@@ -76,6 +76,56 @@ export const lyricFrame = (lyrics, position) => {
 };
 
 /**
+ * 锚点单调保护 —— 收到新的播放位置锚点时，决定是否接受。
+ *
+ * ★ 为什么需要（2026-11-28 用户报「桌面歌词逐字歌词行首会回弹一下」）：
+ *   歌词窗的 `effectivePosition()` 是 `position + (now - receivedAt)`，
+ *   也就是"锚点 + 本地外推"。发送侧若报了比自己外推位置**更旧**的锚点
+ *   （实测每次旧 250ms，来自 timeupdate 的采样滞后），位置就会被往回拨，
+ *   逐字填色随之后退 —— 行首那一下最明显。
+ *
+ *   发送侧已改成现取实时位置（`frontend/src/contexts/playerLyricsClock.js`），
+ *   但 IPC 仍然有抖动，两条一起做才稳：这里兜住残留的小幅倒退。
+ *
+ * ★ 什么情况**必须**接受倒退（不能一律取大）：
+ *   · 换歌：新歌位置本来就可能更小；
+ *   · 用户 seek / 重播：位置真的往回跳了。
+ *   这两种都由 `force` 明确告知，不靠"猜"。
+ *
+ * @param {object} options
+ * @param {number} options.current 当前锚点位置（秒）
+ * @param {number} options.next 新锚点位置（秒）
+ * @param {boolean} options.force 显式跳转/换歌，无条件接受
+ * @param {number} options.tolerance 容差（秒）；小于它的倒退视为抖动，保留当前值
+ * @returns {number} 应当采用的锚点位置
+ */
+export const advanceLyricsAnchor = ({
+  current = 0,
+  next = 0,
+  force = false,
+  tolerance = 0.03,
+} = {}) => {
+  const value = Number(next);
+  if (!Number.isFinite(value) || value < 0) {
+    // 非法锚点：保持现状，绝不让 NaN 进入进度计算。
+    const safeCurrent = Number(current);
+    return Number.isFinite(safeCurrent) && safeCurrent >= 0 ? safeCurrent : 0;
+  }
+  if (force) return value;
+
+  const previous = Number(current);
+  if (!Number.isFinite(previous) || previous < 0) return value;
+
+  const limit = Number.isFinite(Number(tolerance)) ? Math.max(0, Number(tolerance)) : 0;
+  // 新锚点不早于当前值（含容差）→ 正常前进，接受。
+  // ★ 必须带 epsilon：10.3 - 0.03 - 10.27 在双精度里是 -3.55e-15，
+  //   直接用 >= 会把"恰好等于容差"判成越界（playerScrub.js 里记过同一个坑）。
+  if (value >= previous - limit - 1e-9) return value;
+  // 明显倒退且不是显式跳转 → 保留当前值，避免填色回弹。
+  return previous;
+};
+
+/**
  * 单个词的填充比例（0..1）。
  *
  * 供「逐词」场景使用；整行进度请用 `lineProgress`（按字数加权，与旧版一致）。

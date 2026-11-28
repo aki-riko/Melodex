@@ -883,6 +883,77 @@ Capacitor 注入的是**自定义属性 `--safe-area-inset-*`**(见 `injectSafeA
 运行期结构断言。真机上仍需看一眼。**另**:如果用户在本次改动前已经把档位停在「歌词」或「封面」,
 改后播放页会直接变成沉浸档 —— 这是移除这两档的必然结果,不是缺陷。
 
+#### 第十四轮(2026-11-28):桌面歌词「逐字歌词行首回弹一下」
+
+用户报「桌面歌词逐字歌词行的时候会回弹一下」。**根因不是动画，是播放位置被往回拨。**
+
+##### 两段机制(都有实测数据,不是推测)
+
+用仓库里**真实的 `desktop/ui/overlay.js`** + **真实的前端推送时序**做离线重放
+(120s 播放 / 12 行逐字行 / timeupdate 抖动 ±50ms)复现:
+
+```
+填色回退 12 次，平均回退量 0.053（约 0.7 个字宽）
+歌词窗收到的位置倒退 14 次、每次 -250ms，其中 7 次正落在行首 600ms 内
+```
+
+1. **发送侧报的是陈旧采样。** `PlayerContext` 推给歌词窗的位置一直是 `progress.cur`
+   —— 那是 `timeupdate` 的采样值，天然滞后 0~250ms。而歌词窗的
+   `effectivePosition() = position + (now - receivedAt)` 一直在本地外推，
+   一旦收到比自己外推位置更旧的锚点，就把播放位置**往回拨** → 填色后退。
+2. **progress 包几乎发不出去。** 原来用 `setInterval(250)`，但该 effect 依赖
+   `[isPaused, lyricIdx, progress.cur, progress.dur]`，而 `progress.cur` 是 4Hz。
+   于是每隔 ≤250ms 就 `clearInterval` + 重建定时器 —— **定时器永远等不到那次触发**。
+   实测 50s 播放只发出 **2 个 progress 包、10 个整包**。结果歌词窗几乎只能靠
+   「行首整包」改锚点，锚点稀疏又带随机滞后，漂移无从纠正。
+
+**为什么用户感觉是「行首」**：行首整包是唯一会被准时兑现的校正，落点就在行首附近；
+外推漂移与包陈旧度不相等，差值随机 → 回退量随机，但都在行首才显得突兀(此刻只有
+十几个百分点)。**主行文字/行号不会倒退**(专门验过:0 次)，退的只是逐字填色。
+
+##### 修法(两处都做,各自独立有效)
+
+| 位置 | 改了什么 |
+|---|---|
+| **新增** `frontend/src/contexts/playerLyricsClock.js` | `liveLyricsPosition()` 现取真实位置(处理跳转目标/拖动中/暂停四种情形)；`nextLyricsProgressDelay()` 自调度节奏 |
+| `contexts/PlayerContext.js` | Provider 新增 `readLyricsPosition()` / `readLyricsProgress()`(因为 `resumeRef`/`scrubRef` **只有 Provider 持有**，而发 IPC 的 `PlayerBar` 拿不到)；进度包改**自调度 setTimeout**，effect 依赖收窄到 `[nowPlaying?.id, nowPlaying?.source]` |
+| `desktop/ui/lyricsCore.js` | 新增 `advanceLyricsAnchor()`：锚点单调保护 |
+| `desktop/ui/overlay.js` | 收到包时走锚点保护；**换歌**用 `force` 强制接受倒退 |
+
+**★ 关键设计**:`advanceLyricsAnchor` 不是"一律取大值"。换歌 / seek 时位置**真的**
+会往回跳，必须由 `force` 明确告知 —— 靠"猜"会把用户拖回前面的操作吞掉。
+
+**★ 浮点坑(本项目第二次踩)**:9 容差边界必须带 epsilon。
+`10.3 - 0.03 - 10.27` 在双精度里是 `-3.55e-15`，直接用 `>=` 会把"恰好等于容差"
+判成越界 —— 和 `playerScrub.js` 里记过的是同一个坑，测试当场抓到。
+
+##### 四组对照(证明两处修复各自有效)
+
+| 组别 | 包数 | 填色回退 | 平均回退量 | 行首700ms内 |
+|---|---|---|---|---|
+| A 旧发送 + 无保护（修复前基线） | 251 | **12** | 0.053 | **7** |
+| B 新发送 + 无保护（仅修源头） | 493 | 0 | 0.000 | 0 |
+| C 旧发送 + 有保护（仅修接收） | 251 | 0 | 0.000 | 0 |
+| D 新发送 + 有保护（最终形态） | 493 | 0 | 0.000 | 0 |
+
+##### 门禁
+
+- **新增** `frontend/scripts/playerLyricsClock.test.mjs`(10 组，已接入 `test:player`)：
+  位置取数四种情形、节奏调度、退化输入、以及**反向断言**「进度包不得回到 `setInterval`」
+  「上报位置不得直接写 `progress.cur`」。
+- `desktop/ui/lyricsCore.test.mjs` 10 → **16 项**：新增 6 组锚点断言(前进/倒退/容差/
+  强制换歌/非法输入/容差退化)。
+- 全部做过**红灯验证**：先写测试跑出 `AssertionError`，再改代码。
+
+**验证**:`test:player`(17 套)、`test:desktop-lyrics`(55+16+7 项)、
+`tdzOrder`/`hookOrder`(107 文件)、`eslint` 无输出、`npm run build` 通过、
+四组对照实验 A 重现 / BCD 归零。
+
+**未验证**:没做真机 CDP 实测(壳进程在跑但没开 `--remote-debugging-port`)。
+所有数字来自"真实 `overlay.js` + 真实推送时序"的离线重放；机制链每一环都指向真实
+代码行，但具体回退幅度会因各机器 `timeupdate` 抖动而异。下次可加
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` 复测。
+
 #### 排查手法(可复用)
 - **UI 资源是编译进二进制的**(`frontendDist: "../ui"`):
   改完 `desktop/ui/*` **必须 `cargo build` 才生效**,只重启进程看到的是旧界面

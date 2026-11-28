@@ -7,6 +7,7 @@
 
 import assert from 'node:assert/strict';
 import {
+  advanceLyricsAnchor,
   desktopLyricsDeviceWebSocketURL,
   lineProgress,
   lyricFrame,
@@ -236,6 +237,72 @@ test('行进度：空/异常输入不抛错', () => {
   // words 里的空字符串词至少算 1 字，不会把总字数算成 0
   const empty = { t: 0, end: 1, text: '', words: [{ t: 0, end: 1, s: '' }] };
   assert.equal(lineProgress(empty, 0.5), 0.5);
+});
+
+// ---------- 锚点单调保护（用户报「逐字歌词行首会回弹一下」）----------
+//
+// 歌词窗的 effectivePosition() = 锚点 + 本地外推。若新包带的锚点比外推位置旧，
+// 位置会被往回拨，填色随之后退 —— 实测每次 -250ms，行首那一下最明显。
+
+test('锚点：正常前进一律接受', () => {
+  assert.equal(advanceLyricsAnchor({ current: 10, next: 10.25 }), 10.25);
+  assert.equal(advanceLyricsAnchor({ current: 10, next: 10 }), 10, '同值幂等');
+  // 大幅前进（seek 到后面）也要接受
+  assert.equal(advanceLyricsAnchor({ current: 10, next: 90 }), 90);
+});
+
+test('锚点：明显倒退必须被拦住（回弹的直接原因）', () => {
+  // 实测倒退量正是 timeupdate 的采样滞后 ~250ms
+  assert.equal(
+    advanceLyricsAnchor({ current: 10.3, next: 10.05 }),
+    10.3,
+    '倒退 250ms 必须保留当前值，否则填色回退',
+  );
+  assert.equal(advanceLyricsAnchor({ current: 5, next: 4.9 }), 5, '倒退 100ms 同样拦');
+});
+
+test('锚点：容差内的小幅倒退视为抖动，不冻结位置', () => {
+  // 30ms 容差：IPC 抖动落在这里，不该被当成倒退拦掉
+  assert.equal(advanceLyricsAnchor({ current: 10.3, next: 10.28 }), 10.28, '20ms 倒退放行');
+  // ★ 边界比较必须带 epsilon：10.3 - 0.03 - 10.27 在双精度里是 -3.55e-15，
+  //   直接用 >= 会把"恰好等于容差"判成越界（playerScrub.js 里踩过同一个坑）。
+  assert.equal(advanceLyricsAnchor({ current: 10.3, next: 10.27 }), 10.27, '恰好 30ms 放行');
+  assert.equal(advanceLyricsAnchor({ current: 10.3, next: 10.26 }), 10.3, '31ms 倒退拦截');
+});
+
+test('锚点：换歌 / seek 必须强制接受倒退', () => {
+  // 换歌时新歌位置当然可能更小，不能被单调保护挡住。
+  assert.equal(advanceLyricsAnchor({ current: 200, next: 0, force: true }), 0);
+  // 用户拖回前面同理。
+  assert.equal(advanceLyricsAnchor({ current: 90, next: 12, force: true }), 12);
+});
+
+test('锚点：非法输入绝不产生 NaN / 负数', () => {
+  for (const bad of [
+    { current: 10, next: Number.NaN },
+    { current: 10, next: -5 },
+    { current: 10, next: undefined },
+    { current: Number.NaN, next: 10 },
+    { current: -5, next: 10 },
+    {},
+  ]) {
+    const value = advanceLyricsAnchor(bad);
+    assert.ok(Number.isFinite(value), `退化输入 ${JSON.stringify(bad)} 必须返回有限数，实际 ${value}`);
+    assert.ok(value >= 0, `退化输入不得返回负数，实际 ${value}`);
+  }
+  // 当前值非法时应当直接采用合法的新值，而不是卡在 0
+  assert.equal(advanceLyricsAnchor({ current: Number.NaN, next: 42 }), 42);
+});
+
+test('锚点：容差参数退化时不影响主行为', () => {
+  // 容差非法 → 按 0 处理，即"任何倒退都算倒退"，保护照常生效。
+  // 退化参数绝不能变成"放行一切"（那等于保护失效）或产生 NaN。
+  assert.equal(advanceLyricsAnchor({ current: 10, next: 9, tolerance: Number.NaN }), 10,
+    '容差非法按 0 处理，倒退仍被拦截');
+  assert.equal(advanceLyricsAnchor({ current: 10, next: 9, tolerance: -1 }), 10,
+    '负容差按 0 处理，倒退仍被拦截');
+  // 前进方向在任何容差下都放行
+  assert.equal(advanceLyricsAnchor({ current: 10, next: 11, tolerance: Number.NaN }), 11);
 });
 
 console.log(`\ndesktop lyrics core tests passed (${passed})`);

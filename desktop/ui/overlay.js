@@ -13,7 +13,11 @@
 //
 // 设置是**唯一真相源在 Rust 侧**：本窗口不写 localStorage，避免设置页与歌词窗各存一份。
 
-import { lineProgress as coreLineProgress, lyricFrame } from './lyricsCore.js';
+import {
+  advanceLyricsAnchor,
+  lineProgress as coreLineProgress,
+  lyricFrame,
+} from './lyricsCore.js';
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -30,6 +34,14 @@ const SECONDARY_MIN_PX = 16;
 // 旧实现用 Fluent.Enums.duration.slower = **300ms**（Metrics.qml 实测值，
 // 不是 380）。帧驱动动画（FrameAnimation）本身不设时长，300 只用于行切换过渡。
 const TRANSITION_MS = 300;
+
+// 播放位置锚点的单调保护容差（秒）。
+//
+// 新包比"本地外推位置"旧多少以内不算倒退？0.03s 远小于一次 timeupdate
+// （约 250ms，实测倒退量正是这个量级），又大于 IPC 抖动，不会误伤正常前进。
+// 与 frontend/src/contexts/playerLyricsClock.js 的 LYRICS_ANCHOR_TOLERANCE_SECONDS
+// 取同一个值 —— 两侧都做保护，容差必须一致，否则会互相打架。
+const ANCHOR_TOLERANCE_SECONDS = 0.03;
 
 // 几何常量 —— 必须与 overlay.css 逐项相等，由 lyricsSettings.test.mjs 断言。
 //
@@ -904,11 +916,14 @@ const startRenderLoop = () => {
 const applyStateMessage = (message) => {
   if (!message || (message.type !== 'track' && message.type !== 'progress')) return;
 
+  // 是否换了歌：track 包的身份与当前不同。progress 包永远是 false。
+  // 提到外层是因为下面的锚点单调保护也要用它（换歌时允许位置往回跳）。
+  const previousKey = trackKey(playback.track);
+  const nextKey = message.type === 'track' ? trackKey(message.track || null) : previousKey;
+  const isTrackSwitch = message.type === 'track' && previousKey !== nextKey;
+
   if (message.type === 'track') {
-    const nextTrack = message.track || null;
-    const previousKey = trackKey(playback.track);
-    const nextKey = trackKey(nextTrack);
-    playback.track = nextTrack;
+    playback.track = message.track || null;
     playback.lyrics = Array.isArray(message.lyrics) ? message.lyrics : [];
 
     // ★ 切歌必须把「已渲染行」状态整体重置（用户实测：会看到上一首的歌词）。
@@ -922,7 +937,7 @@ const applyStateMessage = (message) => {
     //
     // 判据用 trackKey（source+id）：同一首歌重复推送（歌词晚到、seek）不该重置，
     // 否则每次进度包都会清掉当前行、画面闪一下。
-    if (previousKey !== nextKey) {
+    if (isTrackSwitch) {
       renderedLineIndex = -2;
       renderedActiveText = '';
       renderedNextText = '';
@@ -932,7 +947,27 @@ const applyStateMessage = (message) => {
       finishTransition();
     }
   }
-  playback.position = Math.max(0, Number(message.position) || 0);
+  // ★★ 锚点必须做单调保护（2026-11-28 用户报「逐字歌词行首会回弹一下」）。
+  //
+  // `effectivePosition()` = 锚点 + 本地外推，收到新包就用它覆盖锚点。
+  // 若新包带的比"此刻正在外推的位置"更旧，位置会往回拨 → 填色后退。
+  // 实测（离线重放 120s / 12 行）：倒退 14 次、每次 -250ms，
+  // 其中 7 次正落在行首 600ms 内。
+  //
+  // 发送侧已改成现取实时位置（frontend/src/contexts/playerLyricsClock.js），
+  // 这里再兜一层 IPC 抖动。`advanceLyricsAnchor` 的注释写清了什么时候
+  // **必须**接受倒退（换歌 / seek），那些是真实的状态变化，不能被拦。
+  //
+  // ★ 必须在写入新 paused 之前算：`effectivePosition()` 用当前的 paused 决定
+  //   要不要外推，用错一边会把"暂停后停在原处"当成倒退拦掉。
+  const anchorBefore = effectivePosition();
+  const incomingPosition = Math.max(0, Number(message.position) || 0);
+  playback.position = advanceLyricsAnchor({
+    current: anchorBefore,
+    next: incomingPosition,
+    force: isTrackSwitch,
+    tolerance: ANCHOR_TOLERANCE_SECONDS,
+  });
   playback.duration = Math.max(0, Number(message.duration) || 0);
   playback.paused = Boolean(message.paused);
   playback.currentIndex = Number.isInteger(message.current_index) ? message.current_index : -1;

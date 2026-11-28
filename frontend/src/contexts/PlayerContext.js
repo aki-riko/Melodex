@@ -70,6 +70,11 @@ import {
   readFavoriteStatus,
 } from '../services/favoriteStatus';
 import { currentLyricIndexAt, hasUsableLyrics, parseLRC, stripPlaceholderLyrics } from './playerLyrics.mjs';
+import {
+  LYRICS_PROGRESS_INTERVAL_MS,
+  liveLyricsPosition,
+  nextLyricsProgressDelay,
+} from './playerLyricsClock.js';
 import { karaokeFillPercent, lyricScrollBehavior, prefersReducedMotion, sheetExitDelay } from './playerSheetMotion.mjs';
 import {
   STAGE_TONE_KEY,
@@ -217,6 +222,14 @@ const WebPlayerProvider = ({ children }) => {
   // 真实位置还在原处,下一次 timeupdate 就把界面拽回去。
   const scrubRef = useRef(createScrubState());
   const recoveredUnexpectedPauseSeqRef = useRef('');
+  // 桌面歌词推送用的「最新值」快照（2026-11-28 修「行首回弹」）。
+  //
+  // ★ 为什么用 ref 而不是直接读 state：推送是自调度的定时任务，
+  //   effect 依赖被刻意收窄（见 PlayerBar 里那段注释）。闭包捕获 state 会
+  //   在几分钟后永久停在启动那一刻的值，所以周期任务一律读 ref。
+  //   这也是本项目在 timeupdate 心跳里已经在用的写法。
+  const progressSnapshotRef = useRef({ cur: 0, dur: 0 });
+  const pausedSnapshotRef = useRef(true);
   const continuousPlaybackRef = useRef(null);
   const continuousTrackChangeRef = useRef(() => {});
   const continuousBeforeTrackChangeRef = useRef(() => true);
@@ -1502,6 +1515,37 @@ const WebPlayerProvider = ({ children }) => {
     onKeyUp: () => endScrub(scrubRef.current),
   }), []);
 
+  // 供桌面歌词推送取「此刻的真实播放位置」（2026-11-28 修「行首回弹」）。
+  //
+  // ★ 必须放在 Provider 里：`resumeRef`（跳转目标）与 `scrubRef`（拖动仲裁）
+  //   只有这里持有，而真正发 IPC 的 PlayerBar 拿不到它们。
+  //   早先直接把 `progress.cur` 推出去 —— 那是 timeupdate 的**采样值**，
+  //   最多滞后 250ms，歌词窗拿它当锚点会把位置往回拨（详见
+  //   playerLyricsClock.js 头部的实测数据）。
+  //
+  // 读的都是 ref 与音频元素，所以这个函数恒等稳定，可以安全进 useMemo 依赖。
+  const readLyricsPosition = useCallback(() => liveLyricsPosition({
+    audio: audioRef.current,
+    paused: pausedSnapshotRef.current,
+    resume: resumeRef.current,
+    pending: scrubRef.current?.dragging === true,
+    fallback: progressSnapshotRef.current.cur,
+  }), []);
+
+  // 推送进度包时需要的「最新一份进度与暂停态」快照。
+  //
+  // ★ 必须由 Provider 提供：PlayerBar 那边的进度包是自调度定时任务，
+  //   它的 effect 依赖被刻意收窄（见那段注释），直接闭包捕获 state 会永久
+  //   停在启动那一刻的值。
+  const readLyricsProgress = useCallback(
+    () => ({ progress: progressSnapshotRef.current, paused: pausedSnapshotRef.current }),
+    [],
+  );
+
+  // 把 state 同步进上面的快照 ref（供自调度的定时任务读取最新值）。
+  useEffect(() => { progressSnapshotRef.current = progress; }, [progress]);
+  useEffect(() => { pausedSnapshotRef.current = isPaused; }, [isPaused]);
+
   // 控制面 value:必须 useMemo —— 否则 Provider 每次渲染(包括 4Hz 的进度 tick)
   // 都会造出一个新对象,所有消费者照样全部重渲染,拆分就白做了。
   // 依赖列表 = value 里用到的每个状态/回调;回调本身都已被 useCallback 稳定。
@@ -1517,6 +1561,8 @@ const WebPlayerProvider = ({ children }) => {
     handleTimeUpdate, handleLoadedMetadata, savePlayback,
     cycleMode,
     scrubHandlers,
+    readLyricsPosition,
+    readLyricsProgress,
     usesNativePlayback: false,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cachedCover.url: cachedCover 是 useRef 风格对象,内部 url 即真相
   }), [
@@ -1526,7 +1572,7 @@ const WebPlayerProvider = ({ children }) => {
     startSleepTimer, cancelSleepTimer, setSleepStopAfterTrack,
     next, prev, togglePlay, seek, handleError, handleEnded, handlePlay, handlePlaying,
     handlePause, handleBufferEvent, handleTimeUpdate, handleLoadedMetadata, savePlayback,
-    cycleMode, scrubHandlers,
+    cycleMode, scrubHandlers, readLyricsPosition, readLyricsProgress,
   ]);
 
   // 进度 value:故意**不**做稳定化 —— 它的语义就是"每帧都变"。
@@ -1751,6 +1797,8 @@ export const PlayerBar = () => {
     usesNativePlayback,
     handleTimeUpdate, handleLoadedMetadata,
     scrubHandlers,
+    readLyricsPosition,
+    readLyricsProgress,
   } = usePlayer();
   // 进度单独订阅(4Hz)。PlayerBar 本来就要随进度刷新进度条/时间/歌词,
   // 所以这里读它不会带来额外重渲染;而页面级组件读不到它,就不会被拖下水。
@@ -2062,37 +2110,94 @@ export const PlayerBar = () => {
   //   结果是整个播放器渲染直接抛 `lrc is not defined`，界面白屏。
   //   移动这两个 effect 时请确认 `lrc` 与 `lyricIdx` 已在作用域内。
   //
+  // ★★ 位置必须现取，不能复用闭包里的 `progress.cur`（2026-11-28 用户报
+  //   「桌面歌词逐字歌词行首会回弹一下」）：
+  //   `progress.cur` 是 timeupdate 的**采样值**，最多滞后 250ms。歌词窗那边
+  //   `effectivePosition() = position + (now - receivedAt)` 一直在外推，
+  //   一旦收到比自己外推位置更旧的锚点，就会把播放位置**往回拨** →
+  //   逐字填色后退，行首那一下最明显。
+  //   离线重放真实 overlay.js 实测：120s / 12 行里填色回退 12 次、
+  //   平均退 0.053（约 0.7 个字宽）；每次倒退 250ms，7 次落在行首 600ms 内。
+  //   所以两条推送都走 `liveLyricsPosition()`，它同时处理了
+  //   「跳转未追上」与「拖动中只认拇指」两种情况（否则会把刚拖到的位置报回去）。
+  //
   // 浏览器里 pushLyricsState 直接返回 false，不产生任何副作用。
+
+  // 歌词推送只需要的两个「最新值」ref。
+  //
+  // ★ 进度包是**自调度**的（见下），effect 依赖被刻意收窄；闭包捕获 state 会
+  //   永久停在启动那一刻的值，所以周期任务一律读 ref。
+  //   位置不在这里算 —— 交给 Provider 的 readLyricsPosition()，因为
+  //   `resumeRef`（跳转目标）与 `scrubRef`（拖动仲裁）只有 Provider 持有。
+  const lyricIdxSnapshotRef = useRef(lyricIdx);
+  useEffect(() => { lyricIdxSnapshotRef.current = lyricIdx; }, [lyricIdx]);
+
   useEffect(() => {
     if (!isDesktopShell()) return;
     const trackMessage = desktopLyricsTrackMessage({
       track: nowPlaying,
       lines: lrc,
-      position: progress.cur,
+      position: readLyricsPosition(),
       duration: progress.dur,
       paused: isPaused,
       currentIndex: lyricIdx,
     });
     pushLyricsState(trackMessage).catch(() => {});
-    // 切歌/歌词变化才推整包;进度由下一个 effect 的 250ms 定时器推。
+    // 切歌/歌词变化才推整包;进度由下面那个自调度定时器推。
     // 有意不列 progress/isPaused:它们 4Hz 变化,列进来会让"推送整包"每秒跑 4 次,
     // 而整包含全部歌词行(可达上百行),IPC 与序列化都白烧。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上:进度走独立定时器,此处只推整包
-  }, [nowPlaying?.id, nowPlaying?.source, lrc, lyricIdx]);
+  }, [nowPlaying?.id, nowPlaying?.source, lrc, lyricIdx, readLyricsPosition]);
 
+  // 进度包：**自调度** setTimeout，而不是 setInterval + 依赖数组。
+  //
+  // ★★ 为什么不再用 setInterval（同一次「行首回弹」的另一半原因）：
+  //   原实现的 effect 依赖 `[isPaused, lyricIdx, progress.cur, progress.dur]`，
+  //   而 `progress.cur` 来自 timeupdate（约 4Hz / 250ms）。于是每隔 ≤250ms 就
+  //   clearInterval + 重新 setInterval —— **定时器永远等不到 250ms 后的那次触发**。
+  //   离线实测：50s 播放只发出 2 个 progress 包、却有 10 个整包。
+  //   结果歌词窗几乎只能靠"行首整包"改锚点，锚点稀疏又带随机滞后，漂移无从纠正。
+  //
+  // 现在 effect 只负责「起停」，节奏由每次推送后自己排下一次；位置永远是
+  // 现取的实时值，因此即便某次被节流，下一次锚点也是准的。
   useEffect(() => {
     if (!isDesktopShell()) return undefined;
-    const timer = window.setInterval(() => {
+    let timer = 0;
+    let disposed = false;
+    let lastSentAt = 0;
+
+    const schedule = () => {
+      if (disposed) return;
+      const delay = nextLyricsProgressDelay({
+        intervalMs: LYRICS_PROGRESS_INTERVAL_MS,
+        elapsedMs: lastSentAt ? performance.now() - lastSentAt : 0,
+      });
+      timer = window.setTimeout(pushOnce, delay);
+    };
+
+    const pushOnce = () => {
+      if (disposed) return;
+      lastSentAt = performance.now();
+      const snapshot = readLyricsProgress();
       const message = desktopLyricsProgressMessage({
-        position: progress.cur,
-        duration: progress.dur,
-        paused: isPaused,
-        currentIndex: lyricIdx,
+        position: readLyricsPosition(),
+        duration: snapshot.progress.dur,
+        paused: snapshot.paused,
+        currentIndex: lyricIdxSnapshotRef.current,
       });
       pushLyricsState(message).catch(() => {});
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [isPaused, lyricIdx, progress.cur, progress.dur]);
+      schedule();
+    };
+
+    schedule();
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+    };
+    // 只在"有没有歌/是不是壳内"变化时重启：其他状态一律读 ref/回调，
+    // 所以这里**不需要** progress/isPaused/lyricIdx 做依赖 —— 那正是原来的 bug。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上:节奏自调度,状态读 ref
+  }, [nowPlaying?.id, nowPlaying?.source, readLyricsPosition]);
 
 
   // 歌词自动滚动:当前行变化时滚到视图中央。
