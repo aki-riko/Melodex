@@ -175,7 +175,7 @@ jobs:
       # 未设置 MELODEX_INTEGRATION / MUSIC_DL_TEST_POSTGRES_DSN 时自动跳过,不需要额外处理。
       - name: Setup Go
         if: steps.scope.outputs.backend == 'true'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
